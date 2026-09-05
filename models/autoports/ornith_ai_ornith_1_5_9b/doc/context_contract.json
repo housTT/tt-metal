@@ -1,7 +1,7 @@
 {
   "model": "ornith-ai/Ornith-1.5-9B",
   "revision": "489cb97981b8654bcfcf30ce1f94ed1b62e07b53",
-  "stage": "optimized-full-model",
+  "stage": "datatype-sweep",
   "status": "complete",
   "hf_advertised_context": 262144,
   "supported_context_target": 262144,
@@ -29,7 +29,10 @@
     "optimized_multichip_decoder/logs/final_default_v2_stack.log.gz",
     "full_model/logs/native_context_v2.provenance.json",
     "full_model/logs/native_context_final_v3.provenance.json",
-    "optimized_full_model/logs/native_context_release_v2.provenance.json"
+    "optimized_full_model/logs/native_context_release_v2.provenance.json",
+    "datatype_sweep/logs/selected_native_v1.provenance.json",
+    "datatype_sweep/logs/selected_native_v2.provenance.json",
+    "datatype_sweep/logs/selected_batch32_watcher_v2.provenance.json"
   ],
   "batch_context_semantics": "Native262144 context validated with all32 layers atbatch1. Batches1..32 use the same explicit cache/page-table API; short-contextB32 validation covers aggregate capacity. Requested batch*context must fit physical DRAM; no claim that32 simultaneousnativecontextcaches fit.",
   "largest_tested_batch": 32,
@@ -202,18 +205,8 @@
     "projection_policy": "BFP4/LoFi; BFP8/LoFi decode QKVG; packed GDN; packed gate/up DRAM32cores K4 reader3, down8cores K6 reader2, QKVG32cores K4 reader1",
     "validation_status": "101 tests passed with worker watcher; explicit async watcher both kinds; native262144 capacity andcacheoracle; direct3-decoder B1stack zero boundary conversions"
   },
-  "stage_review": {
-    "verdict": "clean-pass",
-    "report": "optimized_full_model/STAGE_REVIEW.md"
-  },
-  "previous_context_stage": {
-    "stage": "optimized-multichip-decoder",
-    "status": "complete",
-    "stage_review": {
-      "verdict": "clean-pass",
-      "report": "optimized_multichip_decoder/STAGE_REVIEW.md"
-    }
-  },
+  "stage_review": "datatype_sweep/STAGE_REVIEW.md",
+  "previous_context_stage": "optimized-full-model",
   "full_model_capacity": {
     "layers": 32,
     "linear_layers": 24,
@@ -690,5 +683,580 @@
       "fallback_contract": "Validated eager prefill for longer prompts, mixed batches, external caches, continuation, all-logit requests and live shape misses; advertised context unchanged."
     },
     "final_state_evidence": "optimized_full_model/prefill_integration_full32_v2/summary.json and both complete compressed lane records; prefill_integration_long_v2.json; private skip of duplicate reset has no graph/buffer/public-path changes."
+  },
+  "datatype_sweep_capacity": {
+    "selected_precision_config": "datatype_sweep/selected_precision_config.json",
+    "config_id": "head4_lofi_last8_c32_k4_r2",
+    "kv_cache_dtype": "bfloat8_b",
+    "max_context": 262144,
+    "current_supported_context": 262144,
+    "capability_reduction": null,
+    "native_execution": "datatype_sweep/selected_native_v2.json",
+    "trace_allocation_tracking": true,
+    "precision": {
+      "config_id": "head4_lofi_last8_c32_k4_r2",
+      "weight_groups": {
+        "attention": "bfloat4_b",
+        "mlp_gate_up": "bfloat4_b",
+        "mlp_down": "bfloat4_b",
+        "decode_qkvg": "bfloat8_b",
+        "lm_head": "bfloat4_b",
+        "embedding": "bfloat16",
+        "norm": "bfloat16"
+      },
+      "compute_fidelities": {
+        "attention": "LoFi",
+        "mlp_gate_up": "LoFi",
+        "mlp_down": "LoFi",
+        "lm_head": "LoFi"
+      },
+      "layer_exceptions": {
+        "31": {
+          "weight_groups": {
+            "attention": "bfloat8_b",
+            "mlp_gate_up": "bfloat8_b",
+            "mlp_down": "bfloat8_b"
+          }
+        }
+      },
+      "activation_dtype": "bfloat16",
+      "residual_dtype": "bfloat16",
+      "ccl_dtype": "native",
+      "kv_cache_dtype": "bfloat8_b",
+      "logits_dtype": "bfloat16",
+      "sampling_dtype": "bfloat16",
+      "token_dtype": "uint32",
+      "recurrent_dtype": "float32",
+      "max_context": 262144,
+      "matmul_flags": {
+        "projection_fp32_dest_acc_en": false,
+        "head_fp32_dest_acc_en": true,
+        "math_approx_mode": false,
+        "packer_l1_acc": true
+      },
+      "head_geometry": {
+        "cores": 32,
+        "columns": 32768,
+        "in0_block_w": 4,
+        "readers": 2
+      }
+    },
+    "windows": [
+      {
+        "logical_prompt_length": 262143,
+        "returned_token": 100,
+        "prefill_s": 43.95519409002736,
+        "last_decode_position": 262143,
+        "decode_token": 100,
+        "advanced_position": 262144
+      },
+      {
+        "logical_prompt_length": 262144,
+        "returned_token": 100,
+        "prefill_s": 43.95215195289347
+      }
+    ],
+    "measurements": {
+      "opened": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 4259840384,
+          "largest_contiguous_bytes_free_per_bank": 4259840384,
+          "total_allocated_bytes_per_device": 0
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 1428480,
+          "largest_contiguous_bytes_free_per_bank": 1428480,
+          "total_allocated_bytes_per_device": 0
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 12500992,
+          "largest_contiguous_bytes_free_per_bank": 12500992,
+          "total_allocated_bytes_per_device": 0
+        }
+      },
+      "loaded_weights_constants": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 446661632,
+          "total_bytes_free_per_bank": 3813178752,
+          "largest_contiguous_bytes_free_per_bank": 3793813888,
+          "total_allocated_bytes_per_device": 3573293056
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 25344,
+          "total_bytes_free_per_bank": 1403136,
+          "largest_contiguous_bytes_free_per_bank": 1403136,
+          "total_allocated_bytes_per_device": 2787840
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 12500992,
+          "largest_contiguous_bytes_free_per_bank": 12500992,
+          "total_allocated_bytes_per_device": 0
+        }
+      },
+      "allocated_full_native_cache": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 635750656,
+          "total_bytes_free_per_bank": 3624089728,
+          "largest_contiguous_bytes_free_per_bank": 3617624448,
+          "total_allocated_bytes_per_device": 5086005248
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 221952,
+          "total_bytes_free_per_bank": 1206528,
+          "largest_contiguous_bytes_free_per_bank": 1206528,
+          "total_allocated_bytes_per_device": 24414720
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 12500992,
+          "largest_contiguous_bytes_free_per_bank": 12500992,
+          "total_allocated_bytes_per_device": 0
+        }
+      },
+      "resident_prefill_trace_131": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 636886976,
+          "total_bytes_free_per_bank": 3622953408,
+          "largest_contiguous_bytes_free_per_bank": 3616549248,
+          "total_allocated_bytes_per_device": 5095095808
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 222208,
+          "total_bytes_free_per_bank": 1206272,
+          "largest_contiguous_bytes_free_per_bank": 1206272,
+          "total_allocated_bytes_per_device": 24442880
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 3219456,
+          "total_bytes_free_per_bank": 9281536,
+          "largest_contiguous_bytes_free_per_bank": 9281536,
+          "total_allocated_bytes_per_device": 25755648
+        }
+      },
+      "resident_prefill_trace_2048": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 637076864,
+          "total_bytes_free_per_bank": 3622763520,
+          "largest_contiguous_bytes_free_per_bank": 3616924032,
+          "total_allocated_bytes_per_device": 5096614912
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 222464,
+          "total_bytes_free_per_bank": 1206016,
+          "largest_contiguous_bytes_free_per_bank": 1206016,
+          "total_allocated_bytes_per_device": 24471040
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 3301376,
+          "total_bytes_free_per_bank": 9199616,
+          "largest_contiguous_bytes_free_per_bank": 9199616,
+          "total_allocated_bytes_per_device": 26411008
+        }
+      },
+      "traces_sampler_ready": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 637076864,
+          "total_bytes_free_per_bank": 3622763520,
+          "largest_contiguous_bytes_free_per_bank": 3616924032,
+          "total_allocated_bytes_per_device": 5096614912
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 222464,
+          "total_bytes_free_per_bank": 1206016,
+          "largest_contiguous_bytes_free_per_bank": 1206016,
+          "total_allocated_bytes_per_device": 24471040
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 3301376,
+          "total_bytes_free_per_bank": 9199616,
+          "largest_contiguous_bytes_free_per_bank": 9199616,
+          "total_allocated_bytes_per_device": 26411008
+        }
+      },
+      "after_prefill_262143": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 638401920,
+          "total_bytes_free_per_bank": 3621438464,
+          "largest_contiguous_bytes_free_per_bank": 3615074688,
+          "total_allocated_bytes_per_device": 5107215360
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 222464,
+          "total_bytes_free_per_bank": 1206016,
+          "largest_contiguous_bytes_free_per_bank": 1206016,
+          "total_allocated_bytes_per_device": 24471040
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 3301376,
+          "total_bytes_free_per_bank": 9199616,
+          "largest_contiguous_bytes_free_per_bank": 9199616,
+          "total_allocated_bytes_per_device": 26411008
+        }
+      },
+      "after_prefill_262144": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 638401920,
+          "total_bytes_free_per_bank": 3621438464,
+          "largest_contiguous_bytes_free_per_bank": 3615074688,
+          "total_allocated_bytes_per_device": 5107215360
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 222464,
+          "total_bytes_free_per_bank": 1206016,
+          "largest_contiguous_bytes_free_per_bank": 1206016,
+          "total_allocated_bytes_per_device": 24471040
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 3301376,
+          "total_bytes_free_per_bank": 9199616,
+          "largest_contiguous_bytes_free_per_bank": 9199616,
+          "total_allocated_bytes_per_device": 26411008
+        }
+      }
+    },
+    "nonaligned_prompt_evidence": "Full32 default: resident131 and2048 prefill traces, logical262143 plus last-position decode; candidateKV4/KV16/CCL8 also passed reduced mixed-decoder logical131 smoke. Cache/layout/chunking of selected policy unchanged.",
+    "kv_bytes_per_device_all_8_layers": 1140850688,
+    "kv_formula": "8 full-attention layers *2 K/V *(262144/32)*(256/32)*1088 bytes per BFP8 tile; TP4 one local KV head",
+    "alternative_kv_capacity_calculations": "datatype_sweep/context_candidates.json",
+    "native_batch": 1,
+    "larger_batch_scope": "Prior32-batch short-context evidence is retained; no32 simultaneous native-length capacity claim.",
+    "batch_evidence": "datatype_sweep/selected_batch32_watcher_v2.json",
+    "largest_tested_batch": 32,
+    "batch_validation": "Current full32 default,32 simultaneousshort-context requests, mixed131/127/3, exactcross-slot/permutedlogits; WATCHER10 and traceallocationtracker pass"
+  },
+  "previous_datatype_sweep_capacity": {
+    "selected_precision_config": "datatype_sweep/selected_precision_config.json",
+    "config_id": "head4_lofi_last8",
+    "kv_cache_dtype": "bfloat8_b",
+    "max_context": 262144,
+    "current_supported_context": 262144,
+    "capability_reduction": null,
+    "native_execution": "datatype_sweep/selected_native_v1.json",
+    "trace_allocation_tracking": true,
+    "precision": {
+      "config_id": "head4_lofi_last8",
+      "weight_groups": {
+        "attention": "bfloat4_b",
+        "mlp_gate_up": "bfloat4_b",
+        "mlp_down": "bfloat4_b",
+        "decode_qkvg": "bfloat8_b",
+        "lm_head": "bfloat4_b",
+        "embedding": "bfloat16",
+        "norm": "bfloat16"
+      },
+      "compute_fidelities": {
+        "attention": "LoFi",
+        "mlp_gate_up": "LoFi",
+        "mlp_down": "LoFi",
+        "lm_head": "LoFi"
+      },
+      "layer_exceptions": {
+        "31": {
+          "weight_groups": {
+            "attention": "bfloat8_b",
+            "mlp_gate_up": "bfloat8_b",
+            "mlp_down": "bfloat8_b"
+          }
+        }
+      },
+      "activation_dtype": "bfloat16",
+      "residual_dtype": "bfloat16",
+      "ccl_dtype": "native",
+      "kv_cache_dtype": "bfloat8_b",
+      "logits_dtype": "bfloat16",
+      "sampling_dtype": "bfloat16",
+      "token_dtype": "uint32",
+      "recurrent_dtype": "float32",
+      "max_context": 262144,
+      "matmul_flags": {
+        "projection_fp32_dest_acc_en": false,
+        "head_fp32_dest_acc_en": true,
+        "math_approx_mode": false,
+        "packer_l1_acc": true
+      }
+    },
+    "windows": [
+      {
+        "logical_prompt_length": 262143,
+        "returned_token": 100,
+        "prefill_s": 43.95231938699726,
+        "last_decode_position": 262143,
+        "decode_token": 100,
+        "advanced_position": 262144
+      },
+      {
+        "logical_prompt_length": 262144,
+        "returned_token": 100,
+        "prefill_s": 43.954411434940994
+      }
+    ],
+    "measurements": {
+      "opened": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 4259840384,
+          "largest_contiguous_bytes_free_per_bank": 4259840384,
+          "total_allocated_bytes_per_device": 0
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 1428480,
+          "largest_contiguous_bytes_free_per_bank": 1428480,
+          "total_allocated_bytes_per_device": 0
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 12500992,
+          "largest_contiguous_bytes_free_per_bank": 12500992,
+          "total_allocated_bytes_per_device": 0
+        }
+      },
+      "loaded_weights_constants": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 446661632,
+          "total_bytes_free_per_bank": 3813178752,
+          "largest_contiguous_bytes_free_per_bank": 3793813888,
+          "total_allocated_bytes_per_device": 3573293056
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 25344,
+          "total_bytes_free_per_bank": 1403136,
+          "largest_contiguous_bytes_free_per_bank": 1403136,
+          "total_allocated_bytes_per_device": 2787840
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 12500992,
+          "largest_contiguous_bytes_free_per_bank": 12500992,
+          "total_allocated_bytes_per_device": 0
+        }
+      },
+      "allocated_full_native_cache": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 635750656,
+          "total_bytes_free_per_bank": 3624089728,
+          "largest_contiguous_bytes_free_per_bank": 3617624448,
+          "total_allocated_bytes_per_device": 5086005248
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 221952,
+          "total_bytes_free_per_bank": 1206528,
+          "largest_contiguous_bytes_free_per_bank": 1206528,
+          "total_allocated_bytes_per_device": 24414720
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 12500992,
+          "largest_contiguous_bytes_free_per_bank": 12500992,
+          "total_allocated_bytes_per_device": 0
+        }
+      },
+      "resident_prefill_trace_131": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 636889024,
+          "total_bytes_free_per_bank": 3622951360,
+          "largest_contiguous_bytes_free_per_bank": 3616547200,
+          "total_allocated_bytes_per_device": 5095112192
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 222208,
+          "total_bytes_free_per_bank": 1206272,
+          "largest_contiguous_bytes_free_per_bank": 1206272,
+          "total_allocated_bytes_per_device": 24442880
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 3235840,
+          "total_bytes_free_per_bank": 9265152,
+          "largest_contiguous_bytes_free_per_bank": 9265152,
+          "total_allocated_bytes_per_device": 25886720
+        }
+      },
+      "resident_prefill_trace_2048": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 637078912,
+          "total_bytes_free_per_bank": 3622761472,
+          "largest_contiguous_bytes_free_per_bank": 3616921984,
+          "total_allocated_bytes_per_device": 5096631296
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 222464,
+          "total_bytes_free_per_bank": 1206016,
+          "largest_contiguous_bytes_free_per_bank": 1206016,
+          "total_allocated_bytes_per_device": 24471040
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 3317760,
+          "total_bytes_free_per_bank": 9183232,
+          "largest_contiguous_bytes_free_per_bank": 9183232,
+          "total_allocated_bytes_per_device": 26542080
+        }
+      },
+      "traces_sampler_ready": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 637078912,
+          "total_bytes_free_per_bank": 3622761472,
+          "largest_contiguous_bytes_free_per_bank": 3616921984,
+          "total_allocated_bytes_per_device": 5096631296
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 222464,
+          "total_bytes_free_per_bank": 1206016,
+          "largest_contiguous_bytes_free_per_bank": 1206016,
+          "total_allocated_bytes_per_device": 24471040
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 3317760,
+          "total_bytes_free_per_bank": 9183232,
+          "largest_contiguous_bytes_free_per_bank": 9183232,
+          "total_allocated_bytes_per_device": 26542080
+        }
+      },
+      "after_prefill_262143": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 638403968,
+          "total_bytes_free_per_bank": 3621436416,
+          "largest_contiguous_bytes_free_per_bank": 3615072640,
+          "total_allocated_bytes_per_device": 5107231744
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 222464,
+          "total_bytes_free_per_bank": 1206016,
+          "largest_contiguous_bytes_free_per_bank": 1206016,
+          "total_allocated_bytes_per_device": 24471040
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 3317760,
+          "total_bytes_free_per_bank": 9183232,
+          "largest_contiguous_bytes_free_per_bank": 9183232,
+          "total_allocated_bytes_per_device": 26542080
+        }
+      },
+      "after_prefill_262144": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 638403968,
+          "total_bytes_free_per_bank": 3621436416,
+          "largest_contiguous_bytes_free_per_bank": 3615072640,
+          "total_allocated_bytes_per_device": 5107231744
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 222464,
+          "total_bytes_free_per_bank": 1206016,
+          "largest_contiguous_bytes_free_per_bank": 1206016,
+          "total_allocated_bytes_per_device": 24471040
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 3317760,
+          "total_bytes_free_per_bank": 9183232,
+          "largest_contiguous_bytes_free_per_bank": 9183232,
+          "total_allocated_bytes_per_device": 26542080
+        }
+      }
+    },
+    "nonaligned_prompt_evidence": "Full32 default: resident131 and2048 prefill traces, logical262143 plus last-position decode; candidateKV4/KV16/CCL8 also passed reduced mixed-decoder logical131 smoke. Cache/layout/chunking of selected policy unchanged.",
+    "kv_bytes_per_device_all_8_layers": 1140850688,
+    "kv_formula": "8 full-attention layers *2 K/V *(262144/32)*(256/32)*1088 bytes per BFP8 tile; TP4 one local KV head",
+    "alternative_kv_capacity_calculations": "datatype_sweep/context_candidates.json",
+    "native_batch": 1,
+    "larger_batch_scope": "Prior32-batch short-context evidence is retained; no32 simultaneous native-length capacity claim."
   }
 }

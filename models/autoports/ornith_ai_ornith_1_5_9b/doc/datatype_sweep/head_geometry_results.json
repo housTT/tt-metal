@@ -1,0 +1,928 @@
+{
+  "schema_version": 1,
+  "scope": "Focused real-hidden common-LMHead1D geometry selection at fixed selected BFP4/LoFi head precision; full-model policy selection is separate.",
+  "hardware": "TP4; four Blackhole chips on physical P300c boards",
+  "precision": {
+    "config_id": "head4_lofi_last8",
+    "weight_groups": {
+      "attention": "bfloat4_b",
+      "mlp_gate_up": "bfloat4_b",
+      "mlp_down": "bfloat4_b",
+      "decode_qkvg": "bfloat8_b",
+      "lm_head": "bfloat4_b",
+      "embedding": "bfloat16",
+      "norm": "bfloat16"
+    },
+    "compute_fidelities": {
+      "attention": "LoFi",
+      "mlp_gate_up": "LoFi",
+      "mlp_down": "LoFi",
+      "lm_head": "LoFi"
+    },
+    "layer_exceptions": {
+      "31": {
+        "weight_groups": {
+          "attention": "bfloat8_b",
+          "mlp_gate_up": "bfloat8_b",
+          "mlp_down": "bfloat8_b"
+        }
+      }
+    },
+    "activation_dtype": "bfloat16",
+    "residual_dtype": "bfloat16",
+    "ccl_dtype": "native",
+    "kv_cache_dtype": "bfloat8_b",
+    "logits_dtype": "bfloat16",
+    "sampling_dtype": "bfloat16",
+    "token_dtype": "uint32",
+    "recurrent_dtype": "float32",
+    "max_context": 262144,
+    "matmul_flags": {
+      "projection_fp32_dest_acc_en": false,
+      "head_fp32_dest_acc_en": true,
+      "math_approx_mode": false,
+      "packer_l1_acc": true
+    }
+  },
+  "precision_config_sha256": "1596e5bafa5c2af593e82220031958a8349704ecffb47c753aa848dd37c1440c",
+  "baseline": {
+    "cores": 64,
+    "grid": [
+      8,
+      8
+    ],
+    "input_shard": [
+      32,
+      64
+    ],
+    "in0_block_w": 1,
+    "readers": 2,
+    "logical_columns": 32768,
+    "physical_columns": 32768,
+    "weight_shard": [
+      4096,
+      4096
+    ],
+    "reader_tiles": 64,
+    "compute_tiles": 64,
+    "per_core_N": 16,
+    "cb_bytes": {
+      "in0": 4096,
+      "in1": 110592,
+      "output": 131072,
+      "intermediate": 262144
+    },
+    "weight_dtype": "bfloat4_b",
+    "input_dtype": "bfloat16",
+    "output_dtype": "bfloat16",
+    "intermediate_dtype": "float32",
+    "aligned_weight_tile_bytes": 576,
+    "predicted_static_end": 619520,
+    "resident_bytes_per_bank": 221952,
+    "normalized_bytes_per_bank": 8192,
+    "optimistic_live_frontier": 1342720,
+    "source_feasible": true
+  },
+  "normalization": "Fixed 8x4 final norm, BF16 input/output; head timings include reshard/trim, terminal timings also include normalization.",
+  "hidden_source": "doc/full_model/french_head_v1/hidden.pt; hidden[0], all four replicas equal",
+  "hidden_sha256": "7df8dd0a88cbb19eeb3ea23faf21d61a7df1eeba1dcbf475006bb20f07598891",
+  "logical_logits_compared": 248320,
+  "persistent_l1_bytes_per_bank": 221952,
+  "timing_protocol": "Three alternating paired rounds, 64 trace replays per geometry per round, for head and terminal; each timed replay batch checked against eager.",
+  "counts": {
+    "legal_points": 27,
+    "source_feasible_points": 20,
+    "pass": 19,
+    "allocation_rejected": 1,
+    "source_refuted": 7,
+    "device_runs_including_serial_failure_control": 21
+  },
+  "focused_winner": {
+    "cores": 32,
+    "in0_block_w": 4,
+    "readers": 2,
+    "columns": 32768,
+    "run_id": "geometry_c32_k4_r2_v1",
+    "head": {
+      "baseline_median_ms": 0.8146789532474941,
+      "candidate_median_ms": 0.4363401712907944,
+      "latency_reduction_percent_vs_paired_baseline": 46.440230283175474
+    },
+    "terminal": {
+      "baseline_median_ms": 0.8278543427877594,
+      "candidate_median_ms": 0.44918353160028346,
+      "latency_reduction_percent_vs_paired_baseline": 45.74123630400009
+    }
+  },
+  "full_model_selection_status": "Parent-owned full32 numerical/qualitative, precision-policy comparisons, watcher/trace, default reproduction, native-context and end-to-end performance gates remain separate.",
+  "numerical_groups_by_k": {
+    "1": {
+      "finite": true,
+      "exact_baseline": true,
+      "max_abs": 0.0,
+      "mean_abs": 0.0,
+      "boundary_max_abs": 0.0,
+      "pcc": 1.0,
+      "top1_equal": true,
+      "baseline_top1_in_top5": true,
+      "top10_ids": [
+        39102,
+        610,
+        3444,
+        64,
+        1719,
+        269,
+        258,
+        23543,
+        17981,
+        559
+      ],
+      "top10_logits": [
+        22.625,
+        22.25,
+        22.0,
+        21.875,
+        21.5,
+        21.0,
+        20.875,
+        20.75,
+        20.375,
+        20.25
+      ],
+      "scores_sha256": "dd84110861d4badb92c642a9e70edf6143504b55719700a9ba0fb7d1c38fd4cd"
+    },
+    "2": {
+      "finite": true,
+      "exact_baseline": false,
+      "max_abs": 0.125,
+      "mean_abs": 0.0005198409198783338,
+      "boundary_max_abs": 0.0009765625,
+      "pcc": 0.9999997615814209,
+      "top1_equal": true,
+      "baseline_top1_in_top5": true,
+      "top10_ids": [
+        39102,
+        610,
+        3444,
+        64,
+        1719,
+        269,
+        258,
+        23543,
+        17981,
+        559
+      ],
+      "top10_logits": [
+        22.625,
+        22.25,
+        22.125,
+        21.875,
+        21.625,
+        21.0,
+        20.875,
+        20.75,
+        20.375,
+        20.25
+      ],
+      "scores_sha256": "0370a3a5ce49b2e8b34ea5cd282c3ff6c3af576018e6111cc6b90e132ef745c9"
+    },
+    "4": {
+      "finite": true,
+      "exact_baseline": false,
+      "max_abs": 0.125,
+      "mean_abs": 0.0005347782862372696,
+      "boundary_max_abs": 0.0009765625,
+      "pcc": 0.9999985098838806,
+      "top1_equal": true,
+      "baseline_top1_in_top5": true,
+      "top10_ids": [
+        39102,
+        610,
+        3444,
+        64,
+        1719,
+        269,
+        258,
+        23543,
+        17981,
+        559
+      ],
+      "top10_logits": [
+        22.625,
+        22.25,
+        22.0,
+        21.875,
+        21.625,
+        21.0,
+        20.875,
+        20.75,
+        20.375,
+        20.25
+      ],
+      "scores_sha256": "0ed0b07708752809fca88d7c1f3f7af77947451065746b8969f8611a7aa66f75"
+    },
+    "8": {
+      "finite": true,
+      "exact_baseline": false,
+      "max_abs": 0.125,
+      "mean_abs": 0.0005437447689473629,
+      "boundary_max_abs": 0.0078125,
+      "pcc": 0.9999980330467224,
+      "top1_equal": true,
+      "baseline_top1_in_top5": true,
+      "top10_ids": [
+        39102,
+        610,
+        3444,
+        64,
+        1719,
+        269,
+        258,
+        23543,
+        17981,
+        559
+      ],
+      "top10_logits": [
+        22.625,
+        22.25,
+        22.0,
+        21.875,
+        21.625,
+        21.0,
+        20.875,
+        20.75,
+        20.375,
+        20.25
+      ],
+      "scores_sha256": "c9e3cfcc1625536edc63c63f3a795ea1d4c5093503befce9284d6f814ed4a1aa"
+    }
+  },
+  "numerical_group_interpretation": "All successful geometries at the same K block produce the same complete logical-logit hash, including adapted R3. K1 is bit-identical to baseline; K2/K4/K8 each differ from baseline and each other.",
+  "results": [
+    {
+      "cores": 16,
+      "in0_block_w": 1,
+      "readers": 1,
+      "physical_columns": 32768,
+      "predicted_static_end": 1123328,
+      "run_id": "geometry_c16_k1_r1_v1",
+      "artifact": "geometry_c16_k1_r1_v1.json",
+      "artifact_sha256": "8c2595cb4d31156d61071fa6cde8ebd768937ccc7fe0e525df19f50787a5ce51",
+      "provenance": "logs/geometry_c16_k1_r1_v1.provenance.json",
+      "provenance_sha256": "29222f051536cf2cb2c3e05e5eea45c68d92331775f048b51854cc415dcc30f3",
+      "log_sha256": "9d464d08da29194f7ffe90bae014372633c8322d96e9e8a3b3af1aa32f003d02",
+      "device_executed": true,
+      "status": "allocation_rejected",
+      "observed_dynamic_frontier": 1023232,
+      "collision_bytes": 100096,
+      "control_run_id": "geometry_c16_k1_r1_serial_v2",
+      "classification_artifact": "geometry_rejections.json"
+    },
+    {
+      "cores": 16,
+      "in0_block_w": 1,
+      "readers": 2,
+      "physical_columns": 32768,
+      "predicted_static_end": 619520,
+      "run_id": "geometry_c16_k1_r2_v1",
+      "artifact": "geometry_c16_k1_r2_v1.json",
+      "artifact_sha256": "79538294643235de2bd1b44326c7972ce6780137b6a1dbe40c3f31995600d148",
+      "provenance": "logs/geometry_c16_k1_r2_v1.provenance.json",
+      "provenance_sha256": "c2702f03dd3eab0e6ad7d44b804b1494211563add780b092b43455681846262e",
+      "log_sha256": "76e5a85123ff88d907ed91d9e5602658e443e61c635bb552521aa43f7aef2b48",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8146473592205439,
+          "candidate_median_ms": 0.8078665468929103
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8276707176264608,
+          "candidate_median_ms": 0.8211228596337605
+        }
+      },
+      "numerical_group_k": 1,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 16,
+      "in0_block_w": 1,
+      "readers": 3,
+      "physical_columns": 33024,
+      "predicted_static_end": 460352,
+      "run_id": "geometry_c16_k1_r3_v1",
+      "artifact": "geometry_c16_k1_r3_v1.json",
+      "artifact_sha256": "049c60f2924741d116661564d2b7a2287ebea98ce7945825e85547c0f6f4c47b",
+      "provenance": "logs/geometry_c16_k1_r3_v1.provenance.json",
+      "provenance_sha256": "f00183c82dabdc20613d647114214c5acbaf375f4c80a71efcf90045b60a1b54",
+      "log_sha256": "675be6e5f8583af7b5334c5e0b2fe6d9775bb25915f269766e015e1e55665221",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8152500140568009,
+          "candidate_median_ms": 0.6324674068309832
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8283010938612279,
+          "candidate_median_ms": 0.6451903591369046
+        }
+      },
+      "numerical_group_k": 1,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 16,
+      "in0_block_w": 2,
+      "readers": 1,
+      "physical_columns": 32768,
+      "predicted_static_end": 1348608,
+      "status": "source_refuted",
+      "reason": "Static end 1348608 exceeds fixed resident-plus-normalized-tensor frontier 1342720.",
+      "device_executed": false
+    },
+    {
+      "cores": 16,
+      "in0_block_w": 2,
+      "readers": 2,
+      "physical_columns": 32768,
+      "predicted_static_end": 734208,
+      "run_id": "geometry_c16_k2_r2_v1",
+      "artifact": "geometry_c16_k2_r2_v1.json",
+      "artifact_sha256": "36fcf90b3673aa0b425e21a444a6b557772904654541de763e4280c4c944b990",
+      "provenance": "logs/geometry_c16_k2_r2_v1.provenance.json",
+      "provenance_sha256": "c895ea789184ec89a212356a987c0f64d0879b2f19d17ecdbc1ac6e33f0432ec",
+      "log_sha256": "83a432f235496de3137a6de0c0eac3271fab3b4f33c6fbb9f45c1b71e507a641",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8141749385686126,
+          "candidate_median_ms": 0.5503907195816282
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8273628445749637,
+          "candidate_median_ms": 0.5629931238217978
+        }
+      },
+      "numerical_group_k": 2,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 16,
+      "in0_block_w": 2,
+      "readers": 3,
+      "physical_columns": 33024,
+      "predicted_static_end": 538752,
+      "run_id": "geometry_c16_k2_r3_v1",
+      "artifact": "geometry_c16_k2_r3_v1.json",
+      "artifact_sha256": "73f9ed0ba1421e7c9968621455f4a72541550c5934f00160d4ef76081e9ae66f",
+      "provenance": "logs/geometry_c16_k2_r3_v1.provenance.json",
+      "provenance_sha256": "4cebad35537936ef63193c427158cefb18a1e990b80c8663d314f7886685496f",
+      "log_sha256": "301d71166a93d9603935596af84d77a13927a9ab7956da05461b2ba382a9a206",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8145199062710162,
+          "candidate_median_ms": 0.526195139173069
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8276052667497424,
+          "candidate_median_ms": 0.538650703674648
+        }
+      },
+      "numerical_group_k": 2,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 16,
+      "in0_block_w": 4,
+      "readers": 1,
+      "physical_columns": 32768,
+      "predicted_static_end": 1799168,
+      "status": "source_refuted",
+      "reason": "Static end 1799168 exceeds physical L1 1572864.",
+      "device_executed": false
+    },
+    {
+      "cores": 16,
+      "in0_block_w": 4,
+      "readers": 2,
+      "physical_columns": 32768,
+      "predicted_static_end": 963584,
+      "run_id": "geometry_c16_k4_r2_v1",
+      "artifact": "geometry_c16_k4_r2_v1.json",
+      "artifact_sha256": "0d2435f1a96d2ed9a2ef1a282207d26efabe2c248352957ee9304c7f3067c504",
+      "provenance": "logs/geometry_c16_k4_r2_v1.provenance.json",
+      "provenance_sha256": "8756da32554b65fa502629a28dbbe8e5227f7ab0985897a7e0c81e8aec0c1c75",
+      "log_sha256": "941fe897177e740a3faa5be83373e2a7f215e817d3758fa2743c26489ec70b51",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8143224058585474,
+          "candidate_median_ms": 0.5511698109330609
+        },
+        "terminal": {
+          "baseline_median_ms": 0.827380375994835,
+          "candidate_median_ms": 0.5638771090161754
+        }
+      },
+      "numerical_group_k": 4,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 16,
+      "in0_block_w": 4,
+      "readers": 3,
+      "physical_columns": 33024,
+      "predicted_static_end": 695552,
+      "run_id": "geometry_c16_k4_r3_v1",
+      "artifact": "geometry_c16_k4_r3_v1.json",
+      "artifact_sha256": "985e2a2750f208e1937692e3fb14806ddc4d8a0cb288a99be2de4409135a41dc",
+      "provenance": "logs/geometry_c16_k4_r3_v1.provenance.json",
+      "provenance_sha256": "3778a83ae9a97bdc21913efbf8ad4a4445db51f08899646ad70f714673b04096",
+      "log_sha256": "b4cbcbc27af94e2ba2d5ff7534af214af46cffbd67f05bb4085ba1526501d8e9",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8147437183652073,
+          "candidate_median_ms": 0.52574329674826
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8277158904093085,
+          "candidate_median_ms": 0.5385122804000275
+        }
+      },
+      "numerical_group_k": 4,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 16,
+      "in0_block_w": 8,
+      "readers": 1,
+      "physical_columns": 32768,
+      "predicted_static_end": 2700288,
+      "status": "source_refuted",
+      "reason": "Static end 2700288 exceeds physical L1 1572864.",
+      "device_executed": false
+    },
+    {
+      "cores": 16,
+      "in0_block_w": 8,
+      "readers": 2,
+      "physical_columns": 32768,
+      "predicted_static_end": 1422336,
+      "status": "source_refuted",
+      "reason": "Static end 1422336 exceeds resident-only frontier 1350912.",
+      "device_executed": false
+    },
+    {
+      "cores": 16,
+      "in0_block_w": 8,
+      "readers": 3,
+      "physical_columns": 33024,
+      "predicted_static_end": 1009152,
+      "run_id": "geometry_c16_k8_r3_v1",
+      "artifact": "geometry_c16_k8_r3_v1.json",
+      "artifact_sha256": "69ec5ac75c192bc3c0c7559b432360850b7059e7d25389eadd25c9c076bec013",
+      "provenance": "logs/geometry_c16_k8_r3_v1.provenance.json",
+      "provenance_sha256": "4d097d1b5b1e4664e870a84ddf315a87f494399c8d664fd3d2eb1216c689b643",
+      "log_sha256": "a77dcd121ade3d2c5f8b20755ae70bbbe8a1d5d02cb476e6e18483c7c2a40da1",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8143564373312984,
+          "candidate_median_ms": 0.5308038289513206
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8276357657450717,
+          "candidate_median_ms": 0.543965110409772
+        }
+      },
+      "numerical_group_k": 8,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 32,
+      "in0_block_w": 1,
+      "readers": 1,
+      "physical_columns": 32768,
+      "predicted_static_end": 1123328,
+      "run_id": "geometry_c32_k1_r1_v1",
+      "artifact": "geometry_c32_k1_r1_v1.json",
+      "artifact_sha256": "63bbdac54207ed16235c04e2a8c2cfcebfdaf863afd46cd47d70368ee3e6071e",
+      "provenance": "logs/geometry_c32_k1_r1_v1.provenance.json",
+      "provenance_sha256": "0d787a318237230deaa78c2a1173940694d0e33f566938f051170d7c7fdb91b6",
+      "log_sha256": "253adb7a8d64fd5d5c1ac85cb80e8287004df01f90a8b289a6d7504b82bbe2b6",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8147995777108008,
+          "candidate_median_ms": 1.5330707810790045
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8275071886600927,
+          "candidate_median_ms": 1.546363890156499
+        }
+      },
+      "numerical_group_k": 1,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 32,
+      "in0_block_w": 1,
+      "readers": 2,
+      "physical_columns": 32768,
+      "predicted_static_end": 619520,
+      "run_id": "geometry_c32_k1_r2_v1",
+      "artifact": "geometry_c32_k1_r2_v1.json",
+      "artifact_sha256": "7cbf361b7527eee664ea5226bdb149f88e8ad9ce31cddaf9749a7641b5f0f75f",
+      "provenance": "logs/geometry_c32_k1_r2_v1.provenance.json",
+      "provenance_sha256": "c379619aab65736baf388d245276c6ea7a0e7b495516e165315b16ab6b24de33",
+      "log_sha256": "9782a683662b57cf7b38f076689a2137f6ae31da45392f398425cb62673aa7d0",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8147698117682012,
+          "candidate_median_ms": 0.807060516308411
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8279841567855328,
+          "candidate_median_ms": 0.8204633595596533
+        }
+      },
+      "numerical_group_k": 1,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 32,
+      "in0_block_w": 1,
+      "readers": 3,
+      "physical_columns": 33024,
+      "predicted_static_end": 460352,
+      "run_id": "geometry_c32_k1_r3_v1",
+      "artifact": "geometry_c32_k1_r3_v1.json",
+      "artifact_sha256": "1f1e474a8b6914b0ce5c026af462432d25faa7d16917b62e8fe61dd1cf24a48f",
+      "provenance": "logs/geometry_c32_k1_r3_v1.provenance.json",
+      "provenance_sha256": "8ef3cbd406ad4e03644ab515b01293349b18c19b32e9019153334f1892c03262",
+      "log_sha256": "cdd7baf5912bc92a2aee72a39c1d6fe66c97cd55ecc90a01c45be7b06b4fcadb",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8152209375111852,
+          "candidate_median_ms": 0.629951297014486
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8279891098936787,
+          "candidate_median_ms": 0.6425688898161752
+        }
+      },
+      "numerical_group_k": 1,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 32,
+      "in0_block_w": 2,
+      "readers": 1,
+      "physical_columns": 32768,
+      "predicted_static_end": 1348608,
+      "status": "source_refuted",
+      "reason": "Static end 1348608 exceeds fixed resident-plus-normalized-tensor frontier 1342720.",
+      "device_executed": false
+    },
+    {
+      "cores": 32,
+      "in0_block_w": 2,
+      "readers": 2,
+      "physical_columns": 32768,
+      "predicted_static_end": 734208,
+      "run_id": "geometry_c32_k2_r2_v1",
+      "artifact": "geometry_c32_k2_r2_v1.json",
+      "artifact_sha256": "a52dc1d2b5e4d6abca56a2ce53e26fffec18d9d5185bc23ac6cff444488cd541",
+      "provenance": "logs/geometry_c32_k2_r2_v1.provenance.json",
+      "provenance_sha256": "e55694b2fdf53cb1a4f5795d7ac64acaa1637b3293be92946cb689178f93229c",
+      "log_sha256": "7cfca71c6bb67f34d59c3f5ff84215a55dd5ed794d863d627b8f9b779cc3c1fb",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8142848892020993,
+          "candidate_median_ms": 0.4542984843283193
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8272742816188838,
+          "candidate_median_ms": 0.4673135463235667
+        }
+      },
+      "numerical_group_k": 2,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 32,
+      "in0_block_w": 2,
+      "readers": 3,
+      "physical_columns": 33024,
+      "predicted_static_end": 538752,
+      "run_id": "geometry_c32_k2_r3_v1",
+      "artifact": "geometry_c32_k2_r3_v1.json",
+      "artifact_sha256": "63a76d8f183e43a46da2384c6c729d21dd1a260b2f6300d9009b3e15b51e2574",
+      "provenance": "logs/geometry_c32_k2_r3_v1.provenance.json",
+      "provenance_sha256": "8bd5ffaf7fa6fb293cd5015316e0a388cfb177af19348889e529ed61d5e95b15",
+      "log_sha256": "4094b8f4c1b39b3cb420b256fb2333b300571f884bd9089ca96bbd0c7474b716",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8145699230226455,
+          "candidate_median_ms": 0.45679260983888526
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8275001255242387,
+          "candidate_median_ms": 0.4688071712735109
+        }
+      },
+      "numerical_group_k": 2,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 32,
+      "in0_block_w": 4,
+      "readers": 1,
+      "physical_columns": 32768,
+      "predicted_static_end": 1799168,
+      "status": "source_refuted",
+      "reason": "Static end 1799168 exceeds physical L1 1572864.",
+      "device_executed": false
+    },
+    {
+      "cores": 32,
+      "in0_block_w": 4,
+      "readers": 2,
+      "physical_columns": 32768,
+      "predicted_static_end": 963584,
+      "run_id": "geometry_c32_k4_r2_v1",
+      "artifact": "geometry_c32_k4_r2_v1.json",
+      "artifact_sha256": "89f46f739e7c4aa32f570e3658d645b2d6f38c7416793e2b15e94e9276055994",
+      "provenance": "logs/geometry_c32_k4_r2_v1.provenance.json",
+      "provenance_sha256": "56a587e2bedcbdff86313919041d4d766b2fdf25cd6a33cf81fe8496bfea4d98",
+      "log_sha256": "a68c12883e586b03d0529a71e1aec0a18b016e100e765bd0572e47a8261e34fc",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8146789532474941,
+          "candidate_median_ms": 0.4363401712907944,
+          "latency_reduction_percent_vs_paired_baseline": 46.440230283175474
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8278543427877594,
+          "candidate_median_ms": 0.44918353160028346,
+          "latency_reduction_percent_vs_paired_baseline": 45.74123630400009
+        }
+      },
+      "numerical_group_k": 4,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 32,
+      "in0_block_w": 4,
+      "readers": 3,
+      "physical_columns": 33024,
+      "predicted_static_end": 695552,
+      "run_id": "geometry_c32_k4_r3_v1",
+      "artifact": "geometry_c32_k4_r3_v1.json",
+      "artifact_sha256": "888ffc19fc1436ed66c93a518f6a95cf770f31aa81301c3fde2713ab9e7ad721",
+      "provenance": "logs/geometry_c32_k4_r3_v1.provenance.json",
+      "provenance_sha256": "674d4e8989995878689af5d731b95e2332f702ee716ff5d262ea177db21bd7d2",
+      "log_sha256": "18e0466c2e07d34049e6dd5a3a9798d8ae62b083a6ee103d00f7379b55714fbd",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8144296261889394,
+          "candidate_median_ms": 0.45609421795234084
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8277124070446007,
+          "candidate_median_ms": 0.46846118675603066
+        }
+      },
+      "numerical_group_k": 4,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 64,
+      "in0_block_w": 1,
+      "readers": 1,
+      "physical_columns": 32768,
+      "predicted_static_end": 1123328,
+      "run_id": "geometry_c64_k1_r1_v1",
+      "artifact": "geometry_c64_k1_r1_v1.json",
+      "artifact_sha256": "f2a1d2e76de1253c2d97fa352559140c255cb2ebb4dd95b355707376e49ffb6d",
+      "provenance": "logs/geometry_c64_k1_r1_v1.provenance.json",
+      "provenance_sha256": "2c960405e049daed6c84c3e2644c99059124b4b96051e470b90e6b61fa52cc36",
+      "log_sha256": "2915a970b466ed9eea2e51a55d0cfbf0a7e34e608692b03ed6e6ecfd581509a2",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8147844837367302,
+          "candidate_median_ms": 1.5411244221468223
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8278426084871171,
+          "candidate_median_ms": 1.5540630938630784
+        }
+      },
+      "numerical_group_k": 1,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 64,
+      "in0_block_w": 1,
+      "readers": 2,
+      "physical_columns": 32768,
+      "predicted_static_end": 619520,
+      "run_id": "geometry_c64_k1_r2_v1",
+      "artifact": "geometry_c64_k1_r2_v1.json",
+      "artifact_sha256": "f4ef7d8639b5e5f305a71fd78b248e477ffeb194949556187db144e9892d6afc",
+      "provenance": "logs/geometry_c64_k1_r2_v1.provenance.json",
+      "provenance_sha256": "936287d331e5ad99f0744c4bd31771e159782c9987dd28376fe5a143376e9ef0",
+      "log_sha256": "7d3783afa98179f8e05f9bb2ae74ef1be615ee5bc7d336600bd461decd9d6654",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8146826094161952,
+          "candidate_median_ms": 0.8144684379658429
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8277657652797643,
+          "candidate_median_ms": 0.8275102809420787
+        }
+      },
+      "numerical_group_k": 1,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 64,
+      "in0_block_w": 1,
+      "readers": 3,
+      "physical_columns": 33024,
+      "predicted_static_end": 460352,
+      "run_id": "geometry_c64_k1_r3_v1",
+      "artifact": "geometry_c64_k1_r3_v1.json",
+      "artifact_sha256": "e059532a2929df7f3da54a3c1564e0b9bc31e0ecb45ca47332a665ab74dd3437",
+      "provenance": "logs/geometry_c64_k1_r3_v1.provenance.json",
+      "provenance_sha256": "e440b9c1a641e9160c07cafd728bcb0791914a0872167df1fea03ae6256ab049",
+      "log_sha256": "691e4369bc290ee6b288a1f6d38e3979c0818ca2bdcdb9efd4d69f980f108f0d",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8152142036124133,
+          "candidate_median_ms": 0.6385927172232186
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8285682015412021,
+          "candidate_median_ms": 0.6517046876979293
+        }
+      },
+      "numerical_group_k": 1,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 64,
+      "in0_block_w": 2,
+      "readers": 1,
+      "physical_columns": 32768,
+      "predicted_static_end": 1348608,
+      "status": "source_refuted",
+      "reason": "Static end 1348608 exceeds fixed resident-plus-normalized-tensor frontier 1342720.",
+      "device_executed": false
+    },
+    {
+      "cores": 64,
+      "in0_block_w": 2,
+      "readers": 2,
+      "physical_columns": 32768,
+      "predicted_static_end": 734208,
+      "run_id": "geometry_c64_k2_r2_v1",
+      "artifact": "geometry_c64_k2_r2_v1.json",
+      "artifact_sha256": "a1827cc7195cee55dcd1ef0959200dbee8cd382cb0d9e75f56a9ef3d8a4f7e72",
+      "provenance": "logs/geometry_c64_k2_r2_v1.provenance.json",
+      "provenance_sha256": "145a2ce9a8ddc82b566397fe41a5b33dfc7870fb8f4020464d6963b5a74f95c6",
+      "log_sha256": "bc095f82efaef8b0bcbb50b316ae91a3d0974d3a18c305bd7e8b40343bb43da0",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8142884053086163,
+          "candidate_median_ms": 0.46028482938709203
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8272623126686085,
+          "candidate_median_ms": 0.4726558745460352
+        }
+      },
+      "numerical_group_k": 2,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    },
+    {
+      "cores": 64,
+      "in0_block_w": 2,
+      "readers": 3,
+      "physical_columns": 33024,
+      "predicted_static_end": 538752,
+      "run_id": "geometry_c64_k2_r3_v1",
+      "artifact": "geometry_c64_k2_r3_v1.json",
+      "artifact_sha256": "87bd9822959145481f23d6d50ce8cc90fb9ba70d23c422302299cd1c64233192",
+      "provenance": "logs/geometry_c64_k2_r3_v1.provenance.json",
+      "provenance_sha256": "4bc2f55595709af5f2dd42229e87a54464801e5b03660af2925e6c012d9a4feb",
+      "log_sha256": "7beee68d6e5a3ca0ff14a15f8fe434f9575fbcceebb3edd2bf27e64e96d9dc73",
+      "device_executed": true,
+      "status": "pass",
+      "timings": {
+        "head": {
+          "baseline_median_ms": 0.8147462340275524,
+          "candidate_median_ms": 0.4471338907023892
+        },
+        "terminal": {
+          "baseline_median_ms": 0.8277775941678556,
+          "candidate_median_ms": 0.4601485161401797
+        }
+      },
+      "numerical_group_k": 2,
+      "eager_repeat_exact": true,
+      "trace_vs_eager_exact": true,
+      "every_timed_replay_batch_exact": true,
+      "head_vs_terminal_exact": true
+    }
+  ],
+  "rejection_classifications": {
+    "artifact": "geometry_rejections.json",
+    "sha256": "d13f52340d99020f17f4f6af583cccea0c52a541ac95d5e8bfa48d6f82d8ec8d"
+  }
+}

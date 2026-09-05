@@ -1,0 +1,67 @@
+{
+  "hf_model_id": "ornith-ai/Ornith-1.5-9B",
+  "revision": "489cb97981b8654bcfcf30ce1f94ed1b62e07b53",
+  "snapshot": "/home/hous/dev/ornith-1.5-9b/upstream",
+  "prompt_mode": "chat",
+  "chat_template": true,
+  "tokenizer_class": "Qwen2Tokenizer",
+  "template_sha256": "9dd2fbd270feaa1fbef2d4f634d7887c9c506e3bde140f8e7351c8944e8fd235",
+  "source": "models/common/readiness_check/vllm_prompts.txt",
+  "source_sha256": "2ad452c15d8442d3fe641eb968bbd84e3bfe9acb01ddc540f451983c0da3cbbd",
+  "max_new_tokens": 128,
+  "reused_generator": true,
+  "selected_precision": {
+    "config_id": "head8_lofi",
+    "weight_groups": {
+      "attention": "bfloat4_b",
+      "mlp_gate_up": "bfloat4_b",
+      "mlp_down": "bfloat4_b",
+      "decode_qkvg": "bfloat8_b",
+      "lm_head": "bfloat8_b",
+      "embedding": "bfloat16",
+      "norm": "bfloat16"
+    },
+    "compute_fidelities": {
+      "attention": "LoFi",
+      "mlp_gate_up": "LoFi",
+      "mlp_down": "LoFi",
+      "lm_head": "LoFi"
+    },
+    "layer_exceptions": {},
+    "activation_dtype": "bfloat16",
+    "residual_dtype": "bfloat16",
+    "ccl_dtype": "native",
+    "kv_cache_dtype": "bfloat8_b",
+    "logits_dtype": "bfloat16",
+    "sampling_dtype": "bfloat16",
+    "token_dtype": "uint32",
+    "recurrent_dtype": "float32",
+    "max_context": 262144,
+    "matmul_flags": {
+      "projection_fp32_dest_acc_en": false,
+      "head_fp32_dest_acc_en": true,
+      "math_approx_mode": false,
+      "packer_l1_acc": true
+    }
+  },
+  "runtime_policy": {
+    "sharded_final_norm": true,
+    "head_program": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=1,per_core_M=1,per_core_N=16,fused_activation=std::nullopt,num_workers_per_dram_bank=2)",
+    "head_compute": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x77e3bc0ddb90>",
+    "use_prefill_trace": true,
+    "cache_context": 2048,
+    "mesh": [
+      1,
+      4
+    ]
+  },
+  "reused_hf_control": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_full_model/qualitative_prefill_trace_release_v2",
+  "prompt_indices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+  ]
+}

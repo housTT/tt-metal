@@ -36,6 +36,7 @@ class MeshConfig:
     decode_qkvg_dtype: str | None = "bfloat8_b"
     decode_qkvg_dram: bool = True
     residual: str = "replicated"
+    ccl_dtype: str = "native"
     links: int = 2
     collective: str = "native"
     # Full-grid semaphores support both link counts; one link won the async
@@ -358,7 +359,7 @@ class MultichipDecoder(OptimizedDecoder):
                 fuse_batch=True,
                 mcast_in0=True,
             )
-            kwargs.setdefault("dtype", ttnn.bfloat16)
+            kwargs.setdefault("dtype", getattr(self, "activation_dtype", ttnn.bfloat16))
             out = ttnn.linear(
                 local,
                 weight,
@@ -375,6 +376,9 @@ class MultichipDecoder(OptimizedDecoder):
         shape = list(out.shape)
         local = ttnn.to_memory_config(out, ttnn.L1_MEMORY_CONFIG if shape[1] == 1 else ttnn.DRAM_MEMORY_CONFIG)
         folded = ttnn.reshape(local, [1, 1, shape[0] * shape[1], shape[2]])
+        producer_dtype = folded.dtype
+        if self.mesh_config.ccl_dtype != "native":
+            folded = ttnn.typecast(folded, getattr(ttnn, self.mesh_config.ccl_dtype))
         if self.mesh_config.residual == "replicated" and self.mesh_config.collective == "native":
             reduced = ttnn.all_reduce(folded, num_links=self.mesh_config.links, topology=ttnn.Topology.Ring)
         else:
@@ -391,6 +395,8 @@ class MultichipDecoder(OptimizedDecoder):
             )
             if self.mesh_config.residual == "replicated":
                 reduced = self._gather(reduced)
+        if reduced.dtype != producer_dtype:
+            reduced = ttnn.typecast(reduced, producer_dtype)
         shape[-1] = self.residual_width
         return ttnn.reshape(reduced, shape)
 

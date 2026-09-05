@@ -20,6 +20,8 @@ from models.common.modules.lm_head.lm_head_1d import LMHead1D, LMHead1DConfig
 from ..reference.hf_reference import CHECKPOINT_TEXT_PREFIX, load_layer_state_dict, load_text_config, resolve_model_path
 from .functional_decoder import DEFAULT_PAGE_BLOCK_SIZE, DEFAULT_PREFILL_CHUNK, num_blocks_for_context
 from .multichip_decoder import TP, MeshCCLManager, MeshConfig, MultichipDecoder, fabric_router_config
+from .optimized_decoder import PrecisionPolicy
+from .precision import layer_precision, load_precision
 
 
 def open_ornith_mesh(*, trace_region_size=100_000_000):
@@ -99,13 +101,32 @@ class OrnithModel:
         layer_indices=None,
         max_context=None,
         prefill_chunk=DEFAULT_PREFILL_CHUNK,
-        lm_head_dtype=ttnn.bfloat16,
-        lm_head_fidelity=ttnn.MathFidelity.HiFi4,
-        lm_head_columns=32768,
-        lm_head_block_w=1,
-        lm_head_readers=2,
+        lm_head_dtype=None,
+        lm_head_fidelity=None,
+        precision_config=None,
+        lm_head_columns=None,
+        lm_head_block_w=None,
+        lm_head_readers=None,
+        lm_head_cores=None,
         sharded_final_norm=True,
     ):
+        self.precision = load_precision(precision_config)
+        geometry = self.precision["head_geometry"]
+        lm_head_columns = geometry["columns"] if lm_head_columns is None else lm_head_columns
+        lm_head_block_w = geometry["in0_block_w"] if lm_head_block_w is None else lm_head_block_w
+        lm_head_readers = geometry["readers"] if lm_head_readers is None else lm_head_readers
+        lm_head_cores = geometry["cores"] if lm_head_cores is None else lm_head_cores
+        geometry.update(
+            columns=lm_head_columns, in0_block_w=lm_head_block_w, readers=lm_head_readers, cores=lm_head_cores
+        )
+        weights = self.precision["weight_groups"]
+        fidelities = self.precision["compute_fidelities"]
+        lm_head_dtype = getattr(ttnn, weights["lm_head"]) if lm_head_dtype is None else lm_head_dtype
+        lm_head_fidelity = (
+            getattr(ttnn.MathFidelity, fidelities["lm_head"]) if lm_head_fidelity is None else lm_head_fidelity
+        )
+        self.precision["weight_groups"]["lm_head"] = str(lm_head_dtype).split(".")[-1].lower()
+        self.precision["compute_fidelities"]["lm_head"] = str(lm_head_fidelity).split(".")[-1]
         self.mesh_device = mesh_device
         if tuple(mesh_device.shape) != (1, TP):
             raise ValueError("The optimized Ornith full model requires a 1x4 Blackhole ring")
@@ -115,7 +136,7 @@ class OrnithModel:
         self.dim = self.hf_config.hidden_size
         self.vocab_size = self.hf_config.vocab_size
         self.padded_vocab_size = 262144
-        self.max_context = self.hf_config.max_position_embeddings if max_context is None else int(max_context)
+        self.max_context = self.precision["max_context"] if max_context is None else int(max_context)
         if not 1 <= self.max_context <= self.hf_config.max_position_embeddings:
             raise ValueError("max_context exceeds the HF contract")
         self.prefill_chunk = prefill_chunk
@@ -134,9 +155,15 @@ class OrnithModel:
                 return f.get_tensor(key)
 
         self.embed_weight = self.upload(
-            read(CHECKPOINT_TEXT_PREFIX + "embed_tokens.weight"), layout=ttnn.ROW_MAJOR_LAYOUT, shard_dim=1
+            read(CHECKPOINT_TEXT_PREFIX + "embed_tokens.weight"),
+            dtype=getattr(ttnn, weights["embedding"]),
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            shard_dim=1,
         )
-        self.norm_weight = self.upload((read(CHECKPOINT_TEXT_PREFIX + "norm.weight").float() + 1).reshape(1, 1, 1, -1))
+        self.norm_weight = self.upload(
+            (read(CHECKPOINT_TEXT_PREFIX + "norm.weight").float() + 1).reshape(1, 1, 1, -1),
+            dtype=getattr(ttnn, weights["norm"]),
+        )
         head_key = (
             CHECKPOINT_TEXT_PREFIX + "embed_tokens.weight" if self.hf_config.tie_word_embeddings else "lm_head.weight"
         )
@@ -168,9 +195,9 @@ class OrnithModel:
         self.head_compute = ttnn.init_device_compute_kernel_config(
             mesh_device.arch(),
             math_fidelity=lm_head_fidelity,
-            math_approx_mode=False,
-            fp32_dest_acc_en=True,
-            packer_l1_acc=True,
+            math_approx_mode=self.precision["matmul_flags"]["math_approx_mode"],
+            fp32_dest_acc_en=self.precision["matmul_flags"]["head_fp32_dest_acc_en"],
+            packer_l1_acc=self.precision["matmul_flags"]["packer_l1_acc"],
         )
         self.final_norm_memory = ttnn.create_sharded_memory_config(
             shape=(32, self.dim // 32),
@@ -179,11 +206,11 @@ class OrnithModel:
             orientation=ttnn.ShardOrientation.ROW_MAJOR,
             use_height_and_width_as_shard_shape=True,
         )
-        # Keep normalization's selected accumulation geometry. The head consumes
-        # an explicit 64-core reshard, which improves DRAM reader distribution.
+        # Keep normalization's accumulation geometry. Precision determines the
+        # head geometry; a matching 32-core input reuses the normalized tensor.
         self.head_input_memory = ttnn.create_sharded_memory_config(
-            shape=(32, self.dim // 64),
-            core_grid=ttnn.CoreGrid(x=8, y=8),
+            shape=(32, self.dim // lm_head_cores),
+            core_grid=ttnn.CoreGrid(x=8, y=lm_head_cores // 8),
             strategy=ttnn.ShardStrategy.WIDTH,
             orientation=ttnn.ShardOrientation.ROW_MAJOR,
             use_height_and_width_as_shard_shape=True,
@@ -191,7 +218,7 @@ class OrnithModel:
         self.head_program = ttnn.MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(
             in0_block_w=lm_head_block_w,
             per_core_M=1,
-            per_core_N=self.head_columns // 32 // 64,
+            per_core_N=self.head_columns // 32 // lm_head_cores,
             num_workers_per_dram_bank=lm_head_readers,
             fused_activation=None,
         )
@@ -204,7 +231,7 @@ class OrnithModel:
                 dim=self.dim,
                 program_configs=[self.head_program] * len(self.head_weights),
                 compute_kernel_config=self.head_compute,
-                lm_head_dtype=ttnn.bfloat16,
+                lm_head_dtype=getattr(ttnn, self.precision["logits_dtype"]),
                 input_memcfg=self.head_input_memory,
                 output_memcfg=ttnn.DRAM_MEMORY_CONFIG,
                 weights_memcfgs=[head_mem] * len(self.head_weights),
@@ -223,6 +250,20 @@ class OrnithModel:
             local=replace(mesh_config.local, large_prefill_role_configs={"gdn_out": {"out_block_w": 6}}),
         )
         for index in self.layer_indices:
+            selected = layer_precision(self.precision, index)
+            w, f = selected["weight_groups"], selected["compute_fidelities"]
+            plan = replace(mesh_config, decode_qkvg_dtype=w["decode_qkvg"], ccl_dtype=self.precision["ccl_dtype"])
+            policy = PrecisionPolicy(
+                attention=w["attention"],
+                mlp_gate_up=w["mlp_gate_up"],
+                mlp_down=w["mlp_down"],
+                attention_fidelity=f["attention"],
+                mlp_fidelity=f["mlp_gate_up"],
+                mlp_down_fidelity=f["mlp_down"],
+                math_approx_mode=self.precision["matmul_flags"]["math_approx_mode"],
+                fp32_dest_acc_en=self.precision["matmul_flags"]["projection_fp32_dest_acc_en"],
+                packer_l1_acc=self.precision["matmul_flags"]["packer_l1_acc"],
+            )
             layer = MultichipDecoder.from_state_dict(
                 load_layer_state_dict(index, self.model_path),
                 hf_config=self.hf_config,
@@ -230,8 +271,10 @@ class OrnithModel:
                 mesh_device=mesh_device,
                 max_context=self.max_context,
                 prefill_chunk=prefill_chunk,
-                mesh_config=mesh_config,
+                mesh_config=plan,
+                policy=policy,
             )
+            layer.activation_dtype = getattr(ttnn, self.precision["activation_dtype"])
             self.layers.append(layer)
             logger.info("Loaded layer {} ({})", index, layer.kind)
         self.cache = None
@@ -284,7 +327,11 @@ class OrnithModel:
         for original in self.layers:
             layer = copy.copy(original)
             layer.allocate_state(batch_size)
-            pair = layer.allocate_kv_cache(blocks) if layer.is_full_attention else None
+            pair = (
+                layer.allocate_kv_cache(blocks, dtype=getattr(ttnn, self.precision["kv_cache_dtype"]))
+                if layer.is_full_attention
+                else None
+            )
             decode.append(layer)
             kv.append(pair)
             if batch_size == 1:
@@ -305,7 +352,7 @@ class OrnithModel:
             prefill,
             active_recurrent,
             active_conv,
-            self.upload(torch.zeros(1, 1, self.dim)),
+            self.upload(torch.zeros(1, 1, self.dim), dtype=getattr(ttnn, self.precision["residual_dtype"])),
         )
         self.cache = cache
         return cache
@@ -384,9 +431,11 @@ class OrnithModel:
             dict(program_config=self.final_norm_program, memory_config=memory) if self.sharded_final_norm else {}
         )
         normalized = ttnn.rms_norm(flat, weight=self.norm_weight, epsilon=self.hf_config.rms_norm_eps, **norm_kwargs)
+        reshards = normalized.memory_config() != self.head_input_memory
         sharded = ttnn.to_memory_config(normalized, self.head_input_memory)
         logits = self.lm_head(sharded)
-        ttnn.deallocate(sharded)
+        if reshards:
+            ttnn.deallocate(sharded)
         ttnn.deallocate(normalized)
         return logits
 

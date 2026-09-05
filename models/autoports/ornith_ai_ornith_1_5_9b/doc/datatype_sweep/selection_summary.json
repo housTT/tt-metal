@@ -1,0 +1,19 @@
+{
+  "config_id": "head4_lofi_last8_c32_k4_r2",
+  "top1": 0.92,
+  "top5": 1.0,
+  "top100": 1.0,
+  "teacher_decode_t_s_u": 87.11474246376501,
+  "teacher_ttft_ms": 35.5150590185076,
+  "teacher_artifact": "selected_default_repeat5_v2.json",
+  "teacher_ranking_median_t_s_u": 87.21997421618613,
+  "teacher_ranking_samples": 10,
+  "token_out_t_s_u": 88.0366757529819,
+  "token_out_ttft_ms": 29.00186798069626,
+  "review_status": "clean-pass",
+  "token_out_artifact": "post_selection_tokenout_v2.json",
+  "context_artifact": "selected_native_v2.json",
+  "qualitative_review": "qualitative_selected_v2/QUALITATIVE_REVIEW.md",
+  "selection_reason": "The winner uses BFP4/LoFi body projections and head, BFP8 attention/MLP projections in layer 31, and BFP8/LoFi decode QKVG. Its head uses32 input cores, in0_block_w4 and two DRAM readers, directly consuming the32-core final norm. The paired five-run traced median is87.288t/s/u; final default reproduction is87.115, within the observed87.068..87.322 range. Across all ten repeated selected-policy samples the median is87.220t/s/u. Competing full-model rows are slower: same-geometry HiFi2 head86.564, last8 C64/K2 86.975 across its repeats, BFP8-head C64/K2 raw85.882 and edges85.221. Raw BFP4 C32/K4 is slightly faster87.391 and passes93/100/100, but its current original-template shared suite still mislabels Bonjour as informal; the selected layer31 exception corrects it. This is the fastest evaluated qualified policy. Historical K1 raw-head and first-only candidates also have concrete controlled quality rejections. Baseline repeated median is82.507t/s/u. No eager or token-out measurement enters selection.",
+  "token_out_speedup_percent": 5.590242334683793
+}

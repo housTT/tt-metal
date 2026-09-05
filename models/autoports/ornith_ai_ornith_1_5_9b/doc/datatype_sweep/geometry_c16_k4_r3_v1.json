@@ -1,0 +1,627 @@
+{
+  "candidate": {
+    "cores": 16,
+    "grid": [
+      8,
+      2
+    ],
+    "input_shard": [
+      32,
+      256
+    ],
+    "in0_block_w": 4,
+    "readers": 3,
+    "logical_columns": 32768,
+    "physical_columns": 33024,
+    "weight_shard": [
+      4096,
+      4128
+    ],
+    "reader_tiles": 43,
+    "compute_tiles": 44,
+    "per_core_N": 65,
+    "cb_bytes": {
+      "in0": 16384,
+      "in1": 297216,
+      "output": 90112,
+      "intermediate": 180224
+    },
+    "weight_dtype": "bfloat4_b",
+    "input_dtype": "bfloat16",
+    "output_dtype": "bfloat16",
+    "intermediate_dtype": "float32",
+    "aligned_weight_tile_bytes": 576,
+    "predicted_static_end": 695552,
+    "resident_bytes_per_bank": 221952,
+    "normalized_bytes_per_bank": 8192,
+    "optimistic_live_frontier": 1342720,
+    "source_feasible": true
+  },
+  "baseline": {
+    "cores": 64,
+    "grid": [
+      8,
+      8
+    ],
+    "input_shard": [
+      32,
+      64
+    ],
+    "in0_block_w": 1,
+    "readers": 2,
+    "logical_columns": 32768,
+    "physical_columns": 32768,
+    "weight_shard": [
+      4096,
+      4096
+    ],
+    "reader_tiles": 64,
+    "compute_tiles": 64,
+    "per_core_N": 16,
+    "cb_bytes": {
+      "in0": 4096,
+      "in1": 110592,
+      "output": 131072,
+      "intermediate": 262144
+    },
+    "weight_dtype": "bfloat4_b",
+    "input_dtype": "bfloat16",
+    "output_dtype": "bfloat16",
+    "intermediate_dtype": "float32",
+    "aligned_weight_tile_bytes": 576,
+    "predicted_static_end": 619520,
+    "resident_bytes_per_bank": 221952,
+    "normalized_bytes_per_bank": 8192,
+    "optimistic_live_frontier": 1342720,
+    "source_feasible": true
+  },
+  "precision": {
+    "config_id": "head4_lofi_last8",
+    "weight_groups": {
+      "attention": "bfloat4_b",
+      "mlp_gate_up": "bfloat4_b",
+      "mlp_down": "bfloat4_b",
+      "decode_qkvg": "bfloat8_b",
+      "lm_head": "bfloat4_b",
+      "embedding": "bfloat16",
+      "norm": "bfloat16"
+    },
+    "compute_fidelities": {
+      "attention": "LoFi",
+      "mlp_gate_up": "LoFi",
+      "mlp_down": "LoFi",
+      "lm_head": "LoFi"
+    },
+    "layer_exceptions": {
+      "31": {
+        "weight_groups": {
+          "attention": "bfloat8_b",
+          "mlp_gate_up": "bfloat8_b",
+          "mlp_down": "bfloat8_b"
+        }
+      }
+    },
+    "activation_dtype": "bfloat16",
+    "residual_dtype": "bfloat16",
+    "ccl_dtype": "native",
+    "kv_cache_dtype": "bfloat8_b",
+    "logits_dtype": "bfloat16",
+    "sampling_dtype": "bfloat16",
+    "token_dtype": "uint32",
+    "recurrent_dtype": "float32",
+    "max_context": 262144,
+    "matmul_flags": {
+      "projection_fp32_dest_acc_en": false,
+      "head_fp32_dest_acc_en": true,
+      "math_approx_mode": false,
+      "packer_l1_acc": true
+    }
+  },
+  "precision_config_path": "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/datatype_sweep/selected_precision_config.json",
+  "precision_config_sha256": "1596e5bafa5c2af593e82220031958a8349704ecffb47c753aa848dd37c1440c",
+  "hardware": "TP4, four Blackhole chips on P300c boards",
+  "normalization": "Fixed 8x4 sharded final norm and padding for both geometries",
+  "serial_traces": false,
+  "paired_trials": [
+    {
+      "mode": "head",
+      "name": "baseline",
+      "trial": 0,
+      "trace_ms": 0.8147661264956696,
+      "replays": 64
+    },
+    {
+      "mode": "head",
+      "name": "candidate",
+      "trial": 0,
+      "trace_ms": 0.5255145933915628,
+      "replays": 64
+    },
+    {
+      "mode": "head",
+      "name": "candidate",
+      "trial": 1,
+      "trace_ms": 0.5258536730252672,
+      "replays": 64
+    },
+    {
+      "mode": "head",
+      "name": "baseline",
+      "trial": 1,
+      "trace_ms": 0.8147437183652073,
+      "replays": 64
+    },
+    {
+      "mode": "head",
+      "name": "baseline",
+      "trial": 2,
+      "trace_ms": 0.8144447183440207,
+      "replays": 64
+    },
+    {
+      "mode": "head",
+      "name": "candidate",
+      "trial": 2,
+      "trace_ms": 0.52574329674826,
+      "replays": 64
+    },
+    {
+      "mode": "terminal",
+      "name": "baseline",
+      "trial": 0,
+      "trace_ms": 0.8278081077151,
+      "replays": 64
+    },
+    {
+      "mode": "terminal",
+      "name": "candidate",
+      "trial": 0,
+      "trace_ms": 0.5385122804000275,
+      "replays": 64
+    },
+    {
+      "mode": "terminal",
+      "name": "candidate",
+      "trial": 1,
+      "trace_ms": 0.5386880784499226,
+      "replays": 64
+    },
+    {
+      "mode": "terminal",
+      "name": "baseline",
+      "trial": 1,
+      "trace_ms": 0.8277148135675816,
+      "replays": 64
+    },
+    {
+      "mode": "terminal",
+      "name": "baseline",
+      "trial": 2,
+      "trace_ms": 0.8277158904093085,
+      "replays": 64
+    },
+    {
+      "mode": "terminal",
+      "name": "candidate",
+      "trial": 2,
+      "trace_ms": 0.538434951522504,
+      "replays": 64
+    }
+  ],
+  "probe_execution_pass": true,
+  "source_hashes": {
+    "models/autoports/ornith_ai_ornith_1_5_9b/doc/datatype_sweep/probe_head_geometry.py": "e8873e66f9d6259809d0ba7076af60bc5c918ec96fb930e91b2bb56a77cc83aa",
+    "models/autoports/ornith_ai_ornith_1_5_9b/tt/model.py": "63219ad24b866b628b8b99c156bed609faf8886ac0017afeeb77ce5cc2cf70fc",
+    "models/autoports/ornith_ai_ornith_1_5_9b/tt/precision.py": "dcdf313d171236f6c81028db922c06e78f4a420226487bf89f332d5ba15ac72f",
+    "models/common/modules/lm_head/lm_head_1d.py": "751236089a730099a1da2eb0603a06ba8e035a1cb7935f2eaad69bb7ada57b00",
+    "ttnn/cpp/ttnn/operations/matmul/device/factory/matmul_multicore_reuse_mcast_dram_sharded_program_factory.cpp": "8d0c4f5b4aaa0fdb25eb381e7244e01f7744ee1e81934bdaa5cdef997de31ab7",
+    "ttnn/cpp/ttnn/operations/matmul/device/matmul_device_operation.cpp": "f06c6298dbba8b3f9346187f0ef08bebd538b8f7e5eb13e091a76a6f490cdcec",
+    "ttnn/cpp/ttnn/operations/matmul/device/utilities/matmul_utilities.cpp": "57dea15a2f3db5afebaf50ebedb267621d447cd16f241561c2f4348dde27488a",
+    "tt_metal/impl/data_format/tile.cpp": "e0fe57c9f7a23286d2241d9c6585a3ffa287f5cd633bdd3d517dc964b6fee842"
+  },
+  "phase": "complete",
+  "model_precision": {
+    "config_id": "head4_lofi_last8",
+    "weight_groups": {
+      "attention": "bfloat4_b",
+      "mlp_gate_up": "bfloat4_b",
+      "mlp_down": "bfloat4_b",
+      "decode_qkvg": "bfloat8_b",
+      "lm_head": "bfloat4_b",
+      "embedding": "bfloat16",
+      "norm": "bfloat16"
+    },
+    "compute_fidelities": {
+      "attention": "LoFi",
+      "mlp_gate_up": "LoFi",
+      "mlp_down": "LoFi",
+      "lm_head": "LoFi"
+    },
+    "layer_exceptions": {
+      "31": {
+        "weight_groups": {
+          "attention": "bfloat8_b",
+          "mlp_gate_up": "bfloat8_b",
+          "mlp_down": "bfloat8_b"
+        }
+      }
+    },
+    "activation_dtype": "bfloat16",
+    "residual_dtype": "bfloat16",
+    "ccl_dtype": "native",
+    "kv_cache_dtype": "bfloat8_b",
+    "logits_dtype": "bfloat16",
+    "sampling_dtype": "bfloat16",
+    "token_dtype": "uint32",
+    "recurrent_dtype": "float32",
+    "max_context": 262144,
+    "matmul_flags": {
+      "projection_fp32_dest_acc_en": false,
+      "head_fp32_dest_acc_en": true,
+      "math_approx_mode": false,
+      "packer_l1_acc": true
+    },
+    "head_geometry": {
+      "cores": 64,
+      "columns": 32768,
+      "in0_block_w": 1,
+      "readers": 2
+    }
+  },
+  "model_path": "/home/hous/dev/ornith-1.5-9b/upstream",
+  "hidden_sha256": "7df8dd0a88cbb19eeb3ea23faf21d61a7df1eeba1dcbf475006bb20f07598891",
+  "hidden_source": "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/full_model/french_head_v1/hidden.pt",
+  "hidden_tensor": {
+    "shape": [
+      1,
+      1,
+      4096
+    ],
+    "padded_shape": [
+      1,
+      32,
+      4096
+    ],
+    "dtype": "DataType.BFLOAT16",
+    "memory": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+    "address": 69426816
+  },
+  "resident_allocation": {
+    "shape": [
+      110,
+      110592
+    ],
+    "padded_shape": [
+      110,
+      110592
+    ],
+    "dtype": "DataType.BFLOAT16",
+    "memory": "MemoryConfig(memory_layout=TensorMemoryLayout::HEIGHT_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":9}], shape=[1, 110592], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[1, 110592],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":9}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+    "address": 1318144
+  },
+  "resident_memory": {
+    "total_bytes_allocated_per_bank": 221952,
+    "total_bytes_free_per_bank": 1206528,
+    "largest_contiguous_bytes_free_per_bank": 1206528
+  },
+  "candidate_program": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=4,per_core_M=1,per_core_N=65,fused_activation=std::nullopt,num_workers_per_dram_bank=3)",
+  "compute": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x73eba2b6f600>",
+  "weights": [
+    {
+      "shape": [
+        4096,
+        33024
+      ],
+      "padded_shape": [
+        4096,
+        33024
+      ],
+      "dtype": "DataType.BFLOAT4_B",
+      "memory": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::DRAM,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}], shape=[4096, 4128], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[4096, 4128],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+      "address": 88407680
+    },
+    {
+      "shape": [
+        4096,
+        33024
+      ],
+      "padded_shape": [
+        4096,
+        33024
+      ],
+      "dtype": "DataType.BFLOAT4_B",
+      "memory": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::DRAM,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}], shape=[4096, 4128], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[4096, 4128],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+      "address": 97918592
+    }
+  ],
+  "baseline_weights": [
+    {
+      "shape": [
+        4096,
+        32768
+      ],
+      "padded_shape": [
+        4096,
+        32768
+      ],
+      "dtype": "DataType.BFLOAT4_B",
+      "memory": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::DRAM,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}], shape=[4096, 4096], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[4096, 4096],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+      "address": 69533312
+    },
+    {
+      "shape": [
+        4096,
+        32768
+      ],
+      "padded_shape": [
+        4096,
+        32768
+      ],
+      "dtype": "DataType.BFLOAT4_B",
+      "memory": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::DRAM,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}], shape=[4096, 4096], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[4096, 4096],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+      "address": 78970496
+    }
+  ],
+  "baseline_program": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=1,per_core_M=1,per_core_N=16,fused_activation=std::nullopt,num_workers_per_dram_bank=2)",
+  "normalized": {
+    "shape": [
+      1,
+      1,
+      32,
+      4096
+    ],
+    "padded_shape": [
+      1,
+      1,
+      32,
+      4096
+    ],
+    "dtype": "DataType.BFLOAT16",
+    "memory": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":3}], shape=[32, 128], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[32, 128],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":3}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+    "address": 1301760
+  },
+  "head": {
+    "baseline": {
+      "memory_before": {
+        "total_bytes_allocated_per_bank": 230144,
+        "total_bytes_free_per_bank": 1198336,
+        "largest_contiguous_bytes_free_per_bank": 1190144
+      },
+      "finite": true,
+      "exact_baseline": true,
+      "max_abs": 0.0,
+      "mean_abs": 0.0,
+      "boundary_max_abs": 0.0,
+      "pcc": 1.0,
+      "top1_equal": true,
+      "baseline_top1_in_top5": true,
+      "top10_ids": [
+        39102,
+        610,
+        3444,
+        64,
+        1719,
+        269,
+        258,
+        23543,
+        17981,
+        559
+      ],
+      "top10_logits": [
+        22.625,
+        22.25,
+        22.0,
+        21.875,
+        21.5,
+        21.0,
+        20.875,
+        20.75,
+        20.375,
+        20.25
+      ],
+      "scores_sha256": "dd84110861d4badb92c642a9e70edf6143504b55719700a9ba0fb7d1c38fd4cd",
+      "output_tensor": {
+        "shape": [
+          1,
+          1,
+          32,
+          65536
+        ],
+        "padded_shape": [
+          1,
+          1,
+          32,
+          65536
+        ],
+        "dtype": "DataType.BFLOAT16",
+        "memory": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+        "address": 107953792
+      },
+      "eager_exact_repeat": true,
+      "trace_exact_eager": true,
+      "median_trace_ms": 0.8147437183652073
+    },
+    "candidate": {
+      "memory_before": {
+        "total_bytes_allocated_per_bank": 230144,
+        "total_bytes_free_per_bank": 1198336,
+        "largest_contiguous_bytes_free_per_bank": 1190144
+      },
+      "finite": true,
+      "exact_baseline": false,
+      "max_abs": 0.125,
+      "mean_abs": 0.0005347782862372696,
+      "boundary_max_abs": 0.0009765625,
+      "pcc": 0.9999985098838806,
+      "top1_equal": true,
+      "baseline_top1_in_top5": true,
+      "top10_ids": [
+        39102,
+        610,
+        3444,
+        64,
+        1719,
+        269,
+        258,
+        23543,
+        17981,
+        559
+      ],
+      "top10_logits": [
+        22.625,
+        22.25,
+        22.0,
+        21.875,
+        21.625,
+        21.0,
+        20.875,
+        20.75,
+        20.375,
+        20.25
+      ],
+      "scores_sha256": "0ed0b07708752809fca88d7c1f3f7af77947451065746b8969f8611a7aa66f75",
+      "output_tensor": {
+        "shape": [
+          1,
+          1,
+          32,
+          65536
+        ],
+        "padded_shape": [
+          1,
+          1,
+          32,
+          65536
+        ],
+        "dtype": "DataType.BFLOAT16",
+        "memory": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+        "address": 109270656
+      },
+      "eager_exact_repeat": true,
+      "trace_exact_eager": true,
+      "median_trace_ms": 0.52574329674826
+    }
+  },
+  "terminal": {
+    "baseline": {
+      "memory_before": {
+        "total_bytes_allocated_per_bank": 221952,
+        "total_bytes_free_per_bank": 1206528,
+        "largest_contiguous_bytes_free_per_bank": 1206528
+      },
+      "finite": true,
+      "exact_baseline": true,
+      "max_abs": 0.0,
+      "mean_abs": 0.0,
+      "boundary_max_abs": 0.0,
+      "pcc": 1.0,
+      "top1_equal": true,
+      "baseline_top1_in_top5": true,
+      "top10_ids": [
+        39102,
+        610,
+        3444,
+        64,
+        1719,
+        269,
+        258,
+        23543,
+        17981,
+        559
+      ],
+      "top10_logits": [
+        22.625,
+        22.25,
+        22.0,
+        21.875,
+        21.5,
+        21.0,
+        20.875,
+        20.75,
+        20.375,
+        20.25
+      ],
+      "scores_sha256": "dd84110861d4badb92c642a9e70edf6143504b55719700a9ba0fb7d1c38fd4cd",
+      "output_tensor": {
+        "shape": [
+          1,
+          1,
+          32,
+          65536
+        ],
+        "padded_shape": [
+          1,
+          1,
+          32,
+          65536
+        ],
+        "dtype": "DataType.BFLOAT16",
+        "memory": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+        "address": 107953792
+      },
+      "eager_exact_repeat": true,
+      "trace_exact_eager": true,
+      "median_trace_ms": 0.8277158904093085
+    },
+    "candidate": {
+      "memory_before": {
+        "total_bytes_allocated_per_bank": 221952,
+        "total_bytes_free_per_bank": 1206528,
+        "largest_contiguous_bytes_free_per_bank": 1206528
+      },
+      "finite": true,
+      "exact_baseline": false,
+      "max_abs": 0.125,
+      "mean_abs": 0.0005347782862372696,
+      "boundary_max_abs": 0.0009765625,
+      "pcc": 0.9999985098838806,
+      "top1_equal": true,
+      "baseline_top1_in_top5": true,
+      "top10_ids": [
+        39102,
+        610,
+        3444,
+        64,
+        1719,
+        269,
+        258,
+        23543,
+        17981,
+        559
+      ],
+      "top10_logits": [
+        22.625,
+        22.25,
+        22.0,
+        21.875,
+        21.625,
+        21.0,
+        20.875,
+        20.75,
+        20.375,
+        20.25
+      ],
+      "scores_sha256": "0ed0b07708752809fca88d7c1f3f7af77947451065746b8969f8611a7aa66f75",
+      "output_tensor": {
+        "shape": [
+          1,
+          1,
+          32,
+          65536
+        ],
+        "padded_shape": [
+          1,
+          1,
+          32,
+          65536
+        ],
+        "dtype": "DataType.BFLOAT16",
+        "memory": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+        "address": 109270656
+      },
+      "eager_exact_repeat": true,
+      "trace_exact_eager": true,
+      "median_trace_ms": 0.5385122804000275
+    }
+  }
+}

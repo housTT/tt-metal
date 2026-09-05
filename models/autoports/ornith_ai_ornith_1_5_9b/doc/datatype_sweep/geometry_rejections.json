@@ -1,0 +1,86 @@
+{
+  "geometry_c16_k1_r1_v1": {
+    "classification": "verified_allocation_rejection",
+    "expected_exit_code": 1,
+    "reason": "C16/K1/R1 static CBs collide with required common-head input and two simultaneously live sharded chunk outputs at the fixed full-stack resident/norm contract.",
+    "artifact": "geometry_c16_k1_r1_v1.json",
+    "artifact_sha256": "8c2595cb4d31156d61071fa6cde8ebd768937ccc7fe0e525df19f50787a5ce51",
+    "provenance": "logs/geometry_c16_k1_r1_v1.provenance.json",
+    "provenance_sha256": "29222f051536cf2cb2c3e05e5eea45c68d92331775f048b51854cc415dcc30f3",
+    "log_sha256": "9d464d08da29194f7ffe90bae014372633c8322d96e9e8a3b3af1aa32f003d02",
+    "control_run_id": "geometry_c16_k1_r1_serial_v2",
+    "control_artifact_sha256": "fb33614366e8f126ca0e833b7837e1d29d084f3c38451a60303a570235f6f905",
+    "control_result": "Both alternating and serial-trace lifecycles fail identically before candidate eager completion. Serial retry releases the baseline trace and output before candidate allocation; this refutes retained-baseline-trace interference.",
+    "phase": "head_candidate_eager",
+    "serial_traces": false,
+    "predicted_static_end": 1123328,
+    "observed_static_end": 1123328,
+    "observed_dynamic_frontier": 1023232,
+    "collision_bytes": 100096,
+    "resident_bytes_per_bank": 221952,
+    "normalized_address": 1301760,
+    "candidate_input_bytes_per_core": 16384,
+    "simultaneous_output_shards": 2,
+    "output_shard_bytes_per_core": 131072,
+    "frontier_arithmetic": "1301760 - 16384 - 2 * 131072 = 1023232",
+    "baseline_and_candidate_allocated_bytes_before": 230144,
+    "normal_device_close": true,
+    "source_evidence": [
+      {
+        "path": "models/common/modules/lm_head/lm_head_1d.py",
+        "line": 134,
+        "sha256": "751236089a730099a1da2eb0603a06ba8e035a1cb7935f2eaad69bb7ada57b00",
+        "finding": "The output local retains the first sharded chunk until the second linear call returns. Both 64-tile BF16 output shards coexist."
+      },
+      {
+        "path": "models/autoports/ornith_ai_ornith_1_5_9b/doc/datatype_sweep/probe_head_geometry.py",
+        "line": 435,
+        "sha256": "e8873e66f9d6259809d0ba7076af60bc5c918ec96fb930e91b2bb56a77cc83aa",
+        "finding": "--serial-traces releases baseline trace/output before candidate eager, leaving the same frozen norm and resident allocation."
+      }
+    ],
+    "scope": "Exact frozen real-hidden common-head geometry family; no kernel/lifecycle rewrite or lower resident policy was tested."
+  },
+  "geometry_c16_k1_r1_serial_v2": {
+    "classification": "verified_allocation_rejection",
+    "expected_exit_code": 1,
+    "reason": "C16/K1/R1 static CBs collide with required common-head input and two simultaneously live sharded chunk outputs at the fixed full-stack resident/norm contract.",
+    "artifact": "geometry_c16_k1_r1_serial_v2.json",
+    "artifact_sha256": "fb33614366e8f126ca0e833b7837e1d29d084f3c38451a60303a570235f6f905",
+    "provenance": "logs/geometry_c16_k1_r1_serial_v2.provenance.json",
+    "provenance_sha256": "d06f054d31ca85a06505e5692e39a8ca3c830ab0d8de346b3d62ae305fcae512",
+    "log_sha256": "046989281b09a24db1d53759b2865f633bd513a4b3f2588d93dcc07b0142eb22",
+    "control_run_id": "geometry_c16_k1_r1_v1",
+    "control_artifact_sha256": "8c2595cb4d31156d61071fa6cde8ebd768937ccc7fe0e525df19f50787a5ce51",
+    "control_result": "Both alternating and serial-trace lifecycles fail identically before candidate eager completion. Serial retry releases the baseline trace and output before candidate allocation; this refutes retained-baseline-trace interference.",
+    "phase": "head_candidate_eager",
+    "serial_traces": true,
+    "predicted_static_end": 1123328,
+    "observed_static_end": 1123328,
+    "observed_dynamic_frontier": 1023232,
+    "collision_bytes": 100096,
+    "resident_bytes_per_bank": 221952,
+    "normalized_address": 1301760,
+    "candidate_input_bytes_per_core": 16384,
+    "simultaneous_output_shards": 2,
+    "output_shard_bytes_per_core": 131072,
+    "frontier_arithmetic": "1301760 - 16384 - 2 * 131072 = 1023232",
+    "baseline_and_candidate_allocated_bytes_before": 230144,
+    "normal_device_close": true,
+    "source_evidence": [
+      {
+        "path": "models/common/modules/lm_head/lm_head_1d.py",
+        "line": 134,
+        "sha256": "751236089a730099a1da2eb0603a06ba8e035a1cb7935f2eaad69bb7ada57b00",
+        "finding": "The output local retains the first sharded chunk until the second linear call returns. Both 64-tile BF16 output shards coexist."
+      },
+      {
+        "path": "models/autoports/ornith_ai_ornith_1_5_9b/doc/datatype_sweep/probe_head_geometry.py",
+        "line": 435,
+        "sha256": "e8873e66f9d6259809d0ba7076af60bc5c918ec96fb930e91b2bb56a77cc83aa",
+        "finding": "--serial-traces releases baseline trace/output before candidate eager, leaving the same frozen norm and resident allocation."
+      }
+    ],
+    "scope": "Exact frozen real-hidden common-head geometry family; no kernel/lifecycle rewrite or lower resident policy was tested."
+  }
+}

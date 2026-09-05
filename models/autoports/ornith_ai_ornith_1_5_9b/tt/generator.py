@@ -868,6 +868,7 @@ class OrnithGenerator(Generator):
 
 def build_generator(model_dir, mesh_device, *, use_prefill_trace=True, **kwargs):
     model_keys = (
+        "precision_config",
         "layer_indices",
         "max_context",
         "prefill_chunk",
@@ -876,6 +877,7 @@ def build_generator(model_dir, mesh_device, *, use_prefill_trace=True, **kwargs)
         "lm_head_columns",
         "lm_head_block_w",
         "lm_head_readers",
+        "lm_head_cores",
         "sharded_final_norm",
     )
     model = OrnithModel.from_pretrained(model_dir, mesh_device, **{k: kwargs.pop(k) for k in model_keys if k in kwargs})

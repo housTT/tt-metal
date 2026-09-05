@@ -26,6 +26,10 @@ class PrecisionPolicy:
     mlp_down: str = "bfloat4_b"
     attention_fidelity: str = "LoFi"
     mlp_fidelity: str = "LoFi"
+    mlp_down_fidelity: str | None = None
+    math_approx_mode: bool = False
+    fp32_dest_acc_en: bool = False
+    packer_l1_acc: bool = True
 
 
 @dataclass(frozen=True)
@@ -90,12 +94,14 @@ class OptimizedDecoder(FusedDecoder):
                 decoder.w[name] = ttnn.typecast(old, dtype)
                 ttnn.deallocate(old)
             fidelity = decoder.policy.mlp_fidelity if mlp else decoder.policy.attention_fidelity
+            if name == "down_proj" and decoder.policy.mlp_down_fidelity is not None:
+                fidelity = decoder.policy.mlp_down_fidelity
             decoder.projection_compute[name] = ttnn.init_device_compute_kernel_config(
                 decoder.device.arch(),
                 math_fidelity=getattr(ttnn.MathFidelity, fidelity),
-                math_approx_mode=False,
-                fp32_dest_acc_en=False,
-                packer_l1_acc=True,
+                math_approx_mode=decoder.policy.math_approx_mode,
+                fp32_dest_acc_en=decoder.policy.fp32_dest_acc_en,
+                packer_l1_acc=decoder.policy.packer_l1_acc,
             )
         import torch
 
@@ -255,7 +261,7 @@ class OptimizedDecoder(FusedDecoder):
 
     def _linear(self, x, role, **kwargs):
         if role == "gdn_out":
-            kwargs.setdefault("dtype", ttnn.bfloat16)
+            kwargs.setdefault("dtype", getattr(self, "activation_dtype", ttnn.bfloat16))
         if x.shape[1] != 1:
             return self._prefill_linear(x, role, **kwargs)
         if x.shape[1] == 1 and role in self.decode_weights:

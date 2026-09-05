@@ -1,0 +1,34 @@
+{
+  "config_id": "kv4",
+  "weight_groups": {
+    "attention": "bfloat4_b",
+    "mlp_gate_up": "bfloat4_b",
+    "mlp_down": "bfloat4_b",
+    "decode_qkvg": "bfloat8_b",
+    "lm_head": "bfloat16",
+    "embedding": "bfloat16",
+    "norm": "bfloat16"
+  },
+  "compute_fidelities": {
+    "attention": "LoFi",
+    "mlp_gate_up": "LoFi",
+    "mlp_down": "LoFi",
+    "lm_head": "HiFi4"
+  },
+  "layer_exceptions": {},
+  "activation_dtype": "bfloat16",
+  "residual_dtype": "bfloat16",
+  "ccl_dtype": "native",
+  "kv_cache_dtype": "bfloat4_b",
+  "logits_dtype": "bfloat16",
+  "sampling_dtype": "bfloat16",
+  "token_dtype": "uint32",
+  "recurrent_dtype": "float32",
+  "max_context": 262144,
+  "matmul_flags": {
+    "projection_fp32_dest_acc_en": false,
+    "head_fp32_dest_acc_en": true,
+    "math_approx_mode": false,
+    "packer_l1_acc": true
+  }
+}

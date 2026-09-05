@@ -1,0 +1,2749 @@
+{
+  "command": [
+    "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/datatype_sweep/run_checks.py",
+    "perf",
+    "--precision-config",
+    "models/autoports/ornith_ai_ornith_1_5_9b/doc/datatype_sweep/configs/head8_lofi_first8.json",
+    "--output",
+    "models/autoports/ornith_ai_ornith_1_5_9b/doc/datatype_sweep/tokenout_head8_lofi_first8_v1.json"
+  ],
+  "mode": "perf",
+  "mesh": [
+    1,
+    4
+  ],
+  "hardware": "4 Blackhole chips on two P300c boards",
+  "runtime": {
+    "propagation_assertions_passed": true,
+    "policy": {
+      "config_id": "head8_lofi_first8",
+      "weight_groups": {
+        "attention": "bfloat4_b",
+        "mlp_gate_up": "bfloat4_b",
+        "mlp_down": "bfloat4_b",
+        "decode_qkvg": "bfloat8_b",
+        "lm_head": "bfloat8_b",
+        "embedding": "bfloat16",
+        "norm": "bfloat16"
+      },
+      "compute_fidelities": {
+        "attention": "LoFi",
+        "mlp_gate_up": "LoFi",
+        "mlp_down": "LoFi",
+        "lm_head": "LoFi"
+      },
+      "layer_exceptions": {
+        "0": {
+          "weight_groups": {
+            "attention": "bfloat8_b",
+            "mlp_gate_up": "bfloat8_b",
+            "mlp_down": "bfloat8_b"
+          }
+        }
+      },
+      "activation_dtype": "bfloat16",
+      "residual_dtype": "bfloat16",
+      "ccl_dtype": "native",
+      "kv_cache_dtype": "bfloat8_b",
+      "logits_dtype": "bfloat16",
+      "sampling_dtype": "bfloat16",
+      "token_dtype": "uint32",
+      "recurrent_dtype": "float32",
+      "max_context": 262144,
+      "matmul_flags": {
+        "projection_fp32_dest_acc_en": false,
+        "head_fp32_dest_acc_en": true,
+        "math_approx_mode": false,
+        "packer_l1_acc": true
+      }
+    },
+    "token_dtype": "DataType.UINT32",
+    "head_weights": [
+      "DataType.BFLOAT8_B",
+      "DataType.BFLOAT8_B"
+    ],
+    "head_compute": {
+      "math_fidelity": "MathFidelity.LoFi",
+      "math_approx_mode": "False",
+      "fp32_dest_acc_en": "True",
+      "packer_l1_acc": "True"
+    },
+    "embedding": "DataType.BFLOAT16",
+    "norm": "DataType.BFLOAT16",
+    "zero_hidden": "DataType.BFLOAT16",
+    "cache_context": 262144,
+    "model_max_context": 262144,
+    "layers": [
+      {
+        "index": 0,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT8_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT8_B",
+          "up_proj": "DataType.BFLOAT8_B",
+          "down_proj": "DataType.BFLOAT8_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT8_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT8_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 1,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 2,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 3,
+        "kind": "full_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT4_B",
+          "rope_cos_tiled": "DataType.BFLOAT16",
+          "rope_sin_tiled": "DataType.BFLOAT16",
+          "batch_idxs": "DataType.INT32",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "qkvg": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "o_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": null,
+        "ccl_dtype": "native",
+        "kv_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "index": 4,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 5,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 6,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 7,
+        "kind": "full_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT4_B",
+          "rope_cos_tiled": "DataType.BFLOAT16",
+          "rope_sin_tiled": "DataType.BFLOAT16",
+          "batch_idxs": "DataType.INT32",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "qkvg": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "o_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": null,
+        "ccl_dtype": "native",
+        "kv_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "index": 8,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 9,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 10,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 11,
+        "kind": "full_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT4_B",
+          "rope_cos_tiled": "DataType.BFLOAT16",
+          "rope_sin_tiled": "DataType.BFLOAT16",
+          "batch_idxs": "DataType.INT32",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "qkvg": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "o_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": null,
+        "ccl_dtype": "native",
+        "kv_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "index": 12,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 13,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 14,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 15,
+        "kind": "full_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT4_B",
+          "rope_cos_tiled": "DataType.BFLOAT16",
+          "rope_sin_tiled": "DataType.BFLOAT16",
+          "batch_idxs": "DataType.INT32",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "qkvg": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "o_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": null,
+        "ccl_dtype": "native",
+        "kv_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "index": 16,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 17,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 18,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 19,
+        "kind": "full_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT4_B",
+          "rope_cos_tiled": "DataType.BFLOAT16",
+          "rope_sin_tiled": "DataType.BFLOAT16",
+          "batch_idxs": "DataType.INT32",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "qkvg": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "o_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": null,
+        "ccl_dtype": "native",
+        "kv_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "index": 20,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 21,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 22,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 23,
+        "kind": "full_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT4_B",
+          "rope_cos_tiled": "DataType.BFLOAT16",
+          "rope_sin_tiled": "DataType.BFLOAT16",
+          "batch_idxs": "DataType.INT32",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "qkvg": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "o_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": null,
+        "ccl_dtype": "native",
+        "kv_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "index": 24,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 25,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 26,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 27,
+        "kind": "full_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT4_B",
+          "rope_cos_tiled": "DataType.BFLOAT16",
+          "rope_sin_tiled": "DataType.BFLOAT16",
+          "batch_idxs": "DataType.INT32",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "qkvg": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "o_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": null,
+        "ccl_dtype": "native",
+        "kv_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "index": 28,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 29,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 30,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gdn_all": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": "DataType.FLOAT32",
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 31,
+        "kind": "full_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT4_B",
+          "rope_cos_tiled": "DataType.BFLOAT16",
+          "rope_sin_tiled": "DataType.BFLOAT16",
+          "batch_idxs": "DataType.INT32",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "qkvg": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "o_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "up_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "down_proj": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          },
+          "gate_up": {
+            "math_fidelity": "MathFidelity.LoFi",
+            "math_approx_mode": "False",
+            "fp32_dest_acc_en": "False",
+            "packer_l1_acc": "True"
+          }
+        },
+        "activation_dtype": "DataType.BFLOAT16",
+        "recurrent_dtype": null,
+        "ccl_dtype": "native",
+        "kv_dtype": "DataType.BFLOAT8_B"
+      }
+    ]
+  },
+  "tokens": [
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100,
+    100
+  ],
+  "perf": {
+    "ttft_s": 0.029432128998450935,
+    "prefill_only_s": 0.025346669019199908,
+    "request_setup_s": 0.004085459979251027,
+    "request_counters": {
+      "model_replays": 0,
+      "sampling_replays": 1,
+      "token_refreshes": 0,
+      "position_refreshes": 0,
+      "rope_refreshes": 0,
+      "page_table_refreshes": 0,
+      "readbacks": 1,
+      "synchronizations": 0,
+      "read_waits": 0,
+      "history_replays": 0,
+      "history_index_refreshes": 0,
+      "history_readbacks": 0,
+      "prefill_replays": 1,
+      "prefill_captures": 0,
+      "prefill_trace_misses": 0,
+      "prefill_token_refreshes": 1,
+      "prefill_page_table_refreshes": 0,
+      "prefill_eager_calls": 0,
+      "prefill_sampling_replays": 1
+    },
+    "decode_s": 1.4894943709950894,
+    "decode_steps": 127,
+    "tokens_per_second": 85.2638334679673,
+    "loop_counters": {
+      "model_replays": 127,
+      "sampling_replays": 127,
+      "token_refreshes": 0,
+      "position_refreshes": 0,
+      "rope_refreshes": 0,
+      "page_table_refreshes": 0,
+      "readbacks": 1,
+      "synchronizations": 0,
+      "read_waits": 1,
+      "history_replays": 127,
+      "history_index_refreshes": 0,
+      "history_readbacks": 1,
+      "prefill_replays": 0,
+      "prefill_captures": 0,
+      "prefill_trace_misses": 0,
+      "prefill_token_refreshes": 0,
+      "prefill_page_table_refreshes": 0,
+      "prefill_eager_calls": 0,
+      "prefill_sampling_replays": 0
+    }
+  },
+  "warm_runs": [
+    {
+      "ttft_s": 0.029447678942233324,
+      "prefill_only_s": 0.025351558928377926,
+      "request_setup_s": 0.004096120013855398,
+      "request_counters": {
+        "model_replays": 0,
+        "sampling_replays": 1,
+        "token_refreshes": 0,
+        "position_refreshes": 0,
+        "rope_refreshes": 0,
+        "page_table_refreshes": 0,
+        "readbacks": 1,
+        "synchronizations": 0,
+        "read_waits": 0,
+        "history_replays": 0,
+        "history_index_refreshes": 0,
+        "history_readbacks": 0,
+        "prefill_replays": 1,
+        "prefill_captures": 0,
+        "prefill_trace_misses": 0,
+        "prefill_token_refreshes": 1,
+        "prefill_page_table_refreshes": 0,
+        "prefill_eager_calls": 0,
+        "prefill_sampling_replays": 1
+      },
+      "decode_s": 1.4896219850052148,
+      "decode_steps": 127,
+      "tokens_per_second": 85.25652902441246,
+      "loop_counters": {
+        "model_replays": 127,
+        "sampling_replays": 127,
+        "token_refreshes": 0,
+        "position_refreshes": 0,
+        "rope_refreshes": 0,
+        "page_table_refreshes": 0,
+        "readbacks": 1,
+        "synchronizations": 0,
+        "read_waits": 1,
+        "history_replays": 127,
+        "history_index_refreshes": 0,
+        "history_readbacks": 1,
+        "prefill_replays": 0,
+        "prefill_captures": 0,
+        "prefill_trace_misses": 0,
+        "prefill_token_refreshes": 0,
+        "prefill_page_table_refreshes": 0,
+        "prefill_eager_calls": 0,
+        "prefill_sampling_replays": 0
+      }
+    },
+    {
+      "ttft_s": 0.029432128998450935,
+      "prefill_only_s": 0.025346669019199908,
+      "request_setup_s": 0.004085459979251027,
+      "request_counters": {
+        "model_replays": 0,
+        "sampling_replays": 1,
+        "token_refreshes": 0,
+        "position_refreshes": 0,
+        "rope_refreshes": 0,
+        "page_table_refreshes": 0,
+        "readbacks": 1,
+        "synchronizations": 0,
+        "read_waits": 0,
+        "history_replays": 0,
+        "history_index_refreshes": 0,
+        "history_readbacks": 0,
+        "prefill_replays": 1,
+        "prefill_captures": 0,
+        "prefill_trace_misses": 0,
+        "prefill_token_refreshes": 1,
+        "prefill_page_table_refreshes": 0,
+        "prefill_eager_calls": 0,
+        "prefill_sampling_replays": 1
+      },
+      "decode_s": 1.4894943709950894,
+      "decode_steps": 127,
+      "tokens_per_second": 85.2638334679673,
+      "loop_counters": {
+        "model_replays": 127,
+        "sampling_replays": 127,
+        "token_refreshes": 0,
+        "position_refreshes": 0,
+        "rope_refreshes": 0,
+        "page_table_refreshes": 0,
+        "readbacks": 1,
+        "synchronizations": 0,
+        "read_waits": 1,
+        "history_replays": 127,
+        "history_index_refreshes": 0,
+        "history_readbacks": 1,
+        "prefill_replays": 0,
+        "prefill_captures": 0,
+        "prefill_trace_misses": 0,
+        "prefill_token_refreshes": 0,
+        "prefill_page_table_refreshes": 0,
+        "prefill_eager_calls": 0,
+        "prefill_sampling_replays": 0
+      }
+    },
+    {
+      "ttft_s": 0.029546287027187645,
+      "prefill_only_s": 0.025353664066642523,
+      "request_setup_s": 0.004192622960545123,
+      "request_counters": {
+        "model_replays": 0,
+        "sampling_replays": 1,
+        "token_refreshes": 0,
+        "position_refreshes": 0,
+        "rope_refreshes": 0,
+        "page_table_refreshes": 0,
+        "readbacks": 1,
+        "synchronizations": 0,
+        "read_waits": 0,
+        "history_replays": 0,
+        "history_index_refreshes": 0,
+        "history_readbacks": 0,
+        "prefill_replays": 1,
+        "prefill_captures": 0,
+        "prefill_trace_misses": 0,
+        "prefill_token_refreshes": 1,
+        "prefill_page_table_refreshes": 0,
+        "prefill_eager_calls": 0,
+        "prefill_sampling_replays": 1
+      },
+      "decode_s": 1.4896072080591694,
+      "decode_steps": 127,
+      "tokens_per_second": 85.25737477161522,
+      "loop_counters": {
+        "model_replays": 127,
+        "sampling_replays": 127,
+        "token_refreshes": 0,
+        "position_refreshes": 0,
+        "rope_refreshes": 0,
+        "page_table_refreshes": 0,
+        "readbacks": 1,
+        "synchronizations": 0,
+        "read_waits": 1,
+        "history_replays": 127,
+        "history_index_refreshes": 0,
+        "history_readbacks": 1,
+        "prefill_replays": 0,
+        "prefill_captures": 0,
+        "prefill_trace_misses": 0,
+        "prefill_token_refreshes": 0,
+        "prefill_page_table_refreshes": 0,
+        "prefill_eager_calls": 0,
+        "prefill_sampling_replays": 0
+      }
+    },
+    {
+      "ttft_s": 0.029381111962720752,
+      "prefill_only_s": 0.02531051088590175,
+      "request_setup_s": 0.004070601076819003,
+      "request_counters": {
+        "model_replays": 0,
+        "sampling_replays": 1,
+        "token_refreshes": 0,
+        "position_refreshes": 0,
+        "rope_refreshes": 0,
+        "page_table_refreshes": 0,
+        "readbacks": 1,
+        "synchronizations": 0,
+        "read_waits": 0,
+        "history_replays": 0,
+        "history_index_refreshes": 0,
+        "history_readbacks": 0,
+        "prefill_replays": 1,
+        "prefill_captures": 0,
+        "prefill_trace_misses": 0,
+        "prefill_token_refreshes": 1,
+        "prefill_page_table_refreshes": 0,
+        "prefill_eager_calls": 0,
+        "prefill_sampling_replays": 1
+      },
+      "decode_s": 1.4893705650465563,
+      "decode_steps": 127,
+      "tokens_per_second": 85.27092113978371,
+      "loop_counters": {
+        "model_replays": 127,
+        "sampling_replays": 127,
+        "token_refreshes": 0,
+        "position_refreshes": 0,
+        "rope_refreshes": 0,
+        "page_table_refreshes": 0,
+        "readbacks": 1,
+        "synchronizations": 0,
+        "read_waits": 1,
+        "history_replays": 127,
+        "history_index_refreshes": 0,
+        "history_readbacks": 1,
+        "prefill_replays": 0,
+        "prefill_captures": 0,
+        "prefill_trace_misses": 0,
+        "prefill_token_refreshes": 0,
+        "prefill_page_table_refreshes": 0,
+        "prefill_eager_calls": 0,
+        "prefill_sampling_replays": 0
+      }
+    },
+    {
+      "ttft_s": 0.02936802594922483,
+      "prefill_only_s": 0.02529484999831766,
+      "request_setup_s": 0.004073175950907171,
+      "request_counters": {
+        "model_replays": 0,
+        "sampling_replays": 1,
+        "token_refreshes": 0,
+        "position_refreshes": 0,
+        "rope_refreshes": 0,
+        "page_table_refreshes": 0,
+        "readbacks": 1,
+        "synchronizations": 0,
+        "read_waits": 0,
+        "history_replays": 0,
+        "history_index_refreshes": 0,
+        "history_readbacks": 0,
+        "prefill_replays": 1,
+        "prefill_captures": 0,
+        "prefill_trace_misses": 0,
+        "prefill_token_refreshes": 1,
+        "prefill_page_table_refreshes": 0,
+        "prefill_eager_calls": 0,
+        "prefill_sampling_replays": 1
+      },
+      "decode_s": 1.4896812200313434,
+      "decode_steps": 127,
+      "tokens_per_second": 85.25313892144514,
+      "loop_counters": {
+        "model_replays": 127,
+        "sampling_replays": 127,
+        "token_refreshes": 0,
+        "position_refreshes": 0,
+        "rope_refreshes": 0,
+        "page_table_refreshes": 0,
+        "readbacks": 1,
+        "synchronizations": 0,
+        "read_waits": 1,
+        "history_replays": 127,
+        "history_index_refreshes": 0,
+        "history_readbacks": 1,
+        "prefill_replays": 0,
+        "prefill_captures": 0,
+        "prefill_trace_misses": 0,
+        "prefill_token_refreshes": 0,
+        "prefill_page_table_refreshes": 0,
+        "prefill_eager_calls": 0,
+        "prefill_sampling_replays": 0
+      }
+    }
+  ],
+  "selected_warm_run": "median TTFT; decode metric from that same run",
+  "first_perf": {
+    "ttft_s": 0.7379628519993275,
+    "prefill_only_s": 0.20482433796860278,
+    "request_setup_s": 0.5331385140307248,
+    "request_counters": {
+      "model_replays": 0,
+      "sampling_replays": 1,
+      "token_refreshes": 2,
+      "position_refreshes": 2,
+      "rope_refreshes": 2,
+      "page_table_refreshes": 1,
+      "readbacks": 1,
+      "synchronizations": 0,
+      "read_waits": 0,
+      "history_replays": 0,
+      "history_index_refreshes": 2,
+      "history_readbacks": 0,
+      "prefill_replays": 1,
+      "prefill_captures": 2,
+      "prefill_trace_misses": 1,
+      "prefill_token_refreshes": 1,
+      "prefill_page_table_refreshes": 1,
+      "prefill_eager_calls": 0,
+      "prefill_sampling_replays": 1
+    },
+    "decode_s": 1.489393317955546,
+    "decode_steps": 127,
+    "tokens_per_second": 85.26961848756633,
+    "loop_counters": {
+      "model_replays": 127,
+      "sampling_replays": 127,
+      "token_refreshes": 0,
+      "position_refreshes": 0,
+      "rope_refreshes": 0,
+      "page_table_refreshes": 0,
+      "readbacks": 1,
+      "synchronizations": 0,
+      "read_waits": 1,
+      "history_replays": 127,
+      "history_index_refreshes": 0,
+      "history_readbacks": 1,
+      "prefill_replays": 0,
+      "prefill_captures": 0,
+      "prefill_trace_misses": 0,
+      "prefill_token_refreshes": 0,
+      "prefill_page_table_refreshes": 0,
+      "prefill_eager_calls": 0,
+      "prefill_sampling_replays": 0
+    }
+  },
+  "cache_context": 262144,
+  "prompt_length": 128,
+  "pass": true,
+  "positions": [
+    255
+  ],
+  "token_out_no_readback": [
+    {
+      "ms_per_token": 11.719984354407298,
+      "tokens_per_second": 85.32434598549187,
+      "loop_counters": {
+        "model_replays": 127,
+        "sampling_replays": 127,
+        "token_refreshes": 0,
+        "position_refreshes": 0,
+        "rope_refreshes": 0,
+        "page_table_refreshes": 0,
+        "readbacks": 0,
+        "synchronizations": 0,
+        "read_waits": 0,
+        "history_replays": 0,
+        "history_index_refreshes": 0,
+        "history_readbacks": 0,
+        "prefill_replays": 0,
+        "prefill_captures": 0,
+        "prefill_trace_misses": 0,
+        "prefill_token_refreshes": 0,
+        "prefill_page_table_refreshes": 0,
+        "prefill_eager_calls": 0,
+        "prefill_sampling_replays": 0
+      },
+      "boundary_synchronizations": 2,
+      "final_validation_readbacks": 1
+    },
+    {
+      "ms_per_token": 11.721686512327159,
+      "tokens_per_second": 85.31195565999363,
+      "loop_counters": {
+        "model_replays": 127,
+        "sampling_replays": 127,
+        "token_refreshes": 0,
+        "position_refreshes": 0,
+        "rope_refreshes": 0,
+        "page_table_refreshes": 0,
+        "readbacks": 0,
+        "synchronizations": 0,
+        "read_waits": 0,
+        "history_replays": 0,
+        "history_index_refreshes": 0,
+        "history_readbacks": 0,
+        "prefill_replays": 0,
+        "prefill_captures": 0,
+        "prefill_trace_misses": 0,
+        "prefill_token_refreshes": 0,
+        "prefill_page_table_refreshes": 0,
+        "prefill_eager_calls": 0,
+        "prefill_sampling_replays": 0
+      },
+      "boundary_synchronizations": 2,
+      "final_validation_readbacks": 1
+    },
+    {
+      "ms_per_token": 11.719286960630319,
+      "tokens_per_second": 85.32942348449971,
+      "loop_counters": {
+        "model_replays": 127,
+        "sampling_replays": 127,
+        "token_refreshes": 0,
+        "position_refreshes": 0,
+        "rope_refreshes": 0,
+        "page_table_refreshes": 0,
+        "readbacks": 0,
+        "synchronizations": 0,
+        "read_waits": 0,
+        "history_replays": 0,
+        "history_index_refreshes": 0,
+        "history_readbacks": 0,
+        "prefill_replays": 0,
+        "prefill_captures": 0,
+        "prefill_trace_misses": 0,
+        "prefill_token_refreshes": 0,
+        "prefill_page_table_refreshes": 0,
+        "prefill_eager_calls": 0,
+        "prefill_sampling_replays": 0
+      },
+      "boundary_synchronizations": 2,
+      "final_validation_readbacks": 1
+    }
+  ],
+  "logits_only_trace": {
+    "steps": 128,
+    "elapsed_s": 1.425748604000546,
+    "ms_per_token": 11.138660968754266,
+    "tokens_per_second": 89.77739809167015,
+    "sampling": false,
+    "token_feedback": false,
+    "host_refreshes_per_token": 0
+  },
+  "elapsed_s": 76.79459503793623
+}

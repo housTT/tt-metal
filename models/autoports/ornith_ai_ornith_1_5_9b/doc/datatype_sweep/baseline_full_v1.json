@@ -1,0 +1,1285 @@
+{
+  "command": [
+    "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/datatype_sweep/run_candidate.py",
+    "--output",
+    "models/autoports/ornith_ai_ornith_1_5_9b/doc/datatype_sweep/baseline_full_v1.json"
+  ],
+  "config_id": "baseline_bfp4_lofi_qkvg8_lofi_head16_hifi4",
+  "dtype_policy": {
+    "config_id": "baseline_bfp4_lofi_qkvg8_lofi_head16_hifi4",
+    "weight_groups": {
+      "attention": "bfloat4_b",
+      "mlp_gate_up": "bfloat4_b",
+      "mlp_down": "bfloat4_b",
+      "decode_qkvg": "bfloat8_b",
+      "lm_head": "bfloat16",
+      "embedding": "bfloat16",
+      "norm": "bfloat16"
+    },
+    "compute_fidelities": {
+      "attention": "LoFi",
+      "mlp_gate_up": "LoFi",
+      "mlp_down": "LoFi",
+      "lm_head": "HiFi4"
+    },
+    "layer_exceptions": {},
+    "activation_dtype": "bfloat16",
+    "residual_dtype": "bfloat16",
+    "ccl_dtype": "native",
+    "kv_cache_dtype": "bfloat8_b",
+    "logits_dtype": "bfloat16",
+    "sampling_dtype": "bfloat16",
+    "token_dtype": "uint32",
+    "recurrent_dtype": "float32",
+    "max_context": 262144,
+    "matmul_flags": {
+      "projection_fp32_dest_acc_en": false,
+      "head_fp32_dest_acc_en": true,
+      "math_approx_mode": false,
+      "packer_l1_acc": true
+    }
+  },
+  "hardware": "four Blackhole chips on two P300c boards",
+  "mesh": [
+    1,
+    4
+  ],
+  "measurement_regime": "full32 batch1 AIME24 chat100; traced teacher forcing with callback/logit readback",
+  "reference": "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/readiness_aime24_chat.refpt",
+  "pass_status": "pass",
+  "runtime": {
+    "policy": {
+      "config_id": "baseline_bfp4_lofi_qkvg8_lofi_head16_hifi4",
+      "weight_groups": {
+        "attention": "bfloat4_b",
+        "mlp_gate_up": "bfloat4_b",
+        "mlp_down": "bfloat4_b",
+        "decode_qkvg": "bfloat8_b",
+        "lm_head": "bfloat16",
+        "embedding": "bfloat16",
+        "norm": "bfloat16"
+      },
+      "compute_fidelities": {
+        "attention": "LoFi",
+        "mlp_gate_up": "LoFi",
+        "mlp_down": "LoFi",
+        "lm_head": "HiFi4"
+      },
+      "layer_exceptions": {},
+      "activation_dtype": "bfloat16",
+      "residual_dtype": "bfloat16",
+      "ccl_dtype": "native",
+      "kv_cache_dtype": "bfloat8_b",
+      "logits_dtype": "bfloat16",
+      "sampling_dtype": "bfloat16",
+      "token_dtype": "uint32",
+      "recurrent_dtype": "float32",
+      "max_context": 262144,
+      "matmul_flags": {
+        "projection_fp32_dest_acc_en": false,
+        "head_fp32_dest_acc_en": true,
+        "math_approx_mode": false,
+        "packer_l1_acc": true
+      }
+    },
+    "head_weights": [
+      "DataType.BFLOAT16",
+      "DataType.BFLOAT16"
+    ],
+    "head_compute": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597659bc90>",
+    "embedding": "DataType.BFLOAT16",
+    "norm": "DataType.BFLOAT16",
+    "zero_hidden": "DataType.BFLOAT16",
+    "cache_context": 2048,
+    "model_max_context": 262144,
+    "layers": [
+      {
+        "index": 0,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597659acd0>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976598600>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597659ba80>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976598420>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597659a4c0>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976598600>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 1,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597659a520>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597659a1f0>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597659a580>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597659b390>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976598ff0>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597659a1f0>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 2,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597659aee0>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597659b4e0>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976598a20>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976599c50>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597659b480>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597659b4e0>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 3,
+        "kind": "full_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT4_B",
+          "rope_cos_tiled": "DataType.BFLOAT16",
+          "rope_sin_tiled": "DataType.BFLOAT16",
+          "batch_idxs": "DataType.INT32",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "qkvg": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597659a970>",
+          "o_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597659b4b0>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e2a00>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e2a90>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e2bb0>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e2a00>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "index": 4,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e3db0>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e3f60>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e3f30>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e12c0>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e2790>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e3f60>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 5,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e0240>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e1290>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e02a0>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e2460>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e1230>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e1290>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 6,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e2df0>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e2490>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e2e50>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e33f0>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e2cd0>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e2490>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 7,
+        "kind": "full_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT4_B",
+          "rope_cos_tiled": "DataType.BFLOAT16",
+          "rope_sin_tiled": "DataType.BFLOAT16",
+          "batch_idxs": "DataType.INT32",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "qkvg": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e3480>",
+          "o_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e2ca0>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e0c00>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e0ae0>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e0db0>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e0c00>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "index": 8,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e0510>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e0480>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e04b0>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e1560>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e3e40>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e0480>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 9,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e1bf0>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e1590>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e25e0>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e20a0>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e15f0>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e1590>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 10,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e1ef0>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e2070>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e22e0>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e18c0>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e2010>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768e2070>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 11,
+        "kind": "full_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT4_B",
+          "rope_cos_tiled": "DataType.BFLOAT16",
+          "rope_sin_tiled": "DataType.BFLOAT16",
+          "batch_idxs": "DataType.INT32",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "qkvg": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d3cc0>",
+          "o_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d07e0>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d3930>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d3840>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d3a50>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d3930>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "index": 12,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d0090>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d1e90>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d0030>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d1890>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d1440>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d1e90>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 13,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d16e0>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d1860>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d1650>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d32d0>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d1800>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d1860>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 14,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d3120>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d32a0>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d2ee0>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d3d80>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d3240>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d32a0>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 15,
+        "kind": "full_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT4_B",
+          "rope_cos_tiled": "DataType.BFLOAT16",
+          "rope_sin_tiled": "DataType.BFLOAT16",
+          "batch_idxs": "DataType.INT32",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "qkvg": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d3f30>",
+          "o_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d3270>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d0660>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d0630>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d0900>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d0660>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "index": 16,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d0ab0>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d19b0>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d0b10>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d2f10>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d0390>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59768d19b0>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 17,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657a220>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657a370>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657b120>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976579230>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657a340>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657a370>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 18,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976578090>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976579200>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765780f0>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976578690>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765791a0>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976579200>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 19,
+        "kind": "full_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT4_B",
+          "rope_cos_tiled": "DataType.BFLOAT16",
+          "rope_sin_tiled": "DataType.BFLOAT16",
+          "batch_idxs": "DataType.INT32",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "qkvg": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976578720>",
+          "o_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765791d0>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976578b70>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976578a80>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976578c90>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976578b70>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "index": 20,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976578f60>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976578ed0>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976578f00>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765799e0>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765788a0>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976578ed0>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 21,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976579b90>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976579a10>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976579bf0>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657a190>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976579a70>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b5976579a10>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 22,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657a5b0>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657a1c0>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657a610>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657ad00>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657a490>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657a1c0>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 23,
+        "kind": "full_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT4_B",
+          "rope_cos_tiled": "DataType.BFLOAT16",
+          "rope_sin_tiled": "DataType.BFLOAT16",
+          "batch_idxs": "DataType.INT32",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "qkvg": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657ad90>",
+          "o_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657a460>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657b330>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657ad30>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657b210>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b597657b330>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "index": 24,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f0450>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f03c0>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f03f0>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f09f0>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f01b0>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f03c0>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 25,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f0ba0>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f0a20>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f0c00>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f11a0>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f0a80>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f0a20>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 26,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f1350>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f11d0>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f13b0>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f1950>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f1230>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f11d0>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 27,
+        "kind": "full_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT4_B",
+          "rope_cos_tiled": "DataType.BFLOAT16",
+          "rope_sin_tiled": "DataType.BFLOAT16",
+          "batch_idxs": "DataType.INT32",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "qkvg": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f19e0>",
+          "o_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f1200>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f1e30>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f1d40>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f1f50>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f1e30>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": "DataType.BFLOAT8_B"
+      },
+      {
+        "index": 28,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f2220>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f2190>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f21c0>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f27c0>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f1b60>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f2190>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 29,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f2970>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f27f0>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f29d0>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f2f70>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f2850>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f27f0>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 30,
+        "kind": "linear_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "gdn_out": "DataType.BFLOAT4_B",
+          "gdn_norm": "DataType.BFLOAT16",
+          "A_neg": "DataType.FLOAT32",
+          "dt_bias": "DataType.FLOAT32",
+          "pos_ramp": "DataType.FLOAT32",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "kda_norm_vector": "DataType.BFLOAT16",
+          "gdn_all": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "gdn_out": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f3120>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f2fa0>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f3180>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f3720>",
+          "gdn_all": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f3000>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f2fa0>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": null
+      },
+      {
+        "index": 31,
+        "kind": "full_attention",
+        "weights": {
+          "attn_norm": "DataType.BFLOAT16",
+          "ff_norm": "DataType.BFLOAT16",
+          "o_proj": "DataType.BFLOAT4_B",
+          "q_norm": "DataType.BFLOAT16",
+          "k_norm": "DataType.BFLOAT16",
+          "gate_proj": "DataType.BFLOAT4_B",
+          "up_proj": "DataType.BFLOAT4_B",
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT4_B",
+          "rope_cos_tiled": "DataType.BFLOAT16",
+          "rope_sin_tiled": "DataType.BFLOAT16",
+          "batch_idxs": "DataType.INT32",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "decode_weights": {
+          "down_proj": "DataType.BFLOAT4_B",
+          "qkvg": "DataType.BFLOAT8_B",
+          "gate_up": "DataType.BFLOAT4_B"
+        },
+        "compute": {
+          "qkvg": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f37b0>",
+          "o_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f2fd0>",
+          "gate_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f3c00>",
+          "up_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f3b10>",
+          "down_proj": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f3d20>",
+          "gate_up": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7b59765f3c00>"
+        },
+        "ccl_dtype": "native",
+        "kv_dtype": "DataType.BFLOAT8_B"
+      }
+    ]
+  },
+  "prefill_check": [
+    {
+      "top1": 0.95,
+      "top5": 1.0,
+      "top100": 1.0,
+      "matches_top1": 95,
+      "matches_top5": 100,
+      "matches_top100": 100,
+      "total": 100,
+      "k": 100
+    }
+  ],
+  "prefill_check_counters": {
+    "model_replays": 0,
+    "sampling_replays": 0,
+    "token_refreshes": 2,
+    "position_refreshes": 2,
+    "rope_refreshes": 2,
+    "page_table_refreshes": 1,
+    "readbacks": 9,
+    "synchronizations": 0,
+    "read_waits": 0,
+    "history_replays": 0,
+    "history_index_refreshes": 2,
+    "history_readbacks": 0,
+    "prefill_replays": 0,
+    "prefill_captures": 0,
+    "prefill_trace_misses": 0,
+    "prefill_token_refreshes": 0,
+    "prefill_page_table_refreshes": 0,
+    "prefill_eager_calls": 1,
+    "prefill_sampling_replays": 0
+  },
+  "teacher_forcing": [
+    {
+      "top1": 0.94,
+      "top5": 1.0,
+      "top100": 1.0,
+      "matches_top1": 94,
+      "matches_top5": 100,
+      "matches_top100": 100,
+      "total": 100,
+      "k": 100,
+      "elapsed_s": 1.5885565250646323,
+      "e2e_t/s/u": 62.950230868197394,
+      "ttft_ms": 388.0442150402814,
+      "decode_tokens": 99.0,
+      "decode_elapsed_s": 1.20040238997899,
+      "decode_t/s/u": 82.47234496236945
+    }
+  ],
+  "teacher_forcing_counters": {
+    "model_replays": 99,
+    "sampling_replays": 100,
+    "token_refreshes": 101,
+    "position_refreshes": 3,
+    "rope_refreshes": 3,
+    "page_table_refreshes": 1,
+    "readbacks": 100,
+    "synchronizations": 0,
+    "read_waits": 0,
+    "history_replays": 0,
+    "history_index_refreshes": 2,
+    "history_readbacks": 0,
+    "prefill_replays": 1,
+    "prefill_captures": 1,
+    "prefill_trace_misses": 1,
+    "prefill_token_refreshes": 1,
+    "prefill_page_table_refreshes": 1,
+    "prefill_eager_calls": 0,
+    "prefill_sampling_replays": 1
+  },
+  "generator_perf": {
+    "ttft_s": 0.38778248406015337,
+    "prefill_only_s": 0.03256264701485634,
+    "request_setup_s": 0.355219837045297,
+    "request_counters": {
+      "model_replays": 0,
+      "sampling_replays": 1,
+      "token_refreshes": 2,
+      "position_refreshes": 2,
+      "rope_refreshes": 2,
+      "page_table_refreshes": 1,
+      "readbacks": 1,
+      "synchronizations": 0,
+      "read_waits": 0,
+      "history_replays": 0,
+      "history_index_refreshes": 2,
+      "history_readbacks": 0,
+      "prefill_replays": 1,
+      "prefill_captures": 1,
+      "prefill_trace_misses": 1,
+      "prefill_token_refreshes": 1,
+      "prefill_page_table_refreshes": 1,
+      "prefill_eager_calls": 0,
+      "prefill_sampling_replays": 1
+    },
+    "decode_s": 1.2003059959970415,
+    "decode_steps": 99,
+    "tokens_per_second": 82.47896813825798,
+    "loop_counters": {
+      "model_replays": 99,
+      "sampling_replays": 99,
+      "token_refreshes": 98,
+      "position_refreshes": 0,
+      "rope_refreshes": 0,
+      "page_table_refreshes": 0,
+      "readbacks": 99,
+      "synchronizations": 0,
+      "read_waits": 0,
+      "history_replays": 0,
+      "history_index_refreshes": 0,
+      "history_readbacks": 0,
+      "prefill_replays": 0,
+      "prefill_captures": 0,
+      "prefill_trace_misses": 0,
+      "prefill_token_refreshes": 0,
+      "prefill_page_table_refreshes": 0,
+      "prefill_eager_calls": 0,
+      "prefill_sampling_replays": 0
+    }
+  },
+  "trace_verified": true
+}
