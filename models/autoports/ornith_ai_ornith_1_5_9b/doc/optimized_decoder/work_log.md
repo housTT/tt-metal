@@ -610,3 +610,16 @@ The final-ready verdict applies to runtime SHA256
 All review findings have been fixed or controlled and rereviewed; no decoder
 optimization task is deferred. Only stage-owned local checkpoint creation
 and SHA bookkeeping follow; no push is authorized or performed.
+
+
+## Local checkpoint
+
+- Repo: `/home/hous/dev/ornith-1.5-9b/tt-metal`
+- Branch: `hous/ornith-1.5-9b`
+- Stage implementation/evidence commit: `d085eb6d1abcc8b25f213fede6b68aa873d6cd6b`
+- Previous fused stage: `bc8f514f3000da7b24c4d2b289b0ea507674e999`
+- Independent verdict: `clean-pass` in `STAGE_REVIEW.md`, before checkpoint.
+- Commit-time repository hooks pass. Only the optimized runtime, its tests,
+  optimized-stage documentation/artifacts and context contract are included.
+- This final documentation-only child commit records the checkpoint SHA;
+  `git log -1 --format=%H` identifies that bookkeeping commit. No push performed.
