@@ -291,6 +291,21 @@ def test_bounded_cache_fill_plan_host(logical_seq_len, expected_prefix, expected
     assert _bounded_cache_fill_plan(logical_seq_len) == (expected_prefix, expected_tail)
 
 
+def test_sdpa_cache_view_uses_atomic_geometry_override_host():
+    decoder = object.__new__(FunctionalDecoder)
+    decoder.layer_kind = FULL_KIND
+    kwargs = decoder._sdpa_cache_view_kwargs(cache_position_modulo=262144)
+    geometry = kwargs["paged_cache_geometry"]
+    assert geometry.block_size == FULL_BLOCK_SIZE
+    assert geometry.num_kv_heads == FULL_NUM_KV_HEADS
+    assert kwargs["cache_position_modulo"] == 262144
+    assert "block_size" not in kwargs
+    assert "num_kv_heads" not in kwargs
+
+    decoder.layer_kind = SLIDING_KIND
+    assert decoder._sdpa_cache_view_kwargs() == {}
+
+
 @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
 @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
 @pytest.mark.parametrize(
@@ -913,20 +928,20 @@ def test_advertised_context_traced_decode(mesh_device, device_params, layer_idx)
         layout=ttnn.ROW_MAJOR_LAYOUT,
     )
     kv_cache = (
-        ttnn.full(
+        ttnn.moreh_full(
             cache_shape,
             0.0078125,
+            mesh_device,
             dtype=ttnn.bfloat16,
             layout=ttnn.TILE_LAYOUT,
-            device=mesh_device,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         ),
-        ttnn.full(
+        ttnn.moreh_full(
             cache_shape,
             -0.015625,
+            mesh_device,
             dtype=ttnn.bfloat16,
             layout=ttnn.TILE_LAYOUT,
-            device=mesh_device,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         ),
     )
@@ -1296,7 +1311,7 @@ def test_bounded_modulo_prefill_tail_cache_integrity(mesh_device, device_params)
 
 @pytest.mark.timeout(3600)
 @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
-@pytest.mark.parametrize("device_params", [{"trace_region_size": 0}], indirect=True)
+@pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
 def test_bounded_modulo_decode_reads_across_wrap(mesh_device, device_params):
     """Sustained decode past the sliding window must read the ring, not block 0.
 
@@ -1343,10 +1358,8 @@ def test_bounded_modulo_decode_reads_across_wrap(mesh_device, device_params):
         )
         probes = {}
         for position in range(total_steps):
-            x = _as_tt(mesh_device, hidden_all[:, position : position + 1].unsqueeze(1))
-            x = decoder._rms_norm(x, decoder.weights.input_ln)
-            attn_out = decoder._attention_decode(
-                x,
+            output = decoder.decode_forward(
+                hidden_states=_as_tt(mesh_device, hidden_all[:, position : position + 1].unsqueeze(1)),
                 position_cos=_as_tt(mesh_device, cos_all[:, position : position + 1].unsqueeze(1)),
                 position_sin=_as_tt(mesh_device, sin_all[:, position : position + 1].unsqueeze(1)),
                 current_pos=_as_tt(
@@ -1360,11 +1373,84 @@ def test_bounded_modulo_decode_reads_across_wrap(mesh_device, device_params):
                 cache_position_modulo=cache_position_modulo,
             )
             if position in probe_positions:
-                probes[position] = _to_torch(mesh_device, attn_out)
-            attn_out.deallocate(True)
+                probes[position] = _to_torch(mesh_device, output)
+            output.deallocate(True)
         return probes
 
-    bounded = decode_all_positions(token_capacity=SLIDING_WINDOW, cache_position_modulo=SLIDING_WINDOW)
+    def decode_all_positions_traced():
+        cache_shape = _cache_shape(
+            "sliding_attention",
+            shared_physical=False,
+            token_capacity=SLIDING_WINDOW,
+        )
+        kv_cache = (
+            _as_tt(mesh_device, torch.zeros(cache_shape, dtype=torch.bfloat16)),
+            _as_tt(mesh_device, torch.zeros(cache_shape, dtype=torch.bfloat16)),
+        )
+        page_table = _as_tt(
+            mesh_device,
+            _page_table("sliding_attention", shared_physical=False, token_capacity=SLIDING_WINDOW),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        stable = {
+            "hidden_states": _as_tt(mesh_device, hidden_all[:, :1].unsqueeze(1)),
+            "position_cos": _as_tt(mesh_device, cos_all[:, :1].unsqueeze(1)),
+            "position_sin": _as_tt(mesh_device, sin_all[:, :1].unsqueeze(1)),
+            "current_pos": _as_tt(
+                mesh_device,
+                torch.zeros((1,), dtype=torch.int32),
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            ),
+            "page_table": page_table,
+            "kv_cache": kv_cache,
+            "cache_position_modulo": SLIDING_WINDOW,
+        }
+
+        # Compile the exact shape before capture. Rewriting position zero is
+        # harmless because paged_update_cache is deterministic for that row.
+        decoder.decode_forward(**stable)
+        ttnn.synchronize_device(mesh_device)
+        trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
+        traced_output = decoder.decode_forward(**stable)
+        ttnn.end_trace_capture(mesh_device, trace_id, cq_id=0)
+
+        def copy_to_stable(source, target, *, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT):
+            host = ttnn.from_torch(
+                source,
+                device=None,
+                mesh_mapper=ttnn.ReplicateTensorToMesh(mesh_device),
+                dtype=dtype,
+                layout=layout,
+            )
+            ttnn.copy_host_to_device_tensor(host, target)
+            return host
+
+        probes = {}
+        try:
+            for position in range(total_steps):
+                # Host staging is deliberately outside the captured decoder
+                # pass; every replay consumes the same stable device buffers.
+                host_staging = [
+                    copy_to_stable(hidden_all[:, position : position + 1].unsqueeze(1), stable["hidden_states"]),
+                    copy_to_stable(cos_all[:, position : position + 1].unsqueeze(1), stable["position_cos"]),
+                    copy_to_stable(sin_all[:, position : position + 1].unsqueeze(1), stable["position_sin"]),
+                    copy_to_stable(
+                        torch.tensor([position], dtype=torch.int32),
+                        stable["current_pos"],
+                        dtype=ttnn.int32,
+                        layout=ttnn.ROW_MAJOR_LAYOUT,
+                    ),
+                ]
+                ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
+                if position in probe_positions:
+                    probes[position] = _to_torch(mesh_device, traced_output)
+        finally:
+            ttnn.release_trace(mesh_device, trace_id)
+        return probes
+
+    bounded = decode_all_positions_traced()
     unbounded = decode_all_positions(token_capacity=total_steps, cache_position_modulo=None)
 
     results = {}
@@ -1384,6 +1470,7 @@ def test_bounded_modulo_decode_reads_across_wrap(mesh_device, device_params):
                 "total_steps": total_steps,
                 "probe_positions": list(probe_positions),
                 "bounded_vs_unbounded_pcc": results,
+                "bounded_execution": "ttnn trace capture plus 1104 replays",
                 "provenance": _evidence_provenance(
                     mesh_device,
                     "pytest models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py "
@@ -1584,6 +1671,10 @@ def test_functional_decoder_perf_profile(mesh_device, device_params, layer_idx, 
     decoder.prefill_forward(**prefill_args)
     decoder.decode_forward(**decode_args)
     ttnn.synchronize_device(mesh_device)
+    # This layer launches hundreds of programs.  Drain the finite per-RISC
+    # profiler buffers between full passes so Tracy can retain a complete
+    # host/device op mapping instead of silently dropping early FW markers.
+    ttnn.ReadDeviceProfiler(mesh_device)
 
     measured = {}
     case_id = f"layer{layer_idx}_{layer_type}_seq{seq_len}_batch{batch}"
@@ -1594,6 +1685,7 @@ def test_functional_decoder_perf_profile(mesh_device, device_params, layer_idx, 
         ttnn.synchronize_device(mesh_device)
         measured["prefill_host_ms"] = (time.perf_counter() - start) * 1000
         signpost(f"PERF_PREFILL_{case_id}_END", f"cache_shape={cache_shape}")
+        ttnn.ReadDeviceProfiler(mesh_device)
 
     trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
     traced_decode_output = decoder.decode_forward(**decode_args)
@@ -1601,6 +1693,7 @@ def test_functional_decoder_perf_profile(mesh_device, device_params, layer_idx, 
     ttnn.synchronize_device(mesh_device)
     ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
     ttnn.synchronize_device(mesh_device)
+    ttnn.ReadDeviceProfiler(mesh_device)
 
     trace_warmups = int(os.getenv("GEMMA4_FUNCTIONAL_DECODER_TRACE_WARMUPS", "0"))
     trace_iterations = int(os.getenv("GEMMA4_FUNCTIONAL_DECODER_TRACE_ITERATIONS", "1"))
@@ -1608,13 +1701,17 @@ def test_functional_decoder_perf_profile(mesh_device, device_params, layer_idx, 
         raise ValueError(f"invalid trace timing regime: {trace_warmups=} {trace_iterations=}")
     for _ in range(trace_warmups):
         ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
+        ttnn.ReadDeviceProfiler(mesh_device)
 
     signpost(f"PERF_DECODE_{case_id}", f"cache_shape={cache_shape}")
-    start = time.perf_counter()
+    measured_decode_seconds = 0.0
     for _ in range(trace_iterations):
+        start = time.perf_counter()
         ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
+        measured_decode_seconds += time.perf_counter() - start
+        ttnn.ReadDeviceProfiler(mesh_device)
     ttnn.synchronize_device(mesh_device)
-    measured["decode_trace_host_ms"] = (time.perf_counter() - start) * 1000 / trace_iterations
+    measured["decode_trace_host_ms"] = measured_decode_seconds * 1000 / trace_iterations
     measured["decode_trace_warmups"] = trace_warmups + 1
     measured["decode_trace_iterations"] = trace_iterations
     signpost(f"PERF_DECODE_{case_id}_END", f"cache_shape={cache_shape}")
@@ -1704,7 +1801,7 @@ def test_sparse_moe_canonical_hot_path_audit():
 def test_functional_decoder_hot_path_fallback_audit():
     import inspect
 
-    forbidden = ("torch.", "import torch", "ttnn.from_torch", "ttnn.to_torch")
+    forbidden = ("torch.", "import torch", "ttnn.from_torch", "ttnn.to_torch", "ttnn.full(")
     methods = [
         FunctionalDecoder.prefill_forward,
         FunctionalDecoder._prefill_forward_single_user,

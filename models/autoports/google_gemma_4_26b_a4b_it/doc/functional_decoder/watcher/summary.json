@@ -1,0 +1,18 @@
+{
+  "date_utc": "2026-09-05",
+  "model_id": "google/gemma-4-26B-A4B-it",
+  "hardware": "Blackhole P300, 1x1 mesh, device id 1",
+  "command": "source python_env/bin/activate && TT_METAL_WATCHER=10 TT_METAL_LOGS_PATH=models/autoports/google_gemma_4_26b_a4b_it/doc/functional_decoder/watcher timeout 900 python -m pytest -q -s 'models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py::test_traced_decode_batch_contract[blackhole-batch1-sliding_attention-device_params0-mesh_device0]' 'models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py::test_traced_decode_batch_contract[blackhole-batch1-full_attention-device_params0-mesh_device0]'",
+  "tests": [
+    "test_traced_decode_batch_contract[blackhole-batch1-sliding_attention-device_params0-mesh_device0]",
+    "test_traced_decode_batch_contract[blackhole-batch1-full_attention-device_params0-mesh_device0]"
+  ],
+  "pytest_result": "2 passed, 2 warnings in 5.92s",
+  "watcher_log": "generated/watcher/watcher.log",
+  "watcher_log_sha256": "c34b2745cbf790028a4a9b17b26d0eb3ae99ba8009bcbdb450d66b610e4ead42",
+  "fatal_pattern_scan": {
+    "command": "rg -ni 'error|assert|fatal|hang|deadlock|watcher.*fail|invalid|mismatch|exception' watcher/generated/watcher/watcher.log",
+    "matches": []
+  },
+  "result": "clean"
+}

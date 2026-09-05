@@ -712,12 +712,15 @@ class FunctionalDecoder(LightweightModule):
             v_token = ttnn.transpose(v_token, 1, 2)
             k_token = ttnn.to_memory_config(k_token, update_mem_config, dtype=k_token.dtype)
             v_token = ttnn.to_memory_config(v_token, update_mem_config, dtype=v_token.dtype)
-            position_tensor = ttnn.full(
-                (1,),
+            # moreh_full is the device-side initializer (unlike host-backed
+            # ttnn.full) and requires rank >= 2. Paged update consumes the
+            # first interleaved INT32 stick, so [1, 1] is one update index.
+            position_tensor = ttnn.moreh_full(
+                (1, 1),
                 position,
+                self.mesh_device,
                 dtype=ttnn.int32,
                 layout=ttnn.ROW_MAJOR_LAYOUT,
-                device=self.mesh_device,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
             ttnn.experimental.paged_update_cache(
@@ -776,6 +779,7 @@ class FunctionalDecoder(LightweightModule):
                 scale=1.0,
                 compute_kernel_config=self.correctness_compute_config,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                **self._sdpa_cache_view_kwargs(),
             )
             q_chunk.deallocate(True)
             outputs.append(output)
@@ -930,7 +934,7 @@ class FunctionalDecoder(LightweightModule):
             sliding_window_size=kind.sliding_window,
             program_config=self.sdpa_program_config,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
-            **cache_view,
+            **self._sdpa_cache_view_kwargs(cache_position_modulo=cache_position_modulo),
         )
         concat_mem_config = _make_decode_height_sharded_memory_config(
             self.mesh_device,
@@ -970,6 +974,24 @@ class FunctionalDecoder(LightweightModule):
             kwargs["block_size"] = self.layer_kind.block_size
             if not prefill:
                 kwargs["num_kv_heads"] = self.layer_kind.num_kv_heads
+        if cache_position_modulo is not None:
+            kwargs["cache_position_modulo"] = cache_position_modulo
+        return kwargs
+
+    def _sdpa_cache_view_kwargs(self, *, cache_position_modulo: int | None = None) -> dict[str, Any]:
+        """Return the paged-SDPA form of this layer's cache view.
+
+        Paged fill/update expose the physical-view fields as independent
+        ``block_size``/``num_kv_heads`` keywords. Paged SDPA intentionally
+        groups the same fields in ``PagedCacheGeometryOverride`` so callers
+        cannot provide a partial reinterpretation of an HMA-shared buffer.
+        """
+        kwargs: dict[str, Any] = {}
+        if self.layer_kind.name == "full_attention":
+            kwargs["paged_cache_geometry"] = ttnn.PagedCacheGeometryOverride(
+                block_size=self.layer_kind.block_size,
+                num_kv_heads=self.layer_kind.num_kv_heads,
+            )
         if cache_position_modulo is not None:
             kwargs["cache_position_modulo"] = cache_position_modulo
         return kwargs

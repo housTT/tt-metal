@@ -1,0 +1,51 @@
+{
+  "model_id": "google/gemma-4-26B-A4B-it",
+  "hf_advertised_context": 262144,
+  "hf_context_source": "models/demos/gemma4/configs/gemma-4-26B-A4B-it/config.json:text_config.max_position_embeddings",
+  "current_supported_context": 262144,
+  "capability_reduction": null,
+  "limiting_reason": null,
+  "functional_decoder": {
+    "hardware": "one Blackhole P300 chip (1x1 mesh, device id 1)",
+    "layer_kinds": {
+      "sliding_attention": {
+        "representative_layer": 0,
+        "sliding_window": 1024,
+        "cache_block_size": 64,
+        "tested_prefill_context": 262144,
+        "tested_decode_context": 262144,
+        "largest_tested_non_aligned_prefill": 262143,
+        "artifacts": [
+          "functional_decoder/prefill_capacity_sliding_attention_262144.json",
+          "functional_decoder/prefill_capacity_sliding_attention_262143.json",
+          "functional_decoder/advertised_context_decode_sliding_attention.json"
+        ]
+      },
+      "full_attention": {
+        "representative_layer": 5,
+        "cache_block_size": 128,
+        "tested_prefill_context": 262144,
+        "tested_decode_context": 262144,
+        "largest_tested_non_aligned_prefill": 262143,
+        "artifacts": [
+          "functional_decoder/prefill_capacity_full_attention_262144.json",
+          "functional_decoder/prefill_capacity_full_attention_262143.json",
+          "functional_decoder/advertised_context_decode_full_attention.json"
+        ]
+      }
+    },
+    "boundary_lengths": {
+      "tile": [1, 31, 32, 33],
+      "sliding_cache_page": [63, 64, 65],
+      "full_cache_page": [127, 128, 129],
+      "sliding_window": [1023, 1024, 1025],
+      "chunking_cliff": [32767, 32768, 32799],
+      "advertised_context": [262143, 262144]
+    },
+    "notes": [
+      "The 262144-token prefill probes use real checkpoint weights and validate a finite last-token result for both layer kinds.",
+      "The 262143-token probes exercise the logical tail below the advertised context without padding becoming live cache state.",
+      "The advertised-context decode probes use permuted page tables, device-initialized KV history, sentinel readback, current position 262143, trace capture/replay, and deterministic repeat replay."
+    ]
+  }
+}
