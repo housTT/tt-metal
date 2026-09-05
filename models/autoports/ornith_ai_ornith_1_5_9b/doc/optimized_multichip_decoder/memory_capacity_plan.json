@@ -1,0 +1,61 @@
+{
+  "status": "validated final default",
+  "mesh": [
+    1,
+    4
+  ],
+  "physical_hardware": "four Blackhole chips on two P300c boards",
+  "profile": "p150x4",
+  "supported_context_target": 262144,
+  "capability_reduction": null,
+  "local_kv_heads": 1,
+  "kv_bytes_per_device_per_full_attention_layer": 142606336,
+  "kv_bytes_per_device_all_8_full_attention_layers": 1140850688,
+  "projection_weights_per_device": {
+    "linear_attention": {
+      "shared_prefill_decode": 30818304,
+      "decode_mlp_bfp4": 21233664
+    },
+    "full_attention": {
+      "shared_prefill_decode": 29491200,
+      "decode_mlp_bfp4": 21233664,
+      "decode_qkvg_bfp8": 11141120
+    }
+  },
+  "projection_weights_all_layers_per_device": 1744175104,
+  "embedding_and_untied_head_bf16_tp4_bytes_per_device": 1017118720,
+  "unshared_rope_tables_all_8_layers_bytes_per_device": 1090519040,
+  "recurrent_bytes_per_device_per_user_all_24_layers": 12582912,
+  "conv_history_logical_bytes_per_device_per_user_all_24_layers": 294912,
+  "trace_activation_and_small_constant_reserve_bytes_per_device": 8589934592,
+  "largest_tested_prefill_context": 262144,
+  "largest_tested_decode_context": 262144,
+  "estimated_full_model_bytes_per_device": 13595475968,
+  "reserve_rationale": "Native replicated residual is 2GiB per input/output. Public prefill can hold input + chunk outputs + concatenated output (6GiB peak), plus 2GiB for trace, chunk working sets, small constants, allocator overhead and other temporary buffers. Hidden-sharded candidate needs less but does not determine this conservative plan.",
+  "historical_dual_copy_projection_weights_per_device": {
+    "linear_attention": {
+      "prefill": 30818304,
+      "decode": 31260672
+    },
+    "full_attention": {
+      "prefill": 29491200,
+      "decode": 29491200
+    }
+  },
+  "largest_tested_decode_position": 262143,
+  "largest_tested_batch": 32,
+  "reservation_dram_bytes_per_device": 7153385472,
+  "reservation_l1_recurrent_layers": 24,
+  "reservation_limit": "Conservative reserved bytes plus one executing native full-attention decoder; direct three-decoder composition is tested separately. No full-model execution claimed.",
+  "prior_stage_evidence": [
+    "multichip_decoder/mesh_plan.md",
+    "multichip_decoder/logs/release_mixed_watcher_contracts.log.gz",
+    "multichip_decoder/logs/release_mixed_watcher_contracts.provenance.json",
+    "multichip_decoder/logs/release_mixed_stack.log.gz"
+  ],
+  "evidence": [
+    "optimized_multichip_decoder/logs/final_default_v2_watcher_contracts.provenance.json",
+    "optimized_multichip_decoder/logs/final_default_v2_stack.provenance.json"
+  ],
+  "weight_accounting": "576 bytes per BFP4 tile; shared prefill gate/up remain separate. Decode packed gate/up4096x6144 uses14,155,776 bytes/device; down3072x4096 uses7,077,888. Packed decode replaces the two separate decode copies, so total projection bytes stay1,744,175,104. QKVG4096x2560 BFP8 decode uses11,141,120. Eight DRAM banks; gate/up3 readers, down2, QKVG1, no extra width padding."
+}

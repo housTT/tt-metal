@@ -1,0 +1,46 @@
+[
+  {
+    "name": "production_gdn_packed_dram_layer0",
+    "arguments": [
+      "--layer",
+      "0",
+      "--mesh-config",
+      "{\"pack_gdn\": true, \"decode_dram_roles\": [\"gate_proj\", \"up_proj\", \"down_proj\", \"gdn_all\"]}",
+      "--role-configs",
+      "{\"gate_proj\": {\"cores\": 8, \"block_w\": 8, \"readers\": 2}, \"up_proj\": {\"cores\": 8, \"block_w\": 8, \"readers\": 2}, \"down_proj\": {\"cores\": 8, \"block_w\": 6, \"readers\": 2}, \"gdn_all\": {\"cores\": 4, \"block_w\": 16, \"readers\": 2, \"per_core_n\": 27}, \"gdn_packed\": {\"cores\": 4, \"block_w\": 16, \"readers\": 2, \"per_core_n\": 18}}"
+    ]
+  },
+  {
+    "name": "production_gdn_output_dram_layer0",
+    "arguments": [
+      "--layer",
+      "0",
+      "--mesh-config",
+      "{\"pack_gdn\": true, \"decode_dram_roles\": [\"gate_proj\", \"up_proj\", \"down_proj\", \"gdn_out\"]}",
+      "--role-configs",
+      "{\"gate_proj\": {\"cores\": 8, \"block_w\": 8, \"readers\": 2}, \"up_proj\": {\"cores\": 8, \"block_w\": 8, \"readers\": 2}, \"down_proj\": {\"cores\": 8, \"block_w\": 6, \"readers\": 2}, \"gdn_all\": {\"cores\": 4, \"block_w\": 16, \"readers\": 2, \"per_core_n\": 27}, \"gdn_packed\": {\"cores\": 4, \"block_w\": 16, \"readers\": 2, \"per_core_n\": 18}}"
+    ]
+  },
+  {
+    "name": "production_gdn_mixer_dram_layer0",
+    "arguments": [
+      "--layer",
+      "0",
+      "--mesh-config",
+      "{\"pack_gdn\": true, \"decode_dram_roles\": [\"gate_proj\", \"up_proj\", \"down_proj\", \"gdn_all\", \"gdn_out\"]}",
+      "--role-configs",
+      "{\"gate_proj\": {\"cores\": 8, \"block_w\": 8, \"readers\": 2}, \"up_proj\": {\"cores\": 8, \"block_w\": 8, \"readers\": 2}, \"down_proj\": {\"cores\": 8, \"block_w\": 6, \"readers\": 2}, \"gdn_all\": {\"cores\": 4, \"block_w\": 16, \"readers\": 2, \"per_core_n\": 27}, \"gdn_packed\": {\"cores\": 4, \"block_w\": 16, \"readers\": 2, \"per_core_n\": 18}}"
+    ]
+  },
+  {
+    "name": "production_gdn_separate_dram_layer0",
+    "arguments": [
+      "--layer",
+      "0",
+      "--mesh-config",
+      "{\"pack_gdn\": false, \"decode_dram_roles\": [\"gate_proj\", \"up_proj\", \"down_proj\", \"gdn_packed\", \"gdn_z_epilogue\", \"gdn_out\"]}",
+      "--role-configs",
+      "{\"gate_proj\": {\"cores\": 8, \"block_w\": 8, \"readers\": 2}, \"up_proj\": {\"cores\": 8, \"block_w\": 8, \"readers\": 2}, \"down_proj\": {\"cores\": 8, \"block_w\": 6, \"readers\": 2}, \"gdn_all\": {\"cores\": 4, \"block_w\": 16, \"readers\": 2, \"per_core_n\": 27}, \"gdn_packed\": {\"cores\": 4, \"block_w\": 16, \"readers\": 2, \"per_core_n\": 18}}"
+    ]
+  }
+]

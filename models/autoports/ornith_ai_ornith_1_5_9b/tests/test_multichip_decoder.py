@@ -7,6 +7,7 @@ stay on-device, preserving distinct local heads instead of broadcasting rank0.
 """
 
 import json
+import os
 import time
 from pathlib import Path
 
@@ -90,7 +91,13 @@ def state_buffers(decoder):
 @pytest.fixture(autouse=True)
 def multichip_contract(monkeypatch, request):
     monkeypatch.setenv("ORNITH_WEIGHTS", "real")
-    monkeypatch.setattr(H, "FunctionalDecoder", MultichipDecoder)
+    decoder_class = MultichipDecoder
+    candidate = os.environ.get("ORNITH_MULTICHIP_CANDIDATE", "default")
+    if candidate != "default":
+        from .optimized_multichip_candidates import CANDIDATES
+
+        decoder_class = CANDIDATES[candidate]
+    monkeypatch.setattr(H, "FunctionalDecoder", decoder_class)
     layer = getattr(request.node, "callspec", None)
     layer = layer.params.get("layer_idx", H.FULL_LAYER) if layer else H.FULL_LAYER
     source = recorded_activations(layer)[0]

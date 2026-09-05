@@ -1,0 +1,156 @@
+diff --git a/ttnn/cpp/ttnn/operations/matmul/device/factory/matmul_multicore_reuse_mcast_dram_sharded_program_factory.cpp b/ttnn/cpp/ttnn/operations/matmul/device/factory/matmul_multicore_reuse_mcast_dram_sharded_program_factory.cpp
+index a1c182267f..89c059614b 100644
+--- a/ttnn/cpp/ttnn/operations/matmul/device/factory/matmul_multicore_reuse_mcast_dram_sharded_program_factory.cpp
++++ b/ttnn/cpp/ttnn/operations/matmul/device/factory/matmul_multicore_reuse_mcast_dram_sharded_program_factory.cpp
+@@ -43,6 +43,7 @@ using dram_sharded_helpers::validate_num_workers_per_dram_bank;
+ 
+ static ProgramDescriptor create_program_dram_sharded_descriptor(
+     tt::tt_metal::IDevice* device,
++    const std::optional<ttnn::MeshCoordinate>& mesh_dispatch_coordinate,
+     const CoreRangeSet& input_all_storage_cores,
+     const CoreRangeSet& output_all_storage_cores,
+     MathFidelity math_fidelity,
+@@ -120,8 +121,8 @@ static ProgramDescriptor create_program_dram_sharded_descriptor(
+         workers_per_bank == 1 || in1_noc == tt::tt_metal::NOC::NOC_0,
+         "Multiple workers per DRAM bank currently require a NOC0 data-movement kernel");
+ 
+-    auto reader_assignments =
+-        get_dram_bank_reader_assignments(device, in1_noc, workers_per_bank, input_all_storage_cores);
++    auto reader_assignments = get_dram_bank_reader_assignments(
++        device, in1_noc, workers_per_bank, input_all_storage_cores, mesh_dispatch_coordinate);
+     uint32_t num_dram_banks = reader_assignments.size() / workers_per_bank;
+ 
+     // Remove cores assigned to padding-only DRAM banks from the workers category
+@@ -938,6 +939,7 @@ ProgramDescriptor MatmulMultiCoreReuseMultiCastDRAMShardedProgramFactory::create
+     const ttnn::prim::MatmulParams& operation_attributes,
+     const ttnn::prim::MatmulInputs& tensor_args,
+     std::vector<ttnn::Tensor>& tensor_return_value,
++    const std::optional<ttnn::MeshCoordinate>& mesh_dispatch_coordinate,
+     const std::optional<CoreRangeSet>& /*core_range_set*/) {
+     const auto& input_tensors = tensor_args.input_tensors;
+     const auto& optional_input_tensors = tensor_args.optional_input_tensors;
+@@ -1052,6 +1054,7 @@ ProgramDescriptor MatmulMultiCoreReuseMultiCastDRAMShardedProgramFactory::create
+ 
+     return reuse_dram_sharded_optimized_helpers::create_program_dram_sharded_descriptor(
+         device,
++        mesh_dispatch_coordinate,
+         input_all_cores_storage,
+         output_all_cores_storage,
+         math_fidelity,
+diff --git a/ttnn/cpp/ttnn/operations/matmul/device/factory/matmul_multicore_reuse_mcast_dram_sharded_program_factory.hpp b/ttnn/cpp/ttnn/operations/matmul/device/factory/matmul_multicore_reuse_mcast_dram_sharded_program_factory.hpp
+index 2f3383a105..19fca8b3e8 100644
+--- a/ttnn/cpp/ttnn/operations/matmul/device/factory/matmul_multicore_reuse_mcast_dram_sharded_program_factory.hpp
++++ b/ttnn/cpp/ttnn/operations/matmul/device/factory/matmul_multicore_reuse_mcast_dram_sharded_program_factory.hpp
+@@ -15,6 +15,7 @@ struct MatmulMultiCoreReuseMultiCastDRAMShardedProgramFactory {
+         const ttnn::prim::MatmulParams& operation_attributes,
+         const ttnn::prim::MatmulInputs& tensor_args,
+         std::vector<ttnn::Tensor>& tensor_return_value,
++        const std::optional<ttnn::MeshCoordinate>& mesh_dispatch_coordinate = std::nullopt,
+         const std::optional<CoreRangeSet>& core_range_set = std::nullopt);
+ };
+ 
+diff --git a/ttnn/cpp/ttnn/operations/matmul/device/utilities/matmul_utilities.cpp b/ttnn/cpp/ttnn/operations/matmul/device/utilities/matmul_utilities.cpp
+index 1fbf47d8f2..b7d646c3b6 100644
+--- a/ttnn/cpp/ttnn/operations/matmul/device/utilities/matmul_utilities.cpp
++++ b/ttnn/cpp/ttnn/operations/matmul/device/utilities/matmul_utilities.cpp
+@@ -13,6 +13,7 @@
+ #include "tt-metalium/buffer_types.hpp"
+ #include "tt-metalium/hal.hpp"
+ #include "tt-metalium/kernel_types.hpp"
++#include "tt-metalium/mesh_device.hpp"
+ #include "tt-metalium/work_split.hpp"
+ #include "ttnn/tensor/shape/shape.hpp"
+ #include "ttnn/operations/eltwise/unary/common/unary_op_utils.hpp"
+@@ -335,7 +336,6 @@ void validate_matmul_reuse_work_split(
+ 
+ }  // namespace ttnn::operations::matmul::utilities
+ 
+-
+ namespace ttnn::prim::dram_sharded_helpers {
+ 
+ void validate_num_workers_per_dram_bank(std::size_t workers_per_bank) {
+@@ -405,10 +405,30 @@ std::vector<DramBankReaderAssignment> get_dram_bank_reader_assignments(
+     tt::tt_metal::IDevice* device,
+     tt::tt_metal::NOC noc,
+     uint32_t workers_per_bank,
+-    const CoreRangeSet& secondary_reader_excluded_cores) {
++    const CoreRangeSet& secondary_reader_excluded_cores,
++    const std::optional<ttnn::MeshCoordinate>& mesh_dispatch_coordinate) {
+     validate_num_workers_per_dram_bank(workers_per_bank);
+ 
+-    const auto primary_workers = device->get_optimal_dram_bank_to_logical_worker_assignment(noc);
++    auto* mesh_device = dynamic_cast<tt::tt_metal::distributed::MeshDevice*>(device);
++    TT_FATAL(
++        mesh_device == nullptr || mesh_device->num_devices() == 1 || workers_per_bank == 1 ||
++            mesh_dispatch_coordinate.has_value(),
++        "Multiple DRAM readers on a non-unit mesh require a mesh dispatch coordinate");
++
++    const auto primary_workers = [&]() {
++        if (mesh_device != nullptr && mesh_dispatch_coordinate.has_value()) {
++            const auto per_bank =
++                mesh_device->get_optimal_dram_bank_to_logical_worker_assignment(noc, mesh_dispatch_coordinate.value());
++            std::vector<tt::tt_metal::CoreCoord> workers;
++            workers.reserve(per_bank.size());
++            // Bank IDs, rather than unordered-map iteration order, define the weight shard order.
++            for (uint32_t bank = 0; bank < per_bank.size(); ++bank) {
++                workers.push_back(per_bank.at(bank));
++            }
++            return workers;
++        }
++        return device->get_optimal_dram_bank_to_logical_worker_assignment(noc);
++    }();
+     std::vector<DramBankReaderAssignment> assignments;
+     assignments.reserve(primary_workers.size() * workers_per_bank);
+ 
+@@ -443,8 +463,12 @@ std::vector<DramBankReaderAssignment> get_dram_bank_reader_assignments(
+                     // All readers use AllocatorBank on the same NOC and therefore target the same
+                     // firmware-approved endpoint. Place additional readers near the bank's primary
+                     // reader to minimize NOC hops without routing one NOC to multiple endpoints.
+-                    const uint32_t cost = tt::tt_metal::experimental::Device::get_worker_noc_hop_distance(
+-                        device, candidate, primary_workers[bank], noc);
++                    const uint32_t cost =
++                        mesh_device != nullptr && mesh_dispatch_coordinate.has_value()
++                            ? tt::tt_metal::experimental::Device::get_worker_noc_hop_distance(
++                                  mesh_device, mesh_dispatch_coordinate.value(), candidate, primary_workers[bank], noc)
++                            : tt::tt_metal::experimental::Device::get_worker_noc_hop_distance(
++                                  device, candidate, primary_workers[bank], noc);
+                     // Equal-cost candidates use the same endpoint and hop count. Keep the first candidate in ascending
+                     // x/y scan order so that the assignment is deterministic without adding a second routing objective.
+                     if (cost < best_cost) {
+diff --git a/ttnn/cpp/ttnn/operations/matmul/device/utilities/matmul_utilities.hpp b/ttnn/cpp/ttnn/operations/matmul/device/utilities/matmul_utilities.hpp
+index e992c9d9df..bfb195ab0e 100644
+--- a/ttnn/cpp/ttnn/operations/matmul/device/utilities/matmul_utilities.hpp
++++ b/ttnn/cpp/ttnn/operations/matmul/device/utilities/matmul_utilities.hpp
+@@ -381,6 +381,7 @@ std::vector<DramBankReaderAssignment> get_dram_bank_reader_assignments(
+     tt::tt_metal::IDevice* device,
+     tt::tt_metal::NOC noc,
+     uint32_t workers_per_bank,
+-    const CoreRangeSet& secondary_reader_excluded_cores);
++    const CoreRangeSet& secondary_reader_excluded_cores,
++    const std::optional<ttnn::MeshCoordinate>& mesh_dispatch_coordinate = std::nullopt);
+ 
+ }  // namespace ttnn::prim::dram_sharded_helpers
+diff --git a/ttnn/cpp/ttnn/operations/matmul/matmul_nanobind.cpp b/ttnn/cpp/ttnn/operations/matmul/matmul_nanobind.cpp
+index 0b7911e7a8..c278831bb1 100644
+--- a/ttnn/cpp/ttnn/operations/matmul/matmul_nanobind.cpp
++++ b/ttnn/cpp/ttnn/operations/matmul/matmul_nanobind.cpp
+@@ -1313,14 +1313,16 @@ void py_module(nb::module_& mod) {
+             [](const ttnn::prim::MatmulParams& operation_attributes,
+                const ttnn::prim::MatmulInputs& tensor_args,
+                std::vector<ttnn::Tensor>& tensor_return_value,
+-               const std::optional<CoreRangeSet>& core_range_set) {
++               const std::optional<CoreRangeSet>& core_range_set,
++               const std::optional<ttnn::MeshCoordinate>& mesh_dispatch_coordinate) {
+                 return ttnn::prim::MatmulMultiCoreReuseMultiCastDRAMShardedProgramFactory::create_descriptor(
+-                    operation_attributes, tensor_args, tensor_return_value, core_range_set);
++                    operation_attributes, tensor_args, tensor_return_value, mesh_dispatch_coordinate, core_range_set);
+             },
+             nb::arg("operation_attributes"),
+             nb::arg("tensor_args"),
+             nb::arg("tensor_return_value"),
+-            nb::arg("core_range_set") = std::nullopt);
++            nb::arg("core_range_set") = std::nullopt,
++            nb::arg("mesh_dispatch_coordinate") = std::nullopt);
+ 
+     // Bind MatmulMultiCoreReuseBatchedHSDRAMShardedProgramFactory for descriptor creation
+     nb::class_<ttnn::prim::MatmulMultiCoreReuseBatchedHSDRAMShardedProgramFactory>(

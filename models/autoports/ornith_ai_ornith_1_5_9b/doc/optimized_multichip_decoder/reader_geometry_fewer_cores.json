@@ -1,0 +1,399 @@
+{
+  "created_utc": "2026-09-05T08:55:20.136755+00:00",
+  "status": "CPU-validated plan; not executed by this investigator",
+  "hardware": "four Blackhole chips on physical P300c boards, native 1x4 ring",
+  "reader_counts": [
+    1,
+    2,
+    3
+  ],
+  "source_matrix": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_geometry_matrix.json",
+  "source_matrix_sha256": "ec0105b236cc2a9759ce1927ccb6662950b16dad7868731de49b4b32e1e277e8",
+  "probe_source": "models/autoports/ornith_ai_ornith_1_5_9b/tests/multichip_reader_probe.py",
+  "probe_source_sha256": "39378d0a209157c9dc6001783e8fd9a0ed742c75c7b0cfc2f49f78c7c7cae54b",
+  "scope": "Same raw-HF TP4 projection inputs, dtype/fidelity, and fixed output geometry as the initial matrix; only input core count and K block change.",
+  "notes": [
+    "Linear and full MLP use distinct recorded inputs and remain separate layer runs.",
+    "The full 4-core runs group QKVG and MLP to avoid extra model setup.",
+    "The full QKVG 32-core/block4 output-width6 control is missing from prior evidence; older output-width3 results are not interchangeable.",
+    "MLP current8-core block16/8 and down12/6 are already covered and omitted.",
+    "Fresh allocation, all-rank PCC, unchanged/changed trace replay must pass before interpreting warmed latency.",
+    "No family-wide slower verdict until these material fewer-core/larger-block controls are considered; whole-layer integration needs separate measurements."
+  ],
+  "role_geometry": {
+    "qkvg": {
+      "K": 4096,
+      "N": 2560,
+      "common_per_core_N": 6,
+      "output_storage_cores": 14,
+      "output_capacity_tiles": 84,
+      "maximum_reader_coverage_tiles": 84
+    },
+    "gate_proj": {
+      "K": 4096,
+      "N": 3072,
+      "common_per_core_N": 12,
+      "output_storage_cores": 8,
+      "output_capacity_tiles": 96,
+      "maximum_reader_coverage_tiles": 96
+    },
+    "up_proj": {
+      "K": 4096,
+      "N": 3072,
+      "common_per_core_N": 12,
+      "output_storage_cores": 8,
+      "output_capacity_tiles": 96,
+      "maximum_reader_coverage_tiles": 96
+    },
+    "down_proj": {
+      "K": 3072,
+      "N": 4096,
+      "common_per_core_N": 18,
+      "output_storage_cores": 8,
+      "output_capacity_tiles": 144,
+      "maximum_reader_coverage_tiles": 144
+    }
+  },
+  "runs": [
+    {
+      "name": "linear_fewer4_largest",
+      "layer": 0,
+      "roles": [
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ],
+      "cores": {
+        "gate_proj": 4,
+        "up_proj": 4,
+        "down_proj": 4
+      },
+      "block": {
+        "gate_proj": 32,
+        "up_proj": 32,
+        "down_proj": 24
+      },
+      "per_core_N": {
+        "gate_proj": 12,
+        "up_proj": 12,
+        "down_proj": 18
+      },
+      "reader_cases": 9,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "0",
+        "--roles",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"gate_proj\":4,\"up_proj\":4,\"down_proj\":4}",
+        "--block",
+        "{\"gate_proj\":32,\"up_proj\":32,\"down_proj\":24}",
+        "--per-core-n",
+        "{\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_fewer_linear_fewer4_largest.json"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 0 --roles gate_proj up_proj down_proj --readers 1 2 3 --cores '{\"gate_proj\":4,\"up_proj\":4,\"down_proj\":4}' --block '{\"gate_proj\":32,\"up_proj\":32,\"down_proj\":24}' --per-core-n '{\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_fewer_linear_fewer4_largest.json"
+    },
+    {
+      "name": "linear_fewer4_smaller",
+      "layer": 0,
+      "roles": [
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ],
+      "cores": {
+        "gate_proj": 4,
+        "up_proj": 4,
+        "down_proj": 4
+      },
+      "block": {
+        "gate_proj": 16,
+        "up_proj": 16,
+        "down_proj": 12
+      },
+      "per_core_N": {
+        "gate_proj": 12,
+        "up_proj": 12,
+        "down_proj": 18
+      },
+      "reader_cases": 9,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "0",
+        "--roles",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"gate_proj\":4,\"up_proj\":4,\"down_proj\":4}",
+        "--block",
+        "{\"gate_proj\":16,\"up_proj\":16,\"down_proj\":12}",
+        "--per-core-n",
+        "{\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_fewer_linear_fewer4_smaller.json"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 0 --roles gate_proj up_proj down_proj --readers 1 2 3 --cores '{\"gate_proj\":4,\"up_proj\":4,\"down_proj\":4}' --block '{\"gate_proj\":16,\"up_proj\":16,\"down_proj\":12}' --per-core-n '{\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_fewer_linear_fewer4_smaller.json"
+    },
+    {
+      "name": "full_fewer4_largest",
+      "layer": 3,
+      "roles": [
+        "qkvg",
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ],
+      "cores": {
+        "qkvg": 4,
+        "gate_proj": 4,
+        "up_proj": 4,
+        "down_proj": 4
+      },
+      "block": {
+        "qkvg": 32,
+        "gate_proj": 32,
+        "up_proj": 32,
+        "down_proj": 24
+      },
+      "per_core_N": {
+        "qkvg": 6,
+        "gate_proj": 12,
+        "up_proj": 12,
+        "down_proj": 18
+      },
+      "reader_cases": 12,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "3",
+        "--roles",
+        "qkvg",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"qkvg\":4,\"gate_proj\":4,\"up_proj\":4,\"down_proj\":4}",
+        "--block",
+        "{\"qkvg\":32,\"gate_proj\":32,\"up_proj\":32,\"down_proj\":24}",
+        "--per-core-n",
+        "{\"qkvg\":6,\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_fewer_full_fewer4_largest.json"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 3 --roles qkvg gate_proj up_proj down_proj --readers 1 2 3 --cores '{\"qkvg\":4,\"gate_proj\":4,\"up_proj\":4,\"down_proj\":4}' --block '{\"qkvg\":32,\"gate_proj\":32,\"up_proj\":32,\"down_proj\":24}' --per-core-n '{\"qkvg\":6,\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_fewer_full_fewer4_largest.json"
+    },
+    {
+      "name": "full_fewer4_smaller",
+      "layer": 3,
+      "roles": [
+        "qkvg",
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ],
+      "cores": {
+        "qkvg": 4,
+        "gate_proj": 4,
+        "up_proj": 4,
+        "down_proj": 4
+      },
+      "block": {
+        "qkvg": 16,
+        "gate_proj": 16,
+        "up_proj": 16,
+        "down_proj": 12
+      },
+      "per_core_N": {
+        "qkvg": 6,
+        "gate_proj": 12,
+        "up_proj": 12,
+        "down_proj": 18
+      },
+      "reader_cases": 12,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "3",
+        "--roles",
+        "qkvg",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"qkvg\":4,\"gate_proj\":4,\"up_proj\":4,\"down_proj\":4}",
+        "--block",
+        "{\"qkvg\":16,\"gate_proj\":16,\"up_proj\":16,\"down_proj\":12}",
+        "--per-core-n",
+        "{\"qkvg\":6,\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_fewer_full_fewer4_smaller.json"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 3 --roles qkvg gate_proj up_proj down_proj --readers 1 2 3 --cores '{\"qkvg\":4,\"gate_proj\":4,\"up_proj\":4,\"down_proj\":4}' --block '{\"qkvg\":16,\"gate_proj\":16,\"up_proj\":16,\"down_proj\":12}' --per-core-n '{\"qkvg\":6,\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_fewer_full_fewer4_smaller.json"
+    },
+    {
+      "name": "full_qkvg8_largest",
+      "layer": 3,
+      "roles": [
+        "qkvg"
+      ],
+      "cores": {
+        "qkvg": 8
+      },
+      "block": {
+        "qkvg": 16
+      },
+      "per_core_N": {
+        "qkvg": 6
+      },
+      "reader_cases": 3,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "3",
+        "--roles",
+        "qkvg",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"qkvg\":8}",
+        "--block",
+        "{\"qkvg\":16}",
+        "--per-core-n",
+        "{\"qkvg\":6}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_fewer_full_qkvg8_largest.json"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 3 --roles qkvg --readers 1 2 3 --cores '{\"qkvg\":8}' --block '{\"qkvg\":16}' --per-core-n '{\"qkvg\":6}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_fewer_full_qkvg8_largest.json"
+    },
+    {
+      "name": "full_qkvg8_smaller",
+      "layer": 3,
+      "roles": [
+        "qkvg"
+      ],
+      "cores": {
+        "qkvg": 8
+      },
+      "block": {
+        "qkvg": 8
+      },
+      "per_core_N": {
+        "qkvg": 6
+      },
+      "reader_cases": 3,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "3",
+        "--roles",
+        "qkvg",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"qkvg\":8}",
+        "--block",
+        "{\"qkvg\":8}",
+        "--per-core-n",
+        "{\"qkvg\":6}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_fewer_full_qkvg8_smaller.json"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 3 --roles qkvg --readers 1 2 3 --cores '{\"qkvg\":8}' --block '{\"qkvg\":8}' --per-core-n '{\"qkvg\":6}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_fewer_full_qkvg8_smaller.json"
+    },
+    {
+      "name": "full_qkvg32_common_control",
+      "layer": 3,
+      "roles": [
+        "qkvg"
+      ],
+      "cores": {
+        "qkvg": 32
+      },
+      "block": {
+        "qkvg": 4
+      },
+      "per_core_N": {
+        "qkvg": 6
+      },
+      "reader_cases": 3,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "3",
+        "--roles",
+        "qkvg",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"qkvg\":32}",
+        "--block",
+        "{\"qkvg\":4}",
+        "--per-core-n",
+        "{\"qkvg\":6}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_fewer_full_qkvg32_common_control.json"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 3 --roles qkvg --readers 1 2 3 --cores '{\"qkvg\":32}' --block '{\"qkvg\":4}' --per-core-n '{\"qkvg\":6}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_fewer_full_qkvg32_common_control.json"
+    }
+  ],
+  "total_runs": 7,
+  "total_reader_cases": 51,
+  "cpu_validation": "PASS: every K shard divides exactly, each K block divides its shard, and common output capacity covers all1/2/3 reader padding."
+}

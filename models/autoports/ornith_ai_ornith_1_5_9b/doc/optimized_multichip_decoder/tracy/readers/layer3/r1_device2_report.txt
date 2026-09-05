@@ -1,0 +1,45 @@
+Detected CSV format: v2.1 (with device arch and worker core count)
+Using architecture from CSV: blackhole
+Architecture: blackhole, Worker cores: 110
+Tracing mode enabled. CSV will not be sorted by 'HOST START TS'.
+Using operations after 'PERF_READER_gate_up_R1'.
+Using operations until 'PERF_READER_gate_up_R1_END'.
+Detected data from 1 devices. Merging device data...
+
+🚀 Performance Report 🚀
+========================
+
+ID  Total %  Bound  OP Code                                 Device   Device Time  Op-to-Op Gap  Cores  DRAM      DRAM %  FLOPs        FLOPs %  Math Fidelity
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 3   22.9 %   FLOP  MatmulDeviceOperation 32 x 4096 x 6144        2        53 μs                    8  237 GB/s  46.4 %  30.4 TFLOPs   68.7 %  LoFi BF16 x BFP4 => BF16
+ 4   25.8 %   FLOP  MatmulDeviceOperation 32 x 4096 x 6144        2        53 μs          7 μs      8  237 GB/s  46.3 %  30.3 TFLOPs   68.6 %  LoFi BF16 x BFP4 => BF16
+ 5   25.7 %   FLOP  MatmulDeviceOperation 32 x 4096 x 6144        2        53 μs          7 μs      8  237 GB/s  46.3 %  30.4 TFLOPs   68.6 %  LoFi BF16 x BFP4 => BF16
+ 6   25.6 %   FLOP  MatmulDeviceOperation 32 x 4096 x 6144        2        53 μs          7 μs      8  238 GB/s  46.5 %  30.5 TFLOPs   68.9 %  LoFi BF16 x BFP4 => BF16
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+    100.0 %         4 device ops, 0 host ops, 0 signposts                 212 μs         20 μs         237 GB/s  46.4 %
+
+💡 Advice 💡
+============
+
+High Op-to-Op Gap
+----------------
+ 4   25.8 %   FLOP  MatmulDeviceOperation 32 x 4096 x 6144        2        53 μs          7 μs      8  237 GB/s  46.3 %  30.3 TFLOPs   68.6 %  LoFi BF16 x BFP4 => BF16
+ 5   25.7 %   FLOP  MatmulDeviceOperation 32 x 4096 x 6144        2        53 μs          7 μs      8  237 GB/s  46.3 %  30.4 TFLOPs   68.6 %  LoFi BF16 x BFP4 => BF16
+ 6   25.6 %   FLOP  MatmulDeviceOperation 32 x 4096 x 6144        2        53 μs          7 μs      8  238 GB/s  46.5 %  30.5 TFLOPs   68.9 %  LoFi BF16 x BFP4 => BF16
+
+These ops have a >6 μs gap since the previous operation. Running with tracing could save 2 μs (0.7% of overall time)
+Alternatively ensure device is not waiting for the host. Experts can try moving runtime args in the kernels to compile-time args.
+
+Matmul Optimization
+-------------------
+ 3   22.9 %   FLOP  MatmulDeviceOperation 32 x 4096 x 6144        2        53 μs                    8  237 GB/s  46.4 %  30.4 TFLOPs   68.7 %  LoFi BF16 x BFP4 => BF16
+✅ Optimized
+
+ 4   25.8 %   FLOP  MatmulDeviceOperation 32 x 4096 x 6144        2        53 μs          7 μs      8  237 GB/s  46.3 %  30.3 TFLOPs   68.6 %  LoFi BF16 x BFP4 => BF16
+✅ Optimized
+
+ 5   25.7 %   FLOP  MatmulDeviceOperation 32 x 4096 x 6144        2        53 μs          7 μs      8  237 GB/s  46.3 %  30.4 TFLOPs   68.6 %  LoFi BF16 x BFP4 => BF16
+✅ Optimized
+
+ 6   25.6 %   FLOP  MatmulDeviceOperation 32 x 4096 x 6144        2        53 μs          7 μs      8  238 GB/s  46.5 %  30.5 TFLOPs   68.9 %  LoFi BF16 x BFP4 => BF16
+✅ Optimized

@@ -43,6 +43,7 @@ using dram_sharded_helpers::validate_num_workers_per_dram_bank;
 
 static ProgramDescriptor create_program_dram_sharded_descriptor(
     tt::tt_metal::IDevice* device,
+    const std::optional<ttnn::MeshCoordinate>& mesh_dispatch_coordinate,
     const CoreRangeSet& input_all_storage_cores,
     const CoreRangeSet& output_all_storage_cores,
     MathFidelity math_fidelity,
@@ -120,8 +121,8 @@ static ProgramDescriptor create_program_dram_sharded_descriptor(
         workers_per_bank == 1 || in1_noc == tt::tt_metal::NOC::NOC_0,
         "Multiple workers per DRAM bank currently require a NOC0 data-movement kernel");
 
-    auto reader_assignments =
-        get_dram_bank_reader_assignments(device, in1_noc, workers_per_bank, input_all_storage_cores);
+    auto reader_assignments = get_dram_bank_reader_assignments(
+        device, in1_noc, workers_per_bank, input_all_storage_cores, mesh_dispatch_coordinate);
     uint32_t num_dram_banks = reader_assignments.size() / workers_per_bank;
 
     // Remove cores assigned to padding-only DRAM banks from the workers category
@@ -938,6 +939,7 @@ ProgramDescriptor MatmulMultiCoreReuseMultiCastDRAMShardedProgramFactory::create
     const ttnn::prim::MatmulParams& operation_attributes,
     const ttnn::prim::MatmulInputs& tensor_args,
     std::vector<ttnn::Tensor>& tensor_return_value,
+    const std::optional<ttnn::MeshCoordinate>& mesh_dispatch_coordinate,
     const std::optional<CoreRangeSet>& /*core_range_set*/) {
     const auto& input_tensors = tensor_args.input_tensors;
     const auto& optional_input_tensors = tensor_args.optional_input_tensors;
@@ -1052,6 +1054,7 @@ ProgramDescriptor MatmulMultiCoreReuseMultiCastDRAMShardedProgramFactory::create
 
     return reuse_dram_sharded_optimized_helpers::create_program_dram_sharded_descriptor(
         device,
+        mesh_dispatch_coordinate,
         input_all_cores_storage,
         output_all_cores_storage,
         math_fidelity,

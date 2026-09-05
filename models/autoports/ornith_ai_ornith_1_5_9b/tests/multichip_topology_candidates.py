@@ -17,6 +17,7 @@ def local_projection(decoder, x, role, **kwargs):
     if (
         x.shape[1] != 1
         or decoder.mesh_config.decode_grid is None
+        or role in decoder.mesh_config.decode_dram_roles
         or (role == "qkvg" and decoder.mesh_config.decode_qkvg_dram)
     ):
         return OptimizedDecoder._linear(decoder, x, role, **kwargs)

@@ -13,6 +13,7 @@
 #include "tt-metalium/buffer_types.hpp"
 #include "tt-metalium/hal.hpp"
 #include "tt-metalium/kernel_types.hpp"
+#include "tt-metalium/mesh_device.hpp"
 #include "tt-metalium/work_split.hpp"
 #include "ttnn/tensor/shape/shape.hpp"
 #include "ttnn/operations/eltwise/unary/common/unary_op_utils.hpp"
@@ -335,7 +336,6 @@ void validate_matmul_reuse_work_split(
 
 }  // namespace ttnn::operations::matmul::utilities
 
-
 namespace ttnn::prim::dram_sharded_helpers {
 
 void validate_num_workers_per_dram_bank(std::size_t workers_per_bank) {
@@ -405,10 +405,30 @@ std::vector<DramBankReaderAssignment> get_dram_bank_reader_assignments(
     tt::tt_metal::IDevice* device,
     tt::tt_metal::NOC noc,
     uint32_t workers_per_bank,
-    const CoreRangeSet& secondary_reader_excluded_cores) {
+    const CoreRangeSet& secondary_reader_excluded_cores,
+    const std::optional<ttnn::MeshCoordinate>& mesh_dispatch_coordinate) {
     validate_num_workers_per_dram_bank(workers_per_bank);
 
-    const auto primary_workers = device->get_optimal_dram_bank_to_logical_worker_assignment(noc);
+    auto* mesh_device = dynamic_cast<tt::tt_metal::distributed::MeshDevice*>(device);
+    TT_FATAL(
+        mesh_device == nullptr || mesh_device->num_devices() == 1 || workers_per_bank == 1 ||
+            mesh_dispatch_coordinate.has_value(),
+        "Multiple DRAM readers on a non-unit mesh require a mesh dispatch coordinate");
+
+    const auto primary_workers = [&]() {
+        if (mesh_device != nullptr && mesh_dispatch_coordinate.has_value()) {
+            const auto per_bank =
+                mesh_device->get_optimal_dram_bank_to_logical_worker_assignment(noc, mesh_dispatch_coordinate.value());
+            std::vector<tt::tt_metal::CoreCoord> workers;
+            workers.reserve(per_bank.size());
+            // Bank IDs, rather than unordered-map iteration order, define the weight shard order.
+            for (uint32_t bank = 0; bank < per_bank.size(); ++bank) {
+                workers.push_back(per_bank.at(bank));
+            }
+            return workers;
+        }
+        return device->get_optimal_dram_bank_to_logical_worker_assignment(noc);
+    }();
     std::vector<DramBankReaderAssignment> assignments;
     assignments.reserve(primary_workers.size() * workers_per_bank);
 
@@ -443,8 +463,12 @@ std::vector<DramBankReaderAssignment> get_dram_bank_reader_assignments(
                     // All readers use AllocatorBank on the same NOC and therefore target the same
                     // firmware-approved endpoint. Place additional readers near the bank's primary
                     // reader to minimize NOC hops without routing one NOC to multiple endpoints.
-                    const uint32_t cost = tt::tt_metal::experimental::Device::get_worker_noc_hop_distance(
-                        device, candidate, primary_workers[bank], noc);
+                    const uint32_t cost =
+                        mesh_device != nullptr && mesh_dispatch_coordinate.has_value()
+                            ? tt::tt_metal::experimental::Device::get_worker_noc_hop_distance(
+                                  mesh_device, mesh_dispatch_coordinate.value(), candidate, primary_workers[bank], noc)
+                            : tt::tt_metal::experimental::Device::get_worker_noc_hop_distance(
+                                  device, candidate, primary_workers[bank], noc);
                     // Equal-cost candidates use the same endpoint and hop count. Keep the first candidate in ascending
                     // x/y scan order so that the assignment is deterministic without adding a second routing objective.
                     if (cost < best_cost) {

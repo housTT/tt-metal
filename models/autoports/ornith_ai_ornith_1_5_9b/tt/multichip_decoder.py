@@ -16,35 +16,49 @@ from .optimized_decoder import DecoderConfig, OptimizedDecoder
 TP = 4
 
 
+class MeshCCLManager(CCLManager):
+    """Cover every core the Blackhole CCL worker planner can select."""
+
+    def _init_subdevice(self):
+        grid = self.mesh_device.compute_with_storage_grid_size()
+        self.ccl_cores = ttnn.CoreRangeSet(
+            [ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(grid.x - 1, grid.y - 1))]
+        )
+        self.ccl_sub_device_id = ttnn.SubDeviceId(0)
+
+
 @dataclass(frozen=True)
 class MeshConfig:
+    pack_gdn: bool = True
+    pack_mlp_decode: bool = True
+    decode_dram_roles: tuple = ("gate_up", "down_proj")
     decode_grid: tuple | None = (8, 4)
     decode_qkvg_dtype: str | None = "bfloat8_b"
     decode_qkvg_dram: bool = True
     residual: str = "replicated"
     links: int = 2
     collective: str = "native"
-    # Two-link async AG/RS corrupt data on the validated P300c ring.
-    # Native all_reduce retains its independently validated link policy.
+    # Full-grid semaphores support both link counts; one link won the async
+    # whole-layer comparison. Native all_reduce has its own measured policy.
     async_links: int = 1
     local: DecoderConfig = field(
         default_factory=lambda: DecoderConfig(
             cores=8,
             block_w=4,
             readers=1,
-            # BFP8 decode QKVG permits a faster DRAM block4 while retaining the
-            # batch32 HF gate. Prefill and all other weights remain BFP4.
+            # BFP8 QKVG preserves the real-input changed-trace PCC gate.
+            # Packed gate/up and separate down use independently tuned readers.
             role_configs={
                 "qkvg": {"cores": 32, "block_w": 4, "readers": 1},
+                "gdn_all": {"cores": 4, "block_w": 8, "readers": 1},
                 "gdn_packed": {"cores": 4, "block_w": 32, "readers": 1},
                 "gdn_z_epilogue": {"cores": 4, "block_w": 32, "readers": 1},
                 "gdn_out": {"cores": 4, "block_w": 8, "readers": 1},
                 "o_proj": {"cores": 4, "block_w": 8, "readers": 1},
-                # The interleaved gate8/up8/down6 combination passes batch32.
-                # Earlier gate-only changes under the DRAM geometry did not.
-                "gate_proj": {"cores": 8, "block_w": 8, "readers": 1},
-                "up_proj": {"cores": 8, "block_w": 8, "readers": 1},
-                "down_proj": {"cores": 8, "block_w": 6, "readers": 1},
+                "gate_proj": {"cores": 8, "block_w": 8, "readers": 2},
+                "up_proj": {"cores": 8, "block_w": 8, "readers": 2},
+                "gate_up": {"cores": 32, "block_w": 4, "readers": 3},
+                "down_proj": {"cores": 8, "block_w": 6, "readers": 2},
             },
             conv_chunk=512,
         )
@@ -148,8 +162,12 @@ class MultichipDecoder(OptimizedDecoder):
         decoder.mesh_config = plan
         decoder.global_hf_config = original
         decoder.residual_width = original.hidden_size // TP if plan.residual == "sharded" else original.hidden_size
-        decoder.ccl = CCLManager(mesh_device, plan.async_links)
+        decoder.ccl = MeshCCLManager(mesh_device, plan.async_links)
         packed = [_projection_weights(s, local_cfg) for s in states]
+        if plan.pack_gdn and not decoder.is_full_attention:
+            for weights in packed:
+                weights["gdn_all"] = torch.cat([weights.pop("gdn_packed"), weights.pop("gdn_z_epilogue")], dim=1)
+            decoder.projection_compute["gdn_all"] = decoder.projection_compute["gdn_packed"]
 
         def upload(parts, axis, dtype, memory=ttnn.DRAM_MEMORY_CONFIG):
             return ttnn.from_torch(
@@ -166,10 +184,11 @@ class MultichipDecoder(OptimizedDecoder):
         for role in packed[0]:
             axis = 0 if role in ("o_proj", "gdn_out", "down_proj") else 1
             parts = [p[role] for p in packed]
-            old = decoder.w[role]
-            dtype = old.dtype
+            old = decoder.w.get(role)
+            dtype = old.dtype if old is not None else decoder.w["gdn_packed"].dtype
             decoder.w[role] = upload(parts, axis, dtype)
-            ttnn.deallocate(old)
+            if old is not None:
+                ttnn.deallocate(old)
             k, n = parts[0].shape
             readers = decoder._role_config(role)[2]
             width = math.ceil(n / (32 * dram.x * dram.y * readers)) * 32 * readers
@@ -178,9 +197,11 @@ class MultichipDecoder(OptimizedDecoder):
                 ttnn.BufferType.DRAM,
                 ttnn.ShardSpec(grid, [k, width], ttnn.ShardOrientation.ROW_MAJOR),
             )
-            old = decoder.decode_weights.pop(role)
+            old = decoder.decode_weights.pop(role, None)
             decode_dtype = getattr(ttnn, plan.decode_qkvg_dtype) if role == "qkvg" and plan.decode_qkvg_dtype else dtype
-            dram_decode = plan.decode_grid is None or (role == "qkvg" and plan.decode_qkvg_dram)
+            dram_decode = (
+                plan.decode_grid is None or role in plan.decode_dram_roles or (role == "qkvg" and plan.decode_qkvg_dram)
+            )
             if dram_decode or decode_dtype != dtype:
                 decoder.decode_weights[role] = upload(
                     parts,
@@ -188,7 +209,32 @@ class MultichipDecoder(OptimizedDecoder):
                     decode_dtype,
                     memory if dram_decode else ttnn.DRAM_MEMORY_CONFIG,
                 )
-            ttnn.deallocate(old)
+            if old is not None:
+                ttnn.deallocate(old)
+        if plan.pack_mlp_decode:
+            parts = [torch.cat([p["gate_proj"], p["up_proj"]], dim=1) for p in packed]
+            k, n = parts[0].shape
+            readers = decoder._role_config("gate_up")[2]
+            width = math.ceil(n / (32 * dram.x * dram.y * readers)) * 32 * readers
+            memory = ttnn.MemoryConfig(
+                ttnn.TensorMemoryLayout.WIDTH_SHARDED,
+                ttnn.BufferType.DRAM,
+                ttnn.ShardSpec(grid, [k, width], ttnn.ShardOrientation.ROW_MAJOR),
+            )
+            weight = upload(parts, 1, decoder.w["gate_proj"].dtype, memory)
+            # Both dictionaries reference one allocation. Prefill keeps separate
+            # gate/up weights; the packed allocation is used only for decode.
+            decoder.w["gate_up"] = decoder.decode_weights["gate_up"] = weight
+            decoder.projection_compute["gate_up"] = decoder.projection_compute["gate_proj"]
+            for role in ("gate_proj", "up_proj"):
+                old = decoder.decode_weights.pop(role, None)
+                if old is not None:
+                    ttnn.deallocate(old)
+        if plan.pack_gdn and not decoder.is_full_attention:
+            for role in ("gdn_packed", "gdn_z_epilogue"):
+                ttnn.deallocate(decoder.w.pop(role))
+                ttnn.deallocate(decoder.decode_weights.pop(role))
+                decoder.projection_compute.pop(role)
         if not decoder.is_full_attention:
             for index in range(4):
                 parts = [s["linear_attn.conv1d.weight"][:, 0, index].reshape(1, 1, -1) for s in states]
@@ -218,6 +264,14 @@ class MultichipDecoder(OptimizedDecoder):
 
     def _gdn_project(self, x):
         cfg = self.cfg
+        if self.mesh_config.pack_gdn:
+            packed = self._linear(x, "gdn_all")
+            qkv = _field(packed, 0, cfg.conv_dim)
+            a = _field(packed, cfg.conv_dim, cfg.conv_dim + cfg.linear_num_value_heads)
+            b = _field(packed, cfg.conv_dim + 32, cfg.conv_dim + 32 + cfg.linear_num_value_heads)
+            z = _field(packed, cfg.conv_dim + 64, packed.shape[-1])
+            ttnn.deallocate(packed)
+            return qkv, z, a, b
         packed = self._linear(x, "gdn_packed")
         qkv = _field(packed, 0, cfg.conv_dim)
         a = _field(packed, cfg.conv_dim, cfg.conv_dim + cfg.linear_num_value_heads)
@@ -227,9 +281,66 @@ class MultichipDecoder(OptimizedDecoder):
         z = self._linear(x, "gdn_z_epilogue", **kwargs)
         return qkv, z, a, b
 
+    def _gdn_out_head_major(self, core, z, batch, seq):
+        if not self.mesh_config.pack_gdn or seq > 1:
+            return super()._gdn_out_head_major(core, z, batch, seq)
+        normed = ttnn.rms_norm(core, weight=self.w["gdn_norm"], epsilon=self.cfg.norm_eps)
+        ttnn.deallocate(core)
+        heads = ttnn.reshape(normed, [batch, self.cfg.linear_num_value_heads, 1, self.cfg.linear_value_head_dim])
+        combined = ttnn.permute(heads, (0, 2, 1, 3))
+        ttnn.deallocate(normed)
+        # Compact logical users into one tile row. Mixed BF16/FP32 BinaryNG
+        # activation preprocessing must see BF16 on the left and one tile per
+        # worker; separate padded batch planes violate that kernel contract.
+        merged = ttnn.reshape(combined, [batch, 1, self.cfg.linear_v_dim])
+        merged = ttnn.reshape(merged, [1, batch, self.cfg.linear_v_dim])
+        gate_input = ttnn.reshape(z, [1, batch, self.cfg.linear_v_dim])
+        gated = ttnn.multiply(
+            gate_input, merged, dtype=ttnn.float32, input_tensor_a_activations=[ttnn.UnaryOpType.SILU]
+        )
+        gated = ttnn.reshape(gated, [batch, 1, self.cfg.linear_v_dim])
+        ttnn.deallocate(combined)
+        result = self._linear(gated, "gdn_out")
+        ttnn.deallocate(gated)
+        return result
+
+    def _activate_mlp(self, x, mode):
+        if self.mesh_config.pack_mlp_decode and mode == "decode":
+            packed = self._linear(x, "gate_up")
+            batch, _, width = packed.shape
+            # Compact users before sharded slices: public [B,1,H] otherwise
+            # has B separately padded tile rows rather than one shared row.
+            if batch > 1:
+                packed = ttnn.reshape(packed, [1, batch, width])
+            rows = batch if batch > 1 else 1
+            memory = self._width_memory(width // 2, self._role_config("down_proj")[0])
+            gate = ttnn.slice(packed, [0, 0, 0], [1, rows, width // 2], memory_config=memory)
+            up = ttnn.slice(packed, [0, 0, width // 2], [1, rows, width], memory_config=memory)
+            result = ttnn.multiply(gate, up, input_tensor_a_activations=[ttnn.UnaryOpType.SILU], memory_config=memory)
+            for value in (packed, gate, up):
+                ttnn.deallocate(value)
+            if batch > 1:
+                result = ttnn.to_memory_config(result, ttnn.L1_MEMORY_CONFIG)
+                result = ttnn.reshape(result, [batch, 1, width // 2])
+            return result
+        if not self.mesh_config.pack_gdn or mode != "decode" or "gate_proj" in self.mesh_config.decode_dram_roles:
+            return super()._activate_mlp(x, mode)
+        local = ttnn.to_memory_config(x, ttnn.L1_MEMORY_CONFIG)
+        gate, up = self._linear(local, "gate_proj"), self._linear(local, "up_proj")
+        result = ttnn.multiply(gate, up, input_tensor_a_activations=[ttnn.UnaryOpType.SILU])
+        ttnn.deallocate(gate)
+        ttnn.deallocate(up)
+        if local.buffer_address() != x.buffer_address():
+            ttnn.deallocate(local)
+        return result
+
     def _linear(self, x, role, **kwargs):
-        dram_qkvg = role == "qkvg" and self.mesh_config.decode_qkvg_dram
-        if x.shape[1] == 1 and self.mesh_config.decode_grid is not None and not dram_qkvg:
+        dram_role = (
+            role in self.mesh_config.decode_dram_roles
+            or (role == "gate_up" and self.mesh_config.pack_mlp_decode)
+            or (role == "qkvg" and self.mesh_config.decode_qkvg_dram)
+        )
+        if x.shape[1] == 1 and self.mesh_config.decode_grid is not None and not dram_role:
             batch, _, k = x.shape
             n = self.w[role].shape[-1]
             grid = self.mesh_config.decode_grid

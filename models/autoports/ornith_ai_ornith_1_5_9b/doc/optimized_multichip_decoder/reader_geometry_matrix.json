@@ -1,0 +1,1491 @@
+{
+  "created_utc": "2026-09-05T08:47:33.711718+00:00",
+  "status": "CPU-only plan; no proposed matrix command was run by this investigator",
+  "hardware": "four Blackhole chips on physical P300c boards, native 1x4 ring",
+  "source_config": "/home/hous/dev/ornith-1.5-9b/upstream/config.json",
+  "source_config_sha256": "1f1b3751c38f16a63340df90a55e870bef0f0b2968d833825a605b7cf930a313",
+  "policy_source": "models/autoports/ornith_ai_ornith_1_5_9b/tt/multichip_decoder.py",
+  "policy_source_sha256": "f458d04cbc255c74258c7df88fd80fe63e20f83dcb95f30ea735a20d58395add",
+  "reader_counts": [
+    1,
+    2,
+    3
+  ],
+  "design": [
+    "Reuse existing current-core/block evidence only when common output layout also matches.",
+    "Five additional recipes per family cover the other current-core block and both block endpoints at 32/64 cores; role/core/block duplicates and illegal 64-core cases are omitted.",
+    "Largest K block is K/(32*input_cores); smaller endpoint is its largest proper divisor, if any.",
+    "Per-role output geometry is fixed across every core/block/reader point and covers all padded output tiles from every active reader.",
+    "Geometry selection is CPU-validated only; runtime CB/L1/reader-placement limits remain subject to the probe.",
+    "The probe stops on first failure; retain partial artifacts and resume other roles with a new output filename.",
+    "Only projection timing is compared. Rank PCC and unchanged/changed input replay plus fresh-buffer checks must pass before using samples."
+  ],
+  "roles": {
+    "gdn_packed": {
+      "K": 4096,
+      "N": 2112,
+      "N_tiles": 66,
+      "current_cores": 4,
+      "current_block": 32,
+      "common_per_core_N": 18,
+      "output_storage_cores": 4,
+      "output_capacity_tiles": 72,
+      "maximum_reader_coverage_tiles": 72,
+      "reader_geometry": [
+        {
+          "readers": 1,
+          "bank_width_tiles": 9,
+          "active_banks": 8,
+          "active_readers": 8,
+          "tiles_per_reader": 9,
+          "produced_tiles": 72
+        },
+        {
+          "readers": 2,
+          "bank_width_tiles": 10,
+          "active_banks": 7,
+          "active_readers": 14,
+          "tiles_per_reader": 5,
+          "produced_tiles": 70
+        },
+        {
+          "readers": 3,
+          "bank_width_tiles": 9,
+          "active_banks": 8,
+          "active_readers": 24,
+          "tiles_per_reader": 3,
+          "produced_tiles": 72
+        }
+      ],
+      "core_geometry": {
+        "4": {
+          "input_shard_tiles": 32,
+          "largest_block": 32,
+          "smaller_block": 16
+        },
+        "32": {
+          "input_shard_tiles": 4,
+          "largest_block": 4,
+          "smaller_block": 2
+        },
+        "64": {
+          "input_shard_tiles": 2,
+          "largest_block": 2,
+          "smaller_block": 1
+        }
+      },
+      "excluded_64_reason": null
+    },
+    "gdn_z_epilogue": {
+      "K": 4096,
+      "N": 1024,
+      "N_tiles": 32,
+      "current_cores": 4,
+      "current_block": 32,
+      "common_per_core_N": 9,
+      "output_storage_cores": 4,
+      "output_capacity_tiles": 36,
+      "maximum_reader_coverage_tiles": 36,
+      "reader_geometry": [
+        {
+          "readers": 1,
+          "bank_width_tiles": 4,
+          "active_banks": 8,
+          "active_readers": 8,
+          "tiles_per_reader": 4,
+          "produced_tiles": 32
+        },
+        {
+          "readers": 2,
+          "bank_width_tiles": 4,
+          "active_banks": 8,
+          "active_readers": 16,
+          "tiles_per_reader": 2,
+          "produced_tiles": 32
+        },
+        {
+          "readers": 3,
+          "bank_width_tiles": 6,
+          "active_banks": 6,
+          "active_readers": 18,
+          "tiles_per_reader": 2,
+          "produced_tiles": 36
+        }
+      ],
+      "core_geometry": {
+        "4": {
+          "input_shard_tiles": 32,
+          "largest_block": 32,
+          "smaller_block": 16
+        },
+        "32": {
+          "input_shard_tiles": 4,
+          "largest_block": 4,
+          "smaller_block": 2
+        },
+        "64": {
+          "input_shard_tiles": 2,
+          "largest_block": 2,
+          "smaller_block": 1
+        }
+      },
+      "excluded_64_reason": null
+    },
+    "gdn_out": {
+      "K": 1024,
+      "N": 4096,
+      "N_tiles": 128,
+      "current_cores": 4,
+      "current_block": 8,
+      "common_per_core_N": 36,
+      "output_storage_cores": 4,
+      "output_capacity_tiles": 144,
+      "maximum_reader_coverage_tiles": 144,
+      "reader_geometry": [
+        {
+          "readers": 1,
+          "bank_width_tiles": 16,
+          "active_banks": 8,
+          "active_readers": 8,
+          "tiles_per_reader": 16,
+          "produced_tiles": 128
+        },
+        {
+          "readers": 2,
+          "bank_width_tiles": 16,
+          "active_banks": 8,
+          "active_readers": 16,
+          "tiles_per_reader": 8,
+          "produced_tiles": 128
+        },
+        {
+          "readers": 3,
+          "bank_width_tiles": 18,
+          "active_banks": 8,
+          "active_readers": 24,
+          "tiles_per_reader": 6,
+          "produced_tiles": 144
+        }
+      ],
+      "core_geometry": {
+        "4": {
+          "input_shard_tiles": 8,
+          "largest_block": 8,
+          "smaller_block": 4
+        },
+        "32": {
+          "input_shard_tiles": 1,
+          "largest_block": 1,
+          "smaller_block": null
+        }
+      },
+      "excluded_64_reason": "K/32=32 is not divisible by 64 input cores"
+    },
+    "gate_proj": {
+      "K": 4096,
+      "N": 3072,
+      "N_tiles": 96,
+      "current_cores": 8,
+      "current_block": 8,
+      "common_per_core_N": 12,
+      "output_storage_cores": 8,
+      "output_capacity_tiles": 96,
+      "maximum_reader_coverage_tiles": 96,
+      "reader_geometry": [
+        {
+          "readers": 1,
+          "bank_width_tiles": 12,
+          "active_banks": 8,
+          "active_readers": 8,
+          "tiles_per_reader": 12,
+          "produced_tiles": 96
+        },
+        {
+          "readers": 2,
+          "bank_width_tiles": 12,
+          "active_banks": 8,
+          "active_readers": 16,
+          "tiles_per_reader": 6,
+          "produced_tiles": 96
+        },
+        {
+          "readers": 3,
+          "bank_width_tiles": 12,
+          "active_banks": 8,
+          "active_readers": 24,
+          "tiles_per_reader": 4,
+          "produced_tiles": 96
+        }
+      ],
+      "core_geometry": {
+        "8": {
+          "input_shard_tiles": 16,
+          "largest_block": 16,
+          "smaller_block": 8
+        },
+        "32": {
+          "input_shard_tiles": 4,
+          "largest_block": 4,
+          "smaller_block": 2
+        },
+        "64": {
+          "input_shard_tiles": 2,
+          "largest_block": 2,
+          "smaller_block": 1
+        }
+      },
+      "excluded_64_reason": null
+    },
+    "up_proj": {
+      "K": 4096,
+      "N": 3072,
+      "N_tiles": 96,
+      "current_cores": 8,
+      "current_block": 8,
+      "common_per_core_N": 12,
+      "output_storage_cores": 8,
+      "output_capacity_tiles": 96,
+      "maximum_reader_coverage_tiles": 96,
+      "reader_geometry": [
+        {
+          "readers": 1,
+          "bank_width_tiles": 12,
+          "active_banks": 8,
+          "active_readers": 8,
+          "tiles_per_reader": 12,
+          "produced_tiles": 96
+        },
+        {
+          "readers": 2,
+          "bank_width_tiles": 12,
+          "active_banks": 8,
+          "active_readers": 16,
+          "tiles_per_reader": 6,
+          "produced_tiles": 96
+        },
+        {
+          "readers": 3,
+          "bank_width_tiles": 12,
+          "active_banks": 8,
+          "active_readers": 24,
+          "tiles_per_reader": 4,
+          "produced_tiles": 96
+        }
+      ],
+      "core_geometry": {
+        "8": {
+          "input_shard_tiles": 16,
+          "largest_block": 16,
+          "smaller_block": 8
+        },
+        "32": {
+          "input_shard_tiles": 4,
+          "largest_block": 4,
+          "smaller_block": 2
+        },
+        "64": {
+          "input_shard_tiles": 2,
+          "largest_block": 2,
+          "smaller_block": 1
+        }
+      },
+      "excluded_64_reason": null
+    },
+    "down_proj": {
+      "K": 3072,
+      "N": 4096,
+      "N_tiles": 128,
+      "current_cores": 8,
+      "current_block": 6,
+      "common_per_core_N": 18,
+      "output_storage_cores": 8,
+      "output_capacity_tiles": 144,
+      "maximum_reader_coverage_tiles": 144,
+      "reader_geometry": [
+        {
+          "readers": 1,
+          "bank_width_tiles": 16,
+          "active_banks": 8,
+          "active_readers": 8,
+          "tiles_per_reader": 16,
+          "produced_tiles": 128
+        },
+        {
+          "readers": 2,
+          "bank_width_tiles": 16,
+          "active_banks": 8,
+          "active_readers": 16,
+          "tiles_per_reader": 8,
+          "produced_tiles": 128
+        },
+        {
+          "readers": 3,
+          "bank_width_tiles": 18,
+          "active_banks": 8,
+          "active_readers": 24,
+          "tiles_per_reader": 6,
+          "produced_tiles": 144
+        }
+      ],
+      "core_geometry": {
+        "8": {
+          "input_shard_tiles": 12,
+          "largest_block": 12,
+          "smaller_block": 6
+        },
+        "32": {
+          "input_shard_tiles": 3,
+          "largest_block": 3,
+          "smaller_block": 1
+        }
+      },
+      "excluded_64_reason": "K/32=96 is not divisible by 64 input cores"
+    },
+    "qkvg": {
+      "K": 4096,
+      "N": 2560,
+      "N_tiles": 80,
+      "current_cores": 32,
+      "current_block": 4,
+      "common_per_core_N": 6,
+      "output_storage_cores": 14,
+      "output_capacity_tiles": 84,
+      "maximum_reader_coverage_tiles": 84,
+      "reader_geometry": [
+        {
+          "readers": 1,
+          "bank_width_tiles": 10,
+          "active_banks": 8,
+          "active_readers": 8,
+          "tiles_per_reader": 10,
+          "produced_tiles": 80
+        },
+        {
+          "readers": 2,
+          "bank_width_tiles": 10,
+          "active_banks": 8,
+          "active_readers": 16,
+          "tiles_per_reader": 5,
+          "produced_tiles": 80
+        },
+        {
+          "readers": 3,
+          "bank_width_tiles": 12,
+          "active_banks": 7,
+          "active_readers": 21,
+          "tiles_per_reader": 4,
+          "produced_tiles": 84
+        }
+      ],
+      "core_geometry": {
+        "32": {
+          "input_shard_tiles": 4,
+          "largest_block": 4,
+          "smaller_block": 2
+        },
+        "64": {
+          "input_shard_tiles": 2,
+          "largest_block": 2,
+          "smaller_block": 1
+        }
+      },
+      "excluded_64_reason": null
+    },
+    "o_proj": {
+      "K": 1024,
+      "N": 4096,
+      "N_tiles": 128,
+      "current_cores": 4,
+      "current_block": 8,
+      "common_per_core_N": 36,
+      "output_storage_cores": 4,
+      "output_capacity_tiles": 144,
+      "maximum_reader_coverage_tiles": 144,
+      "reader_geometry": [
+        {
+          "readers": 1,
+          "bank_width_tiles": 16,
+          "active_banks": 8,
+          "active_readers": 8,
+          "tiles_per_reader": 16,
+          "produced_tiles": 128
+        },
+        {
+          "readers": 2,
+          "bank_width_tiles": 16,
+          "active_banks": 8,
+          "active_readers": 16,
+          "tiles_per_reader": 8,
+          "produced_tiles": 128
+        },
+        {
+          "readers": 3,
+          "bank_width_tiles": 18,
+          "active_banks": 8,
+          "active_readers": 24,
+          "tiles_per_reader": 6,
+          "produced_tiles": 144
+        }
+      ],
+      "core_geometry": {
+        "4": {
+          "input_shard_tiles": 8,
+          "largest_block": 8,
+          "smaller_block": 4
+        },
+        "32": {
+          "input_shard_tiles": 1,
+          "largest_block": 1,
+          "smaller_block": null
+        }
+      },
+      "excluded_64_reason": "K/32=32 is not divisible by 64 input cores"
+    },
+    "gdn_all": {
+      "K": 4096,
+      "N": 3136,
+      "N_tiles": 98,
+      "current_cores": 4,
+      "current_block": 32,
+      "common_per_core_N": 27,
+      "output_storage_cores": 4,
+      "output_capacity_tiles": 108,
+      "maximum_reader_coverage_tiles": 105,
+      "reader_geometry": [
+        {
+          "readers": 1,
+          "bank_width_tiles": 13,
+          "active_banks": 8,
+          "active_readers": 8,
+          "tiles_per_reader": 13,
+          "produced_tiles": 104
+        },
+        {
+          "readers": 2,
+          "bank_width_tiles": 14,
+          "active_banks": 7,
+          "active_readers": 14,
+          "tiles_per_reader": 7,
+          "produced_tiles": 98
+        },
+        {
+          "readers": 3,
+          "bank_width_tiles": 15,
+          "active_banks": 7,
+          "active_readers": 21,
+          "tiles_per_reader": 5,
+          "produced_tiles": 105
+        }
+      ],
+      "core_geometry": {
+        "4": {
+          "input_shard_tiles": 32,
+          "largest_block": 32,
+          "smaller_block": 16
+        },
+        "32": {
+          "input_shard_tiles": 4,
+          "largest_block": 4,
+          "smaller_block": 2
+        },
+        "64": {
+          "input_shard_tiles": 2,
+          "largest_block": 2,
+          "smaller_block": 1
+        }
+      },
+      "excluded_64_reason": null
+    }
+  },
+  "baseline_controls": [
+    {
+      "name": "linear_current_control",
+      "layer": 0,
+      "variant": "default",
+      "optional": false,
+      "reuse_evidence": "reader_adapted_layer0.json",
+      "note": "Reuse only exact same core/block/output geometry, dtype/fidelity and all-rank trace/cache gates.",
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "0",
+        "--roles",
+        "gdn_packed",
+        "gdn_z_epilogue",
+        "gdn_out",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"gdn_packed\":4,\"gdn_z_epilogue\":4,\"gdn_out\":4,\"gate_proj\":8,\"up_proj\":8,\"down_proj\":8}",
+        "--block",
+        "{\"gdn_packed\":32,\"gdn_z_epilogue\":32,\"gdn_out\":8,\"gate_proj\":8,\"up_proj\":8,\"down_proj\":6}",
+        "--per-core-n",
+        "{\"gdn_packed\":18,\"gdn_z_epilogue\":9,\"gdn_out\":36,\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_linear_current_control.json"
+      ]
+    },
+    {
+      "name": "full_current_control",
+      "layer": 3,
+      "variant": "default",
+      "optional": false,
+      "reuse_evidence": null,
+      "note": "Existing full QKVG per_core_N=3 does not match this matrix common per_core_N=6; run this full control unless equivalent evidence exists.",
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "3",
+        "--roles",
+        "qkvg",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"qkvg\":32,\"o_proj\":4,\"gate_proj\":8,\"up_proj\":8,\"down_proj\":8}",
+        "--block",
+        "{\"qkvg\":4,\"o_proj\":8,\"gate_proj\":8,\"up_proj\":8,\"down_proj\":6}",
+        "--per-core-n",
+        "{\"qkvg\":6,\"o_proj\":36,\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_full_current_control.json"
+      ]
+    },
+    {
+      "name": "packed_current_control",
+      "layer": 0,
+      "variant": "packed_gdn_all_modes",
+      "optional": true,
+      "reuse_evidence": "reader_gdn_all_n27.json when it passes the same input/output geometry",
+      "note": "Reuse only exact same core/block/output geometry, dtype/fidelity and all-rank trace/cache gates.",
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "0",
+        "--roles",
+        "gdn_all",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"gdn_all\":4}",
+        "--block",
+        "{\"gdn_all\":32}",
+        "--per-core-n",
+        "{\"gdn_all\":27}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_packed_current_control.json",
+        "--variant",
+        "packed_gdn_all_modes"
+      ]
+    }
+  ],
+  "runs": [
+    {
+      "name": "linear_current_alternate",
+      "layer": 0,
+      "variant": "default",
+      "optional": false,
+      "recipe": "current_alternate",
+      "roles": [
+        "gdn_packed",
+        "gdn_z_epilogue",
+        "gdn_out",
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ],
+      "cores": {
+        "gdn_packed": 4,
+        "gdn_z_epilogue": 4,
+        "gdn_out": 4,
+        "gate_proj": 8,
+        "up_proj": 8,
+        "down_proj": 8
+      },
+      "block": {
+        "gdn_packed": 16,
+        "gdn_z_epilogue": 16,
+        "gdn_out": 4,
+        "gate_proj": 16,
+        "up_proj": 16,
+        "down_proj": 12
+      },
+      "per_core_N": {
+        "gdn_packed": 18,
+        "gdn_z_epilogue": 9,
+        "gdn_out": 36,
+        "gate_proj": 12,
+        "up_proj": 12,
+        "down_proj": 18
+      },
+      "reader_cases": 18,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "0",
+        "--roles",
+        "gdn_packed",
+        "gdn_z_epilogue",
+        "gdn_out",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"gdn_packed\":4,\"gdn_z_epilogue\":4,\"gdn_out\":4,\"gate_proj\":8,\"up_proj\":8,\"down_proj\":8}",
+        "--block",
+        "{\"gdn_packed\":16,\"gdn_z_epilogue\":16,\"gdn_out\":4,\"gate_proj\":16,\"up_proj\":16,\"down_proj\":12}",
+        "--per-core-n",
+        "{\"gdn_packed\":18,\"gdn_z_epilogue\":9,\"gdn_out\":36,\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_linear_current_alternate.json"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 0 --roles gdn_packed gdn_z_epilogue gdn_out gate_proj up_proj down_proj --readers 1 2 3 --cores '{\"gdn_packed\":4,\"gdn_z_epilogue\":4,\"gdn_out\":4,\"gate_proj\":8,\"up_proj\":8,\"down_proj\":8}' --block '{\"gdn_packed\":16,\"gdn_z_epilogue\":16,\"gdn_out\":4,\"gate_proj\":16,\"up_proj\":16,\"down_proj\":12}' --per-core-n '{\"gdn_packed\":18,\"gdn_z_epilogue\":9,\"gdn_out\":36,\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_linear_current_alternate.json"
+    },
+    {
+      "name": "linear_residual32_largest",
+      "layer": 0,
+      "variant": "default",
+      "optional": false,
+      "recipe": "residual32_largest",
+      "roles": [
+        "gdn_packed",
+        "gdn_z_epilogue",
+        "gdn_out",
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ],
+      "cores": {
+        "gdn_packed": 32,
+        "gdn_z_epilogue": 32,
+        "gdn_out": 32,
+        "gate_proj": 32,
+        "up_proj": 32,
+        "down_proj": 32
+      },
+      "block": {
+        "gdn_packed": 4,
+        "gdn_z_epilogue": 4,
+        "gdn_out": 1,
+        "gate_proj": 4,
+        "up_proj": 4,
+        "down_proj": 3
+      },
+      "per_core_N": {
+        "gdn_packed": 18,
+        "gdn_z_epilogue": 9,
+        "gdn_out": 36,
+        "gate_proj": 12,
+        "up_proj": 12,
+        "down_proj": 18
+      },
+      "reader_cases": 18,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "0",
+        "--roles",
+        "gdn_packed",
+        "gdn_z_epilogue",
+        "gdn_out",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"gdn_packed\":32,\"gdn_z_epilogue\":32,\"gdn_out\":32,\"gate_proj\":32,\"up_proj\":32,\"down_proj\":32}",
+        "--block",
+        "{\"gdn_packed\":4,\"gdn_z_epilogue\":4,\"gdn_out\":1,\"gate_proj\":4,\"up_proj\":4,\"down_proj\":3}",
+        "--per-core-n",
+        "{\"gdn_packed\":18,\"gdn_z_epilogue\":9,\"gdn_out\":36,\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_linear_residual32_largest.json"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 0 --roles gdn_packed gdn_z_epilogue gdn_out gate_proj up_proj down_proj --readers 1 2 3 --cores '{\"gdn_packed\":32,\"gdn_z_epilogue\":32,\"gdn_out\":32,\"gate_proj\":32,\"up_proj\":32,\"down_proj\":32}' --block '{\"gdn_packed\":4,\"gdn_z_epilogue\":4,\"gdn_out\":1,\"gate_proj\":4,\"up_proj\":4,\"down_proj\":3}' --per-core-n '{\"gdn_packed\":18,\"gdn_z_epilogue\":9,\"gdn_out\":36,\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_linear_residual32_largest.json"
+    },
+    {
+      "name": "linear_residual32_smaller",
+      "layer": 0,
+      "variant": "default",
+      "optional": false,
+      "recipe": "residual32_smaller",
+      "roles": [
+        "gdn_packed",
+        "gdn_z_epilogue",
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ],
+      "cores": {
+        "gdn_packed": 32,
+        "gdn_z_epilogue": 32,
+        "gate_proj": 32,
+        "up_proj": 32,
+        "down_proj": 32
+      },
+      "block": {
+        "gdn_packed": 2,
+        "gdn_z_epilogue": 2,
+        "gate_proj": 2,
+        "up_proj": 2,
+        "down_proj": 1
+      },
+      "per_core_N": {
+        "gdn_packed": 18,
+        "gdn_z_epilogue": 9,
+        "gate_proj": 12,
+        "up_proj": 12,
+        "down_proj": 18
+      },
+      "reader_cases": 15,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "0",
+        "--roles",
+        "gdn_packed",
+        "gdn_z_epilogue",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"gdn_packed\":32,\"gdn_z_epilogue\":32,\"gate_proj\":32,\"up_proj\":32,\"down_proj\":32}",
+        "--block",
+        "{\"gdn_packed\":2,\"gdn_z_epilogue\":2,\"gate_proj\":2,\"up_proj\":2,\"down_proj\":1}",
+        "--per-core-n",
+        "{\"gdn_packed\":18,\"gdn_z_epilogue\":9,\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_linear_residual32_smaller.json"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 0 --roles gdn_packed gdn_z_epilogue gate_proj up_proj down_proj --readers 1 2 3 --cores '{\"gdn_packed\":32,\"gdn_z_epilogue\":32,\"gate_proj\":32,\"up_proj\":32,\"down_proj\":32}' --block '{\"gdn_packed\":2,\"gdn_z_epilogue\":2,\"gate_proj\":2,\"up_proj\":2,\"down_proj\":1}' --per-core-n '{\"gdn_packed\":18,\"gdn_z_epilogue\":9,\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_linear_residual32_smaller.json"
+    },
+    {
+      "name": "linear_wide64_largest",
+      "layer": 0,
+      "variant": "default",
+      "optional": false,
+      "recipe": "wide64_largest",
+      "roles": [
+        "gdn_packed",
+        "gdn_z_epilogue",
+        "gate_proj",
+        "up_proj"
+      ],
+      "cores": {
+        "gdn_packed": 64,
+        "gdn_z_epilogue": 64,
+        "gate_proj": 64,
+        "up_proj": 64
+      },
+      "block": {
+        "gdn_packed": 2,
+        "gdn_z_epilogue": 2,
+        "gate_proj": 2,
+        "up_proj": 2
+      },
+      "per_core_N": {
+        "gdn_packed": 18,
+        "gdn_z_epilogue": 9,
+        "gate_proj": 12,
+        "up_proj": 12
+      },
+      "reader_cases": 12,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "0",
+        "--roles",
+        "gdn_packed",
+        "gdn_z_epilogue",
+        "gate_proj",
+        "up_proj",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"gdn_packed\":64,\"gdn_z_epilogue\":64,\"gate_proj\":64,\"up_proj\":64}",
+        "--block",
+        "{\"gdn_packed\":2,\"gdn_z_epilogue\":2,\"gate_proj\":2,\"up_proj\":2}",
+        "--per-core-n",
+        "{\"gdn_packed\":18,\"gdn_z_epilogue\":9,\"gate_proj\":12,\"up_proj\":12}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_linear_wide64_largest.json"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 0 --roles gdn_packed gdn_z_epilogue gate_proj up_proj --readers 1 2 3 --cores '{\"gdn_packed\":64,\"gdn_z_epilogue\":64,\"gate_proj\":64,\"up_proj\":64}' --block '{\"gdn_packed\":2,\"gdn_z_epilogue\":2,\"gate_proj\":2,\"up_proj\":2}' --per-core-n '{\"gdn_packed\":18,\"gdn_z_epilogue\":9,\"gate_proj\":12,\"up_proj\":12}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_linear_wide64_largest.json"
+    },
+    {
+      "name": "linear_wide64_smaller",
+      "layer": 0,
+      "variant": "default",
+      "optional": false,
+      "recipe": "wide64_smaller",
+      "roles": [
+        "gdn_packed",
+        "gdn_z_epilogue",
+        "gate_proj",
+        "up_proj"
+      ],
+      "cores": {
+        "gdn_packed": 64,
+        "gdn_z_epilogue": 64,
+        "gate_proj": 64,
+        "up_proj": 64
+      },
+      "block": {
+        "gdn_packed": 1,
+        "gdn_z_epilogue": 1,
+        "gate_proj": 1,
+        "up_proj": 1
+      },
+      "per_core_N": {
+        "gdn_packed": 18,
+        "gdn_z_epilogue": 9,
+        "gate_proj": 12,
+        "up_proj": 12
+      },
+      "reader_cases": 12,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "0",
+        "--roles",
+        "gdn_packed",
+        "gdn_z_epilogue",
+        "gate_proj",
+        "up_proj",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"gdn_packed\":64,\"gdn_z_epilogue\":64,\"gate_proj\":64,\"up_proj\":64}",
+        "--block",
+        "{\"gdn_packed\":1,\"gdn_z_epilogue\":1,\"gate_proj\":1,\"up_proj\":1}",
+        "--per-core-n",
+        "{\"gdn_packed\":18,\"gdn_z_epilogue\":9,\"gate_proj\":12,\"up_proj\":12}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_linear_wide64_smaller.json"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 0 --roles gdn_packed gdn_z_epilogue gate_proj up_proj --readers 1 2 3 --cores '{\"gdn_packed\":64,\"gdn_z_epilogue\":64,\"gate_proj\":64,\"up_proj\":64}' --block '{\"gdn_packed\":1,\"gdn_z_epilogue\":1,\"gate_proj\":1,\"up_proj\":1}' --per-core-n '{\"gdn_packed\":18,\"gdn_z_epilogue\":9,\"gate_proj\":12,\"up_proj\":12}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_linear_wide64_smaller.json"
+    },
+    {
+      "name": "full_current_alternate",
+      "layer": 3,
+      "variant": "default",
+      "optional": false,
+      "recipe": "current_alternate",
+      "roles": [
+        "qkvg",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ],
+      "cores": {
+        "qkvg": 32,
+        "o_proj": 4,
+        "gate_proj": 8,
+        "up_proj": 8,
+        "down_proj": 8
+      },
+      "block": {
+        "qkvg": 2,
+        "o_proj": 4,
+        "gate_proj": 16,
+        "up_proj": 16,
+        "down_proj": 12
+      },
+      "per_core_N": {
+        "qkvg": 6,
+        "o_proj": 36,
+        "gate_proj": 12,
+        "up_proj": 12,
+        "down_proj": 18
+      },
+      "reader_cases": 15,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "3",
+        "--roles",
+        "qkvg",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"qkvg\":32,\"o_proj\":4,\"gate_proj\":8,\"up_proj\":8,\"down_proj\":8}",
+        "--block",
+        "{\"qkvg\":2,\"o_proj\":4,\"gate_proj\":16,\"up_proj\":16,\"down_proj\":12}",
+        "--per-core-n",
+        "{\"qkvg\":6,\"o_proj\":36,\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_full_current_alternate.json"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 3 --roles qkvg o_proj gate_proj up_proj down_proj --readers 1 2 3 --cores '{\"qkvg\":32,\"o_proj\":4,\"gate_proj\":8,\"up_proj\":8,\"down_proj\":8}' --block '{\"qkvg\":2,\"o_proj\":4,\"gate_proj\":16,\"up_proj\":16,\"down_proj\":12}' --per-core-n '{\"qkvg\":6,\"o_proj\":36,\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_full_current_alternate.json"
+    },
+    {
+      "name": "full_residual32_largest",
+      "layer": 3,
+      "variant": "default",
+      "optional": false,
+      "recipe": "residual32_largest",
+      "roles": [
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ],
+      "cores": {
+        "o_proj": 32,
+        "gate_proj": 32,
+        "up_proj": 32,
+        "down_proj": 32
+      },
+      "block": {
+        "o_proj": 1,
+        "gate_proj": 4,
+        "up_proj": 4,
+        "down_proj": 3
+      },
+      "per_core_N": {
+        "o_proj": 36,
+        "gate_proj": 12,
+        "up_proj": 12,
+        "down_proj": 18
+      },
+      "reader_cases": 12,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "3",
+        "--roles",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"o_proj\":32,\"gate_proj\":32,\"up_proj\":32,\"down_proj\":32}",
+        "--block",
+        "{\"o_proj\":1,\"gate_proj\":4,\"up_proj\":4,\"down_proj\":3}",
+        "--per-core-n",
+        "{\"o_proj\":36,\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_full_residual32_largest.json"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 3 --roles o_proj gate_proj up_proj down_proj --readers 1 2 3 --cores '{\"o_proj\":32,\"gate_proj\":32,\"up_proj\":32,\"down_proj\":32}' --block '{\"o_proj\":1,\"gate_proj\":4,\"up_proj\":4,\"down_proj\":3}' --per-core-n '{\"o_proj\":36,\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_full_residual32_largest.json"
+    },
+    {
+      "name": "full_residual32_smaller",
+      "layer": 3,
+      "variant": "default",
+      "optional": false,
+      "recipe": "residual32_smaller",
+      "roles": [
+        "gate_proj",
+        "up_proj",
+        "down_proj"
+      ],
+      "cores": {
+        "gate_proj": 32,
+        "up_proj": 32,
+        "down_proj": 32
+      },
+      "block": {
+        "gate_proj": 2,
+        "up_proj": 2,
+        "down_proj": 1
+      },
+      "per_core_N": {
+        "gate_proj": 12,
+        "up_proj": 12,
+        "down_proj": 18
+      },
+      "reader_cases": 9,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "3",
+        "--roles",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"gate_proj\":32,\"up_proj\":32,\"down_proj\":32}",
+        "--block",
+        "{\"gate_proj\":2,\"up_proj\":2,\"down_proj\":1}",
+        "--per-core-n",
+        "{\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_full_residual32_smaller.json"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 3 --roles gate_proj up_proj down_proj --readers 1 2 3 --cores '{\"gate_proj\":32,\"up_proj\":32,\"down_proj\":32}' --block '{\"gate_proj\":2,\"up_proj\":2,\"down_proj\":1}' --per-core-n '{\"gate_proj\":12,\"up_proj\":12,\"down_proj\":18}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_full_residual32_smaller.json"
+    },
+    {
+      "name": "full_wide64_largest",
+      "layer": 3,
+      "variant": "default",
+      "optional": false,
+      "recipe": "wide64_largest",
+      "roles": [
+        "qkvg",
+        "gate_proj",
+        "up_proj"
+      ],
+      "cores": {
+        "qkvg": 64,
+        "gate_proj": 64,
+        "up_proj": 64
+      },
+      "block": {
+        "qkvg": 2,
+        "gate_proj": 2,
+        "up_proj": 2
+      },
+      "per_core_N": {
+        "qkvg": 6,
+        "gate_proj": 12,
+        "up_proj": 12
+      },
+      "reader_cases": 9,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "3",
+        "--roles",
+        "qkvg",
+        "gate_proj",
+        "up_proj",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"qkvg\":64,\"gate_proj\":64,\"up_proj\":64}",
+        "--block",
+        "{\"qkvg\":2,\"gate_proj\":2,\"up_proj\":2}",
+        "--per-core-n",
+        "{\"qkvg\":6,\"gate_proj\":12,\"up_proj\":12}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_full_wide64_largest.json"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 3 --roles qkvg gate_proj up_proj --readers 1 2 3 --cores '{\"qkvg\":64,\"gate_proj\":64,\"up_proj\":64}' --block '{\"qkvg\":2,\"gate_proj\":2,\"up_proj\":2}' --per-core-n '{\"qkvg\":6,\"gate_proj\":12,\"up_proj\":12}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_full_wide64_largest.json"
+    },
+    {
+      "name": "full_wide64_smaller",
+      "layer": 3,
+      "variant": "default",
+      "optional": false,
+      "recipe": "wide64_smaller",
+      "roles": [
+        "qkvg",
+        "gate_proj",
+        "up_proj"
+      ],
+      "cores": {
+        "qkvg": 64,
+        "gate_proj": 64,
+        "up_proj": 64
+      },
+      "block": {
+        "qkvg": 1,
+        "gate_proj": 1,
+        "up_proj": 1
+      },
+      "per_core_N": {
+        "qkvg": 6,
+        "gate_proj": 12,
+        "up_proj": 12
+      },
+      "reader_cases": 9,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "3",
+        "--roles",
+        "qkvg",
+        "gate_proj",
+        "up_proj",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"qkvg\":64,\"gate_proj\":64,\"up_proj\":64}",
+        "--block",
+        "{\"qkvg\":1,\"gate_proj\":1,\"up_proj\":1}",
+        "--per-core-n",
+        "{\"qkvg\":6,\"gate_proj\":12,\"up_proj\":12}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_full_wide64_smaller.json"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 3 --roles qkvg gate_proj up_proj --readers 1 2 3 --cores '{\"qkvg\":64,\"gate_proj\":64,\"up_proj\":64}' --block '{\"qkvg\":1,\"gate_proj\":1,\"up_proj\":1}' --per-core-n '{\"qkvg\":6,\"gate_proj\":12,\"up_proj\":12}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_full_wide64_smaller.json"
+    },
+    {
+      "name": "packed_current_alternate",
+      "layer": 0,
+      "variant": "packed_gdn_all_modes",
+      "optional": true,
+      "recipe": "current_alternate",
+      "roles": [
+        "gdn_all"
+      ],
+      "cores": {
+        "gdn_all": 4
+      },
+      "block": {
+        "gdn_all": 16
+      },
+      "per_core_N": {
+        "gdn_all": 27
+      },
+      "reader_cases": 3,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "0",
+        "--roles",
+        "gdn_all",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"gdn_all\":4}",
+        "--block",
+        "{\"gdn_all\":16}",
+        "--per-core-n",
+        "{\"gdn_all\":27}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_packed_current_alternate.json",
+        "--variant",
+        "packed_gdn_all_modes"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 0 --roles gdn_all --readers 1 2 3 --cores '{\"gdn_all\":4}' --block '{\"gdn_all\":16}' --per-core-n '{\"gdn_all\":27}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_packed_current_alternate.json --variant packed_gdn_all_modes"
+    },
+    {
+      "name": "packed_residual32_largest",
+      "layer": 0,
+      "variant": "packed_gdn_all_modes",
+      "optional": true,
+      "recipe": "residual32_largest",
+      "roles": [
+        "gdn_all"
+      ],
+      "cores": {
+        "gdn_all": 32
+      },
+      "block": {
+        "gdn_all": 4
+      },
+      "per_core_N": {
+        "gdn_all": 27
+      },
+      "reader_cases": 3,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "0",
+        "--roles",
+        "gdn_all",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"gdn_all\":32}",
+        "--block",
+        "{\"gdn_all\":4}",
+        "--per-core-n",
+        "{\"gdn_all\":27}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_packed_residual32_largest.json",
+        "--variant",
+        "packed_gdn_all_modes"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 0 --roles gdn_all --readers 1 2 3 --cores '{\"gdn_all\":32}' --block '{\"gdn_all\":4}' --per-core-n '{\"gdn_all\":27}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_packed_residual32_largest.json --variant packed_gdn_all_modes"
+    },
+    {
+      "name": "packed_residual32_smaller",
+      "layer": 0,
+      "variant": "packed_gdn_all_modes",
+      "optional": true,
+      "recipe": "residual32_smaller",
+      "roles": [
+        "gdn_all"
+      ],
+      "cores": {
+        "gdn_all": 32
+      },
+      "block": {
+        "gdn_all": 2
+      },
+      "per_core_N": {
+        "gdn_all": 27
+      },
+      "reader_cases": 3,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "0",
+        "--roles",
+        "gdn_all",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"gdn_all\":32}",
+        "--block",
+        "{\"gdn_all\":2}",
+        "--per-core-n",
+        "{\"gdn_all\":27}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_packed_residual32_smaller.json",
+        "--variant",
+        "packed_gdn_all_modes"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 0 --roles gdn_all --readers 1 2 3 --cores '{\"gdn_all\":32}' --block '{\"gdn_all\":2}' --per-core-n '{\"gdn_all\":27}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_packed_residual32_smaller.json --variant packed_gdn_all_modes"
+    },
+    {
+      "name": "packed_wide64_largest",
+      "layer": 0,
+      "variant": "packed_gdn_all_modes",
+      "optional": true,
+      "recipe": "wide64_largest",
+      "roles": [
+        "gdn_all"
+      ],
+      "cores": {
+        "gdn_all": 64
+      },
+      "block": {
+        "gdn_all": 2
+      },
+      "per_core_N": {
+        "gdn_all": 27
+      },
+      "reader_cases": 3,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "0",
+        "--roles",
+        "gdn_all",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"gdn_all\":64}",
+        "--block",
+        "{\"gdn_all\":2}",
+        "--per-core-n",
+        "{\"gdn_all\":27}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_packed_wide64_largest.json",
+        "--variant",
+        "packed_gdn_all_modes"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 0 --roles gdn_all --readers 1 2 3 --cores '{\"gdn_all\":64}' --block '{\"gdn_all\":2}' --per-core-n '{\"gdn_all\":27}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_packed_wide64_largest.json --variant packed_gdn_all_modes"
+    },
+    {
+      "name": "packed_wide64_smaller",
+      "layer": 0,
+      "variant": "packed_gdn_all_modes",
+      "optional": true,
+      "recipe": "wide64_smaller",
+      "roles": [
+        "gdn_all"
+      ],
+      "cores": {
+        "gdn_all": 64
+      },
+      "block": {
+        "gdn_all": 1
+      },
+      "per_core_N": {
+        "gdn_all": 27
+      },
+      "reader_cases": 3,
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe",
+        "--layer",
+        "0",
+        "--roles",
+        "gdn_all",
+        "--readers",
+        "1",
+        "2",
+        "3",
+        "--cores",
+        "{\"gdn_all\":64}",
+        "--block",
+        "{\"gdn_all\":1}",
+        "--per-core-n",
+        "{\"gdn_all\":27}",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_packed_wide64_smaller.json",
+        "--variant",
+        "packed_gdn_all_modes"
+      ],
+      "shell_command": "timeout 300 python -m models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_reader_probe --layer 0 --roles gdn_all --readers 1 2 3 --cores '{\"gdn_all\":64}' --block '{\"gdn_all\":1}' --per-core-n '{\"gdn_all\":27}' --output models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/reader_matrix_packed_wide64_smaller.json --variant packed_gdn_all_modes"
+    }
+  ],
+  "coverage": [
+    {
+      "family": "linear",
+      "unique_role_core_block_geometries": 31,
+      "new_runs": 5,
+      "new_reader_cases": 75
+    },
+    {
+      "family": "full",
+      "unique_role_core_block_geometries": 23,
+      "new_runs": 5,
+      "new_reader_cases": 54
+    },
+    {
+      "family": "packed",
+      "unique_role_core_block_geometries": 6,
+      "new_runs": 5,
+      "new_reader_cases": 15
+    }
+  ],
+  "total_new_runs": 15,
+  "total_new_reader_cases": 144,
+  "probe_source": "models/autoports/ornith_ai_ornith_1_5_9b/tests/multichip_reader_probe.py",
+  "probe_source_sha256": "39378d0a209157c9dc6001783e8fd9a0ed742c75c7b0cfc2f49f78c7c7cae54b",
+  "native_geometry_sources": [
+    {
+      "path": "ttnn/cpp/ttnn/operations/matmul/device/factory/matmul_multicore_reuse_mcast_dram_sharded_program_factory.cpp",
+      "sha256": "8d0c4f5b4aaa0fdb25eb381e7244e01f7744ee1e81934bdaa5cdef997de31ab7"
+    },
+    {
+      "path": "ttnn/cpp/ttnn/operations/matmul/device/matmul_device_operation.cpp",
+      "sha256": "f06c6298dbba8b3f9346187f0ef08bebd538b8f7e5eb13e091a76a6f490cdcec"
+    }
+  ],
+  "cpu_validation": {
+    "status": "pass",
+    "role_count": 9,
+    "command_count_including_reusable_controls": 18,
+    "unique_role_core_block_points": 60,
+    "checks": [
+      "Exact K/input-core divisibility and largest/proper-divisor block arithmetic",
+      "Reader-padded bank widths, pruned active banks, and per-reader tile widths",
+      "Fixed output capacity covers every reader-produced tile; small-reader writer start indices are in range",
+      "Structured command maps and shell token round-trip",
+      "All legal current/32/64 core endpoints covered without duplicate role/core/block points"
+    ],
+    "runtime_status": "Not run by this investigator; placement, CB/L1, PCC, trace and timing remain runtime gates"
+  }
+}

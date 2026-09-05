@@ -381,6 +381,7 @@ std::vector<DramBankReaderAssignment> get_dram_bank_reader_assignments(
     tt::tt_metal::IDevice* device,
     tt::tt_metal::NOC noc,
     uint32_t workers_per_bank,
-    const CoreRangeSet& secondary_reader_excluded_cores);
+    const CoreRangeSet& secondary_reader_excluded_cores,
+    const std::optional<ttnn::MeshCoordinate>& mesh_dispatch_coordinate = std::nullopt);
 
 }  // namespace ttnn::prim::dram_sharded_helpers

@@ -1,0 +1,297 @@
+{
+  "status": "failed",
+  "hardware": "four Blackhole chips on physical P300c boards",
+  "mesh": [
+    1,
+    4
+  ],
+  "fabric": "FABRIC_1D_RING",
+  "layer": 0,
+  "position": 2048,
+  "logical_batch": 1,
+  "padded_rows": 32,
+  "requested_readers": [
+    1,
+    2,
+    3
+  ],
+  "effective_readers": [
+    1,
+    2,
+    3
+  ],
+  "pcc_threshold": 0.995,
+  "scope": "native local projection only; input sharding precedes timing; no row all-reduce",
+  "activation_source": "recorded real layer input, then actual TP4 prefill and decode at position 2048",
+  "weight_source": "raw pinned HF weights, partitioned before independent target-dtype uploads",
+  "runtime_sha256": {
+    "build/lib/_ttnncpp.so": "8a5f138ae0c043c6984042290c113964f7b8c864728d10e10de9c56047e92cf7",
+    "build/lib/libtt_metal.so": "530c6803ca7c3bdb0d3e17e091a50e9bf492c89e55feffc031c45afe41d634a9",
+    "ttnn/ttnn/_ttnn.so": "f3e5f0c846100fac5cbf38be7267338de4539e9628ed31dbd034d80208a6abe2",
+    "ttnn/cpp/ttnn/operations/matmul/device/utilities/matmul_utilities.cpp": "57dea15a2f3db5afebaf50ebedb267621d447cd16f241561c2f4348dde27488a",
+    "ttnn/cpp/ttnn/operations/matmul/device/factory/matmul_multicore_reuse_mcast_dram_sharded_program_factory.cpp": "8d0c4f5b4aaa0fdb25eb381e7244e01f7744ee1e81934bdaa5cdef997de31ab7",
+    "ttnn/cpp/ttnn/operations/matmul/matmul_nanobind.cpp": "4f207859ffea6d1397c4200868b0bafb1785ba54acecae2fb124a83aaed10a4d"
+  },
+  "results": [
+    {
+      "status": "timing",
+      "layer": 0,
+      "role": "gdn_packed",
+      "local_shape": [
+        1,
+        4096,
+        2112
+      ],
+      "readers": 1,
+      "cores": 4,
+      "block_w": 32,
+      "per_core_M": 1,
+      "per_core_N": 17,
+      "dram_banks": 8,
+      "active_dram_banks": 8,
+      "active_reader_cores": 8,
+      "weight_shard_width": 288,
+      "padded_dram_width": 2304,
+      "padding_columns": 192,
+      "weight_tile_bytes": 576,
+      "per_bank_tile_row_bytes": 5184,
+      "per_reader_tile_row_bytes": 5184,
+      "physical_weight_bytes_per_chip": 5308416,
+      "compute": {
+        "math_fidelity": "MathFidelity.LoFi",
+        "math_approx_mode": "False",
+        "fp32_dest_acc_en": false,
+        "packer_l1_acc": true,
+        "dst_full_sync_en": false,
+        "throttle_level": "ThrottleLevel.NO_THROTTLE"
+      },
+      "fused_activation": null,
+      "input": {
+        "logical_shape": [
+          1,
+          1,
+          4096
+        ],
+        "padded_shape": [
+          1,
+          32,
+          4096
+        ],
+        "dtype": "DataType.BFLOAT16",
+        "memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":3,\"y\":0}], shape=[32, 1024], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[32, 1024],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":3,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+        "shard_shape": [
+          32,
+          1024
+        ],
+        "storage_cores": 4
+      },
+      "warmup_samples_us": [],
+      "samples_us": [],
+      "program_config": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=32,per_core_M=1,per_core_N=17,fused_activation=std::nullopt,num_workers_per_dram_bank=1)",
+      "program_reader_count": 1,
+      "output": {
+        "logical_shape": [
+          1,
+          1,
+          2112
+        ],
+        "padded_shape": [
+          1,
+          32,
+          2112
+        ],
+        "dtype": "DataType.BFLOAT16",
+        "memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":3,\"y\":0}], shape=[32, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[32, 544],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":3,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+        "shard_shape": [
+          32,
+          544
+        ],
+        "storage_cores": 4
+      },
+      "pcc_vs_reader1": [
+        1.0000000000000004,
+        1.0000000000000002,
+        0.9999999999999999,
+        1.0000000000000002
+      ],
+      "weight": {
+        "logical_shape": [
+          4096,
+          2112
+        ],
+        "padded_shape": [
+          4096,
+          2112
+        ],
+        "dtype": "DataType.BFLOAT4_B",
+        "memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::DRAM,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}], shape=[4096, 288], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[4096, 288],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+        "shard_shape": [
+          4096,
+          288
+        ],
+        "storage_cores": 8
+      },
+      "trace_exact": true
+    },
+    {
+      "status": "timing",
+      "layer": 0,
+      "role": "gdn_packed",
+      "local_shape": [
+        1,
+        4096,
+        2112
+      ],
+      "readers": 2,
+      "cores": 4,
+      "block_w": 32,
+      "per_core_M": 1,
+      "per_core_N": 17,
+      "dram_banks": 8,
+      "active_dram_banks": 7,
+      "active_reader_cores": 14,
+      "weight_shard_width": 320,
+      "padded_dram_width": 2560,
+      "padding_columns": 448,
+      "weight_tile_bytes": 576,
+      "per_bank_tile_row_bytes": 5760,
+      "per_reader_tile_row_bytes": 2880,
+      "physical_weight_bytes_per_chip": 5898240,
+      "compute": {
+        "math_fidelity": "MathFidelity.LoFi",
+        "math_approx_mode": "False",
+        "fp32_dest_acc_en": false,
+        "packer_l1_acc": true,
+        "dst_full_sync_en": false,
+        "throttle_level": "ThrottleLevel.NO_THROTTLE"
+      },
+      "fused_activation": null,
+      "input": {
+        "logical_shape": [
+          1,
+          1,
+          4096
+        ],
+        "padded_shape": [
+          1,
+          32,
+          4096
+        ],
+        "dtype": "DataType.BFLOAT16",
+        "memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":3,\"y\":0}], shape=[32, 1024], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[32, 1024],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":3,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+        "shard_shape": [
+          32,
+          1024
+        ],
+        "storage_cores": 4
+      },
+      "warmup_samples_us": [],
+      "samples_us": [],
+      "program_config": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=32,per_core_M=1,per_core_N=17,fused_activation=std::nullopt,num_workers_per_dram_bank=2)",
+      "program_reader_count": 2,
+      "output": {
+        "logical_shape": [
+          1,
+          1,
+          2112
+        ],
+        "padded_shape": [
+          1,
+          32,
+          2112
+        ],
+        "dtype": "DataType.BFLOAT16",
+        "memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":3,\"y\":0}], shape=[32, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[32, 544],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":3,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+        "shard_shape": [
+          32,
+          544
+        ],
+        "storage_cores": 4
+      },
+      "pcc_vs_reader1": [
+        1.0000000000000004,
+        1.0000000000000002,
+        0.9999999999999999,
+        1.0000000000000002
+      ],
+      "weight": {
+        "logical_shape": [
+          4096,
+          2112
+        ],
+        "padded_shape": [
+          4096,
+          2112
+        ],
+        "dtype": "DataType.BFLOAT4_B",
+        "memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::DRAM,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}], shape=[4096, 320], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[4096, 320],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+        "shard_shape": [
+          4096,
+          320
+        ],
+        "storage_cores": 8
+      },
+      "trace_exact": true
+    },
+    {
+      "status": "failed",
+      "layer": 0,
+      "role": "gdn_packed",
+      "local_shape": [
+        1,
+        4096,
+        2112
+      ],
+      "readers": 3,
+      "cores": 4,
+      "block_w": 32,
+      "per_core_M": 1,
+      "per_core_N": 17,
+      "dram_banks": 8,
+      "active_dram_banks": 8,
+      "active_reader_cores": 24,
+      "weight_shard_width": 288,
+      "padded_dram_width": 2304,
+      "padding_columns": 192,
+      "weight_tile_bytes": 576,
+      "per_bank_tile_row_bytes": 5184,
+      "per_reader_tile_row_bytes": 1728,
+      "physical_weight_bytes_per_chip": 5308416,
+      "compute": {
+        "math_fidelity": "MathFidelity.LoFi",
+        "math_approx_mode": "False",
+        "fp32_dest_acc_en": false,
+        "packer_l1_acc": true,
+        "dst_full_sync_en": false,
+        "throttle_level": "ThrottleLevel.NO_THROTTLE"
+      },
+      "fused_activation": null,
+      "input": {
+        "logical_shape": [
+          1,
+          1,
+          4096
+        ],
+        "padded_shape": [
+          1,
+          32,
+          4096
+        ],
+        "dtype": "DataType.BFLOAT16",
+        "memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":3,\"y\":0}], shape=[32, 1024], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[32, 1024],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":3,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+        "shard_shape": [
+          32,
+          1024
+        ],
+        "storage_cores": 4
+      },
+      "warmup_samples_us": [],
+      "samples_us": [],
+      "program_config": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=32,per_core_M=1,per_core_N=17,fused_activation=std::nullopt,num_workers_per_dram_bank=3)",
+      "program_reader_count": 3,
+      "error": "RuntimeError: TT_FATAL @ /work/ttnn/cpp/ttnn/operations/matmul/device/factory/matmul_multicore_reuse_mcast_dram_sharded_program_factory.cpp:815: curr_storage_core_idx < num_cores_written_back\ninfo:\nWorker 6-2 has no storage area assigned\nbacktrace:\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x110cda0) [0x7e5c7cf0cda0]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x10e9363) [0x7e5c7cee9363]\n --- ttnn::prim::MatmulMultiCoreReuseMultiCastDRAMShardedProgramFactory::create_descriptor(ttnn::prim::MatmulParams const&, ttnn::prim::MatmulInputs const&, std::vector<ttnn::Tensor, std::allocator<ttnn::Tensor> >&, std::optional<tt::tt_metal::distributed::MeshCoordinate> const&, std::optional<tt::tt_metal::CoreRangeSet> const&)\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x1121c7e) [0x7e5c7cf21c7e]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x112197f) [0x7e5c7cf2197f]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x112124b) [0x7e5c7cf2124b]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail30create_and_cache_mesh_workloadITkNS0_22DeviceOperationConceptENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSH_13program_cache6detail12ProgramCacheERKNSM_15ProgramCacheKeyE+0x106) [0x7e5c7cf11a46]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x1b5) [0x7e5c7cf0f2b5]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim21MatmulDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x508) [0x7e5c7cef37f8]\n --- ttnn::prim::matmul(ttnn::Tensor const&, ttnn::Tensor const&, std::optional<ttnn::Tensor> const&, std::optional<ttnn::Tensor> const&, ttnn::prim::MatmulParams const&)\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x10808c0) [0x7e5c7ce808c0]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn10operations6matmul6linearERKNS_6TensorES4_RKSt8optionalIS3_EbbRKS5_IKN2tt8tt_metal12MemoryConfigEES5_IKNSA_8DataTypeEERKS5_IKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS5_IKSJ_IJNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENS0_5unary19BasicUnaryWithParamIJfEEEEEES5_IKNS_19ComputeKernelConfigEES5_IKNS_5types8CoreGridEERKS5_IKNSA_4TileEES5_IS2_ERKS5_IKNSA_12experimental20GlobalCircularBufferEERKS5_IN4ttsl10StrongTypeIhNSA_14SubDeviceIdTagEEEE+0x264) [0x7e5c7ce81e04]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/_ttnn.so(+0x65679b) [0x7e5c7f05679b]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/_ttnn.so(+0x656493) [0x7e5c7f056493]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/_ttnn.so(+0x37bfcd) [0x7e5c7ed7bfcd]\n --- python(_PyObject_Call_Prepend+0x115) [0x57df02efdc65]\n --- python(+0x3a2b46) [0x57df02f31b46]\n --- python(_PyEval_EvalFrameDefault+0xa16c) [0x57df02e5f87c]\n --- python(_PyFunction_Vectorcall+0x202) [0x57df02e00352]\n --- python(_PyObject_Call_Prepend+0x115) [0x57df02efdc65]\n --- python(+0x3a2b46) [0x57df02f31b46]\n --- python(+0x2fd2a2) [0x57df02e8c2a2]\n --- python(_PyEval_EvalFrameDefault+0x3eef) [0x57df02e595ff]\n --- python(_PyFunction_Vectorcall+0x202) [0x57df02e00352]\n --- python(+0x2fd0b9) [0x57df02e8c0b9]\n --- python(_PyEval_EvalFrameDefault+0x4068) [0x57df02e59778]\n --- python(_PyFunction_Vectorcall+0x202) [0x57df02e00352]\n --- python(+0x2fd0b9) [0x57df02e8c0b9]\n --- python(_PyEval_EvalFrameDefault+0x4068) [0x57df02e59778]\n --- python(+0x3d4a54) [0x57df02f63a54]\n --- python(+0x3d27c9) [0x57df02f617c9]\n --- python(+0x29259f) [0x57df02e2159f]\n --- python(+0x2fd0b9) [0x57df02e8c0b9]\n --- python(_PyEval_EvalFrameDefault+0x4068) [0x57df02e59778]\n --- python(_PyFunction_Vectorcall+0x202) [0x57df02e00352]\n --- python(+0x2fd0b9) [0x57df02e8c0b9]\n --- python(_PyEval_EvalFrameDefault+0x4068) [0x57df02e59778]\n --- python(_PyFunction_Vectorcall+0x202) [0x57df02e00352]\n --- python(+0x1bc738) [0x57df02d4b738]\n --- python(Py_RunMain+0x673) [0x57df02fa5023]\n --- python(+0x148028) [0x57df02cd7028]\n --- /lib/x86_64-linux-gnu/libc.so.6(+0x29d90) [0x7e5cae6ded90]\n --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x80) [0x7e5cae6dee40]\n --- python(+0x34616b) [0x57df02ed516b]\n"
+    }
+  ],
+  "window_order": [],
+  "error": "RuntimeError: TT_FATAL @ /work/ttnn/cpp/ttnn/operations/matmul/device/factory/matmul_multicore_reuse_mcast_dram_sharded_program_factory.cpp:815: curr_storage_core_idx < num_cores_written_back\ninfo:\nWorker 6-2 has no storage area assigned\nbacktrace:\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x110cda0) [0x7e5c7cf0cda0]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x10e9363) [0x7e5c7cee9363]\n --- ttnn::prim::MatmulMultiCoreReuseMultiCastDRAMShardedProgramFactory::create_descriptor(ttnn::prim::MatmulParams const&, ttnn::prim::MatmulInputs const&, std::vector<ttnn::Tensor, std::allocator<ttnn::Tensor> >&, std::optional<tt::tt_metal::distributed::MeshCoordinate> const&, std::optional<tt::tt_metal::CoreRangeSet> const&)\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x1121c7e) [0x7e5c7cf21c7e]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x112197f) [0x7e5c7cf2197f]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x112124b) [0x7e5c7cf2124b]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail30create_and_cache_mesh_workloadITkNS0_22DeviceOperationConceptENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSH_13program_cache6detail12ProgramCacheERKNSM_15ProgramCacheKeyE+0x106) [0x7e5c7cf11a46]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x1b5) [0x7e5c7cf0f2b5]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim21MatmulDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x508) [0x7e5c7cef37f8]\n --- ttnn::prim::matmul(ttnn::Tensor const&, ttnn::Tensor const&, std::optional<ttnn::Tensor> const&, std::optional<ttnn::Tensor> const&, ttnn::prim::MatmulParams const&)\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x10808c0) [0x7e5c7ce808c0]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn10operations6matmul6linearERKNS_6TensorES4_RKSt8optionalIS3_EbbRKS5_IKN2tt8tt_metal12MemoryConfigEES5_IKNSA_8DataTypeEERKS5_IKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS5_IKSJ_IJNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENS0_5unary19BasicUnaryWithParamIJfEEEEEES5_IKNS_19ComputeKernelConfigEES5_IKNS_5types8CoreGridEERKS5_IKNSA_4TileEES5_IS2_ERKS5_IKNSA_12experimental20GlobalCircularBufferEERKS5_IN4ttsl10StrongTypeIhNSA_14SubDeviceIdTagEEEE+0x264) [0x7e5c7ce81e04]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/_ttnn.so(+0x65679b) [0x7e5c7f05679b]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/_ttnn.so(+0x656493) [0x7e5c7f056493]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/_ttnn.so(+0x37bfcd) [0x7e5c7ed7bfcd]\n --- python(_PyObject_Call_Prepend+0x115) [0x57df02efdc65]\n --- python(+0x3a2b46) [0x57df02f31b46]\n --- python(_PyEval_EvalFrameDefault+0xa16c) [0x57df02e5f87c]\n --- python(_PyFunction_Vectorcall+0x202) [0x57df02e00352]\n --- python(_PyObject_Call_Prepend+0x115) [0x57df02efdc65]\n --- python(+0x3a2b46) [0x57df02f31b46]\n --- python(+0x2fd2a2) [0x57df02e8c2a2]\n --- python(_PyEval_EvalFrameDefault+0x3eef) [0x57df02e595ff]\n --- python(_PyFunction_Vectorcall+0x202) [0x57df02e00352]\n --- python(+0x2fd0b9) [0x57df02e8c0b9]\n --- python(_PyEval_EvalFrameDefault+0x4068) [0x57df02e59778]\n --- python(_PyFunction_Vectorcall+0x202) [0x57df02e00352]\n --- python(+0x2fd0b9) [0x57df02e8c0b9]\n --- python(_PyEval_EvalFrameDefault+0x4068) [0x57df02e59778]\n --- python(+0x3d4a54) [0x57df02f63a54]\n --- python(+0x3d27c9) [0x57df02f617c9]\n --- python(+0x29259f) [0x57df02e2159f]\n --- python(+0x2fd0b9) [0x57df02e8c0b9]\n --- python(_PyEval_EvalFrameDefault+0x4068) [0x57df02e59778]\n --- python(_PyFunction_Vectorcall+0x202) [0x57df02e00352]\n --- python(+0x2fd0b9) [0x57df02e8c0b9]\n --- python(_PyEval_EvalFrameDefault+0x4068) [0x57df02e59778]\n --- python(_PyFunction_Vectorcall+0x202) [0x57df02e00352]\n --- python(+0x1bc738) [0x57df02d4b738]\n --- python(Py_RunMain+0x673) [0x57df02fa5023]\n --- python(+0x148028) [0x57df02cd7028]\n --- /lib/x86_64-linux-gnu/libc.so.6(+0x29d90) [0x7e5cae6ded90]\n --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x80) [0x7e5cae6dee40]\n --- python(+0x34616b) [0x57df02ed516b]\n"
+}

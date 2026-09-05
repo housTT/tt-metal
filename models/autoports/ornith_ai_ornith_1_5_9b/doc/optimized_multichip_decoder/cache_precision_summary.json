@@ -1,0 +1,375 @@
+{
+  "status": "adjudicated_rejection",
+  "selection": "K8/V8",
+  "scope": "real TP4 decoder cache-only paired diagnostic; host readback; no performance measurements",
+  "hardware": "four Blackhole chips on physical P300c boards",
+  "mesh": [
+    1,
+    4
+  ],
+  "thresholds": {
+    "hf_output": 0.995,
+    "state": 0.99,
+    "sdpa_cpu_oracle": 0.999
+  },
+  "runs": [
+    {
+      "run": "cache_precision_qkv8_b1",
+      "result_path": "cache_precision_qkv8_b1.json",
+      "result_sha256": "32a55ffb7733d30bd66e4f2462bb86d85bccf66ab83b64dd4f1c85fc0b01be9a",
+      "provenance_path": "logs/cache_precision_qkv8_b1.provenance.json",
+      "command": [
+        "timeout",
+        "240",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_cache_diagnostic",
+        "--variant",
+        "production_cache4",
+        "--batch",
+        "1",
+        "--length",
+        "2048",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/cache_precision_qkv8_b1.json"
+      ],
+      "returncode": 1,
+      "variant": "production_cache4",
+      "batch": 1,
+      "logical_length": 2048,
+      "permuted": false,
+      "identical_producers": true,
+      "archived_cache_implementation_aggregate": true,
+      "state_precision_gate_passed": false,
+      "full_cache_pcc": {
+        "k": 0.9821776330579293,
+        "v": 0.9830672506448399
+      },
+      "policies": [
+        {
+          "cache_dtype": "DataType.BFLOAT4_B",
+          "prefill_exact_rows": true,
+          "decode_exact_rows": true,
+          "min_sdpa_cpu_pcc": 0.9998267446814493,
+          "min_hf_prefill_pcc": 0.9978418209041112,
+          "min_hf_decode_pcc": 0.9988966462069485,
+          "replicated_outputs_exact": true,
+          "failed_decode_users_by_rank": [
+            [],
+            [],
+            [],
+            []
+          ]
+        },
+        {
+          "cache_dtype": "DataType.BFLOAT8_B",
+          "prefill_exact_rows": true,
+          "decode_exact_rows": true,
+          "min_sdpa_cpu_pcc": 0.9995885639845162,
+          "min_hf_prefill_pcc": 0.9986283433066411,
+          "min_hf_decode_pcc": 0.9993664546492979,
+          "replicated_outputs_exact": true,
+          "failed_decode_users_by_rank": [
+            [],
+            [],
+            [],
+            []
+          ]
+        }
+      ],
+      "cache_implementation_leaf_checks_passed": true
+    },
+    {
+      "run": "cache_precision_qkv4_b1",
+      "result_path": "cache_precision_qkv4_b1.json",
+      "result_sha256": "6748c69711488c838d0d7ebfbadad272da3263ad3180e5fba841b09334eb7ad0",
+      "provenance_path": "logs/cache_precision_qkv4_b1.provenance.json",
+      "command": [
+        "timeout",
+        "300",
+        "/home/hous/dev/ornith-1.5-9b/tt-metal/python_env/bin/python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_cache_diagnostic",
+        "--variant",
+        "production_qkv4_cache4",
+        "--batch",
+        "1",
+        "--length",
+        "2048",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/cache_precision_qkv4_b1.json"
+      ],
+      "returncode": 1,
+      "variant": "production_qkv4_cache4",
+      "batch": 1,
+      "logical_length": 2048,
+      "permuted": false,
+      "identical_producers": true,
+      "archived_cache_implementation_aggregate": true,
+      "state_precision_gate_passed": false,
+      "full_cache_pcc": {
+        "k": 0.9821781838672127,
+        "v": 0.9830675079763254
+      },
+      "policies": [
+        {
+          "cache_dtype": "DataType.BFLOAT4_B",
+          "prefill_exact_rows": true,
+          "decode_exact_rows": true,
+          "min_sdpa_cpu_pcc": 0.9999035445639939,
+          "min_hf_prefill_pcc": 0.9978418209041112,
+          "min_hf_decode_pcc": 0.9986109813903198,
+          "replicated_outputs_exact": true,
+          "failed_decode_users_by_rank": [
+            [],
+            [],
+            [],
+            []
+          ]
+        },
+        {
+          "cache_dtype": "DataType.BFLOAT8_B",
+          "prefill_exact_rows": true,
+          "decode_exact_rows": true,
+          "min_sdpa_cpu_pcc": 0.9995840757515029,
+          "min_hf_prefill_pcc": 0.9986283433066411,
+          "min_hf_decode_pcc": 0.999027634584741,
+          "replicated_outputs_exact": true,
+          "failed_decode_users_by_rank": [
+            [],
+            [],
+            [],
+            []
+          ]
+        }
+      ],
+      "cache_implementation_leaf_checks_passed": true
+    },
+    {
+      "run": "cache_precision_qkv4_b1_permuted",
+      "result_path": "cache_precision_qkv4_b1_permuted.json",
+      "result_sha256": "fe0104b7cc76c717253f7fc6d05fe4e2b23917087be1536bd68a5b1eeb98f9f5",
+      "provenance_path": "logs/cache_precision_qkv4_b1_permuted.provenance.json",
+      "command": [
+        "timeout",
+        "300",
+        "/home/hous/dev/ornith-1.5-9b/tt-metal/python_env/bin/python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_cache_diagnostic",
+        "--variant",
+        "production_qkv4_cache4",
+        "--batch",
+        "1",
+        "--length",
+        "2048",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/cache_precision_qkv4_b1_permuted.json",
+        "--permuted"
+      ],
+      "returncode": 1,
+      "variant": "production_qkv4_cache4",
+      "batch": 1,
+      "logical_length": 2048,
+      "permuted": true,
+      "identical_producers": true,
+      "archived_cache_implementation_aggregate": true,
+      "state_precision_gate_passed": false,
+      "full_cache_pcc": {
+        "k": 0.9821781838651382,
+        "v": 0.9830675079606475
+      },
+      "policies": [
+        {
+          "cache_dtype": "DataType.BFLOAT4_B",
+          "prefill_exact_rows": true,
+          "decode_exact_rows": true,
+          "min_sdpa_cpu_pcc": 0.9999035445639939,
+          "min_hf_prefill_pcc": 0.9978418209041112,
+          "min_hf_decode_pcc": 0.9986109813903198,
+          "replicated_outputs_exact": true,
+          "failed_decode_users_by_rank": [
+            [],
+            [],
+            [],
+            []
+          ]
+        },
+        {
+          "cache_dtype": "DataType.BFLOAT8_B",
+          "prefill_exact_rows": true,
+          "decode_exact_rows": true,
+          "min_sdpa_cpu_pcc": 0.9995840757515029,
+          "min_hf_prefill_pcc": 0.9986283433066411,
+          "min_hf_decode_pcc": 0.999027634584741,
+          "replicated_outputs_exact": true,
+          "failed_decode_users_by_rank": [
+            [],
+            [],
+            [],
+            []
+          ]
+        }
+      ],
+      "cache_implementation_leaf_checks_passed": true
+    },
+    {
+      "run": "cache_precision_qkv4_b32",
+      "result_path": "cache_precision_qkv4_b32.json",
+      "result_sha256": "253bbbdb877de07159ae6fc50060ce6a616878d388f2b91a22426b87f1320c28",
+      "provenance_path": "logs/cache_precision_qkv4_b32.provenance.json",
+      "command": [
+        "timeout",
+        "300",
+        "/home/hous/dev/ornith-1.5-9b/tt-metal/python_env/bin/python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_cache_diagnostic",
+        "--variant",
+        "production_qkv4_cache4",
+        "--batch",
+        "32",
+        "--length",
+        "96",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/cache_precision_qkv4_b32.json",
+        "--legacy-batch-inputs"
+      ],
+      "returncode": 1,
+      "variant": "production_qkv4_cache4",
+      "batch": 32,
+      "logical_length": 96,
+      "permuted": false,
+      "identical_producers": true,
+      "archived_cache_implementation_aggregate": false,
+      "state_precision_gate_passed": false,
+      "full_cache_pcc": {
+        "k": 0.9818546997817613,
+        "v": 0.9830214832637213
+      },
+      "policies": [
+        {
+          "cache_dtype": "DataType.BFLOAT4_B",
+          "prefill_exact_rows": true,
+          "decode_exact_rows": true,
+          "min_sdpa_cpu_pcc": 0.9995511719855552,
+          "min_hf_prefill_pcc": 0.9971060859007393,
+          "min_hf_decode_pcc": 0.9936577450686408,
+          "replicated_outputs_exact": true,
+          "failed_decode_users_by_rank": [
+            [
+              8,
+              26
+            ],
+            [
+              8,
+              26
+            ],
+            [
+              8,
+              26
+            ],
+            [
+              8,
+              26
+            ]
+          ]
+        },
+        {
+          "cache_dtype": "DataType.BFLOAT8_B",
+          "prefill_exact_rows": true,
+          "decode_exact_rows": true,
+          "min_sdpa_cpu_pcc": 0.9992321388846525,
+          "min_hf_prefill_pcc": 0.9983594473896475,
+          "min_hf_decode_pcc": 0.9968142373618828,
+          "replicated_outputs_exact": true,
+          "failed_decode_users_by_rank": [
+            [],
+            [],
+            [],
+            []
+          ]
+        }
+      ],
+      "cache_implementation_leaf_checks_passed": true
+    },
+    {
+      "run": "cache_precision_qkv4_b32_permuted",
+      "result_path": "cache_precision_qkv4_b32_permuted.json",
+      "result_sha256": "9da8bcbb42a6e5d47dfab58e25410db748a1d67b6138a1f6985f8965ae529a45",
+      "provenance_path": "logs/cache_precision_qkv4_b32_permuted.provenance.json",
+      "command": [
+        "timeout",
+        "300",
+        "python",
+        "-m",
+        "models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_cache_diagnostic",
+        "--variant",
+        "production_qkv4_cache4",
+        "--batch",
+        "32",
+        "--length",
+        "96",
+        "--legacy-batch-inputs",
+        "--permuted",
+        "--output",
+        "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_multichip_decoder/cache_precision_qkv4_b32_permuted.json"
+      ],
+      "returncode": 1,
+      "variant": "production_qkv4_cache4",
+      "batch": 32,
+      "logical_length": 96,
+      "permuted": true,
+      "identical_producers": true,
+      "archived_cache_implementation_aggregate": true,
+      "state_precision_gate_passed": false,
+      "full_cache_pcc": {
+        "k": 0.9818546997090696,
+        "v": 0.9830214832765211
+      },
+      "policies": [
+        {
+          "cache_dtype": "DataType.BFLOAT4_B",
+          "prefill_exact_rows": true,
+          "decode_exact_rows": true,
+          "min_sdpa_cpu_pcc": 0.9995511719855552,
+          "min_hf_prefill_pcc": 0.9971060859007393,
+          "min_hf_decode_pcc": 0.9936577450686408,
+          "replicated_outputs_exact": true,
+          "failed_decode_users_by_rank": [
+            [
+              8,
+              26
+            ],
+            [
+              8,
+              26
+            ],
+            [
+              8,
+              26
+            ],
+            [
+              8,
+              26
+            ]
+          ]
+        },
+        {
+          "cache_dtype": "DataType.BFLOAT8_B",
+          "prefill_exact_rows": true,
+          "decode_exact_rows": true,
+          "min_sdpa_cpu_pcc": 0.9992321388846525,
+          "min_hf_prefill_pcc": 0.9983594473896475,
+          "min_hf_decode_pcc": 0.9968142373618828,
+          "replicated_outputs_exact": true,
+          "failed_decode_users_by_rank": [
+            [],
+            [],
+            [],
+            []
+          ]
+        }
+      ],
+      "cache_implementation_leaf_checks_passed": true
+    }
+  ]
+}

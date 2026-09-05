@@ -269,7 +269,7 @@ class OptimizedDecoder(FusedDecoder):
             program = ttnn.MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(
                 in0_block_w=block_w,
                 per_core_M=1,
-                per_core_N=math.ceil(n / (32 * cores)),
+                per_core_N=self.optimization.role_configs.get(role, {}).get("per_core_n", math.ceil(n / (32 * cores))),
                 num_workers_per_dram_bank=readers,
                 fused_activation=ttnn.UnaryWithParam(ttnn.UnaryOpType.SILU) if activation == "silu" else None,
             )

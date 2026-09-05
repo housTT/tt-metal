@@ -22,7 +22,7 @@ from .test_multichip_decoder import multichip_contract, pytestmark  # noqa: F401
 @pytest.mark.timeout(1800)
 def test_native_context_with_stack_reservations(mesh_device):
     plan = json.loads(
-        (Path(__file__).resolve().parents[1] / "doc/multichip_decoder/memory_capacity_plan.json").read_text()
+        (Path(__file__).resolve().parents[1] / "doc/optimized_multichip_decoder/memory_capacity_plan.json").read_text()
     )
     # Reserve ALL planned persistent DRAM plus 2GiB scratch. The tested decoder's
     # own weights/cache/RoPE are additional, making this deliberately conservative.

@@ -26,7 +26,9 @@ def main():
     parser.add_argument("--prefill-iterations", type=int, default=4)
     parser.add_argument("--residual", default="replicated")
     parser.add_argument("--collective", default="native")
+    parser.add_argument("--async-links", type=int, default=1)
     parser.add_argument("--local-config", default="{}")
+    parser.add_argument("--mesh-config", default="{}")
     parser.add_argument("--role-configs", default="{}")
     parser.add_argument("--prefill-role-blocks", default="{}")
     parser.add_argument("--policy", default="{}")
@@ -34,7 +36,9 @@ def main():
     parser.add_argument("--variant", default="default")
     parser.add_argument("--activation-group", choices=["none", "attention", "mlp", "all"], default="none")
     parser.add_argument("--wide-grid", default="[8,8]")
-    parser.add_argument("--decode-qkvg-dtype", default="bfloat8_b", choices=["bfloat4_b", "bfloat8_b", "baseline"])
+    parser.add_argument(
+        "--decode-qkvg-dtype", default=MeshConfig().decode_qkvg_dtype, choices=["bfloat4_b", "bfloat8_b", "baseline"]
+    )
     parser.add_argument("--decode-grid", default="[8,4]", help="JSON grid or null for DRAM-sharded control")
     parser.add_argument("--interleaved-qkvg", action="store_true")
     parser.add_argument("--packet-size", type=int, default=8192)
@@ -47,9 +51,12 @@ def main():
     values = recorded_activations(args.layer)
     outputs = {}
     from .multichip_topology_candidates import CANDIDATES, fp32_attention_candidate
+    from .optimized_multichip_candidates import CANDIDATES as stage_candidates
+
+    CANDIDATES = {**CANDIDATES, **stage_candidates}
 
     target = MultichipDecoder if args.variant == "default" else CANDIDATES[args.variant]
-    if args.variant in ("wide_interleaved", "qkvg_grid"):
+    if args.variant in ("wide_interleaved", "qkvg_grid", "packed_gdn_grid"):
         target.grid = tuple(json.loads(args.wide_grid))
     if args.activation_group != "none":
         base = target
@@ -130,11 +137,13 @@ def main():
             plan = MeshConfig(
                 residual=args.residual,
                 collective=args.collective,
+                async_links=args.async_links,
                 decode_grid=json.loads(args.decode_grid),
                 decode_qkvg_dtype=None if args.decode_qkvg_dtype == "baseline" else args.decode_qkvg_dtype,
                 decode_qkvg_dram=not args.interleaved_qkvg,
             )
             plan = replace(plan, local=replace(plan.local, **json.loads(args.local_config)))
+            plan = replace(plan, **json.loads(args.mesh_config))
             plan = replace(
                 plan,
                 local=replace(plan.local, role_configs={**plan.local.role_configs, **json.loads(args.role_configs)}),
@@ -249,6 +258,13 @@ def main():
             assert all(
                 torch.equal(a, b) for a, b in zip(trace_values, outputs[name][1])
             ), "restored trace differs from eager"
+            restore()
+            ttnn.execute_trace(mesh, trace, cq_id=0, blocking=True)
+            after_eager_trace = read(traced)
+            assert all(
+                torch.equal(a, b) for a, b in zip(after_eager_trace, outputs[name][1])
+            ), "restored replay after eager differs"
+            print(json.dumps(dict(name=name, trace_after_eager_exact=True)), flush=True)
             durations = []
             for repeat in range(5):
                 ttnn.synchronize_device(mesh)
@@ -276,6 +292,7 @@ def main():
             combined = torch.cat([torch.cat([part[f] for part in fields], dim=-1) for f in range(3)], dim=-1)
         value = H.pcc(single[0], combined)
         state_scores.append(value)
+        print(json.dumps(dict(state_index=index, state_pcc=value)), flush=True)
         assert torch.isfinite(combined.float()).all()
         assert value >= 0.99, "head-local state/cache partition mismatch"
     print(json.dumps(dict(state_pcc=state_scores, local_state_contract=True)), flush=True)

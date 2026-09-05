@@ -1,7 +1,7 @@
 {
   "model": "ornith-ai/Ornith-1.5-9B",
   "revision": "489cb97981b8654bcfcf30ce1f94ed1b62e07b53",
-  "stage": "multichip-decoder",
+  "stage": "optimized-multichip-decoder",
   "status": "complete",
   "hf_advertised_context": 262144,
   "supported_context_target": 262144,
@@ -24,7 +24,9 @@
   "context_evidence": [
     "multichip_decoder/logs/release_mixed_watcher_contracts.log.gz",
     "multichip_decoder/logs/release_mixed_watcher_contracts.provenance.json",
-    "multichip_decoder/logs/release_mixed_stack.log.gz"
+    "multichip_decoder/logs/release_mixed_stack.log.gz",
+    "optimized_multichip_decoder/logs/final_default_v2_watcher_contracts.log.gz",
+    "optimized_multichip_decoder/logs/final_default_v2_stack.log.gz"
   ],
   "batch_context_semantics": "Native context validated at batch 1; batches 1\u201332 including prime sizes validated with shorter per-user caches. Aggregate batch/context capacity depends on caller allocation.",
   "largest_tested_batch": 32,
@@ -117,7 +119,7 @@
     }
   },
   "multichip_capacity_plan": {
-    "status": "complete",
+    "status": "validated final default",
     "mesh": [
       1,
       4
@@ -131,14 +133,16 @@
     "kv_bytes_per_device_all_8_full_attention_layers": 1140850688,
     "projection_weights_per_device": {
       "linear_attention": {
-        "shared_prefill_decode": 30818304
+        "shared_prefill_decode": 30818304,
+        "decode_mlp_bfp4": 21233664
       },
       "full_attention": {
         "shared_prefill_decode": 29491200,
+        "decode_mlp_bfp4": 21233664,
         "decode_qkvg_bfp8": 11141120
       }
     },
-    "projection_weights_all_layers_per_device": 1064697856,
+    "projection_weights_all_layers_per_device": 1744175104,
     "embedding_and_untied_head_bf16_tp4_bytes_per_device": 1017118720,
     "unshared_rope_tables_all_8_layers_bytes_per_device": 1090519040,
     "recurrent_bytes_per_device_per_user_all_24_layers": 12582912,
@@ -146,13 +150,7 @@
     "trace_activation_and_small_constant_reserve_bytes_per_device": 8589934592,
     "largest_tested_prefill_context": 262144,
     "largest_tested_decode_context": 262144,
-    "evidence": [
-      "multichip_decoder/mesh_plan.md",
-      "multichip_decoder/logs/release_mixed_watcher_contracts.log.gz",
-      "multichip_decoder/logs/release_mixed_watcher_contracts.provenance.json",
-      "multichip_decoder/logs/release_mixed_stack.log.gz"
-    ],
-    "estimated_full_model_bytes_per_device": 12915998720,
+    "estimated_full_model_bytes_per_device": 13595475968,
     "reserve_rationale": "Native replicated residual is 2GiB per input/output. Public prefill can hold input + chunk outputs + concatenated output (6GiB peak), plus 2GiB for trace, chunk working sets, small constants, allocator overhead and other temporary buffers. Hidden-sharded candidate needs less but does not determine this conservative plan.",
     "historical_dual_copy_projection_weights_per_device": {
       "linear_attention": {
@@ -166,13 +164,43 @@
     },
     "largest_tested_decode_position": 262143,
     "largest_tested_batch": 32,
-    "reservation_dram_bytes_per_device": 6473908224,
+    "reservation_dram_bytes_per_device": 7153385472,
     "reservation_l1_recurrent_layers": 24,
-    "reservation_limit": "Conservative reserved bytes plus one executing native full-attention decoder; direct three-decoder composition is tested separately. No full-model execution claimed."
+    "reservation_limit": "Conservative reserved bytes plus one executing native full-attention decoder; direct three-decoder composition is tested separately. No full-model execution claimed.",
+    "prior_stage_evidence": [
+      "multichip_decoder/mesh_plan.md",
+      "multichip_decoder/logs/release_mixed_watcher_contracts.log.gz",
+      "multichip_decoder/logs/release_mixed_watcher_contracts.provenance.json",
+      "multichip_decoder/logs/release_mixed_stack.log.gz"
+    ],
+    "evidence": [
+      "optimized_multichip_decoder/logs/final_default_v2_watcher_contracts.provenance.json",
+      "optimized_multichip_decoder/logs/final_default_v2_stack.provenance.json"
+    ],
+    "weight_accounting": "576 bytes per BFP4 tile; shared prefill gate/up remain separate. Decode packed gate/up4096x6144 uses14,155,776 bytes/device; down3072x4096 uses7,077,888. Packed decode replaces the two separate decode copies, so total projection bytes stay1,744,175,104. QKVG4096x2560 BFP8 decode uses11,141,120. Eight DRAM banks; gate/up3 readers, down2, QKVG1, no extra width padding."
   },
   "previous_optimized_baseline_commit": "d085eb6d1abcc8b25f213fede6b68aa873d6cd6b",
-  "stage_review": {
+  "previous_stage_review": {
     "verdict": "clean-pass",
     "report": "multichip_decoder/STAGE_REVIEW.md"
+  },
+  "optimized_multichip_residual_contract": {
+    "dtype": "bfloat16",
+    "mesh": [
+      1,
+      4
+    ],
+    "distribution": "replicated hidden4096 with TP4 partitioned weights and heads",
+    "prefill_output": "DRAM interleaved [B,T,4096]",
+    "decode_batch1_output": "L1 width-sharded 32 cores, grid8x4, shard[32,128], logical[1,1,4096]",
+    "decode_batch2_to32_output": "DRAM interleaved [B,1,4096]",
+    "inter_layer_conversion": "none; feed the returned tensor directly to the next decoder",
+    "kv_cache": "BFP8, local one KVhead256, page64",
+    "projection_policy": "BFP4/LoFi; BFP8/LoFi decode QKVG; packed GDN; packed gate/up DRAM32cores K4 reader3, down8cores K6 reader2, QKVG32cores K4 reader1",
+    "validation_status": "101 tests passed with worker watcher; explicit async watcher both kinds; native262144 capacity andcacheoracle; direct3-decoder B1stack zero boundary conversions"
+  },
+  "stage_review": {
+    "verdict": "clean-pass",
+    "report": "optimized_multichip_decoder/STAGE_REVIEW.md"
   }
 }
