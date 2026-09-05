@@ -27,6 +27,32 @@ from models.common.utility_functions import is_watcher_enabled
 pytestmark = pytest.mark.use_module_device
 
 
+@pytest.mark.parametrize("orientation", [ttnn.ShardOrientation.ROW_MAJOR, ttnn.ShardOrientation.COL_MAJOR])
+def test_rms_norm_sharded_duplicate_batch_rows(device, orientation):
+    """Workers must accumulate partials in the same order for identical rows."""
+    torch.manual_seed(71)
+    batch, heads, width = 32, 4, 256
+    values = torch.randn(1, 1, heads, width, dtype=torch.bfloat16).repeat(1, batch, 1, 1)
+    grid_shape = (8, 1) if orientation == ttnn.ShardOrientation.ROW_MAJOR else (1, 8)
+    grid = ttnn.CoreRangeSet(
+        [ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(grid_shape[0] - 1, grid_shape[1] - 1))]
+    )
+    memory = ttnn.MemoryConfig(
+        ttnn.TensorMemoryLayout.WIDTH_SHARDED,
+        ttnn.BufferType.L1,
+        ttnn.ShardSpec(grid, [batch * 32, 32], orientation),
+    )
+    source = ttnn.from_torch(values, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device, memory_config=memory)
+    program = ttnn.LayerNormShardedMultiCoreProgramConfig(
+        compute_with_storage_grid_size=grid_shape, block_h=batch, block_w=1, subblock_w=1, inplace=False
+    )
+    result = ttnn.rms_norm(source, epsilon=1e-6, program_config=program, memory_config=memory)
+    actual = ttnn.to_torch(result)
+    expected = values.float() * torch.rsqrt(values.float().square().mean(-1, keepdim=True) + 1e-6)
+    assert torch.allclose(actual.float(), expected, atol=0.05, rtol=0.03)
+    assert torch.equal(actual, actual[:, :1].expand_as(actual))
+
+
 @pytest.mark.parametrize("h, w, num_cores_h, num_cores_w, block_ht, block_wt, subblock_wt", single_stage_param_sets())
 @pytest.mark.parametrize("two_stage", [False])
 @pytest.mark.parametrize("tensor_type", ["ascending_values_repeated_rows", "random"])

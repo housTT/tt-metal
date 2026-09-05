@@ -177,6 +177,16 @@ void kernel_main() {
                 dfb_external_obj.reserve_back(num_blocks_first_stage * num_tiles_scaler);
                 uint32_t write_offset = 0;
                 for (uint32_t block = 0; block < num_blocks_first_stage; block++) {
+#ifdef RMSNORM
+                    if constexpr (!use_two_stage_reduce) {
+                        // Keep the cyclic NoC issue order, but present partials to compute
+                        // in the same peer order on every worker. Otherwise different tile
+                        // rows accumulate BF16 partials in different floating-point orders.
+                        const uint32_t first_peer = row_major ? start_y * num_x + start_x : start_x * num_y + start_y;
+                        const uint32_t canonical_peer = (first_peer + block) % num_blocks_first_stage;
+                        write_offset = canonical_peer * num_tiles_scaler * single_tile_size_bytes;
+                    }
+#endif
                     noc.async_read<NocOptions::DEFAULT, NOC_MAX_BURST_SIZE>(
                         remote_ep,
                         dfb_external_obj,

@@ -200,3 +200,41 @@ def test_generate_reports_writes_multicast_noc_util_column(tmp_path):
         row = next(reader)
         assert "MULTICAST NOC UTIL (%)" in reader.fieldnames
         assert row["MULTICAST NOC UTIL (%)"] == "25.0"
+
+
+def test_perf_csv_keeps_replays_and_ignores_unexecuted_capture_definitions():
+    host_ops = {
+        1: [
+            {"global_call_count": 256001, "metal_trace_id": 0},
+            {"global_call_count": 300001, "metal_trace_id": 2},
+        ]
+    }
+    first = {"METAL TRACE ID": 2, "METAL TRACE REPLAY SESSION ID": 1, "DEVICE FW DURATION [ns]": 100}
+    second = {"METAL TRACE ID": 2, "METAL TRACE REPLAY SESSION ID": 2, "DEVICE FW DURATION [ns]": 120}
+    perf = {1: {(300001, 2, 1): first, (300001, 2, 2): second}}
+    result = process_ops_logs._enrich_ops_from_perf_csv(host_ops, perf, {1: {2: [1000, 2000]}})
+    assert len(result[1]) == 2
+    assert [op["_device_perf_row"] for op in result[1]] == [first, second]
+    assert [op["tracy_time"] for op in result[1]] == [1000, 2000]
+
+
+@pytest.mark.parametrize(
+    "trace_id,trace_replays",
+    [(0, {1: {0: [1000]}}), (0, None), (None, {}), ("", {})],
+)
+def test_perf_csv_missing_executed_or_unknown_operation_still_fails(trace_id, trace_replays):
+    host_ops = {1: [{"global_call_count": 256001, "metal_trace_id": trace_id}]}
+    with pytest.raises(  # allow-pytest.raises: CPU parser test runs without device conftest.
+        AssertionError, match="Device data missing: Op 256001"
+    ):
+        process_ops_logs._enrich_ops_from_perf_csv(host_ops, {1: {}}, trace_replays)
+
+
+def test_perf_csv_retains_device_rows_even_without_host_replay_metadata():
+    row = {"METAL TRACE ID": 0, "METAL TRACE REPLAY SESSION ID": 1, "DEVICE FW DURATION [ns]": 100}
+    result = process_ops_logs._enrich_ops_from_perf_csv(
+        {1: [{"global_call_count": 256001, "metal_trace_id": 0}]},
+        {1: {(256001, 0, 1): row}},
+        {},
+    )
+    assert [op["_device_perf_row"] for op in result[1]] == [row]

@@ -1,7 +1,7 @@
 {
   "model": "ornith-ai/Ornith-1.5-9B",
   "revision": "489cb97981b8654bcfcf30ce1f94ed1b62e07b53",
-  "stage": "optimized-multichip-decoder",
+  "stage": "full-model",
   "status": "complete",
   "hf_advertised_context": 262144,
   "supported_context_target": 262144,
@@ -26,9 +26,11 @@
     "multichip_decoder/logs/release_mixed_watcher_contracts.provenance.json",
     "multichip_decoder/logs/release_mixed_stack.log.gz",
     "optimized_multichip_decoder/logs/final_default_v2_watcher_contracts.log.gz",
-    "optimized_multichip_decoder/logs/final_default_v2_stack.log.gz"
+    "optimized_multichip_decoder/logs/final_default_v2_stack.log.gz",
+    "full_model/logs/native_context_v2.provenance.json",
+    "full_model/logs/native_context_final_v3.provenance.json"
   ],
-  "batch_context_semantics": "Native context validated at batch 1; batches 1\u201332 including prime sizes validated with shorter per-user caches. Aggregate batch/context capacity depends on caller allocation.",
+  "batch_context_semantics": "Native262144 context validated with all32 layers atbatch1. Batches1..32 use the same explicit cache/page-table API; short-contextB32 validation covers aggregate capacity. Requested batch*context must fit physical DRAM; no claim that32 simultaneousnativecontextcaches fit.",
   "largest_tested_batch": 32,
   "tested_layer_kinds": {
     "linear_attention": {
@@ -201,6 +203,231 @@
   },
   "stage_review": {
     "verdict": "clean-pass",
-    "report": "optimized_multichip_decoder/STAGE_REVIEW.md"
+    "report": "full_model/STAGE_REVIEW.md"
+  },
+  "previous_context_stage": {
+    "stage": "optimized-multichip-decoder",
+    "status": "complete",
+    "stage_review": {
+      "verdict": "clean-pass",
+      "report": "optimized_multichip_decoder/STAGE_REVIEW.md"
+    }
+  },
+  "full_model_capacity": {
+    "layers": 32,
+    "linear_layers": 24,
+    "full_attention_layers": 8,
+    "native_context": 262144,
+    "capability_reduction": null,
+    "projection_weight_bytes_per_device": 1744175104,
+    "embedding_bf16_hidden_sharded_bytes_per_device": 508559360,
+    "head_formula": "4096 * 262144 / 4 * 2 =536870912; padded vocabulary-sharded TP4 BF16",
+    "kv_bfp8_bytes_per_device": 1140850688,
+    "kv_formula": "8 layers * 2 K/V * (262144/32) * (256/32) * 1088; one local KV head,64-token pages",
+    "rope_tables_all_8_bytes_per_device": 1090519040,
+    "recurrent_logical_bytes_per_device": 12582912,
+    "recurrent_physical_l1_bytes_per_bank": 196608,
+    "recurrent_physical_formula": "24 layers * ceil(128 FP32 tiles / 110 banks) * 4096 bytes =196608 bytes/bank",
+    "prefill_chunk_tokens": 2048,
+    "prefill_contract": "Full stack executes bounded chunks, padding/masking/output slicing owned by public model/generator. No full-native hidden tensor is materialized.",
+    "construction_probe": "full_model/native_context_final_v3.json",
+    "construction_dram_bytes_per_device": 5433518592,
+    "construction_trace_bytes_per_device": 13369344,
+    "device_dram_allocator_bytes_per_device": 34078723072,
+    "execution_status": "Passed selected BF16-head full32-layer prefill262143/262144 and decode at262143 advancing to262144",
+    "l1_diagnosis": "full_model/AUTODEBUG_context_l1.md",
+    "note": "Full-model measurements supersede historical decoder-only conservative reserves. DRAM measurements include weights, cache, sampler/CCL/page/position/persistent auxiliary tensors and allocator padding. TRACE is measured in its separately reserved100MB region; L1 is reported separately.",
+    "execution_probe": "full_model/native_context_final_v3.json",
+    "execution_windows": [
+      {
+        "logical_prompt_length": 262143,
+        "returned_token": 100,
+        "prefill_s": 43.92112008202821,
+        "last_decode_position": 262143,
+        "decode_token": 100,
+        "advanced_position": 262144
+      },
+      {
+        "logical_prompt_length": 262144,
+        "returned_token": 100,
+        "prefill_s": 43.843692581984214
+      }
+    ],
+    "measured_allocations": {
+      "opened": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 4259840384,
+          "largest_contiguous_bytes_free_per_bank": 4259840384,
+          "total_allocated_bytes_per_device": 0
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 1428480,
+          "largest_contiguous_bytes_free_per_bank": 1428480,
+          "total_allocated_bytes_per_device": 0
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 12500992,
+          "largest_contiguous_bytes_free_per_bank": 12500992,
+          "total_allocated_bytes_per_device": 0
+        }
+      },
+      "loaded_weights_constants": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 489270272,
+          "total_bytes_free_per_bank": 3770570112,
+          "largest_contiguous_bytes_free_per_bank": 3743766912,
+          "total_allocated_bytes_per_device": 3914162176
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 25344,
+          "total_bytes_free_per_bank": 1403136,
+          "largest_contiguous_bytes_free_per_bank": 1403136,
+          "total_allocated_bytes_per_device": 2787840
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 12500992,
+          "largest_contiguous_bytes_free_per_bank": 12500992,
+          "total_allocated_bytes_per_device": 0
+        }
+      },
+      "allocated_full_native_cache": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 678357184,
+          "total_bytes_free_per_bank": 3581483200,
+          "largest_contiguous_bytes_free_per_bank": 3574393216,
+          "total_allocated_bytes_per_device": 5426857472
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 221952,
+          "total_bytes_free_per_bank": 1206528,
+          "largest_contiguous_bytes_free_per_bank": 1206528,
+          "total_allocated_bytes_per_device": 24414720
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 0,
+          "total_bytes_free_per_bank": 12500992,
+          "largest_contiguous_bytes_free_per_bank": 12500992,
+          "total_allocated_bytes_per_device": 0
+        }
+      },
+      "traces_sampler_ready": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 679189824,
+          "total_bytes_free_per_bank": 3580650560,
+          "largest_contiguous_bytes_free_per_bank": 3574086016,
+          "total_allocated_bytes_per_device": 5433518592
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 221952,
+          "total_bytes_free_per_bank": 1206528,
+          "largest_contiguous_bytes_free_per_bank": 1206528,
+          "total_allocated_bytes_per_device": 24414720
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 1671168,
+          "total_bytes_free_per_bank": 10829824,
+          "largest_contiguous_bytes_free_per_bank": 10829824,
+          "total_allocated_bytes_per_device": 13369344
+        }
+      },
+      "after_prefill_262143": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 680721728,
+          "total_bytes_free_per_bank": 3579118656,
+          "largest_contiguous_bytes_free_per_bank": 3572586880,
+          "total_allocated_bytes_per_device": 5445773824
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 222208,
+          "total_bytes_free_per_bank": 1206272,
+          "largest_contiguous_bytes_free_per_bank": 1206272,
+          "total_allocated_bytes_per_device": 24442880
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 1671168,
+          "total_bytes_free_per_bank": 10829824,
+          "largest_contiguous_bytes_free_per_bank": 10829824,
+          "total_allocated_bytes_per_device": 13369344
+        }
+      },
+      "after_prefill_262144": {
+        "DRAM": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 4259840384,
+          "total_bytes_allocated_per_bank": 680725824,
+          "total_bytes_free_per_bank": 3579114560,
+          "largest_contiguous_bytes_free_per_bank": 3572582784,
+          "total_allocated_bytes_per_device": 5445806592
+        },
+        "L1": {
+          "num_banks": 110,
+          "total_bytes_per_bank": 1428480,
+          "total_bytes_allocated_per_bank": 222208,
+          "total_bytes_free_per_bank": 1206272,
+          "largest_contiguous_bytes_free_per_bank": 1206272,
+          "total_allocated_bytes_per_device": 24442880
+        },
+        "TRACE": {
+          "num_banks": 8,
+          "total_bytes_per_bank": 12500992,
+          "total_bytes_allocated_per_bank": 1671168,
+          "total_bytes_free_per_bank": 10829824,
+          "largest_contiguous_bytes_free_per_bank": 10829824,
+          "total_allocated_bytes_per_device": 13369344
+        }
+      }
+    },
+    "post_prefill_dram_bytes_per_device": 5445806592,
+    "prefill_geometry": {
+      "scope": "gdn_out only when physical M>=2048",
+      "grid": [
+        11,
+        10
+      ],
+      "K_block_tiles": 16,
+      "N_output_block_cap_tiles": 6,
+      "reason": "Full24-layer resident recurrent state plus FP32 GDN input requires bounded output-block storage; same K16 accumulation and exact projection outputs.",
+      "evidence": "full_model/context_l1_probe_v2.json"
+    },
+    "previous_bfp4_head_capacity_probe": "full_model/native_context_v2.json",
+    "head_bfp4_padded_vocab_sharded_bytes_per_device_rejected": 150994944,
+    "head_bf16_padded_vocab_sharded_bytes_per_device": 536870912,
+    "head_policy": "BF16/HiFi4 FP32destacc, 2x32768 columns/rank, Kblock1, readers2; selected after full French quality controls rejected faster BFP4/BFP8 candidates",
+    "other_loaded_constants_and_allocator_padding_bytes_per_device": 34037760,
+    "cache_sampler_auxiliary_and_allocator_padding_bytes_per_device": 371844608
   }
 }

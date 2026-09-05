@@ -64,6 +64,7 @@ class DecoderConfig:
     large_prefill_block_w: int = 16
     large_prefill_min_seq: int = 2048
     large_prefill_subblock: tuple = (1, 7)
+    large_prefill_role_configs: dict = field(default_factory=dict)
 
 
 class OptimizedDecoder(FusedDecoder):
@@ -680,8 +681,10 @@ class OptimizedDecoder(FusedDecoder):
         m = math.prod(list(x.padded_shape)[:-1]) // 32
         pm, pn = math.ceil(m / grid[1]), math.ceil(n / 32 / grid[0])
         block_w = self.optimization.large_prefill_block_w if large else 8
+        role_config = self.optimization.large_prefill_role_configs.get(role, {}) if large else {}
+        block_w = role_config.get("block_w", block_w)
         block_m = max(v for v in range(1, min(pm, 8) + 1) if pm % v == 0)
-        block_n = max(v for v in range(1, min(pn, 32) + 1) if pn % v == 0)
+        block_n = max(v for v in range(1, min(pn, role_config.get("out_block_w", 32)) + 1) if pn % v == 0)
         sub_h_max, sub_w_max = self.optimization.large_prefill_subblock if large else (2, 4)
         subblock_h = max(v for v in range(1, min(block_m, sub_h_max) + 1) if block_m % v == 0)
         subblock = max(v for v in range(1, min(8 // subblock_h, sub_w_max) + 1) if block_n % v == 0)

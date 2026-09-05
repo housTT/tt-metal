@@ -1,0 +1,59 @@
+{
+  "target_resident_bytes_per_bank": 221952,
+  "candidates": [
+    {
+      "label": "n6_k16",
+      "config": {
+        "out_block_w": 6
+      },
+      "warm_ms": 0.13373164692893624,
+      "ranks": [
+        {
+          "oracle_pcc": 1.0,
+          "baseline_relative_l2": 0.0,
+          "baseline_exact": true
+        },
+        {
+          "oracle_pcc": 0.9998747706413269,
+          "baseline_relative_l2": 0.0,
+          "baseline_exact": true
+        },
+        {
+          "oracle_pcc": 1.0,
+          "baseline_relative_l2": 0.0,
+          "baseline_exact": true
+        },
+        {
+          "oracle_pcc": 0.9999828934669495,
+          "baseline_relative_l2": 0.0,
+          "baseline_exact": true
+        }
+      ]
+    }
+  ],
+  "input": {
+    "shape": [
+      1,
+      2048,
+      1024
+    ],
+    "dtype": "DataType.FLOAT32",
+    "memory": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)"
+  },
+  "weight": {
+    "shape": [
+      1024,
+      4096
+    ],
+    "dtype": "DataType.BFLOAT4_B"
+  },
+  "before_reservation": {
+    "total_bytes_allocated_per_bank": 10752,
+    "largest_contiguous_bytes_free_per_bank": 1417728
+  },
+  "with_reservation": {
+    "total_bytes_allocated_per_bank": 221952,
+    "largest_contiguous_bytes_free_per_bank": 1206528
+  },
+  "original_failure": "TT_THROW @ /work/tt_metal/impl/program/program.cpp:1932: tt::exception\ninfo:\nStatically allocated circular buffers in program 152 clash with L1 buffers on core range [0-0 - 10-9]. L1 buffer allocated at 1318144 and static circular buffer region ends at 1422336\nbacktrace:\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0xa1d6c3) [0x74fb60a1d6c3]\n --- tt::tt_metal::detail::ProgramImpl::validate_circular_buffer_region(tt::tt_metal::IDevice const*)\n --- tt::tt_metal::detail::ProgramImpl::compile_and_allocate(tt::tt_metal::IDevice*, bool)\n --- tt::tt_metal::distributed::MeshWorkloadImpl::compile(tt::tt_metal::distributed::MeshDevice*)\n --- tt::tt_metal::distributed::EnqueueMeshWorkload(tt::tt_metal::distributed::MeshCommandQueue&, tt::tt_metal::distributed::MeshWorkload&, bool)\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail21enqueue_mesh_workloadITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSI_12MeshWorkloadEb+0x359) [0x74fb62713129]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29handle_mesh_adapter_cache_hitITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceERNSH_13program_cache6detail12ProgramCacheERKNSM_15ProgramCacheKeyE+0xc0) [0x74fb62711100]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_4prim21MatmulDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS7_13tensor_args_tERNS7_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x18d) [0x74fb6270f28d]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim21MatmulDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x508) [0x74fb626f37f8]\n --- ttnn::prim::matmul(ttnn::Tensor const&, ttnn::Tensor const&, std::optional<ttnn::Tensor> const&, std::optional<ttnn::Tensor> const&, ttnn::prim::MatmulParams const&)\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x10808c0) [0x74fb626808c0]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn10operations6matmul6linearERKNS_6TensorES4_RKSt8optionalIS3_EbbRKS5_IKN2tt8tt_metal12MemoryConfigEES5_IKNSA_8DataTypeEERKS5_IKSt7variantIJNS1_28MatmulMultiCoreProgramConfigENS1_33MatmulMultiCoreReuseProgramConfigENS1_42MatmulMultiCoreReuseMultiCastProgramConfigENS1_44MatmulMultiCoreReuseMultiCast1DProgramConfigENS1_53MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigENS1_60MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfigEEEERKS5_IKSJ_IJNSt7__cxx1112basic_stringIcSt11char_traitsIcESaIcEEENS0_5unary19BasicUnaryWithParamIJfEEEEEES5_IKNS_19ComputeKernelConfigEES5_IKNS_5types8CoreGridEERKS5_IKNSA_4TileEES5_IS2_ERKS5_IKNSA_12experimental20GlobalCircularBufferEERKS5_IN4ttsl10StrongTypeIhNSA_14SubDeviceIdTagEEEE+0x264) [0x74fb62681e04]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/_ttnn.so(+0x65679b) [0x74fb6485679b]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/_ttnn.so(+0x656493) [0x74fb64856493]\n --- /home/hous/dev/ornith-1.5-9b/tt-metal/ttnn/ttnn/_ttnn.so(+0x37bfcd) [0x74fb6457bfcd]\n --- python_env/bin/python(_PyObject_Call_Prepend+0x115) [0x5b1598986c65]\n --- python_env/bin/python(+0x3a2b46) [0x5b15989bab46]\n --- python_env/bin/python(_PyEval_EvalFrameDefault+0xa16c) [0x5b15988e887c]\n --- python_env/bin/python(_PyFunction_Vectorcall+0x202) [0x5b1598889352]\n --- python_env/bin/python(_PyObject_Call_Prepend+0x115) [0x5b1598986c65]\n --- python_env/bin/python(+0x3a2b46) [0x5b15989bab46]\n --- python_env/bin/python(_PyEval_EvalFrameDefault+0xa16c) [0x5b15988e887c]\n --- python_env/bin/python(_PyFunction_Vectorcall+0x202) [0x5b1598889352]\n --- python_env/bin/python(_PyEval_EvalFrameDefault+0x36749) [0x5b1598914e59]\n --- python_env/bin/python(_PyFunction_Vectorcall+0x202) [0x5b1598889352]\n --- python_env/bin/python(+0x2fd0b9) [0x5b15989150b9]\n --- python_env/bin/python(_PyEval_EvalFrameDefault+0x4068) [0x5b15988e2778]\n --- python_env/bin/python(+0x3d4a54) [0x5b15989eca54]\n --- python_env/bin/python(+0x3d27c9) [0x5b15989ea7c9]\n --- python_env/bin/python(+0x29259f) [0x5b15988aa59f]\n --- python_env/bin/python(+0x2fd0b9) [0x5b15989150b9]\n --- python_env/bin/python(_PyEval_EvalFrameDefault+0x4068) [0x5b15988e2778]\n --- python_env/bin/python(_PyFunction_Vectorcall+0x202) [0x5b1598889352]\n --- python_env/bin/python(+0x2fd0b9) [0x5b15989150b9]\n --- python_env/bin/python(_PyEval_EvalFrameDefault+0x4068) [0x5b15988e2778]\n --- python_env/bin/python(_PyFunction_Vectorcall+0x202) [0x5b1598889352]\n --- python_env/bin/python(+0x1bc738) [0x5b15987d4738]\n --- python_env/bin/python(Py_RunMain+0x673) [0x5b1598a2e023]\n --- python_env/bin/python(+0x148028) [0x5b1598760028]\n --- /lib/x86_64-linux-gnu/libc.so.6(+0x29d90) [0x74fb93b67d90]\n --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x80) [0x74fb93b67e40]\n --- python_env/bin/python(+0x34616b) [0x5b159895e16b]\n"
+}

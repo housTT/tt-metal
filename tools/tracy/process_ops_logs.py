@@ -680,6 +680,17 @@ def _enrich_ops_from_perf_csv(
                     if cand_op_id == op_id:
                         candidates.extend(rows)
 
+            if (
+                not candidates
+                and host_trace_id is not None
+                and trace_replays is not None
+                and not trace_replays.get(device_id, {}).get(host_trace_id)
+            ):
+                # Capture defines programs without executing them. A trace released
+                # before its first replay has host metadata but no device timings.
+                # Keep that metadata in ops; only actual executions need enrichment.
+                continue
+
             assert candidates, (
                 f"Device data missing: Op {op_id} not present in {PROFILER_CPP_DEVICE_PERF_REPORT} "
                 f"for device {device_id} (trace_id={host_trace_id})"

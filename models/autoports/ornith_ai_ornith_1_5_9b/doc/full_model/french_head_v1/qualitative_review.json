@@ -1,0 +1,43 @@
+{
+  "criterion": "Read full saved completion for correct French translation and register labels, coherent English reasoning, no repetition or wrong-language drift. Probe execution success is not qualitative correctness.",
+  "reviews": {
+    "bf4_lofi": {
+      "qualitative_correct": false,
+      "evidence": "qualitative_final_v1/prompt_4/tt_completion.txt",
+      "finding": "Labels Bonjour informal; exact-prefix HF control instead says formal/greeting."
+    },
+    "bf8_lofi": {
+      "qualitative_correct": false,
+      "evidence": "french_bf8_lofi.txt",
+      "finding": "Still labels Bonjour informal; otherwise coherent translation reasoning."
+    },
+    "bf4_hifi2": {
+      "qualitative_correct": false,
+      "evidence": "french_bf4_hifi2.txt",
+      "finding": "Still labels Bonjour informal; otherwise coherent translation reasoning."
+    },
+    "bf8_hifi2": {
+      "qualitative_correct": false,
+      "evidence": "french_bf8_hifi2.txt",
+      "finding": "Still labels Bonjour informal; otherwise coherent translation reasoning."
+    },
+    "bf4_hifi4": {
+      "qualitative_correct": false,
+      "evidence": "french_bf4_hifi4.txt",
+      "finding": "Still labels Bonjour informal; otherwise coherent translation reasoning."
+    },
+    "bf16_hifi4": {
+      "qualitative_correct": true,
+      "evidence": "french_bf16_hifi4.txt",
+      "finding": "Correct Bonjour formal/greeting versus Salut informal; correct formal/informal full translations. Coherent English reasoning, no repetition or wrong-language drift. 128-token budget ends mid-reasoning, like HF control, not a finished-answer claim."
+    }
+  },
+  "selected": "bf16_hifi4",
+  "selected_geometry_followup": {
+    "policy": "bf16_hifi4_n32k_k1_r2",
+    "qualitative_correct": true,
+    "artifact": "french_bf16_hifi4_n32k_k1_r2.txt",
+    "reason": "Original-prompt output correctly distinguishes Bonjour formal/greeting and Salut informal; changed earlier free branch, not repaired fixed-hidden ranking.",
+    "terminal_ms": 1.4035
+  }
+}
