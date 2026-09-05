@@ -428,3 +428,5 @@ Repository: /home/hous/dev/ornith-1.5-9b/tt-metal.
 Branch: hous/ornith-1.5-9b. Parent:483920f536f64462ba6c3dc785c59b8ff002cdc1.
 The local stage checkpoint includes implementation, tests, review and compact
 evidence. A subsequent documentation commit records its SHA. Nothing is pushed.
+
+Local stage checkpoint: `d4a512f69b72badb4579b0af0b0fe652ed86af7b` (`Add validated TP4 Ornith 1.5 9B multichip decoder`),1097 stage-owned files. Commit hooks pass. The initial staged git diff whitespace check flags standard CSV CRLF line endings; CSV data is preserved byte-for-byte for provenance. `git -c core.whitespace=cr-at-eol show --format= --check HEAD` passes. This documentation-only follow-up records the checkpoint SHA; no push occurred.
