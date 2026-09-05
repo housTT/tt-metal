@@ -1,0 +1,583 @@
+{
+  "regime": {
+    "batch": 1,
+    "logical_prefill": 2048,
+    "decode_context": 2049,
+    "trace_region_bytes": 33554432,
+    "l1_small_size_bytes": 24576,
+    "baseline_mesh": [
+      1,
+      1
+    ],
+    "target_mesh": [
+      1,
+      4
+    ],
+    "router_packet_bytes": 8192,
+    "watcher": false,
+    "profiler": false,
+    "prefill": "median15 warmed synchronized API windows after one warmup",
+    "decode": "median5 windows of32 nonblocking trace replays"
+  },
+  "measurements": [
+    {
+      "run": "review_prefill_stable_b16_layer0",
+      "layer": "0",
+      "logical_prefill": "2048",
+      "mode": "prefill",
+      "baseline_ms": "6.949085975065827",
+      "tp4_ms": "3.3638160675764084",
+      "speedup": "2.0658341108622404",
+      "efficiency_percent": "51.64585277155601",
+      "baseline_pcc": "0.9999630806578761",
+      "trace_exact": "True",
+      "returncode": "0",
+      "command": "[\"timeout\", \"600\", \"/home/hous/dev/ornith-1.5-9b/tt-metal/python_env/bin/python\", \"-m\", \"models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_probe\", \"--layer\", \"0\", \"--length\", \"2048\", \"--prefill-iterations\", \"16\", \"--local-config\", \"{\\\"large_prefill_block_w\\\": 16}\"]",
+      "source_archive_sha256": "3d7d70e846d43c9bb68d9ffc0cedfd7d52e37767c4590848bce5a4b07daf375f"
+    },
+    {
+      "run": "review_prefill_stable_b16_layer0",
+      "layer": "0",
+      "logical_prefill": "2048",
+      "mode": "decode",
+      "baseline_ms": "0.5238936246314552",
+      "tp4_ms": "0.3709365919348784",
+      "speedup": "1.412353582855557",
+      "efficiency_percent": "35.30883957138892",
+      "baseline_pcc": "0.9999879890284807",
+      "trace_exact": "True",
+      "returncode": "0",
+      "command": "[\"timeout\", \"600\", \"/home/hous/dev/ornith-1.5-9b/tt-metal/python_env/bin/python\", \"-m\", \"models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_probe\", \"--layer\", \"0\", \"--length\", \"2048\", \"--prefill-iterations\", \"16\", \"--local-config\", \"{\\\"large_prefill_block_w\\\": 16}\"]",
+      "source_archive_sha256": "3d7d70e846d43c9bb68d9ffc0cedfd7d52e37767c4590848bce5a4b07daf375f"
+    },
+    {
+      "run": "review_prefill_stable_b16_layer3",
+      "layer": "3",
+      "logical_prefill": "2048",
+      "mode": "prefill",
+      "baseline_ms": "5.404611001722515",
+      "tp4_ms": "2.6778830215334892",
+      "speedup": "2.0182401390437006",
+      "efficiency_percent": "50.45600347609252",
+      "baseline_pcc": "0.9999772466069937",
+      "trace_exact": "True",
+      "returncode": "0",
+      "command": "[\"timeout\", \"600\", \"/home/hous/dev/ornith-1.5-9b/tt-metal/python_env/bin/python\", \"-m\", \"models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_probe\", \"--layer\", \"3\", \"--length\", \"2048\", \"--prefill-iterations\", \"16\", \"--local-config\", \"{\\\"large_prefill_block_w\\\": 16}\"]",
+      "source_archive_sha256": "3d7d70e846d43c9bb68d9ffc0cedfd7d52e37767c4590848bce5a4b07daf375f"
+    },
+    {
+      "run": "review_prefill_stable_b16_layer3",
+      "layer": "3",
+      "logical_prefill": "2048",
+      "mode": "decode",
+      "baseline_ms": "0.427129434683593",
+      "tp4_ms": "0.2840124689100776",
+      "speedup": "1.50391085406475",
+      "efficiency_percent": "37.597771351618746",
+      "baseline_pcc": "0.999695987736785",
+      "trace_exact": "True",
+      "returncode": "0",
+      "command": "[\"timeout\", \"600\", \"/home/hous/dev/ornith-1.5-9b/tt-metal/python_env/bin/python\", \"-m\", \"models.autoports.ornith_ai_ornith_1_5_9b.tests.multichip_probe\", \"--layer\", \"3\", \"--length\", \"2048\", \"--prefill-iterations\", \"16\", \"--local-config\", \"{\\\"large_prefill_block_w\\\": 16}\"]",
+      "source_archive_sha256": "3d7d70e846d43c9bb68d9ffc0cedfd7d52e37767c4590848bce5a4b07daf375f"
+    }
+  ],
+  "profiles": [
+    {
+      "layer": 0,
+      "kind": "linear_attention",
+      "mode": "prefill",
+      "unprofiled_ms": 3.3638160675764084,
+      "profiled_host": {
+        "layer": 0,
+        "mode": "prefill",
+        "baseline": false,
+        "sequence_length": 2048,
+        "decode_position": 2048,
+        "iterations": 1,
+        "host_wall_per_iteration_ms": 4.4084470719099045,
+        "hf_pcc": 0.9990894522627843,
+        "activation_source": "recorded pinned-HF layer input"
+      },
+      "device_accounting": {
+        "correction": "Remove only the first per-device gap, which begins before the signposted window; preserve every kernel duration and all intra-window gaps. Device times are reported independently, never summed across chips.",
+        "devices": {
+          "0": {
+            "operations": 49,
+            "iterations": 1,
+            "removed_pre_window_gap_ns": 203868230.0,
+            "kernel_us_per_iteration": 3266.679,
+            "gap_us_per_iteration": 778.097,
+            "kernel_groups_us_per_iteration": {
+              "other_compute": 1650.6329999999998,
+              "matmul": 780.085,
+              "data_movement": 118.87599999999998,
+              "collective": 717.0849999999999
+            },
+            "normalized_ops_sha256": "f55956c259e3e2636a07289de11147897bc5c88b03091b2834a0b8236b4affb3",
+            "command": [
+              "tt-perf-report",
+              "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/multichip_decoder/tracy/linear_attention/final/prefill_device0_window.csv",
+              "--start-signpost",
+              "PERF_PREFILL",
+              "--end-signpost",
+              "PERF_PREFILL_END",
+              "--no-summary",
+              "--no-color"
+            ]
+          },
+          "1": {
+            "operations": 49,
+            "iterations": 1,
+            "removed_pre_window_gap_ns": 203868561.0,
+            "kernel_us_per_iteration": 3245.66,
+            "gap_us_per_iteration": 784.995,
+            "kernel_groups_us_per_iteration": {
+              "other_compute": 1647.042,
+              "matmul": 782.386,
+              "data_movement": 117.42000000000002,
+              "collective": 698.8120000000001
+            },
+            "normalized_ops_sha256": "9c111c2b7a4b24daf0bd9fd06ab80cf8380b317030f2eb674cfc62126021a31c",
+            "command": [
+              "tt-perf-report",
+              "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/multichip_decoder/tracy/linear_attention/final/prefill_device1_window.csv",
+              "--start-signpost",
+              "PERF_PREFILL",
+              "--end-signpost",
+              "PERF_PREFILL_END",
+              "--no-summary",
+              "--no-color"
+            ]
+          },
+          "2": {
+            "operations": 49,
+            "iterations": 1,
+            "removed_pre_window_gap_ns": 203856931.0,
+            "kernel_us_per_iteration": 3261.015,
+            "gap_us_per_iteration": 770.496,
+            "kernel_groups_us_per_iteration": {
+              "other_compute": 1659.41,
+              "matmul": 785.843,
+              "data_movement": 118.332,
+              "collective": 697.43
+            },
+            "normalized_ops_sha256": "18fb802eac22a673519bc20450639672666debedfd824c45a26099bf65a53eba",
+            "command": [
+              "tt-perf-report",
+              "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/multichip_decoder/tracy/linear_attention/final/prefill_device2_window.csv",
+              "--start-signpost",
+              "PERF_PREFILL",
+              "--end-signpost",
+              "PERF_PREFILL_END",
+              "--no-summary",
+              "--no-color"
+            ]
+          },
+          "3": {
+            "operations": 49,
+            "iterations": 1,
+            "removed_pre_window_gap_ns": 203824644.0,
+            "kernel_us_per_iteration": 3251.474,
+            "gap_us_per_iteration": 774.292,
+            "kernel_groups_us_per_iteration": {
+              "other_compute": 1635.5339999999999,
+              "matmul": 789.848,
+              "data_movement": 118.44300000000001,
+              "collective": 707.649
+            },
+            "normalized_ops_sha256": "eb4ac5239bfe6603ad46b1fc5db9f103db2be8984e3c128f70d302c74efbde57",
+            "command": [
+              "tt-perf-report",
+              "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/multichip_decoder/tracy/linear_attention/final/prefill_device3_window.csv",
+              "--start-signpost",
+              "PERF_PREFILL",
+              "--end-signpost",
+              "PERF_PREFILL_END",
+              "--no-summary",
+              "--no-color"
+            ]
+          }
+        }
+      },
+      "host_minus_max_device_window_us": 363.67107190990464,
+      "root": "tracy/linear_attention/final"
+    },
+    {
+      "layer": 0,
+      "kind": "linear_attention",
+      "mode": "decode",
+      "unprofiled_ms": 0.3709365919348784,
+      "profiled_host": {
+        "layer": 0,
+        "mode": "decode",
+        "baseline": false,
+        "sequence_length": 1,
+        "decode_position": 2048,
+        "iterations": 4,
+        "host_wall_per_iteration_ms": 0.40254800114780664,
+        "hf_pcc": 0.9993253383942059,
+        "activation_source": "recorded pinned-HF layer input"
+      },
+      "device_accounting": {
+        "correction": "Remove only the first per-device gap, which begins before the signposted window; preserve every kernel duration and all intra-window gaps. Device times are reported independently, never summed across chips.",
+        "devices": {
+          "0": {
+            "operations": 248,
+            "iterations": 4,
+            "removed_pre_window_gap_ns": 294742746.0,
+            "kernel_us_per_iteration": 301.38975,
+            "gap_us_per_iteration": 82.56725,
+            "kernel_groups_us_per_iteration": {
+              "data_movement": 43.48825000000001,
+              "other_compute": 76.78125,
+              "matmul": 137.38324999999998,
+              "collective": 43.737
+            },
+            "normalized_ops_sha256": "86a7d6ed3fb7a3492e63016fc0f22f9d87eb7dfd1f04f9f8a307477f6f3bd93b",
+            "command": [
+              "tt-perf-report",
+              "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/multichip_decoder/tracy/linear_attention/final/decode_device0_window.csv",
+              "--start-signpost",
+              "PERF_DECODE",
+              "--end-signpost",
+              "PERF_DECODE_END",
+              "--no-summary",
+              "--no-color",
+              "--tracing-mode"
+            ]
+          },
+          "1": {
+            "operations": 248,
+            "iterations": 4,
+            "removed_pre_window_gap_ns": 294703991.0,
+            "kernel_us_per_iteration": 301.77725,
+            "gap_us_per_iteration": 82.5975,
+            "kernel_groups_us_per_iteration": {
+              "data_movement": 43.27375,
+              "other_compute": 76.63975,
+              "matmul": 138.601,
+              "collective": 43.26275
+            },
+            "normalized_ops_sha256": "3072bba0fa0b3092b059f82abc55bcb8f8b8140402d8aeea09c6db109e0620f9",
+            "command": [
+              "tt-perf-report",
+              "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/multichip_decoder/tracy/linear_attention/final/decode_device1_window.csv",
+              "--start-signpost",
+              "PERF_DECODE",
+              "--end-signpost",
+              "PERF_DECODE_END",
+              "--no-summary",
+              "--no-color",
+              "--tracing-mode"
+            ]
+          },
+          "2": {
+            "operations": 248,
+            "iterations": 4,
+            "removed_pre_window_gap_ns": 294756744.0,
+            "kernel_us_per_iteration": 302.20125,
+            "gap_us_per_iteration": 80.9565,
+            "kernel_groups_us_per_iteration": {
+              "data_movement": 43.30425000000002,
+              "other_compute": 76.85,
+              "matmul": 143.296,
+              "collective": 38.751000000000005
+            },
+            "normalized_ops_sha256": "d51b9ef1dede83e470bffd5a90a5bb88e3a62e2daf4a723d58e1c97b0b9e8f1e",
+            "command": [
+              "tt-perf-report",
+              "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/multichip_decoder/tracy/linear_attention/final/decode_device2_window.csv",
+              "--start-signpost",
+              "PERF_DECODE",
+              "--end-signpost",
+              "PERF_DECODE_END",
+              "--no-summary",
+              "--no-color",
+              "--tracing-mode"
+            ]
+          },
+          "3": {
+            "operations": 248,
+            "iterations": 4,
+            "removed_pre_window_gap_ns": 294558279.0,
+            "kernel_us_per_iteration": 300.54625,
+            "gap_us_per_iteration": 83.06425,
+            "kernel_groups_us_per_iteration": {
+              "data_movement": 43.41400000000001,
+              "other_compute": 76.21525000000001,
+              "matmul": 138.03525,
+              "collective": 42.881750000000004
+            },
+            "normalized_ops_sha256": "78247a21badf41f688d009d5fba8b4baf7f09dafc044e530b12de1cfaf655f00",
+            "command": [
+              "tt-perf-report",
+              "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/multichip_decoder/tracy/linear_attention/final/decode_device3_window.csv",
+              "--start-signpost",
+              "PERF_DECODE",
+              "--end-signpost",
+              "PERF_DECODE_END",
+              "--no-summary",
+              "--no-color",
+              "--tracing-mode"
+            ]
+          }
+        }
+      },
+      "host_minus_max_device_window_us": 18.173251147806695,
+      "root": "tracy/linear_attention/final"
+    },
+    {
+      "layer": 3,
+      "kind": "full_attention",
+      "mode": "prefill",
+      "unprofiled_ms": 2.6778830215334892,
+      "profiled_host": {
+        "layer": 3,
+        "mode": "prefill",
+        "baseline": false,
+        "sequence_length": 2048,
+        "decode_position": 2048,
+        "iterations": 1,
+        "host_wall_per_iteration_ms": 3.817396005615592,
+        "hf_pcc": 0.9986283433066411,
+        "activation_source": "recorded pinned-HF layer input"
+      },
+      "device_accounting": {
+        "correction": "Remove only the first per-device gap, which begins before the signposted window; preserve every kernel duration and all intra-window gaps. Device times are reported independently, never summed across chips.",
+        "devices": {
+          "0": {
+            "operations": 38,
+            "iterations": 1,
+            "removed_pre_window_gap_ns": 190062658.0,
+            "kernel_us_per_iteration": 2558.685,
+            "gap_us_per_iteration": 963.105,
+            "kernel_groups_us_per_iteration": {
+              "other_compute": 993.9899999999999,
+              "data_movement": 159.52300000000005,
+              "matmul": 706.2150000000001,
+              "collective": 698.9569999999999
+            },
+            "normalized_ops_sha256": "713987eb8891271cbe20e4ac7af91935353e43e48f17bdcfd166cfdf5bbac436",
+            "command": [
+              "tt-perf-report",
+              "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/multichip_decoder/tracy/full_attention/final/prefill_device0_window.csv",
+              "--start-signpost",
+              "PERF_PREFILL",
+              "--end-signpost",
+              "PERF_PREFILL_END",
+              "--no-summary",
+              "--no-color"
+            ]
+          },
+          "1": {
+            "operations": 38,
+            "iterations": 1,
+            "removed_pre_window_gap_ns": 190073318.0,
+            "kernel_us_per_iteration": 2561.93,
+            "gap_us_per_iteration": 961.226,
+            "kernel_groups_us_per_iteration": {
+              "other_compute": 995.453,
+              "data_movement": 160.325,
+              "matmul": 706.416,
+              "collective": 699.7360000000001
+            },
+            "normalized_ops_sha256": "324512e6bf8e2461254d215d805fca343156b41f8df5b165f05f07c8bedb6002",
+            "command": [
+              "tt-perf-report",
+              "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/multichip_decoder/tracy/full_attention/final/prefill_device1_window.csv",
+              "--start-signpost",
+              "PERF_PREFILL",
+              "--end-signpost",
+              "PERF_PREFILL_END",
+              "--no-summary",
+              "--no-color"
+            ]
+          },
+          "2": {
+            "operations": 38,
+            "iterations": 1,
+            "removed_pre_window_gap_ns": 190058482.0,
+            "kernel_us_per_iteration": 2571.501,
+            "gap_us_per_iteration": 958.545,
+            "kernel_groups_us_per_iteration": {
+              "other_compute": 1002.5709999999999,
+              "data_movement": 159.17400000000004,
+              "matmul": 705.6569999999999,
+              "collective": 704.0989999999999
+            },
+            "normalized_ops_sha256": "cb061d149c4f60a017c97ecdc0df783ab83e100996a3bf3354aeac92ffcb1cfd",
+            "command": [
+              "tt-perf-report",
+              "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/multichip_decoder/tracy/full_attention/final/prefill_device2_window.csv",
+              "--start-signpost",
+              "PERF_PREFILL",
+              "--end-signpost",
+              "PERF_PREFILL_END",
+              "--no-summary",
+              "--no-color"
+            ]
+          },
+          "3": {
+            "operations": 38,
+            "iterations": 1,
+            "removed_pre_window_gap_ns": 190052551.0,
+            "kernel_us_per_iteration": 2562.439,
+            "gap_us_per_iteration": 960.051,
+            "kernel_groups_us_per_iteration": {
+              "other_compute": 997.6049999999999,
+              "data_movement": 157.94800000000004,
+              "matmul": 703.924,
+              "collective": 702.962
+            },
+            "normalized_ops_sha256": "265cdd85c13317b3fe76a44f0b73785deade5844128eb20a366df9422a42eecc",
+            "command": [
+              "tt-perf-report",
+              "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/multichip_decoder/tracy/full_attention/final/prefill_device3_window.csv",
+              "--start-signpost",
+              "PERF_PREFILL",
+              "--end-signpost",
+              "PERF_PREFILL_END",
+              "--no-summary",
+              "--no-color"
+            ]
+          }
+        }
+      },
+      "host_minus_max_device_window_us": 287.3500056155917,
+      "root": "tracy/full_attention/final"
+    },
+    {
+      "layer": 3,
+      "kind": "full_attention",
+      "mode": "decode",
+      "unprofiled_ms": 0.2840124689100776,
+      "profiled_host": {
+        "layer": 3,
+        "mode": "decode",
+        "baseline": false,
+        "sequence_length": 1,
+        "decode_position": 2048,
+        "iterations": 4,
+        "host_wall_per_iteration_ms": 0.33587549114599824,
+        "hf_pcc": 0.9993664546492979,
+        "activation_source": "recorded pinned-HF layer input"
+      },
+      "device_accounting": {
+        "correction": "Remove only the first per-device gap, which begins before the signposted window; preserve every kernel duration and all intra-window gaps. Device times are reported independently, never summed across chips.",
+        "devices": {
+          "0": {
+            "operations": 188,
+            "iterations": 4,
+            "removed_pre_window_gap_ns": 217064626.0,
+            "kernel_us_per_iteration": 267.99275,
+            "gap_us_per_iteration": 50.54225,
+            "kernel_groups_us_per_iteration": {
+              "data_movement": 35.552499999999995,
+              "other_compute": 67.2775,
+              "matmul": 115.51499999999999,
+              "collective": 49.64775
+            },
+            "normalized_ops_sha256": "81379112022be05d94e520daf2b74a343f5ce2cf48c7a300d144750d18735448",
+            "command": [
+              "tt-perf-report",
+              "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/multichip_decoder/tracy/full_attention/final/decode_device0_window.csv",
+              "--start-signpost",
+              "PERF_DECODE",
+              "--end-signpost",
+              "PERF_DECODE_END",
+              "--no-summary",
+              "--no-color",
+              "--tracing-mode"
+            ]
+          },
+          "1": {
+            "operations": 188,
+            "iterations": 4,
+            "removed_pre_window_gap_ns": 217083724.0,
+            "kernel_us_per_iteration": 268.8285,
+            "gap_us_per_iteration": 50.282,
+            "kernel_groups_us_per_iteration": {
+              "data_movement": 35.769749999999995,
+              "other_compute": 67.288,
+              "matmul": 115.44225,
+              "collective": 50.3285
+            },
+            "normalized_ops_sha256": "eba238b18dfca92d7497abccdf0ef2e0dcdb81d40dcbed7a9ac209317768a4c9",
+            "command": [
+              "tt-perf-report",
+              "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/multichip_decoder/tracy/full_attention/final/decode_device1_window.csv",
+              "--start-signpost",
+              "PERF_DECODE",
+              "--end-signpost",
+              "PERF_DECODE_END",
+              "--no-summary",
+              "--no-color",
+              "--tracing-mode"
+            ]
+          },
+          "2": {
+            "operations": 188,
+            "iterations": 4,
+            "removed_pre_window_gap_ns": 217080879.0,
+            "kernel_us_per_iteration": 266.74275,
+            "gap_us_per_iteration": 50.461,
+            "kernel_groups_us_per_iteration": {
+              "data_movement": 35.40624999999998,
+              "other_compute": 67.24275,
+              "matmul": 126.81049999999999,
+              "collective": 37.28325
+            },
+            "normalized_ops_sha256": "d4d366d0f1f9c5ce5bd5ab93577ef03726595e7f550c7b26b5d03e31ac94c2cb",
+            "command": [
+              "tt-perf-report",
+              "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/multichip_decoder/tracy/full_attention/final/decode_device2_window.csv",
+              "--start-signpost",
+              "PERF_DECODE",
+              "--end-signpost",
+              "PERF_DECODE_END",
+              "--no-summary",
+              "--no-color",
+              "--tracing-mode"
+            ]
+          },
+          "3": {
+            "operations": 188,
+            "iterations": 4,
+            "removed_pre_window_gap_ns": 217147034.0,
+            "kernel_us_per_iteration": 266.72575,
+            "gap_us_per_iteration": 50.631,
+            "kernel_groups_us_per_iteration": {
+              "data_movement": 35.51375,
+              "other_compute": 67.51775,
+              "matmul": 115.79299999999999,
+              "collective": 47.90125000000001
+            },
+            "normalized_ops_sha256": "1e50057507f91702bb3d72ce33d10e5ac590cf7bd1353a39a28dd0bec67b6952",
+            "command": [
+              "tt-perf-report",
+              "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/multichip_decoder/tracy/full_attention/final/decode_device3_window.csv",
+              "--start-signpost",
+              "PERF_DECODE",
+              "--end-signpost",
+              "PERF_DECODE_END",
+              "--no-summary",
+              "--no-color",
+              "--tracing-mode"
+            ]
+          }
+        }
+      },
+      "host_minus_max_device_window_us": 16.764991145998238,
+      "root": "tracy/full_attention/final"
+    }
+  ],
+  "decode_bandwidth_floor": {
+    "dram_bytes_per_second_per_device": 512000000000,
+    "linear_projection_read_bytes": 30818304,
+    "linear_weights_only_floor_us": 60.192,
+    "full_projection_read_bytes": 34734080,
+    "full_logical_tile_kv_read_bytes_at_2049": 1131520,
+    "full_weights_and_kv_floor_us": 70.05,
+    "omissions": "Optimistic bound omits recurrent traffic, cache writes, activation movement, chunk over-read, compute, CCL and host overhead."
+  }
+}

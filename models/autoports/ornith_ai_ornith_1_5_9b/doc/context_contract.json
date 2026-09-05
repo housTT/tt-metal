@@ -1,18 +1,18 @@
 {
   "model": "ornith-ai/Ornith-1.5-9B",
   "revision": "489cb97981b8654bcfcf30ce1f94ed1b62e07b53",
-  "stage": "optimized-decoder",
+  "stage": "multichip-decoder",
   "status": "complete",
   "hf_advertised_context": 262144,
   "supported_context_target": 262144,
   "largest_tested_prefill_context": 262144,
   "largest_tested_decode_context": 262144,
   "capability_reduction": null,
-  "profile": "p150",
-  "physical_hardware": "one Blackhole chip on P300c boards",
+  "profile": "p150x4",
+  "physical_hardware": "four Blackhole chips on two P300c boards",
   "mesh": [
     1,
-    1
+    4
   ],
   "layer_kinds": [
     "linear_attention",
@@ -22,12 +22,9 @@
   "largest_tested_decode_position": 262143,
   "limiting_reason": null,
   "context_evidence": [
-    "optimized_decoder/logs/final_release_v4_long.log.gz",
-    "optimized_decoder/logs/final_release_v4_long.provenance.json",
-    "optimized_decoder/logs/final_release_v4_short.log.gz",
-    "optimized_decoder/logs/final_release_v4_short.provenance.json",
-    "optimized_decoder/logs/final_release_v2_batch.log.gz",
-    "optimized_decoder/logs/final_release_v2_batch.provenance.json"
+    "multichip_decoder/logs/release_mixed_watcher_contracts.log.gz",
+    "multichip_decoder/logs/release_mixed_watcher_contracts.provenance.json",
+    "multichip_decoder/logs/release_mixed_stack.log.gz"
   ],
   "batch_context_semantics": "Native context validated at batch 1; batches 1\u201332 including prime sizes validated with shorter per-user caches. Aggregate batch/context capacity depends on caller allocation.",
   "largest_tested_batch": 32,
@@ -36,13 +33,13 @@
       "layer_index": 0,
       "largest_prefill": 262144,
       "largest_decode_context": 262144,
-      "state": "FP32 recurrent matrix; persistent state in L1 within 300 KiB/bank, otherwise DRAM; intermediates within 224 KiB/bank, otherwise DRAM"
+      "state": "FP32 local recurrent [B,8,128,128]; L1 placement budgets all24 linear layers within300KiB/bank, otherwiseDRAM; intermediates within224KiB/bank"
     },
     "full_attention": {
       "layer_index": 3,
       "largest_prefill": 262144,
       "largest_decode_context": 262144,
-      "cache": "BFP8 paged KV, 64-token pages, 4 KV heads, dimension 256"
+      "cache": "BFP8 paged KV,64-token pages,one local KV head per device,dimension256"
     }
   },
   "optional_yarn": {
@@ -55,7 +52,7 @@
       999999
     ],
     "decoder_million_context_validated": false,
-    "status": "opt-in setup supported; million-token full-layer capacity/accuracy not claimed by this native-context stage"
+    "status": "Prior single-chip setup/table parity only; multichip million-token capacity and accuracy are not claimed"
   },
   "previous_stage_capacity_validation": "Packed BF16 projections, prepared depthwise convolution weights, and temporary L1/sharded rotary layouts retain native capacity. Final fused tests execute both layer kinds through 262144-token prefill and traced decode at position 262143; batch 32 is validated at shorter contexts. KV dtype and recurrent-state dtype are unchanged.",
   "optimized_capacity_validation": {
@@ -118,5 +115,64 @@
         4
       ]
     }
+  },
+  "multichip_capacity_plan": {
+    "status": "complete",
+    "mesh": [
+      1,
+      4
+    ],
+    "physical_hardware": "four Blackhole chips on two P300c boards",
+    "profile": "p150x4",
+    "supported_context_target": 262144,
+    "capability_reduction": null,
+    "local_kv_heads": 1,
+    "kv_bytes_per_device_per_full_attention_layer": 142606336,
+    "kv_bytes_per_device_all_8_full_attention_layers": 1140850688,
+    "projection_weights_per_device": {
+      "linear_attention": {
+        "shared_prefill_decode": 30818304
+      },
+      "full_attention": {
+        "shared_prefill_decode": 29491200,
+        "decode_qkvg_bfp8": 11141120
+      }
+    },
+    "projection_weights_all_layers_per_device": 1064697856,
+    "embedding_and_untied_head_bf16_tp4_bytes_per_device": 1017118720,
+    "unshared_rope_tables_all_8_layers_bytes_per_device": 1090519040,
+    "recurrent_bytes_per_device_per_user_all_24_layers": 12582912,
+    "conv_history_logical_bytes_per_device_per_user_all_24_layers": 294912,
+    "trace_activation_and_small_constant_reserve_bytes_per_device": 8589934592,
+    "largest_tested_prefill_context": 262144,
+    "largest_tested_decode_context": 262144,
+    "evidence": [
+      "multichip_decoder/mesh_plan.md",
+      "multichip_decoder/logs/release_mixed_watcher_contracts.log.gz",
+      "multichip_decoder/logs/release_mixed_watcher_contracts.provenance.json",
+      "multichip_decoder/logs/release_mixed_stack.log.gz"
+    ],
+    "estimated_full_model_bytes_per_device": 12915998720,
+    "reserve_rationale": "Native replicated residual is 2GiB per input/output. Public prefill can hold input + chunk outputs + concatenated output (6GiB peak), plus 2GiB for trace, chunk working sets, small constants, allocator overhead and other temporary buffers. Hidden-sharded candidate needs less but does not determine this conservative plan.",
+    "historical_dual_copy_projection_weights_per_device": {
+      "linear_attention": {
+        "prefill": 30818304,
+        "decode": 31260672
+      },
+      "full_attention": {
+        "prefill": 29491200,
+        "decode": 29491200
+      }
+    },
+    "largest_tested_decode_position": 262143,
+    "largest_tested_batch": 32,
+    "reservation_dram_bytes_per_device": 6473908224,
+    "reservation_l1_recurrent_layers": 24,
+    "reservation_limit": "Conservative reserved bytes plus one executing native full-attention decoder; direct three-decoder composition is tested separately. No full-model execution claimed."
+  },
+  "previous_optimized_baseline_commit": "d085eb6d1abcc8b25f213fede6b68aa873d6cd6b",
+  "stage_review": {
+    "verdict": "clean-pass",
+    "report": "multichip_decoder/STAGE_REVIEW.md"
   }
 }
