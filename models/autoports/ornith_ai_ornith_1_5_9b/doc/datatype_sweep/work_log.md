@@ -411,3 +411,15 @@ source/docs/config were checked separately. No C++/CMake build was needed.
 Only this model's runtime precision plumbing, datatype-sweep artifacts and context
 contract are included. No vLLM integration, remote push or publication occurred.
 Local implementation/evidence commit SHA is recorded by the receipt commit below.
+
+
+| Repository | Branch | Implementation/evidence commit | Review |
+| --- | --- | --- | --- |
+| `/home/hous/dev/ornith-1.5-9b/tt-metal` | `hous/ornith-1.5-9b` | `f37cf869ea6f86d640efba6b186b73dc0fbf5c80` | clean-pass |
+
+The implementation commit includes all stage-owned runtime and evidence changes.
+Its hooks pass, with only the two documented immutable-evidence whitespace hooks
+skipped. The post-commit86-run artifact/source audit also passes. This receipt-only
+commit records the implementation SHA; both implementation and receipt SHAs are
+stored in `/home/hous/dev/ornith-1.5-9b/state/datatype-sweep-local-commits.json`.
+No push is performed.
