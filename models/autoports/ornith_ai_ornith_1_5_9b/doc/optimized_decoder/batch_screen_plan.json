@@ -1,0 +1,49 @@
+[
+  {
+    "name": "lower_projection_residual_movement",
+    "env": {
+      "ORNITH_OPT_VARIANT": "lower_movement"
+    }
+  },
+  {
+    "name": "combined_decode_first",
+    "env": {
+      "ORNITH_OPT_VARIANT": "combined_decode",
+      "ORNITH_STATE_MEMORY": "l1",
+      "ORNITH_STATE_INTERMEDIATES": "l1",
+      "ORNITH_STATE_GRID": "8,4",
+      "ORNITH_STATE_BLOCK": "1",
+      "ORNITH_STATE_SUBBLOCK": "4",
+      "ORNITH_STATE_FIDELITY": "HiFi4",
+      "ORNITH_SDPA_CHUNK": "256"
+    }
+  },
+  {
+    "name": "sharded_real_batch_contract",
+    "test": "tests/test_optimized_decoder.py",
+    "layer": "batched or traced_decode"
+  },
+  {
+    "name": "kda_real_batch32_contract",
+    "test": "tests/test_optimized_decoder.py",
+    "layer": "linear_attention and 32 and (batched or traced_decode)",
+    "env": {
+      "ORNITH_OPT_VARIANT": "kda_conv"
+    }
+  },
+  {
+    "name": "combined_decode_batch_contract",
+    "env": {
+      "ORNITH_OPT_VARIANT": "combined_decode",
+      "ORNITH_STATE_MEMORY": "l1",
+      "ORNITH_STATE_INTERMEDIATES": "l1",
+      "ORNITH_STATE_GRID": "8,4",
+      "ORNITH_STATE_BLOCK": "1",
+      "ORNITH_STATE_SUBBLOCK": "4",
+      "ORNITH_STATE_FIDELITY": "HiFi4",
+      "ORNITH_SDPA_CHUNK": "256"
+    },
+    "test": "tests/test_optimized_decoder.py",
+    "layer": "batched or traced_decode"
+  }
+]

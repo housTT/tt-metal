@@ -1,0 +1,32 @@
+[
+  {
+    "name": "geometry_packed_gdn_mlp",
+    "config": {
+      "dram_roles": [],
+      "residual_cores": 0
+    },
+    "env": {
+      "ORNITH_OPT_VARIANT": "topology",
+      "ORNITH_TOPOLOGY": "packed_gdn",
+      "ORNITH_SWEEP_ROLES": "gdn_all,gate_up",
+      "ORNITH_SWEEP_OUTPUT": "geometry_packed_gdn_mlp.json"
+    },
+    "test": "tests/test_projection_geometry.py",
+    "layer": "linear_attention"
+  },
+  {
+    "name": "geometry_separate_attention",
+    "config": {
+      "dram_roles": [],
+      "residual_cores": 0
+    },
+    "env": {
+      "ORNITH_OPT_VARIANT": "topology",
+      "ORNITH_TOPOLOGY": "separate_attention",
+      "ORNITH_SWEEP_ROLES": "separate_q,separate_k,separate_v,separate_gate",
+      "ORNITH_SWEEP_OUTPUT": "geometry_separate_attention.json"
+    },
+    "test": "tests/test_projection_geometry.py",
+    "layer": "full_attention"
+  }
+]

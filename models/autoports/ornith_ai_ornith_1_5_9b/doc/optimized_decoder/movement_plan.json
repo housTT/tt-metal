@@ -1,0 +1,85 @@
+[
+  {
+    "name": "gate_silu_epilogue",
+    "env": {
+      "ORNITH_OPT_VARIANT": "topology",
+      "ORNITH_TOPOLOGY": "gate_epilogue"
+    }
+  },
+  {
+    "name": "rope_tiled_indices",
+    "env": {
+      "ORNITH_OPT_VARIANT": "tiled_rope"
+    },
+    "layer": "full_attention"
+  },
+  {
+    "name": "cache_bfp8",
+    "env": {
+      "ORNITH_OPT_VARIANT": "cache_sdpa"
+    },
+    "layer": "full_attention"
+  },
+  {
+    "name": "recurrent_block4_HiFi4",
+    "env": {
+      "ORNITH_OPT_VARIANT": "recurrent",
+      "ORNITH_STATE_FIDELITY": "HiFi4"
+    },
+    "layer": "linear_attention"
+  },
+  {
+    "name": "recurrent_block4_HiFi2",
+    "env": {
+      "ORNITH_OPT_VARIANT": "recurrent",
+      "ORNITH_STATE_FIDELITY": "HiFi2"
+    },
+    "layer": "linear_attention"
+  },
+  {
+    "name": "recurrent_block4_LoFi",
+    "env": {
+      "ORNITH_OPT_VARIANT": "recurrent",
+      "ORNITH_STATE_FIDELITY": "LoFi"
+    },
+    "layer": "linear_attention"
+  },
+  {
+    "name": "recurrent_l1",
+    "env": {
+      "ORNITH_OPT_VARIANT": "recurrent",
+      "ORNITH_STATE_MEMORY": "l1",
+      "ORNITH_STATE_INTERMEDIATES": "l1"
+    },
+    "layer": "linear_attention"
+  },
+  {
+    "name": "activation_mlp_bfp8",
+    "env": {
+      "ORNITH_OPT_VARIANT": "activation"
+    }
+  },
+  {
+    "name": "activation_attention_bfp8",
+    "env": {
+      "ORNITH_OPT_VARIANT": "activation",
+      "ORNITH_ACTIVATION_ROLES": "qkvg,o_proj,gdn_packed,gdn_z_epilogue,gdn_out"
+    }
+  },
+  {
+    "name": "sharded_head_norm",
+    "env": {
+      "ORNITH_OPT_VARIANT": "sharded_head_norm"
+    },
+    "layer": "full_attention"
+  },
+  {
+    "name": "shared_mlp_input_c32",
+    "config": {
+      "residual_cores": 32
+    },
+    "env": {
+      "ORNITH_OPT_VARIANT": "shared_mlp_input"
+    }
+  }
+]

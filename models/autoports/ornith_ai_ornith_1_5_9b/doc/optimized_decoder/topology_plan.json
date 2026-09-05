@@ -1,0 +1,228 @@
+[
+  {
+    "name": "packed_mlp_best",
+    "config": {
+      "host_weight_packing": true,
+      "residual_cores": 64,
+      "dram_roles": [
+        "gdn_packed",
+        "gdn_z_epilogue",
+        "gdn_out",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "qkvg",
+        "o_proj",
+        "gate_up"
+      ],
+      "role_configs": {
+        "gdn_packed": {
+          "cores": 32,
+          "block_w": 4,
+          "readers": 3
+        },
+        "gdn_z_epilogue": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "gdn_out": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "gate_proj": {
+          "cores": 64,
+          "block_w": 2,
+          "readers": 3
+        },
+        "up_proj": {
+          "cores": 64,
+          "block_w": 2,
+          "readers": 3
+        },
+        "down_proj": {
+          "cores": 64,
+          "block_w": 6,
+          "readers": 2
+        },
+        "qkvg": {
+          "cores": 32,
+          "block_w": 2,
+          "readers": 3
+        },
+        "o_proj": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "gate_up": {
+          "cores": 64,
+          "block_w": 2,
+          "readers": 2
+        }
+      },
+      "packed_mlp": true
+    },
+    "env": {},
+    "layer": null
+  },
+  {
+    "name": "packed_gdn_best",
+    "config": {
+      "host_weight_packing": true,
+      "residual_cores": 64,
+      "dram_roles": [
+        "gdn_packed",
+        "gdn_z_epilogue",
+        "gdn_out",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "qkvg",
+        "o_proj",
+        "gdn_all"
+      ],
+      "role_configs": {
+        "gdn_packed": {
+          "cores": 32,
+          "block_w": 4,
+          "readers": 3
+        },
+        "gdn_z_epilogue": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "gdn_out": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "gate_proj": {
+          "cores": 64,
+          "block_w": 2,
+          "readers": 3
+        },
+        "up_proj": {
+          "cores": 64,
+          "block_w": 2,
+          "readers": 3
+        },
+        "down_proj": {
+          "cores": 64,
+          "block_w": 6,
+          "readers": 2
+        },
+        "qkvg": {
+          "cores": 32,
+          "block_w": 2,
+          "readers": 3
+        },
+        "o_proj": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "gdn_all": {
+          "cores": 64,
+          "block_w": 2,
+          "readers": 3
+        }
+      }
+    },
+    "env": {
+      "ORNITH_OPT_VARIANT": "topology",
+      "ORNITH_TOPOLOGY": "packed_gdn"
+    },
+    "layer": "linear_attention"
+  },
+  {
+    "name": "separate_attention_best",
+    "config": {
+      "host_weight_packing": true,
+      "residual_cores": 64,
+      "dram_roles": [
+        "gdn_packed",
+        "gdn_z_epilogue",
+        "gdn_out",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "qkvg",
+        "o_proj",
+        "separate_q",
+        "separate_k",
+        "separate_v",
+        "separate_gate"
+      ],
+      "role_configs": {
+        "gdn_packed": {
+          "cores": 32,
+          "block_w": 4,
+          "readers": 3
+        },
+        "gdn_z_epilogue": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "gdn_out": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "gate_proj": {
+          "cores": 64,
+          "block_w": 2,
+          "readers": 3
+        },
+        "up_proj": {
+          "cores": 64,
+          "block_w": 2,
+          "readers": 3
+        },
+        "down_proj": {
+          "cores": 64,
+          "block_w": 6,
+          "readers": 2
+        },
+        "qkvg": {
+          "cores": 32,
+          "block_w": 2,
+          "readers": 3
+        },
+        "o_proj": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "separate_q": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "separate_k": {
+          "cores": 4,
+          "block_w": 32,
+          "readers": 1
+        },
+        "separate_v": {
+          "cores": 4,
+          "block_w": 32,
+          "readers": 1
+        },
+        "separate_gate": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        }
+      }
+    },
+    "env": {
+      "ORNITH_OPT_VARIANT": "topology",
+      "ORNITH_TOPOLOGY": "separate_attention"
+    },
+    "layer": "full_attention"
+  }
+]

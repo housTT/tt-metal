@@ -1,0 +1,180 @@
+[
+  {
+    "name": "geometry_extra_layer0",
+    "config": {
+      "dram_roles": [],
+      "residual_cores": 0
+    },
+    "env": {
+      "ORNITH_SWEEP_EXTRA": "1",
+      "ORNITH_SWEEP_OUTPUT": "geometry_extra_layer0.json",
+      "ORNITH_SWEEP_ROLES": "gdn_packed,gdn_z_epilogue,gdn_out,gate_proj,up_proj,down_proj"
+    },
+    "test": "tests/test_projection_geometry.py",
+    "layer": "linear_attention"
+  },
+  {
+    "name": "geometry_extra_layer3",
+    "config": {
+      "dram_roles": [],
+      "residual_cores": 0
+    },
+    "env": {
+      "ORNITH_SWEEP_EXTRA": "1",
+      "ORNITH_SWEEP_OUTPUT": "geometry_extra_layer3.json",
+      "ORNITH_SWEEP_ROLES": "qkvg,o_proj,gate_proj,up_proj,down_proj"
+    },
+    "test": "tests/test_projection_geometry.py",
+    "layer": "full_attention"
+  },
+  {
+    "name": "prefill_2d_padded1024_b4",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_GRID": "8,8",
+      "ORNITH_PREFILL_BLOCK": "4",
+      "ORNITH_PREFILL_PAD_N": "1024"
+    }
+  },
+  {
+    "name": "prefill_2d_padded1024_b8",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_GRID": "8,8",
+      "ORNITH_PREFILL_BLOCK": "8",
+      "ORNITH_PREFILL_PAD_N": "1024"
+    }
+  },
+  {
+    "name": "prefill_m8_s2_b4",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_GRID": "8,8",
+      "ORNITH_PREFILL_BLOCK": "4",
+      "ORNITH_PREFILL_OUT_M": "8",
+      "ORNITH_PREFILL_OUT_N": "48",
+      "ORNITH_PREFILL_SUB_H": "2"
+    }
+  },
+  {
+    "name": "prefill_m8_s4_b4",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_GRID": "8,8",
+      "ORNITH_PREFILL_BLOCK": "4",
+      "ORNITH_PREFILL_OUT_M": "8",
+      "ORNITH_PREFILL_OUT_N": "48",
+      "ORNITH_PREFILL_SUB_H": "4"
+    }
+  },
+  {
+    "name": "prefill_m8_s8_b4",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_GRID": "8,8",
+      "ORNITH_PREFILL_BLOCK": "4",
+      "ORNITH_PREFILL_OUT_M": "8",
+      "ORNITH_PREFILL_OUT_N": "48",
+      "ORNITH_PREFILL_SUB_H": "8"
+    }
+  },
+  {
+    "name": "prefill_m8_s2_b8",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_GRID": "8,8",
+      "ORNITH_PREFILL_BLOCK": "8",
+      "ORNITH_PREFILL_OUT_M": "8",
+      "ORNITH_PREFILL_OUT_N": "48",
+      "ORNITH_PREFILL_SUB_H": "2"
+    }
+  },
+  {
+    "name": "prefill_m8_s4_b8",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_GRID": "8,8",
+      "ORNITH_PREFILL_BLOCK": "8",
+      "ORNITH_PREFILL_OUT_M": "8",
+      "ORNITH_PREFILL_OUT_N": "48",
+      "ORNITH_PREFILL_SUB_H": "4"
+    }
+  },
+  {
+    "name": "prefill_m8_s8_b8",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_GRID": "8,8",
+      "ORNITH_PREFILL_BLOCK": "8",
+      "ORNITH_PREFILL_OUT_M": "8",
+      "ORNITH_PREFILL_OUT_N": "48",
+      "ORNITH_PREFILL_SUB_H": "8"
+    }
+  },
+  {
+    "name": "prefill_m8_s2_b16",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_GRID": "8,8",
+      "ORNITH_PREFILL_BLOCK": "16",
+      "ORNITH_PREFILL_OUT_M": "8",
+      "ORNITH_PREFILL_OUT_N": "48",
+      "ORNITH_PREFILL_SUB_H": "2"
+    }
+  },
+  {
+    "name": "prefill_m8_s4_b16",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_GRID": "8,8",
+      "ORNITH_PREFILL_BLOCK": "16",
+      "ORNITH_PREFILL_OUT_M": "8",
+      "ORNITH_PREFILL_OUT_N": "48",
+      "ORNITH_PREFILL_SUB_H": "4"
+    }
+  },
+  {
+    "name": "prefill_m8_s8_b16",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_GRID": "8,8",
+      "ORNITH_PREFILL_BLOCK": "16",
+      "ORNITH_PREFILL_OUT_M": "8",
+      "ORNITH_PREFILL_OUT_N": "48",
+      "ORNITH_PREFILL_SUB_H": "8"
+    }
+  },
+  {
+    "name": "prefill_m8_s2_b32",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_GRID": "8,8",
+      "ORNITH_PREFILL_BLOCK": "32",
+      "ORNITH_PREFILL_OUT_M": "8",
+      "ORNITH_PREFILL_OUT_N": "48",
+      "ORNITH_PREFILL_SUB_H": "2"
+    }
+  },
+  {
+    "name": "prefill_m8_s4_b32",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_GRID": "8,8",
+      "ORNITH_PREFILL_BLOCK": "32",
+      "ORNITH_PREFILL_OUT_M": "8",
+      "ORNITH_PREFILL_OUT_N": "48",
+      "ORNITH_PREFILL_SUB_H": "4"
+    }
+  },
+  {
+    "name": "prefill_m8_s8_b32",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_GRID": "8,8",
+      "ORNITH_PREFILL_BLOCK": "32",
+      "ORNITH_PREFILL_OUT_M": "8",
+      "ORNITH_PREFILL_OUT_N": "48",
+      "ORNITH_PREFILL_SUB_H": "8"
+    }
+  }
+]

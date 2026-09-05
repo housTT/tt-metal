@@ -1,0 +1,195 @@
+[
+  {
+    "name": "separate_gdn_best",
+    "config": {
+      "host_weight_packing": true,
+      "residual_cores": 32,
+      "dram_roles": [
+        "gdn_packed",
+        "gdn_z_epilogue",
+        "gdn_out",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "qkvg",
+        "o_proj",
+        "separate_gdn_qkv",
+        "separate_gdn_ab"
+      ],
+      "role_configs": {
+        "gdn_packed": {
+          "cores": 32,
+          "block_w": 4,
+          "readers": 3
+        },
+        "gdn_z_epilogue": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "gdn_out": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "gate_proj": {
+          "cores": 64,
+          "block_w": 2,
+          "readers": 3
+        },
+        "up_proj": {
+          "cores": 64,
+          "block_w": 2,
+          "readers": 3
+        },
+        "down_proj": {
+          "cores": 48,
+          "block_w": 8,
+          "readers": 2
+        },
+        "qkvg": {
+          "cores": 32,
+          "block_w": 2,
+          "readers": 3
+        },
+        "o_proj": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "separate_gdn_qkv": {
+          "cores": 32,
+          "block_w": 4,
+          "readers": 3
+        },
+        "separate_gdn_ab": {
+          "cores": 4,
+          "block_w": 32,
+          "readers": 1
+        }
+      }
+    },
+    "env": {
+      "ORNITH_OPT_VARIANT": "topology",
+      "ORNITH_TOPOLOGY": "separate_gdn"
+    },
+    "layer": "linear_attention"
+  },
+  {
+    "name": "native_delta_padded_decode",
+    "layer": "linear_attention",
+    "env": {
+      "ORNITH_STATE_MEMORY": "l1",
+      "ORNITH_STATE_INTERMEDIATES": "l1",
+      "ORNITH_STATE_GRID": "8,4",
+      "ORNITH_STATE_BLOCK": "1",
+      "ORNITH_STATE_SUBBLOCK": "4",
+      "ORNITH_STATE_FIDELITY": "HiFi4",
+      "ORNITH_SDPA_CHUNK": "256",
+      "ORNITH_OPT_VARIANT": "native_delta"
+    }
+  },
+  {
+    "name": "chunk_compute_HiFi2",
+    "layer": "linear_attention",
+    "env": {
+      "ORNITH_STATE_MEMORY": "l1",
+      "ORNITH_STATE_INTERMEDIATES": "l1",
+      "ORNITH_STATE_GRID": "8,4",
+      "ORNITH_STATE_BLOCK": "1",
+      "ORNITH_STATE_SUBBLOCK": "4",
+      "ORNITH_STATE_FIDELITY": "HiFi4",
+      "ORNITH_SDPA_CHUNK": "256",
+      "ORNITH_OPT_VARIANT": "chunk_compute",
+      "ORNITH_CHUNK_FIDELITY": "HiFi2"
+    }
+  },
+  {
+    "name": "chunk_compute_LoFi",
+    "layer": "linear_attention",
+    "env": {
+      "ORNITH_STATE_MEMORY": "l1",
+      "ORNITH_STATE_INTERMEDIATES": "l1",
+      "ORNITH_STATE_GRID": "8,4",
+      "ORNITH_STATE_BLOCK": "1",
+      "ORNITH_STATE_SUBBLOCK": "4",
+      "ORNITH_STATE_FIDELITY": "HiFi4",
+      "ORNITH_SDPA_CHUNK": "256",
+      "ORNITH_OPT_VARIANT": "chunk_compute",
+      "ORNITH_CHUNK_FIDELITY": "LoFi"
+    }
+  },
+  {
+    "name": "chunk_compute_l1",
+    "layer": "linear_attention",
+    "env": {
+      "ORNITH_STATE_MEMORY": "l1",
+      "ORNITH_STATE_INTERMEDIATES": "l1",
+      "ORNITH_STATE_GRID": "8,4",
+      "ORNITH_STATE_BLOCK": "1",
+      "ORNITH_STATE_SUBBLOCK": "4",
+      "ORNITH_STATE_FIDELITY": "HiFi4",
+      "ORNITH_SDPA_CHUNK": "256",
+      "ORNITH_OPT_VARIANT": "chunk_compute",
+      "ORNITH_CHUNK_FIDELITY": "HiFi4",
+      "ORNITH_CHUNK_MEMORY": "l1"
+    }
+  },
+  {
+    "name": "recurrent_outer_broadcast",
+    "layer": "linear_attention",
+    "env": {
+      "ORNITH_STATE_MEMORY": "l1",
+      "ORNITH_STATE_INTERMEDIATES": "l1",
+      "ORNITH_STATE_GRID": "8,4",
+      "ORNITH_STATE_BLOCK": "1",
+      "ORNITH_STATE_SUBBLOCK": "4",
+      "ORNITH_STATE_FIDELITY": "HiFi4",
+      "ORNITH_SDPA_CHUNK": "256",
+      "ORNITH_OPT_VARIANT": "outer_broadcast"
+    }
+  },
+  {
+    "name": "prefill_tiled_head_split",
+    "layer": "linear_attention",
+    "env": {
+      "ORNITH_STATE_MEMORY": "l1",
+      "ORNITH_STATE_INTERMEDIATES": "l1",
+      "ORNITH_STATE_GRID": "8,4",
+      "ORNITH_STATE_BLOCK": "1",
+      "ORNITH_STATE_SUBBLOCK": "4",
+      "ORNITH_STATE_FIDELITY": "HiFi4",
+      "ORNITH_SDPA_CHUNK": "256",
+      "ORNITH_OPT_VARIANT": "tiled_head_split"
+    }
+  },
+  {
+    "name": "native_flat_prefill_real",
+    "layer": "linear_attention",
+    "env": {
+      "ORNITH_STATE_MEMORY": "l1",
+      "ORNITH_STATE_INTERMEDIATES": "l1",
+      "ORNITH_STATE_GRID": "8,4",
+      "ORNITH_STATE_BLOCK": "1",
+      "ORNITH_STATE_SUBBLOCK": "4",
+      "ORNITH_STATE_FIDELITY": "HiFi4",
+      "ORNITH_SDPA_CHUNK": "256",
+      "ORNITH_OPT_VARIANT": "native_flat_prefill"
+    }
+  },
+  {
+    "name": "native_flat_prefill_real_batch32",
+    "layer": "batched_prefill_decode and 32 and linear_attention",
+    "test": "tests/test_optimized_decoder.py",
+    "env": {
+      "ORNITH_STATE_MEMORY": "l1",
+      "ORNITH_STATE_INTERMEDIATES": "l1",
+      "ORNITH_STATE_GRID": "8,4",
+      "ORNITH_STATE_BLOCK": "1",
+      "ORNITH_STATE_SUBBLOCK": "4",
+      "ORNITH_STATE_FIDELITY": "HiFi4",
+      "ORNITH_SDPA_CHUNK": "256",
+      "ORNITH_OPT_VARIANT": "native_flat_prefill"
+    }
+  }
+]

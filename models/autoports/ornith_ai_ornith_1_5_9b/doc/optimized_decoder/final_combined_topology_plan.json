@@ -1,0 +1,205 @@
+[
+  {
+    "name": "final_combined_packed_mlp_r1",
+    "env": {
+      "ORNITH_OPT_VARIANT": "final_packed",
+      "ORNITH_FINAL_PACKED_READERS": "1"
+    }
+  },
+  {
+    "name": "final_combined_packed_mlp_r2",
+    "env": {
+      "ORNITH_OPT_VARIANT": "final_packed",
+      "ORNITH_FINAL_PACKED_READERS": "2"
+    }
+  },
+  {
+    "name": "final_combined_packed_mlp_r3",
+    "env": {
+      "ORNITH_OPT_VARIANT": "final_packed",
+      "ORNITH_FINAL_PACKED_READERS": "3"
+    }
+  },
+  {
+    "name": "final_combined_packed_gdn_best",
+    "config": {
+      "host_weight_packing": true,
+      "residual_cores": 32,
+      "dram_roles": [
+        "gdn_packed",
+        "gdn_z_epilogue",
+        "gdn_out",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "qkvg",
+        "o_proj",
+        "gdn_all"
+      ],
+      "role_configs": {
+        "gdn_packed": {
+          "cores": 32,
+          "block_w": 4,
+          "readers": 3
+        },
+        "gdn_z_epilogue": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "gdn_out": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "gate_proj": {
+          "cores": 64,
+          "block_w": 2,
+          "readers": 3
+        },
+        "up_proj": {
+          "cores": 64,
+          "block_w": 2,
+          "readers": 3
+        },
+        "down_proj": {
+          "cores": 48,
+          "block_w": 8,
+          "readers": 2
+        },
+        "qkvg": {
+          "cores": 32,
+          "block_w": 2,
+          "readers": 3
+        },
+        "o_proj": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "gdn_all": {
+          "cores": 64,
+          "block_w": 2,
+          "readers": 3
+        }
+      }
+    },
+    "env": {
+      "ORNITH_OPT_VARIANT": "final_topology",
+      "ORNITH_TOPOLOGY": "packed_gdn"
+    },
+    "layer": "linear_attention"
+  },
+  {
+    "name": "final_combined_separate_attention_best",
+    "config": {
+      "host_weight_packing": true,
+      "residual_cores": 32,
+      "dram_roles": [
+        "gdn_packed",
+        "gdn_z_epilogue",
+        "gdn_out",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+        "qkvg",
+        "o_proj",
+        "separate_q",
+        "separate_k",
+        "separate_v",
+        "separate_gate"
+      ],
+      "role_configs": {
+        "gdn_packed": {
+          "cores": 32,
+          "block_w": 4,
+          "readers": 3
+        },
+        "gdn_z_epilogue": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "gdn_out": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "gate_proj": {
+          "cores": 64,
+          "block_w": 2,
+          "readers": 3
+        },
+        "up_proj": {
+          "cores": 64,
+          "block_w": 2,
+          "readers": 3
+        },
+        "down_proj": {
+          "cores": 48,
+          "block_w": 8,
+          "readers": 2
+        },
+        "qkvg": {
+          "cores": 32,
+          "block_w": 2,
+          "readers": 3
+        },
+        "o_proj": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "separate_q": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        },
+        "separate_k": {
+          "cores": 4,
+          "block_w": 32,
+          "readers": 1
+        },
+        "separate_v": {
+          "cores": 4,
+          "block_w": 32,
+          "readers": 1
+        },
+        "separate_gate": {
+          "cores": 8,
+          "block_w": 8,
+          "readers": 2
+        }
+      }
+    },
+    "env": {
+      "ORNITH_OPT_VARIANT": "final_topology",
+      "ORNITH_TOPOLOGY": "separate_attention"
+    },
+    "layer": "full_attention"
+  },
+  {
+    "name": "final_combined_separate_control"
+  },
+  {
+    "name": "final_prefill_separate_m8_n48",
+    "env": {
+      "ORNITH_OPT_VARIANT": "final_prefill_mlp",
+      "ORNITH_FINAL_PREFILL_M": "8"
+    }
+  },
+  {
+    "name": "final_prefill_separate_m4_n48",
+    "env": {
+      "ORNITH_OPT_VARIANT": "final_prefill_mlp",
+      "ORNITH_FINAL_PREFILL_M": "4"
+    }
+  },
+  {
+    "name": "final_prefill_separate_m2_n48",
+    "env": {
+      "ORNITH_OPT_VARIANT": "final_prefill_mlp",
+      "ORNITH_FINAL_PREFILL_M": "2"
+    }
+  }
+]

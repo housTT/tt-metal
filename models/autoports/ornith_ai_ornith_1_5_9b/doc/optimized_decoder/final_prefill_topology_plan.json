@@ -1,0 +1,61 @@
+[
+  {
+    "name": "geometry_separate_gdn",
+    "config": {
+      "dram_roles": [],
+      "residual_cores": 0
+    },
+    "env": {
+      "ORNITH_OPT_VARIANT": "topology",
+      "ORNITH_TOPOLOGY": "separate_gdn",
+      "ORNITH_SWEEP_ROLES": "separate_gdn_qkv,separate_gdn_ab",
+      "ORNITH_SWEEP_OUTPUT": "geometry_separate_gdn.json"
+    },
+    "test": "tests/test_projection_geometry.py",
+    "layer": "linear_attention"
+  },
+  {
+    "name": "prefill_m8_n32_s2_b8_pad1024",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_BLOCK": "8",
+      "ORNITH_PREFILL_OUT_M": "8",
+      "ORNITH_PREFILL_OUT_N": "32",
+      "ORNITH_PREFILL_SUB_H": "2",
+      "ORNITH_PREFILL_PAD_N": "1024"
+    }
+  },
+  {
+    "name": "prefill_m8_n32_s2_b8_pad2048",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_BLOCK": "8",
+      "ORNITH_PREFILL_OUT_M": "8",
+      "ORNITH_PREFILL_OUT_N": "32",
+      "ORNITH_PREFILL_SUB_H": "2",
+      "ORNITH_PREFILL_PAD_N": "2048"
+    }
+  },
+  {
+    "name": "prefill_full_m8_n16_s2_b16",
+    "layer": "full_attention",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_BLOCK": "16",
+      "ORNITH_PREFILL_OUT_M": "8",
+      "ORNITH_PREFILL_OUT_N": "16",
+      "ORNITH_PREFILL_SUB_H": "2"
+    }
+  },
+  {
+    "name": "prefill_full_m8_n8_s2_b32",
+    "layer": "full_attention",
+    "env": {
+      "ORNITH_OPT_VARIANT": "large_prefill",
+      "ORNITH_PREFILL_BLOCK": "32",
+      "ORNITH_PREFILL_OUT_M": "8",
+      "ORNITH_PREFILL_OUT_N": "8",
+      "ORNITH_PREFILL_SUB_H": "2"
+    }
+  }
+]

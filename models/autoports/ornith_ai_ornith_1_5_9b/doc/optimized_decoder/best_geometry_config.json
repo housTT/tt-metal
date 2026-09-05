@@ -1,0 +1,56 @@
+{
+  "host_weight_packing": true,
+  "residual_cores": 32,
+  "dram_roles": [
+    "gdn_packed",
+    "gdn_z_epilogue",
+    "gdn_out",
+    "gate_proj",
+    "up_proj",
+    "down_proj",
+    "qkvg",
+    "o_proj"
+  ],
+  "role_configs": {
+    "gdn_packed": {
+      "cores": 32,
+      "block_w": 4,
+      "readers": 3
+    },
+    "gdn_z_epilogue": {
+      "cores": 8,
+      "block_w": 8,
+      "readers": 2
+    },
+    "gdn_out": {
+      "cores": 8,
+      "block_w": 8,
+      "readers": 2
+    },
+    "gate_proj": {
+      "cores": 64,
+      "block_w": 2,
+      "readers": 3
+    },
+    "up_proj": {
+      "cores": 64,
+      "block_w": 2,
+      "readers": 3
+    },
+    "down_proj": {
+      "cores": 48,
+      "block_w": 8,
+      "readers": 2
+    },
+    "qkvg": {
+      "cores": 32,
+      "block_w": 2,
+      "readers": 3
+    },
+    "o_proj": {
+      "cores": 8,
+      "block_w": 8,
+      "readers": 2
+    }
+  }
+}

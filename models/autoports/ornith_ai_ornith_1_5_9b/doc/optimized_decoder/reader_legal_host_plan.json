@@ -1,0 +1,24 @@
+[
+  {
+    "name": "readers_legal_host_linear_attention",
+    "layer": "linear_attention",
+    "test": "tests/test_projection_geometry.py",
+    "env": {
+      "ORNITH_READER_CONFIRM": "1",
+      "ORNITH_SWEEP_ROLES": "gdn_packed,gdn_z_epilogue,gdn_out,gate_proj,up_proj,down_proj",
+      "ORNITH_SWEEP_OUTPUT": "readers_legal_host_linear_attention.json",
+      "ORNITH_READER_PER_CORE_N": "{\"gdn_z_epilogue\": 18, \"gdn_out\": 18, \"o_proj\": 18}"
+    }
+  },
+  {
+    "name": "readers_legal_host_full_attention",
+    "layer": "full_attention",
+    "test": "tests/test_projection_geometry.py",
+    "env": {
+      "ORNITH_READER_CONFIRM": "1",
+      "ORNITH_SWEEP_ROLES": "qkvg,o_proj,gate_proj,up_proj,down_proj",
+      "ORNITH_SWEEP_OUTPUT": "readers_legal_host_full_attention.json",
+      "ORNITH_READER_PER_CORE_N": "{\"gdn_z_epilogue\": 18, \"gdn_out\": 18, \"o_proj\": 18}"
+    }
+  }
+]

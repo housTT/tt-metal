@@ -1,7 +1,7 @@
 {
   "model": "ornith-ai/Ornith-1.5-9B",
   "revision": "489cb97981b8654bcfcf30ce1f94ed1b62e07b53",
-  "stage": "fused-decoder",
+  "stage": "optimized-decoder",
   "status": "complete",
   "hf_advertised_context": 262144,
   "supported_context_target": 262144,
@@ -22,24 +22,27 @@
   "largest_tested_decode_position": 262143,
   "limiting_reason": null,
   "context_evidence": [
-    "fused_decoder/logs/final_long_v2.log.gz",
-    "fused_decoder/logs/final_long_v2.provenance.json",
-    "fused_decoder/logs/watcher_final_v2.log.gz"
+    "optimized_decoder/logs/final_release_v4_long.log.gz",
+    "optimized_decoder/logs/final_release_v4_long.provenance.json",
+    "optimized_decoder/logs/final_release_v4_short.log.gz",
+    "optimized_decoder/logs/final_release_v4_short.provenance.json",
+    "optimized_decoder/logs/final_release_v2_batch.log.gz",
+    "optimized_decoder/logs/final_release_v2_batch.provenance.json"
   ],
-  "batch_context_semantics": "Native context validated at batch 1; batch 4 and 32 correctness/tracing validated with shorter per-user caches. Aggregate capacity depends on caller allocation.",
+  "batch_context_semantics": "Native context validated at batch 1; batches 1\u201332 including prime sizes validated with shorter per-user caches. Aggregate batch/context capacity depends on caller allocation.",
   "largest_tested_batch": 32,
   "tested_layer_kinds": {
     "linear_attention": {
       "layer_index": 0,
       "largest_prefill": 262144,
       "largest_decode_context": 262144,
-      "state": "fixed convolution history and FP32 recurrent matrix"
+      "state": "FP32 recurrent matrix; persistent state in L1 within 300 KiB/bank, otherwise DRAM; intermediates within 224 KiB/bank, otherwise DRAM"
     },
     "full_attention": {
       "layer_index": 3,
       "largest_prefill": 262144,
       "largest_decode_context": 262144,
-      "cache": "BF16 paged KV, 64-token pages, 4 KV heads, dimension 256"
+      "cache": "BFP8 paged KV, 64-token pages, 4 KV heads, dimension 256"
     }
   },
   "optional_yarn": {
@@ -54,5 +57,66 @@
     "decoder_million_context_validated": false,
     "status": "opt-in setup supported; million-token full-layer capacity/accuracy not claimed by this native-context stage"
   },
-  "fusion_capacity_validation": "Packed BF16 projections, prepared depthwise convolution weights, and temporary L1/sharded rotary layouts retain native capacity. Final fused tests execute both layer kinds through 262144-token prefill and traced decode at position 262143; batch 32 is validated at shorter contexts. KV dtype and recurrent-state dtype are unchanged."
+  "previous_stage_capacity_validation": "Packed BF16 projections, prepared depthwise convolution weights, and temporary L1/sharded rotary layouts retain native capacity. Final fused tests execute both layer kinds through 262144-token prefill and traced decode at position 262143; batch 32 is validated at shorter contexts. KV dtype and recurrent-state dtype are unchanged.",
+  "optimized_capacity_validation": {
+    "capability_reduction": false,
+    "logical_lengths": "No public chunk/tile/page divisibility restriction; internally padded/chunked. 262143 and 262144 prefill tested for both layer kinds.",
+    "kv_dtype": "bfloat8_b",
+    "kv_page_size_tokens": 64,
+    "kv_heads": 4,
+    "kv_head_dim": 256,
+    "kv_bfp_tile_bytes": 1088,
+    "native_batch1_kv_bytes": 570425344,
+    "previous_bf16_native_batch1_kv_bytes": 1073741824,
+    "kv_formula": "2 * (262144 / 32) * 4 * (256 / 32) * 1088 bytes; includes BFP exponent headers, excludes page-table and allocator bookkeeping.",
+    "page_table": "int32, 64-token blocks, logical page count padded to a multiple of 32 entries; native batch1 has 4096 entries (16384 bytes).",
+    "projection_weights": "BFP4/LoFi, original checkpoint packing; separate DRAM-interleaved prefill and DRAM-width-sharded decode copies. Unused packed MLP weight removed.",
+    "dominant_projection_weight_bytes": {
+      "linear_attention": {
+        "prefill": 122830848,
+        "decode": 123273216,
+        "combined": 246104064
+      },
+      "full_attention": {
+        "prefill": 117964800,
+        "decode": 119144448,
+        "combined": 237109248
+      },
+      "accounting": "576 bytes per 32x32 BFP4 tile; decode widths padded for 8 DRAM banks and selected readers. Excludes small norms, convolution, RoPE, program/trace buffers and construction-time temporary weights."
+    },
+    "linear_recurrent_state_bytes_per_user": 2097152,
+    "linear_conv_history_logical_bytes_per_user": 49152,
+    "persistent_l1_budget_bytes_per_bank": 307200,
+    "intermediate_l1_budget_bytes_per_bank": 229376,
+    "current_chip_l1_batch_boundaries": {
+      "persistent_state_max_batch": 16,
+      "intermediates_max_batch": 12
+    },
+    "trace_and_activation_contract": "Decode residuals/norms width-sharded; grouped rotary/SDPA grids adapted for all supported batches. Leading unaligned prefill decode outputs are collected in DRAM immediately, preserving borrowed inputs and bounded L1 use.",
+    "native_context_checks": "Both kinds prefill 262143/262144 and traced decode position262143; 2048-vs1024 chunk-size tail PCC0.999958 linear /0.999950 full; different large/small matmul K blocks reassociate accumulation. Real-weight HF prefill/decode at8001; full native cache decode oracle PCC0.99821247. Native full-prefix HF rollout is not claimed.",
+    "cache_precision_evidence": "optimized_decoder/AUTOFIX_cache4_batch.md",
+    "large_prefill_program": {
+      "physical_sequence_threshold": 2048,
+      "grid": [
+        11,
+        10
+      ],
+      "in0_block_w": 16,
+      "smaller_sequence_grid": [
+        8,
+        8
+      ],
+      "smaller_sequence_in0_block_w": 8,
+      "logical_length_restriction": null,
+      "native_evidence": "optimized_decoder/logs/final_release_v4_long.provenance.json",
+      "output_subblock_bounds": [
+        1,
+        7
+      ],
+      "smaller_sequence_output_subblock_bounds": [
+        2,
+        4
+      ]
+    }
+  }
 }
