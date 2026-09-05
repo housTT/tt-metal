@@ -1,0 +1,77 @@
+{
+  "model_id": "google/gemma-4-26B-A4B-it",
+  "stage": "optimized-decoder",
+  "hardware": "Blackhole P300C, 1x1 mesh, device 0",
+  "optimized_decoder_sha256": "feebc8cb2f20ad9ba81c7d0f50f8323694d6d91ebb31cb9072e18b0f6b0a9c45",
+  "optimized_test_sha256": "01ed0de36451891c6c41968baeeae34f1cb77acf4e3c6db0c322506fb83bd349",
+  "selected_policy": {
+    "kv_cache_dtype": "BF16",
+    "routing_metadata": "row-major scatter output consumed directly by sparse matmul",
+    "prefill_attention": "automatic TTNN matmul",
+    "decode_residual_grid": 22,
+    "b1_sliding_attention": "G22 QKV plus reader-1 DRAM-sharded O",
+    "b1_full_attention": "G22 QKV and O",
+    "b1_dense": "reader-1 DRAM-sharded packed BFP8 LoFi gate/up plus down",
+    "b1_expert_gate_up": "packed BFP4 LoFi block22",
+    "b1_expert_down": "BFP8 LoFi block11",
+    "b32_attention_grid": 8,
+    "b32_expert_gate_up": "packed BFP8 LoFi block11"
+  },
+  "gates": {
+    "complete_suite": {
+      "artifact": "final_results_reviewfix2_v6.xml",
+      "candidate_id": "final_reviewfix2_default_suite_v6",
+      "result": "44 passed, 15 skipped in 121.22s"
+    },
+    "performance": {
+      "artifact": "perf_results_reviewfix2_v6.xml",
+      "candidate": "candidate_runs/final_reviewfix2_perf_v6.json",
+      "result": "4 passed in 48.50s"
+    },
+    "context": {
+      "artifact": "context_results_reviewfix2_v5.xml",
+      "candidate": "candidate_runs/final_reviewfix2_context_capacity_v5.json",
+      "result": "4 passed in 183.75s",
+      "source_identity": "exact final decoder hash; pre-format test hash is AST-identical to the final test"
+    },
+    "watcher": {
+      "artifact": "watcher_results_reviewfix2_v5.xml",
+      "candidate": "candidate_runs/final_reviewfix2_watcher_v5.json",
+      "health": "post_watcher_health_summary_reviewfix2_v5.json",
+      "result": "11 passed in 97.58s",
+      "source_identity": "exact final decoder hash; pre-format test hash is AST-identical to the final test; profiler disabled"
+    },
+    "serving_prefill": {
+      "artifact": "serving_prefill_results_reviewfix2_v5.xml",
+      "candidate": "candidate_runs/final_reviewfix2_serving_prefill_v5.json",
+      "result": "2 passed in 26.52s"
+    },
+    "persistent_allocation": {
+      "artifact": "allocation_results_reviewfix2_v5.xml",
+      "accounting": "persistent_allocation_accounting.json",
+      "result": "5 passed in 11.68s"
+    },
+    "bfp8_cache_rejection": {
+      "artifact": "candidate_runs/reviewfix_h1_bfp8_control_v2.xml",
+      "candidate": "candidate_runs/reviewfix_h1_bfp8_control_v2.json",
+      "result": "failed normally below PCC 0.995; policy rejected"
+    },
+    "r22_reader_matrix": {
+      "artifacts": "candidate_runs/reviewfix2_r22_*.{json,xml}",
+      "invalidated_artifacts": "candidate_runs/reviewfix_r22_* (loader discarded requested flags, so these are unused-path evidence only)",
+      "result": "true dispatch selects sliding O and packed dense/down reader-1; QKV reader-1 fails direct fused PCC; reader-2/3 candidates lose"
+    }
+  },
+  "profiles": {
+    "sliding_raw": "generated/profiler/gemma4_optimized_reviewfix2_sliding/reports/2026_09_05_14_24_18/ops_perf_results_2026_09_05_14_24_18.csv",
+    "full_raw": "generated/profiler/gemma4_optimized_reviewfix2_full/reports/2026_09_05_14_24_38/ops_perf_results_2026_09_05_14_24_38.csv",
+    "sliding_report": "tt_perf_report/final_reviewfix2_v5_sliding (human-readable tables, CSV, summaries, and plots)",
+    "full_report": "tt_perf_report/final_reviewfix2_v5_full (human-readable tables, CSV, summaries, and plots)",
+    "summary": "profiler_summary.json"
+  },
+  "review": {
+    "initial": "STAGE_REVIEW.md",
+    "remediation": "AUTOFIX.md",
+    "final": "STAGE_REVIEW_FINAL.md"
+  }
+}

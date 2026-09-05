@@ -1,0 +1,106 @@
+{
+  "hardware": "one Blackhole P300C (1x1 mesh, device 0)",
+  "sequence_or_current_position": 1024,
+  "optimized_decoder_sha256": "feebc8cb2f20ad9ba81c7d0f50f8323694d6d91ebb31cb9072e18b0f6b0a9c45",
+  "optimized_test_sha256": "01ed0de36451891c6c41968baeeae34f1cb77acf4e3c6db0c322506fb83bd349",
+  "selected_cache_dtype": "BF16",
+  "host_timings": {
+    "artifact": "candidate_runs/final_reviewfix2_perf_v6.json",
+    "sliding_attention": {
+      "fused_prefill_host_ms": 278.3804760547355,
+      "prefill_host_ms": 96.36591200251132,
+      "fused_decode_trace_host_ms": 1.3093363086227328,
+      "decode_trace_host_ms": 0.8119149388512596,
+      "batch32_decode_trace_host_ms": 12.83778760698624
+    },
+    "full_attention": {
+      "fused_prefill_host_ms": 279.6119190752506,
+      "prefill_host_ms": 107.63681400567293,
+      "fused_decode_trace_host_ms": 1.4870523649733514,
+      "decode_trace_host_ms": 0.859545276267454,
+      "batch32_decode_trace_host_ms": 12.541034484631382
+    }
+  },
+  "device_profiles": {
+    "sliding_attention": {
+      "raw_capture": "generated/profiler/gemma4_optimized_reviewfix2_sliding/reports/2026_09_05_14_24_18/ops_perf_results_2026_09_05_14_24_18.csv",
+      "report": "tt_perf_report/final_reviewfix2_v5_sliding",
+      "prefill_ops": 615,
+      "prefill_device_op_sum_ms": 95.822331,
+      "prefill_device_gap_sum_ms": 0.747437,
+      "prefill_device_span_ms": 96.569768,
+      "decode_ops": 70,
+      "decode_device_op_sum_ms": 0.772742,
+      "decode_device_gap_sum_ms": 0.068347,
+      "decode_device_span_ms": 0.841089,
+      "same_profile_decode_host_ms": 0.8676753845065832,
+      "host_minus_device_span_ms": 0.026586384506583238,
+      "conservative_decode_bytes": 123469824,
+      "decode_floor_ms_at_512_gbps": 0.241152,
+      "effective_gbps_from_device_span": 146.79757314624254,
+      "modeled_decode_dram_gbps": 160,
+      "modeled_decode_dram_percent": 31.2
+    },
+    "full_attention": {
+      "raw_capture": "generated/profiler/gemma4_optimized_reviewfix2_full/reports/2026_09_05_14_24_38/ops_perf_results_2026_09_05_14_24_38.csv",
+      "report": "tt_perf_report/final_reviewfix2_v5_full",
+      "prefill_ops": 615,
+      "prefill_device_op_sum_ms": 107.114693,
+      "prefill_device_gap_sum_ms": 0.594407,
+      "prefill_device_span_ms": 107.7091,
+      "decode_ops": 73,
+      "decode_device_op_sum_ms": 0.827871,
+      "decode_device_gap_sum_ms": 0.065011,
+      "decode_device_span_ms": 0.892882,
+      "same_profile_decode_host_ms": 0.918275979347527,
+      "host_minus_device_span_ms": 0.025393979347527074,
+      "conservative_decode_bytes": 106348544,
+      "decode_floor_ms_at_512_gbps": 0.207712,
+      "effective_gbps_from_device_span": 119.10705333963503,
+      "modeled_decode_dram_gbps": 128,
+      "modeled_decode_dram_percent": 25.1
+    }
+  },
+  "selected_topology_delta": {
+    "previous_decode_ops": {
+      "sliding_attention": 72,
+      "full_attention": 75
+    },
+    "removed_per_replay": {
+      "UntilizeWithUnpaddingDeviceOperation": 2,
+      "UnaryDeviceOperation": 1
+    },
+    "packed_dense_delta_per_replay": {
+      "MatmulDeviceOperation": -1,
+      "SliceDeviceOperation": 2
+    },
+    "final_decode_ops": {
+      "sliding_attention": 70,
+      "full_attention": 73
+    },
+    "remaining_routing_contracts": "two top-k value/index untilizes and one score tilize"
+  },
+  "rejected_bfp8_cache": {
+    "sliding_decode_host_ms": 0.84133,
+    "full_decode_host_ms": 0.866062,
+    "sliding_min_cache_consuming_pcc": 0.9946248866026396,
+    "full_min_cache_consuming_pcc": 0.9886732024623817,
+    "threshold": 0.995,
+    "decision": "rejected; not an accepted or recommended cache policy"
+  },
+  "advice_closure": {
+    "decode_dram_sharding": "The original flag-discarded runs are invalid unused-path evidence. True reader-1/2/3 dispatch selects sliding O and packed dense/down reader-1; QKV reader-1 is faster but fails direct fused decode PCC 0.987622; full O reader-1 block8 and readers 2/3 lose.",
+    "expert_geometry": "packed block44 passed but did not stably beat block22; fair separate accurate-GeGLU was about 5% slower",
+    "prefill_grid_and_blocks": "full O G8x4 passed but lost; full QKV failed downstream PCC; sliding G8x8 failed direct fused-equivalence PCC",
+    "prefill_input_l1": "full O input-L1 passed correctness but measured 108.162283 ms versus selected 107.524409 ms and adds a conversion",
+    "routing_movement": "row-major scatter metadata selected; two untilizes and one unary removed",
+    "router_input_l1": "previously measured and rejected on all B1/B32 layer-kind latencies"
+  },
+  "notes": [
+    "Decode signposts delimit actual cached TTNN trace replay; compile, capture, eager execution, and setup are outside the window.",
+    "Independent 1000-replay host latency ranks candidates; device profiles explain operation topology.",
+    "Same-profile five-replay host latency is reported only to reconcile the profiled device span; the independent 1000-replay artifact remains the ranking measurement.",
+    "Prefill sparse expert bytes are not modeled by tt-perf-report, so its displayed prefill bandwidth is not used as a roofline conclusion.",
+    "The Tracy captures and v5 context/watcher gates use the exact final runtime and an AST-identical pre-format test hash; the v6 complete and performance gates use the exact final runtime and test hashes."
+  ]
+}

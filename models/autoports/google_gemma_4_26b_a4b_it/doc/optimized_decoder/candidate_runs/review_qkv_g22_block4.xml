@@ -1,0 +1,949 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="7" skipped="0" tests="7" time="36.594" timestamp="2026-09-05T10:12:20.466198+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_real_weights_prefill_decode[blackhole-sliding_attention_shared_cache-device_params0-mesh_device0]" time="6.328"><properties><property name="start_timestamp" value="2026-09-05T10:12:21" /><property name="end_timestamp" value="2026-09-05T10:12:27" /></properties><failure message="TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:&#10;    1. __getitem__(self, arg: int, /) -&gt; int&#10;&#10;Invoked with types: ttnn._ttnn.types.Shape, slice">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x772a3979bb90&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 0
+shared_physical = True, decode_pcc = 0.995
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,decode_pcc",
+        [
+            pytest.param(0, True, 0.995, id="sliding_attention_shared_cache"),
+            pytest.param(5, False, 0.995, id="full_attention_natural_cache"),
+            pytest.param(5, True, 0.995, id="full_attention_shared_cache_view"),
+        ],
+    )
+    def test_optimized_real_weights_prefill_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        decode_pcc,
+    ):
+        if os.getenv("GEMMA4_OPT_KV_CACHE_DTYPE") == "bfp8":
+            original_as_tt = functional_tests._as_tt
+
+            def as_tt_with_bfp8_cache(mesh, tensor, *, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT):
+                cache_geometry = tensor.ndim == 4 and tuple(tensor.shape[1:]) in {
+                    (8, 64, 256),
+                    (2, 128, 512),
+                }
+                if cache_geometry and dtype == ttnn.bfloat16:
+                    dtype = ttnn.bfloat8_b
+                return original_as_tt(mesh, tensor, dtype=dtype, layout=layout)
+
+            monkeypatch.setattr(functional_tests, "_as_tt", as_tt_with_bfp8_cache)
+        pcc_results = []
+        original_comp_pcc = functional_tests.comp_pcc
+
+        def comp_pcc_recording(reference, actual, threshold):
+            ok, pcc = original_comp_pcc(reference, actual, threshold)
+            pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+            # Let the functional oracle finish writing its raw measurement so
+            # rejected optimization candidates retain immutable provenance.
+            return True, pcc
+
+        monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_recording)
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=(
+                "decode_forward",
+                "_attention_prefill",
+                "_attention_decode",
+                "_dense_mlp",
+                "_moe_prefill",
+                "_moe_prefill_chunk",
+                "_moe_decode_single_user",
+            ),
+        )
+&gt;       functional_tests.test_functional_decoder_real_weights_prefill_decode(
+            mesh_device,
+            device_params,
+            layer_idx,
+            shared_physical,
+            decode_pcc,
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:365:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py:383: in test_functional_decoder_real_weights_prefill_decode
+    tt_decode = decoder.decode_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:139: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1765: in decode_forward
+    attn_out = self._attention_decode(
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:136: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder.OptimizedDecoder object at 0x772a397df560&gt;
+x = ttnn.Tensor([[[[-1.6406e+00,  3.3125e+00,  ...,  7.1250e+00, -3.3125e+00]]]], shape=Shape([1, 1, 1, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+
+    def _attention_decode(
+        self,
+        x: ttnn.Tensor,
+        *,
+        position_cos: ttnn.Tensor,
+        position_sin: ttnn.Tensor,
+        current_pos: ttnn.Tensor,
+        page_table: ttnn.Tensor,
+        kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
+        cache_position_modulo: int | None,
+    ) -&gt; ttnn.Tensor:
+        self.optimized_path_counters["decode_attention"] += 1
+        kind = self.layer_kind
+        batch = x.shape[-2]
+        sharded_residual = self.residual_shard_cores != 0
+        if sharded_residual:
+            qkv_geometry = self.attention_runtime_geometry["qkv"]
+            x = self._prepare_padded_attention_input(
+                x,
+                padded_width=qkv_geometry["padded_k"],
+                memory_config=self.attention_sharded_memory_configs["qkv_input"],
+                boundary_counter="attention_qkv_input",
+                padding_counter="attention_qkv_input_padding",
+            )
+            xqkv = ttnn.linear(
+                x,
+                self.decode_attention_weights["qkv"],
+                dtype=self.activation_dtype,
+                program_config=self.attention_sharded_program_configs["qkv"],
+                memory_config=self.attention_sharded_memory_configs["qkv_output"],
+                # Compare the coherent residual candidate under the selected
+                # attention policy; using HiFi4 here would confound layout
+                # movement with a materially slower accumulation mode.
+                compute_kernel_config=self.decode_attention_compute_config,
+            )
+            # The sharded decode splitter reads a next-core coordinate after
+            # its final V tile and trips watcher's runtime-argument bounds
+            # check in this checkout. Select the legal interleaved reader,
+            # retaining the sharded matmul and height-sharded head outputs.
+            sharded_xqkv = xqkv
+            xqkv = ttnn.sharded_to_interleaved(sharded_xqkv, ttnn.L1_MEMORY_CONFIG)
+            sharded_xqkv.deallocate(True)
+            if qkv_geometry["output_padding"]:
+                padded_xqkv = xqkv
+                xqkv = ttnn.slice(
+                    padded_xqkv,
+                    starts=[0] * len(padded_xqkv.shape),
+&gt;                   ends=[*padded_xqkv.shape[:-1], qkv_geometry["logical_n"]],
+                           ^^^^^^^^^^^^^^^^^^^^^^
+                    steps=[1] * len(padded_xqkv.shape),
+                    memory_config=ttnn.L1_MEMORY_CONFIG,
+                )
+E               TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+E                   1. __getitem__(self, arg: int, /) -&gt; int
+E
+E               Invoked with types: ttnn._ttnn.types.Shape, slice
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1991: TypeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_traced_decode_batch_contract[blackhole-batch1-sliding_attention-device_params0-mesh_device0]" time="4.579"><properties><property name="start_timestamp" value="2026-09-05T10:12:27" /><property name="end_timestamp" value="2026-09-05T10:12:32" /></properties><failure message="TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:&#10;    1. __getitem__(self, arg: int, /) -&gt; int&#10;&#10;Invoked with types: ttnn._ttnn.types.Shape, slice">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x772a391caea0&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 0, batch = 1
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    @pytest.mark.parametrize("batch", [1, 32], ids=["batch1", "batch32"])
+    def test_optimized_traced_decode_batch_contract(monkeypatch, mesh_device, device_params, layer_idx, batch):
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=("decode_forward", "_attention_decode", "_dense_mlp", "_moe_decode_single_user"),
+        )
+        per_user_pcc = []
+        best_replay_user = []
+        pcc_results = []
+        if batch == 32:
+            original_comp_pcc = functional_tests.comp_pcc
+
+            def comp_pcc_with_per_user_gate(reference, actual, threshold):
+                ok, pcc = original_comp_pcc(reference, actual, threshold)
+                pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+                if threshold == 0.995 and reference.shape[0] == batch:
+                    per_user_pcc.extend(
+                        float(original_comp_pcc(reference[index : index + 1], actual[index : index + 1], threshold)[1])
+                        for index in range(batch)
+                    )
+                    reference_rows = torch.nn.functional.normalize(reference.float().reshape(batch, -1), dim=-1)
+                    actual_rows = torch.nn.functional.normalize(actual.float().reshape(batch, -1), dim=-1)
+                    best_replay_user.extend((reference_rows @ actual_rows.T).argmax(dim=1).tolist())
+                return True, pcc
+
+            monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_with_per_user_gate)
+&gt;       functional_tests.test_traced_decode_batch_contract(mesh_device, device_params, layer_idx, batch)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:542:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py:741: in test_traced_decode_batch_contract
+    eager_output = decoder.decode_forward(**decode_args)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:139: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1765: in decode_forward
+    attn_out = self._attention_decode(
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:136: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder.OptimizedDecoder object at 0x7708d81094c0&gt;
+x = ttnn.Tensor([[[[ 0.0000e+00, -5.7812e-01,  ...,  3.8438e+00, -6.3750e+00]]]], shape=Shape([1, 1, 1, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+
+    def _attention_decode(
+        self,
+        x: ttnn.Tensor,
+        *,
+        position_cos: ttnn.Tensor,
+        position_sin: ttnn.Tensor,
+        current_pos: ttnn.Tensor,
+        page_table: ttnn.Tensor,
+        kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
+        cache_position_modulo: int | None,
+    ) -&gt; ttnn.Tensor:
+        self.optimized_path_counters["decode_attention"] += 1
+        kind = self.layer_kind
+        batch = x.shape[-2]
+        sharded_residual = self.residual_shard_cores != 0
+        if sharded_residual:
+            qkv_geometry = self.attention_runtime_geometry["qkv"]
+            x = self._prepare_padded_attention_input(
+                x,
+                padded_width=qkv_geometry["padded_k"],
+                memory_config=self.attention_sharded_memory_configs["qkv_input"],
+                boundary_counter="attention_qkv_input",
+                padding_counter="attention_qkv_input_padding",
+            )
+            xqkv = ttnn.linear(
+                x,
+                self.decode_attention_weights["qkv"],
+                dtype=self.activation_dtype,
+                program_config=self.attention_sharded_program_configs["qkv"],
+                memory_config=self.attention_sharded_memory_configs["qkv_output"],
+                # Compare the coherent residual candidate under the selected
+                # attention policy; using HiFi4 here would confound layout
+                # movement with a materially slower accumulation mode.
+                compute_kernel_config=self.decode_attention_compute_config,
+            )
+            # The sharded decode splitter reads a next-core coordinate after
+            # its final V tile and trips watcher's runtime-argument bounds
+            # check in this checkout. Select the legal interleaved reader,
+            # retaining the sharded matmul and height-sharded head outputs.
+            sharded_xqkv = xqkv
+            xqkv = ttnn.sharded_to_interleaved(sharded_xqkv, ttnn.L1_MEMORY_CONFIG)
+            sharded_xqkv.deallocate(True)
+            if qkv_geometry["output_padding"]:
+                padded_xqkv = xqkv
+                xqkv = ttnn.slice(
+                    padded_xqkv,
+                    starts=[0] * len(padded_xqkv.shape),
+&gt;                   ends=[*padded_xqkv.shape[:-1], qkv_geometry["logical_n"]],
+                           ^^^^^^^^^^^^^^^^^^^^^^
+                    steps=[1] * len(padded_xqkv.shape),
+                    memory_config=ttnn.L1_MEMORY_CONFIG,
+                )
+E               TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+E                   1. __getitem__(self, arg: int, /) -&gt; int
+E
+E               Invoked with types: ttnn._ttnn.types.Shape, slice
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1991: TypeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_decoder_perf_profile[blackhole-batch1-sliding_attention_1024-device_params0-mesh_device0]" time="4.647"><properties><property name="start_timestamp" value="2026-09-05T10:12:32" /><property name="end_timestamp" value="2026-09-05T10:12:37" /></properties><failure message="TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:&#10;    1. __getitem__(self, arg: int, /) -&gt; int&#10;&#10;Invoked with types: ttnn._ttnn.types.Shape, slice">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x772a3aced8e0&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 0
+shared_physical = True, batch = 1
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical",
+        [
+            pytest.param(0, True, id="sliding_attention_1024"),
+            pytest.param(5, False, id="full_attention_1024"),
+        ],
+    )
+    @pytest.mark.parametrize("batch", [1, 32], ids=["batch1", "batch32"])
+    def test_optimized_decoder_perf_profile(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        batch,
+    ):
+        baseline = os.getenv("GEMMA4_OPTIMIZED_PERF_BASELINE") == "1"
+        calls = {}
+        if baseline:
+            monkeypatch.setattr(functional_tests, "FunctionalDecoder", FusedDecoder)
+            monkeypatch.setattr(functional_tests, "ARTIFACT_DIR", ARTIFACT_DIR)
+        else:
+            calls = _install_optimized_oracle(
+                monkeypatch,
+                functional_tests,
+                required_methods=(
+                    "decode_forward",
+                    "_attention_prefill",
+                    "_attention_decode",
+                    "_dense_mlp",
+                    "_moe_prefill",
+                    "_moe_prefill_chunk",
+                    "_moe_decode_single_user",
+                ),
+            )
+            if os.getenv("GEMMA4_OPT_DECODE_DEVICE_PROFILE") == "1":
+                from tracy import signpost
+
+                original_execute_trace = ttnn.execute_trace
+                replay_calls = 0
+
+                def profiled_execute_trace(*args, **kwargs):
+                    nonlocal replay_calls
+                    replay_calls += 1
+                    # The oracle compiles eagerly, captures with cached programs,
+                    # then executes once before all timing warmups. Delimit that
+                    # first real replay: it has the final traced topology and no
+                    # compile/dispatch work inside the measured device window.
+                    if replay_calls != 1:
+                        return original_execute_trace(*args, **kwargs)
+                    signpost("OPTIMIZED_DECODE_TRACE_REPLAY")
+                    output = original_execute_trace(*args, **kwargs)
+                    ttnn.synchronize_device(mesh_device)
+                    signpost("OPTIMIZED_DECODE_TRACE_REPLAY_END")
+                    return output
+
+                monkeypatch.setattr(ttnn, "execute_trace", profiled_execute_trace)
+        layer_type = functional_tests._load_text_config().layer_types[layer_idx]
+        seq_len = int(os.getenv("GEMMA4_FUNCTIONAL_DECODER_SEQ_LEN", "1024"))
+        artifact = ARTIFACT_DIR / f"layer{layer_idx}_{layer_type}_seq{seq_len}_batch{batch}_host_timings.json"
+        previous = json.loads(artifact.read_text()) if artifact.exists() else {}
+&gt;       functional_tests.test_functional_decoder_perf_profile(
+            mesh_device,
+            device_params,
+            layer_idx,
+            shared_physical,
+            batch,
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:1392:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py:1672: in test_functional_decoder_perf_profile
+    decoder.decode_forward(**decode_args)
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:139: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1765: in decode_forward
+    attn_out = self._attention_decode(
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:136: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder.OptimizedDecoder object at 0x7708d8108320&gt;
+x = ttnn.Tensor([[[[ 4.2812e+00,  3.5352e-01,  ...,  2.1562e+00,  8.8281e-01]]]], shape=Shape([1, 1, 1, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+
+    def _attention_decode(
+        self,
+        x: ttnn.Tensor,
+        *,
+        position_cos: ttnn.Tensor,
+        position_sin: ttnn.Tensor,
+        current_pos: ttnn.Tensor,
+        page_table: ttnn.Tensor,
+        kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
+        cache_position_modulo: int | None,
+    ) -&gt; ttnn.Tensor:
+        self.optimized_path_counters["decode_attention"] += 1
+        kind = self.layer_kind
+        batch = x.shape[-2]
+        sharded_residual = self.residual_shard_cores != 0
+        if sharded_residual:
+            qkv_geometry = self.attention_runtime_geometry["qkv"]
+            x = self._prepare_padded_attention_input(
+                x,
+                padded_width=qkv_geometry["padded_k"],
+                memory_config=self.attention_sharded_memory_configs["qkv_input"],
+                boundary_counter="attention_qkv_input",
+                padding_counter="attention_qkv_input_padding",
+            )
+            xqkv = ttnn.linear(
+                x,
+                self.decode_attention_weights["qkv"],
+                dtype=self.activation_dtype,
+                program_config=self.attention_sharded_program_configs["qkv"],
+                memory_config=self.attention_sharded_memory_configs["qkv_output"],
+                # Compare the coherent residual candidate under the selected
+                # attention policy; using HiFi4 here would confound layout
+                # movement with a materially slower accumulation mode.
+                compute_kernel_config=self.decode_attention_compute_config,
+            )
+            # The sharded decode splitter reads a next-core coordinate after
+            # its final V tile and trips watcher's runtime-argument bounds
+            # check in this checkout. Select the legal interleaved reader,
+            # retaining the sharded matmul and height-sharded head outputs.
+            sharded_xqkv = xqkv
+            xqkv = ttnn.sharded_to_interleaved(sharded_xqkv, ttnn.L1_MEMORY_CONFIG)
+            sharded_xqkv.deallocate(True)
+            if qkv_geometry["output_padding"]:
+                padded_xqkv = xqkv
+                xqkv = ttnn.slice(
+                    padded_xqkv,
+                    starts=[0] * len(padded_xqkv.shape),
+&gt;                   ends=[*padded_xqkv.shape[:-1], qkv_geometry["logical_n"]],
+                           ^^^^^^^^^^^^^^^^^^^^^^
+                    steps=[1] * len(padded_xqkv.shape),
+                    memory_config=ttnn.L1_MEMORY_CONFIG,
+                )
+E               TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+E                   1. __getitem__(self, arg: int, /) -&gt; int
+E
+E               Invoked with types: ttnn._ttnn.types.Shape, slice
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1991: TypeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_real_weights_prefill_decode[blackhole-full_attention_natural_cache-device_params0-mesh_device0]" time="5.575"><properties><property name="start_timestamp" value="2026-09-05T10:12:37" /><property name="end_timestamp" value="2026-09-05T10:12:42" /></properties><failure message="TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:&#10;    1. __getitem__(self, arg: int, /) -&gt; int&#10;&#10;Invoked with types: ttnn._ttnn.types.Shape, slice">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x772a3903be90&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 5
+shared_physical = False, decode_pcc = 0.995
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,decode_pcc",
+        [
+            pytest.param(0, True, 0.995, id="sliding_attention_shared_cache"),
+            pytest.param(5, False, 0.995, id="full_attention_natural_cache"),
+            pytest.param(5, True, 0.995, id="full_attention_shared_cache_view"),
+        ],
+    )
+    def test_optimized_real_weights_prefill_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        decode_pcc,
+    ):
+        if os.getenv("GEMMA4_OPT_KV_CACHE_DTYPE") == "bfp8":
+            original_as_tt = functional_tests._as_tt
+
+            def as_tt_with_bfp8_cache(mesh, tensor, *, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT):
+                cache_geometry = tensor.ndim == 4 and tuple(tensor.shape[1:]) in {
+                    (8, 64, 256),
+                    (2, 128, 512),
+                }
+                if cache_geometry and dtype == ttnn.bfloat16:
+                    dtype = ttnn.bfloat8_b
+                return original_as_tt(mesh, tensor, dtype=dtype, layout=layout)
+
+            monkeypatch.setattr(functional_tests, "_as_tt", as_tt_with_bfp8_cache)
+        pcc_results = []
+        original_comp_pcc = functional_tests.comp_pcc
+
+        def comp_pcc_recording(reference, actual, threshold):
+            ok, pcc = original_comp_pcc(reference, actual, threshold)
+            pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+            # Let the functional oracle finish writing its raw measurement so
+            # rejected optimization candidates retain immutable provenance.
+            return True, pcc
+
+        monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_recording)
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=(
+                "decode_forward",
+                "_attention_prefill",
+                "_attention_decode",
+                "_dense_mlp",
+                "_moe_prefill",
+                "_moe_prefill_chunk",
+                "_moe_decode_single_user",
+            ),
+        )
+&gt;       functional_tests.test_functional_decoder_real_weights_prefill_decode(
+            mesh_device,
+            device_params,
+            layer_idx,
+            shared_physical,
+            decode_pcc,
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:365:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py:383: in test_functional_decoder_real_weights_prefill_decode
+    tt_decode = decoder.decode_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:139: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1765: in decode_forward
+    attn_out = self._attention_decode(
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:136: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder.OptimizedDecoder object at 0x7708d8109e80&gt;
+x = ttnn.Tensor([[[[-1.0781e+00,  6.2500e+00,  ...,  1.3312e+01,  5.6562e+00]]]], shape=Shape([1, 1, 1, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+
+    def _attention_decode(
+        self,
+        x: ttnn.Tensor,
+        *,
+        position_cos: ttnn.Tensor,
+        position_sin: ttnn.Tensor,
+        current_pos: ttnn.Tensor,
+        page_table: ttnn.Tensor,
+        kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
+        cache_position_modulo: int | None,
+    ) -&gt; ttnn.Tensor:
+        self.optimized_path_counters["decode_attention"] += 1
+        kind = self.layer_kind
+        batch = x.shape[-2]
+        sharded_residual = self.residual_shard_cores != 0
+        if sharded_residual:
+            qkv_geometry = self.attention_runtime_geometry["qkv"]
+            x = self._prepare_padded_attention_input(
+                x,
+                padded_width=qkv_geometry["padded_k"],
+                memory_config=self.attention_sharded_memory_configs["qkv_input"],
+                boundary_counter="attention_qkv_input",
+                padding_counter="attention_qkv_input_padding",
+            )
+            xqkv = ttnn.linear(
+                x,
+                self.decode_attention_weights["qkv"],
+                dtype=self.activation_dtype,
+                program_config=self.attention_sharded_program_configs["qkv"],
+                memory_config=self.attention_sharded_memory_configs["qkv_output"],
+                # Compare the coherent residual candidate under the selected
+                # attention policy; using HiFi4 here would confound layout
+                # movement with a materially slower accumulation mode.
+                compute_kernel_config=self.decode_attention_compute_config,
+            )
+            # The sharded decode splitter reads a next-core coordinate after
+            # its final V tile and trips watcher's runtime-argument bounds
+            # check in this checkout. Select the legal interleaved reader,
+            # retaining the sharded matmul and height-sharded head outputs.
+            sharded_xqkv = xqkv
+            xqkv = ttnn.sharded_to_interleaved(sharded_xqkv, ttnn.L1_MEMORY_CONFIG)
+            sharded_xqkv.deallocate(True)
+            if qkv_geometry["output_padding"]:
+                padded_xqkv = xqkv
+                xqkv = ttnn.slice(
+                    padded_xqkv,
+                    starts=[0] * len(padded_xqkv.shape),
+&gt;                   ends=[*padded_xqkv.shape[:-1], qkv_geometry["logical_n"]],
+                           ^^^^^^^^^^^^^^^^^^^^^^
+                    steps=[1] * len(padded_xqkv.shape),
+                    memory_config=ttnn.L1_MEMORY_CONFIG,
+                )
+E               TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+E                   1. __getitem__(self, arg: int, /) -&gt; int
+E
+E               Invoked with types: ttnn._ttnn.types.Shape, slice
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1991: TypeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_traced_decode_batch_contract[blackhole-batch1-full_attention-device_params0-mesh_device0]" time="4.716"><properties><property name="start_timestamp" value="2026-09-05T10:12:42" /><property name="end_timestamp" value="2026-09-05T10:12:47" /></properties><failure message="TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:&#10;    1. __getitem__(self, arg: int, /) -&gt; int&#10;&#10;Invoked with types: ttnn._ttnn.types.Shape, slice">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x772a3d3c1ee0&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 5, batch = 1
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    @pytest.mark.parametrize("batch", [1, 32], ids=["batch1", "batch32"])
+    def test_optimized_traced_decode_batch_contract(monkeypatch, mesh_device, device_params, layer_idx, batch):
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=("decode_forward", "_attention_decode", "_dense_mlp", "_moe_decode_single_user"),
+        )
+        per_user_pcc = []
+        best_replay_user = []
+        pcc_results = []
+        if batch == 32:
+            original_comp_pcc = functional_tests.comp_pcc
+
+            def comp_pcc_with_per_user_gate(reference, actual, threshold):
+                ok, pcc = original_comp_pcc(reference, actual, threshold)
+                pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+                if threshold == 0.995 and reference.shape[0] == batch:
+                    per_user_pcc.extend(
+                        float(original_comp_pcc(reference[index : index + 1], actual[index : index + 1], threshold)[1])
+                        for index in range(batch)
+                    )
+                    reference_rows = torch.nn.functional.normalize(reference.float().reshape(batch, -1), dim=-1)
+                    actual_rows = torch.nn.functional.normalize(actual.float().reshape(batch, -1), dim=-1)
+                    best_replay_user.extend((reference_rows @ actual_rows.T).argmax(dim=1).tolist())
+                return True, pcc
+
+            monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_with_per_user_gate)
+&gt;       functional_tests.test_traced_decode_batch_contract(mesh_device, device_params, layer_idx, batch)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:542:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py:741: in test_traced_decode_batch_contract
+    eager_output = decoder.decode_forward(**decode_args)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:139: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1765: in decode_forward
+    attn_out = self._attention_decode(
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:136: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder.OptimizedDecoder object at 0x772a3903bb00&gt;
+x = ttnn.Tensor([[[[-1.0781e+00,  6.2500e+00,  ...,  1.3312e+01,  5.6562e+00]]]], shape=Shape([1, 1, 1, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+
+    def _attention_decode(
+        self,
+        x: ttnn.Tensor,
+        *,
+        position_cos: ttnn.Tensor,
+        position_sin: ttnn.Tensor,
+        current_pos: ttnn.Tensor,
+        page_table: ttnn.Tensor,
+        kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
+        cache_position_modulo: int | None,
+    ) -&gt; ttnn.Tensor:
+        self.optimized_path_counters["decode_attention"] += 1
+        kind = self.layer_kind
+        batch = x.shape[-2]
+        sharded_residual = self.residual_shard_cores != 0
+        if sharded_residual:
+            qkv_geometry = self.attention_runtime_geometry["qkv"]
+            x = self._prepare_padded_attention_input(
+                x,
+                padded_width=qkv_geometry["padded_k"],
+                memory_config=self.attention_sharded_memory_configs["qkv_input"],
+                boundary_counter="attention_qkv_input",
+                padding_counter="attention_qkv_input_padding",
+            )
+            xqkv = ttnn.linear(
+                x,
+                self.decode_attention_weights["qkv"],
+                dtype=self.activation_dtype,
+                program_config=self.attention_sharded_program_configs["qkv"],
+                memory_config=self.attention_sharded_memory_configs["qkv_output"],
+                # Compare the coherent residual candidate under the selected
+                # attention policy; using HiFi4 here would confound layout
+                # movement with a materially slower accumulation mode.
+                compute_kernel_config=self.decode_attention_compute_config,
+            )
+            # The sharded decode splitter reads a next-core coordinate after
+            # its final V tile and trips watcher's runtime-argument bounds
+            # check in this checkout. Select the legal interleaved reader,
+            # retaining the sharded matmul and height-sharded head outputs.
+            sharded_xqkv = xqkv
+            xqkv = ttnn.sharded_to_interleaved(sharded_xqkv, ttnn.L1_MEMORY_CONFIG)
+            sharded_xqkv.deallocate(True)
+            if qkv_geometry["output_padding"]:
+                padded_xqkv = xqkv
+                xqkv = ttnn.slice(
+                    padded_xqkv,
+                    starts=[0] * len(padded_xqkv.shape),
+&gt;                   ends=[*padded_xqkv.shape[:-1], qkv_geometry["logical_n"]],
+                           ^^^^^^^^^^^^^^^^^^^^^^
+                    steps=[1] * len(padded_xqkv.shape),
+                    memory_config=ttnn.L1_MEMORY_CONFIG,
+                )
+E               TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+E                   1. __getitem__(self, arg: int, /) -&gt; int
+E
+E               Invoked with types: ttnn._ttnn.types.Shape, slice
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1991: TypeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_decoder_perf_profile[blackhole-batch1-full_attention_1024-device_params0-mesh_device0]" time="4.658"><properties><property name="start_timestamp" value="2026-09-05T10:12:47" /><property name="end_timestamp" value="2026-09-05T10:12:52" /></properties><failure message="TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:&#10;    1. __getitem__(self, arg: int, /) -&gt; int&#10;&#10;Invoked with types: ttnn._ttnn.types.Shape, slice">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x772a391cb6b0&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 5
+shared_physical = False, batch = 1
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical",
+        [
+            pytest.param(0, True, id="sliding_attention_1024"),
+            pytest.param(5, False, id="full_attention_1024"),
+        ],
+    )
+    @pytest.mark.parametrize("batch", [1, 32], ids=["batch1", "batch32"])
+    def test_optimized_decoder_perf_profile(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        batch,
+    ):
+        baseline = os.getenv("GEMMA4_OPTIMIZED_PERF_BASELINE") == "1"
+        calls = {}
+        if baseline:
+            monkeypatch.setattr(functional_tests, "FunctionalDecoder", FusedDecoder)
+            monkeypatch.setattr(functional_tests, "ARTIFACT_DIR", ARTIFACT_DIR)
+        else:
+            calls = _install_optimized_oracle(
+                monkeypatch,
+                functional_tests,
+                required_methods=(
+                    "decode_forward",
+                    "_attention_prefill",
+                    "_attention_decode",
+                    "_dense_mlp",
+                    "_moe_prefill",
+                    "_moe_prefill_chunk",
+                    "_moe_decode_single_user",
+                ),
+            )
+            if os.getenv("GEMMA4_OPT_DECODE_DEVICE_PROFILE") == "1":
+                from tracy import signpost
+
+                original_execute_trace = ttnn.execute_trace
+                replay_calls = 0
+
+                def profiled_execute_trace(*args, **kwargs):
+                    nonlocal replay_calls
+                    replay_calls += 1
+                    # The oracle compiles eagerly, captures with cached programs,
+                    # then executes once before all timing warmups. Delimit that
+                    # first real replay: it has the final traced topology and no
+                    # compile/dispatch work inside the measured device window.
+                    if replay_calls != 1:
+                        return original_execute_trace(*args, **kwargs)
+                    signpost("OPTIMIZED_DECODE_TRACE_REPLAY")
+                    output = original_execute_trace(*args, **kwargs)
+                    ttnn.synchronize_device(mesh_device)
+                    signpost("OPTIMIZED_DECODE_TRACE_REPLAY_END")
+                    return output
+
+                monkeypatch.setattr(ttnn, "execute_trace", profiled_execute_trace)
+        layer_type = functional_tests._load_text_config().layer_types[layer_idx]
+        seq_len = int(os.getenv("GEMMA4_FUNCTIONAL_DECODER_SEQ_LEN", "1024"))
+        artifact = ARTIFACT_DIR / f"layer{layer_idx}_{layer_type}_seq{seq_len}_batch{batch}_host_timings.json"
+        previous = json.loads(artifact.read_text()) if artifact.exists() else {}
+&gt;       functional_tests.test_functional_decoder_perf_profile(
+            mesh_device,
+            device_params,
+            layer_idx,
+            shared_physical,
+            batch,
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:1392:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py:1672: in test_functional_decoder_perf_profile
+    decoder.decode_forward(**decode_args)
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:139: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1765: in decode_forward
+    attn_out = self._attention_decode(
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:136: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder.OptimizedDecoder object at 0x7708d8108170&gt;
+x = ttnn.Tensor([[[[ 3.3594e+00,  1.2375e+01,  ...,  2.6625e+01,  1.6000e+01]]]], shape=Shape([1, 1, 1, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+
+    def _attention_decode(
+        self,
+        x: ttnn.Tensor,
+        *,
+        position_cos: ttnn.Tensor,
+        position_sin: ttnn.Tensor,
+        current_pos: ttnn.Tensor,
+        page_table: ttnn.Tensor,
+        kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
+        cache_position_modulo: int | None,
+    ) -&gt; ttnn.Tensor:
+        self.optimized_path_counters["decode_attention"] += 1
+        kind = self.layer_kind
+        batch = x.shape[-2]
+        sharded_residual = self.residual_shard_cores != 0
+        if sharded_residual:
+            qkv_geometry = self.attention_runtime_geometry["qkv"]
+            x = self._prepare_padded_attention_input(
+                x,
+                padded_width=qkv_geometry["padded_k"],
+                memory_config=self.attention_sharded_memory_configs["qkv_input"],
+                boundary_counter="attention_qkv_input",
+                padding_counter="attention_qkv_input_padding",
+            )
+            xqkv = ttnn.linear(
+                x,
+                self.decode_attention_weights["qkv"],
+                dtype=self.activation_dtype,
+                program_config=self.attention_sharded_program_configs["qkv"],
+                memory_config=self.attention_sharded_memory_configs["qkv_output"],
+                # Compare the coherent residual candidate under the selected
+                # attention policy; using HiFi4 here would confound layout
+                # movement with a materially slower accumulation mode.
+                compute_kernel_config=self.decode_attention_compute_config,
+            )
+            # The sharded decode splitter reads a next-core coordinate after
+            # its final V tile and trips watcher's runtime-argument bounds
+            # check in this checkout. Select the legal interleaved reader,
+            # retaining the sharded matmul and height-sharded head outputs.
+            sharded_xqkv = xqkv
+            xqkv = ttnn.sharded_to_interleaved(sharded_xqkv, ttnn.L1_MEMORY_CONFIG)
+            sharded_xqkv.deallocate(True)
+            if qkv_geometry["output_padding"]:
+                padded_xqkv = xqkv
+                xqkv = ttnn.slice(
+                    padded_xqkv,
+                    starts=[0] * len(padded_xqkv.shape),
+&gt;                   ends=[*padded_xqkv.shape[:-1], qkv_geometry["logical_n"]],
+                           ^^^^^^^^^^^^^^^^^^^^^^
+                    steps=[1] * len(padded_xqkv.shape),
+                    memory_config=ttnn.L1_MEMORY_CONFIG,
+                )
+E               TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+E                   1. __getitem__(self, arg: int, /) -&gt; int
+E
+E               Invoked with types: ttnn._ttnn.types.Shape, slice
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1991: TypeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_real_weights_prefill_decode[blackhole-full_attention_shared_cache_view-device_params0-mesh_device0]" time="4.811"><properties><property name="start_timestamp" value="2026-09-05T10:12:52" /><property name="end_timestamp" value="2026-09-05T10:12:57" /></properties><failure message="TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:&#10;    1. __getitem__(self, arg: int, /) -&gt; int&#10;&#10;Invoked with types: ttnn._ttnn.types.Shape, slice">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x772a3d3c1ee0&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 5
+shared_physical = True, decode_pcc = 0.995
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,decode_pcc",
+        [
+            pytest.param(0, True, 0.995, id="sliding_attention_shared_cache"),
+            pytest.param(5, False, 0.995, id="full_attention_natural_cache"),
+            pytest.param(5, True, 0.995, id="full_attention_shared_cache_view"),
+        ],
+    )
+    def test_optimized_real_weights_prefill_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        decode_pcc,
+    ):
+        if os.getenv("GEMMA4_OPT_KV_CACHE_DTYPE") == "bfp8":
+            original_as_tt = functional_tests._as_tt
+
+            def as_tt_with_bfp8_cache(mesh, tensor, *, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT):
+                cache_geometry = tensor.ndim == 4 and tuple(tensor.shape[1:]) in {
+                    (8, 64, 256),
+                    (2, 128, 512),
+                }
+                if cache_geometry and dtype == ttnn.bfloat16:
+                    dtype = ttnn.bfloat8_b
+                return original_as_tt(mesh, tensor, dtype=dtype, layout=layout)
+
+            monkeypatch.setattr(functional_tests, "_as_tt", as_tt_with_bfp8_cache)
+        pcc_results = []
+        original_comp_pcc = functional_tests.comp_pcc
+
+        def comp_pcc_recording(reference, actual, threshold):
+            ok, pcc = original_comp_pcc(reference, actual, threshold)
+            pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+            # Let the functional oracle finish writing its raw measurement so
+            # rejected optimization candidates retain immutable provenance.
+            return True, pcc
+
+        monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_recording)
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=(
+                "decode_forward",
+                "_attention_prefill",
+                "_attention_decode",
+                "_dense_mlp",
+                "_moe_prefill",
+                "_moe_prefill_chunk",
+                "_moe_decode_single_user",
+            ),
+        )
+&gt;       functional_tests.test_functional_decoder_real_weights_prefill_decode(
+            mesh_device,
+            device_params,
+            layer_idx,
+            shared_physical,
+            decode_pcc,
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:365:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py:383: in test_functional_decoder_real_weights_prefill_decode
+    tt_decode = decoder.decode_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:139: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1765: in decode_forward
+    attn_out = self._attention_decode(
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:136: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder.OptimizedDecoder object at 0x772a3903b470&gt;
+x = ttnn.Tensor([[[[-1.0781e+00,  6.2500e+00,  ...,  1.3312e+01,  5.6562e+00]]]], shape=Shape([1, 1, 1, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+
+    def _attention_decode(
+        self,
+        x: ttnn.Tensor,
+        *,
+        position_cos: ttnn.Tensor,
+        position_sin: ttnn.Tensor,
+        current_pos: ttnn.Tensor,
+        page_table: ttnn.Tensor,
+        kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
+        cache_position_modulo: int | None,
+    ) -&gt; ttnn.Tensor:
+        self.optimized_path_counters["decode_attention"] += 1
+        kind = self.layer_kind
+        batch = x.shape[-2]
+        sharded_residual = self.residual_shard_cores != 0
+        if sharded_residual:
+            qkv_geometry = self.attention_runtime_geometry["qkv"]
+            x = self._prepare_padded_attention_input(
+                x,
+                padded_width=qkv_geometry["padded_k"],
+                memory_config=self.attention_sharded_memory_configs["qkv_input"],
+                boundary_counter="attention_qkv_input",
+                padding_counter="attention_qkv_input_padding",
+            )
+            xqkv = ttnn.linear(
+                x,
+                self.decode_attention_weights["qkv"],
+                dtype=self.activation_dtype,
+                program_config=self.attention_sharded_program_configs["qkv"],
+                memory_config=self.attention_sharded_memory_configs["qkv_output"],
+                # Compare the coherent residual candidate under the selected
+                # attention policy; using HiFi4 here would confound layout
+                # movement with a materially slower accumulation mode.
+                compute_kernel_config=self.decode_attention_compute_config,
+            )
+            # The sharded decode splitter reads a next-core coordinate after
+            # its final V tile and trips watcher's runtime-argument bounds
+            # check in this checkout. Select the legal interleaved reader,
+            # retaining the sharded matmul and height-sharded head outputs.
+            sharded_xqkv = xqkv
+            xqkv = ttnn.sharded_to_interleaved(sharded_xqkv, ttnn.L1_MEMORY_CONFIG)
+            sharded_xqkv.deallocate(True)
+            if qkv_geometry["output_padding"]:
+                padded_xqkv = xqkv
+                xqkv = ttnn.slice(
+                    padded_xqkv,
+                    starts=[0] * len(padded_xqkv.shape),
+&gt;                   ends=[*padded_xqkv.shape[:-1], qkv_geometry["logical_n"]],
+                           ^^^^^^^^^^^^^^^^^^^^^^
+                    steps=[1] * len(padded_xqkv.shape),
+                    memory_config=ttnn.L1_MEMORY_CONFIG,
+                )
+E               TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+E                   1. __getitem__(self, arg: int, /) -&gt; int
+E
+E               Invoked with types: ttnn._ttnn.types.Shape, slice
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1991: TypeError</failure></testcase></testsuite></testsuites>

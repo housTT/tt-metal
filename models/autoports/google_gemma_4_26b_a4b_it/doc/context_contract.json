@@ -47,5 +47,57 @@
       "The 262143-token probes exercise the logical tail below the advertised context without padding becoming live cache state.",
       "The advertised-context decode probes use permuted page tables, device-initialized KV history, sentinel readback, current position 262143, trace capture/replay, and deterministic repeat replay."
     ]
+  },
+  "optimized_decoder": {
+    "hardware": "one Blackhole P300C (1x1 mesh, device id 0)",
+    "optimized_decoder_sha256": "feebc8cb2f20ad9ba81c7d0f50f8323694d6d91ebb31cb9072e18b0f6b0a9c45",
+    "optimized_test_sha256": "01ed0de36451891c6c41968baeeae34f1cb77acf4e3c6db0c322506fb83bd349",
+    "current_supported_context": 262144,
+    "kv_cache_contract_changed": false,
+    "kv_cache_dtype": "caller-owned BF16; BFP8 remains an opt-in experimental candidate and is rejected because cache-consuming decode PCC is below 0.995",
+    "persistent_allocation_accounting": {
+      "artifact": "optimized_decoder/persistent_allocation_accounting.json",
+      "sliding_attention_layer_bytes": 2158283008,
+      "full_attention_layer_bytes": 2130482432,
+      "projected_layer_kind_counts": {
+        "sliding_attention": 25,
+        "full_attention": 5
+      },
+      "projected_30_layer_decoder_weight_bytes": 64609487360,
+      "scope": "persistent decoder-layer weights, batch-aware packed expert weights, selected attention copies, selected reader-1 DRAM-sharded O/packed-dense/down weights, and the 256-byte trace-stable routing base; excludes caller-owned KV cache and transient activations",
+      "capacity_effect": "none for the per-layer context contract; full-stack placement is intentionally outside the optimized-decoder stage"
+    },
+    "layer_kinds": {
+      "sliding_attention": {
+        "representative_layer": 0,
+        "tested_prefill_context": 262143,
+        "tested_decode_current_position": 262143,
+        "artifacts": [
+          "optimized_decoder/prefill_capacity_sliding_attention_262143.json",
+          "optimized_decoder/advertised_context_decode_sliding_attention.json",
+          "optimized_decoder/prefill_boundaries_sliding_attention.json"
+        ]
+      },
+      "full_attention": {
+        "representative_layer": 5,
+        "tested_prefill_context": 262143,
+        "tested_decode_current_position": 262143,
+        "artifacts": [
+          "optimized_decoder/prefill_capacity_full_attention_262143.json",
+          "optimized_decoder/advertised_context_decode_full_attention.json",
+          "optimized_decoder/prefill_boundaries_full_attention.json"
+        ]
+      }
+    },
+    "notes": [
+      "Both layer kinds pass traced decode at the last valid advertised position and physical non-aligned prefill one token below the advertised context.",
+      "Optimization does not alter paged-cache ownership, block geometry, or page-table semantics; BF16 is the accepted cache policy.",
+      "The opt-in BFP8 cache candidate is deterministic but fails cache-consuming decode: minimum HF PCC is 0.994624887 sliding and 0.988673202 full versus the 0.995 threshold.",
+      "Persistent allocation is measured from device buffer page counts and page sizes with duplicate buffer IDs counted once.",
+      "The accounting includes the distinct batch-32 BFP8 packed expert gate/up allocation, the selected 256-byte routing base, and deduplicates attention aliases by device buffer ID.",
+      "Every retained decode DRAM-sharded weight has a measured selected consumer. The setup-only interleaved packed dense source is released after sharding; original separate dense weights remain for prefill and B32. The QKV watcher workaround is transient L1 storage and does not change persistent capacity.",
+      "One pinned-host upload transport stall was captured during a 262143-token sliding prefill. Fresh unpinned and pinned controls passed, and the final combined four-case context gate passed, so no runtime or advertised-capacity change was made.",
+      "The v5 context/watcher artifacts use pre-format test hash cc236183671b8a0e18e8c16f2a30754a7678facb1042e07548756ecabf97848d. Pre-commit changed one dense_roles ternary from three lines to one; independent byte reconstruction and AST comparison prove it is formatting-only. The v6 complete and performance gates use the current hash."
+    ]
   }
 }

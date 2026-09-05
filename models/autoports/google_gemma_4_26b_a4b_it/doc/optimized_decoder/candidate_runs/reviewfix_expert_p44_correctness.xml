@@ -1,0 +1,408 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="5" skipped="0" tests="5" time="25.450" timestamp="2026-09-05T12:09:32.668134+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_real_weights_prefill_decode[blackhole-sliding_attention_shared_cache-device_params0-mesh_device0]" time="5.594"><properties><property name="start_timestamp" value="2026-09-05T12:09:33" /><property name="end_timestamp" value="2026-09-05T12:09:39" /></properties><failure message="TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:&#10;    1. __getitem__(self, arg: int, /) -&gt; int&#10;&#10;Invoked with types: ttnn._ttnn.types.Shape, slice">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f9fc6796360&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 0
+shared_physical = True, decode_pcc = 0.995
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,decode_pcc",
+        [
+            pytest.param(0, True, 0.995, id="sliding_attention_shared_cache"),
+            pytest.param(5, False, 0.995, id="full_attention_natural_cache"),
+            pytest.param(5, True, 0.995, id="full_attention_shared_cache_view"),
+        ],
+    )
+    def test_optimized_real_weights_prefill_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        decode_pcc,
+    ):
+        _install_requested_kv_cache_dtype(monkeypatch)
+        pcc_results = []
+        original_comp_pcc = functional_tests.comp_pcc
+
+        def comp_pcc_recording(reference, actual, threshold):
+            ok, pcc = original_comp_pcc(reference, actual, threshold)
+            pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+            # Let the functional oracle finish writing its raw measurement so
+            # rejected optimization candidates retain immutable provenance.
+            return True, pcc
+
+        monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_recording)
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=(
+                "decode_forward",
+                "_attention_prefill",
+                "_attention_decode",
+                "_dense_mlp",
+                "_moe_prefill",
+                "_moe_prefill_chunk",
+                "_moe_decode_single_user",
+            ),
+        )
+&gt;       functional_tests.test_functional_decoder_real_weights_prefill_decode(
+            mesh_device,
+            device_params,
+            layer_idx,
+            shared_physical,
+            decode_pcc,
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:498:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py:376: in test_functional_decoder_real_weights_prefill_decode
+    tt_prefill = decoder.prefill_forward(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder.OptimizedDecoder object at 0x7f9fc9dc96d0&gt;
+hidden_states = ttnn.Tensor([[[[ 1.4609e+00,  2.9102e-01,  ..., -1.3672e-01,  1.4062e-01],
+               [-6.3281e-01,  1.2031e+00,  ...e-01,  ..., -8.3984e-01, -6.7188e-01]]]], shape=Shape([1, 1, 32, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+__name = 'prefill_forward'
+__original = &lt;function _install_requested_kv_cache_dtype.&lt;locals&gt;.checked_cache at 0x7f9fc61654e0&gt;
+kwargs = {'kv_cache': (ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+               [ 0.0000,  0.0000,  ...,  0.00...e-01,  ...,  3.5858e-03,  3.3264e-03]]]], shape=Shape([1, 1, 32, 256]), dtype=DataType::BFLOAT16, layout=Layout::TILE)}
+key = ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+               [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+...0000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([4, 8, 64, 256]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+value = ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+               [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+...0000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([4, 8, 64, 256]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+@py_assert1 = None, @py_assert6 = None, @py_assert3 = None
+
+    def checked_cache(self, hidden_states, *, __name=name, __original=original, **kwargs):
+        key, value = kwargs["kv_cache"]
+        assert key.dtype == value.dtype == cache_dtype, (key.dtype, value.dtype, cache_dtype)
+        assert key.layout == value.layout == ttnn.TILE_LAYOUT
+        assert key.shape == value.shape
+&gt;       assert tuple(key.shape[1:]) in {(8, 64, 256), (2, 128, 512)}, key.shape
+                     ^^^^^^^^^^^^^
+E       TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+E           1. __getitem__(self, arg: int, /) -&gt; int
+E
+E       Invoked with types: ttnn._ttnn.types.Shape, slice
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:254: TypeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_traced_decode_batch_contract[blackhole-batch1-sliding_attention-device_params0-mesh_device0]" time="4.557"><properties><property name="start_timestamp" value="2026-09-05T12:09:39" /><property name="end_timestamp" value="2026-09-05T12:09:43" /></properties><failure message="TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:&#10;    1. __getitem__(self, arg: int, /) -&gt; int&#10;&#10;Invoked with types: ttnn._ttnn.types.Shape, slice">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f9fc9da1e80&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 0, batch = 1
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    @pytest.mark.parametrize("batch", [1, 32], ids=["batch1", "batch32"])
+    def test_optimized_traced_decode_batch_contract(monkeypatch, mesh_device, device_params, layer_idx, batch):
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=("decode_forward", "_attention_decode", "_dense_mlp", "_moe_decode_single_user"),
+        )
+        per_user_pcc = []
+        best_replay_user = []
+        pcc_results = []
+        if batch == 32:
+            original_comp_pcc = functional_tests.comp_pcc
+
+            def comp_pcc_with_per_user_gate(reference, actual, threshold):
+                ok, pcc = original_comp_pcc(reference, actual, threshold)
+                pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+                if threshold == 0.995 and reference.shape[0] == batch:
+                    per_user_pcc.extend(
+                        float(original_comp_pcc(reference[index : index + 1], actual[index : index + 1], threshold)[1])
+                        for index in range(batch)
+                    )
+                    reference_rows = torch.nn.functional.normalize(reference.float().reshape(batch, -1), dim=-1)
+                    actual_rows = torch.nn.functional.normalize(actual.float().reshape(batch, -1), dim=-1)
+                    best_replay_user.extend((reference_rows @ actual_rows.T).argmax(dim=1).tolist())
+                return True, pcc
+
+            monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_with_per_user_gate)
+&gt;       functional_tests.test_traced_decode_batch_contract(mesh_device, device_params, layer_idx, batch)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:675:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py:741: in test_traced_decode_batch_contract
+    eager_output = decoder.decode_forward(**decode_args)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:160: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder.OptimizedDecoder object at 0x7f9eb8116060&gt;
+hidden_states = ttnn.Tensor([[[[ 0.0000e+00, -1.7773e-01,  ...,  9.9609e-01, -1.7266e+00]]]], shape=Shape([1, 1, 1, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+__name = 'decode_forward'
+__original = &lt;function OptimizedDecoder.decode_forward at 0x7f9fc602ce00&gt;
+kwargs = {'current_pos': ttnn.Tensor([   32], shape=Shape([1]), dtype=DataType::INT32, layout=Layout::ROW_MAJOR), 'kv_cache': (... -0.0669,  ...,  1.0000,  1.0000]]]], shape=Shape([1, 1, 1, 256]), dtype=DataType::BFLOAT16, layout=Layout::TILE), ...}
+key = ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+               [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+...0000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([4, 8, 64, 256]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+value = ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+               [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+...0000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([4, 8, 64, 256]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+@py_assert1 = None, @py_assert6 = None, @py_assert3 = None
+
+    def checked_cache(self, hidden_states, *, __name=name, __original=original, **kwargs):
+        key, value = kwargs["kv_cache"]
+        assert key.dtype == value.dtype == cache_dtype, (key.dtype, value.dtype, cache_dtype)
+        assert key.layout == value.layout == ttnn.TILE_LAYOUT
+        assert key.shape == value.shape
+&gt;       assert tuple(key.shape[1:]) in {(8, 64, 256), (2, 128, 512)}, key.shape
+                     ^^^^^^^^^^^^^
+E       TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+E           1. __getitem__(self, arg: int, /) -&gt; int
+E
+E       Invoked with types: ttnn._ttnn.types.Shape, slice
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:254: TypeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_real_weights_prefill_decode[blackhole-full_attention_natural_cache-device_params0-mesh_device0]" time="4.769"><properties><property name="start_timestamp" value="2026-09-05T12:09:43" /><property name="end_timestamp" value="2026-09-05T12:09:48" /></properties><failure message="TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:&#10;    1. __getitem__(self, arg: int, /) -&gt; int&#10;&#10;Invoked with types: ttnn._ttnn.types.Shape, slice">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f9fc6797770&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 5
+shared_physical = False, decode_pcc = 0.995
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,decode_pcc",
+        [
+            pytest.param(0, True, 0.995, id="sliding_attention_shared_cache"),
+            pytest.param(5, False, 0.995, id="full_attention_natural_cache"),
+            pytest.param(5, True, 0.995, id="full_attention_shared_cache_view"),
+        ],
+    )
+    def test_optimized_real_weights_prefill_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        decode_pcc,
+    ):
+        _install_requested_kv_cache_dtype(monkeypatch)
+        pcc_results = []
+        original_comp_pcc = functional_tests.comp_pcc
+
+        def comp_pcc_recording(reference, actual, threshold):
+            ok, pcc = original_comp_pcc(reference, actual, threshold)
+            pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+            # Let the functional oracle finish writing its raw measurement so
+            # rejected optimization candidates retain immutable provenance.
+            return True, pcc
+
+        monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_recording)
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=(
+                "decode_forward",
+                "_attention_prefill",
+                "_attention_decode",
+                "_dense_mlp",
+                "_moe_prefill",
+                "_moe_prefill_chunk",
+                "_moe_decode_single_user",
+            ),
+        )
+&gt;       functional_tests.test_functional_decoder_real_weights_prefill_decode(
+            mesh_device,
+            device_params,
+            layer_idx,
+            shared_physical,
+            decode_pcc,
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:498:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py:376: in test_functional_decoder_real_weights_prefill_decode
+    tt_prefill = decoder.prefill_forward(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder.OptimizedDecoder object at 0x7f9fc61cfbc0&gt;
+hidden_states = ttnn.Tensor([[[[ 9.6875e-01,  1.3984e+00,  ..., -3.9062e-01, -2.6562e-01],
+               [ 2.4062e+00, -6.8359e-01,  ...e+00,  ...,  3.0078e-01,  6.8359e-01]]]], shape=Shape([1, 1, 32, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+__name = 'prefill_forward'
+__original = &lt;function _install_requested_kv_cache_dtype.&lt;locals&gt;.checked_cache at 0x7f9fc6054400&gt;
+kwargs = {'kv_cache': (ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+               [ 0.0000,  0.0000,  ...,  0.00...e-01,  ...,  0.0000e+00,  0.0000e+00]]]], shape=Shape([1, 1, 32, 512]), dtype=DataType::BFLOAT16, layout=Layout::TILE)}
+key = ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+               [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+...000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([2, 2, 128, 512]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+value = ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+               [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+...000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([2, 2, 128, 512]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+@py_assert1 = None, @py_assert6 = None, @py_assert3 = None
+
+    def checked_cache(self, hidden_states, *, __name=name, __original=original, **kwargs):
+        key, value = kwargs["kv_cache"]
+        assert key.dtype == value.dtype == cache_dtype, (key.dtype, value.dtype, cache_dtype)
+        assert key.layout == value.layout == ttnn.TILE_LAYOUT
+        assert key.shape == value.shape
+&gt;       assert tuple(key.shape[1:]) in {(8, 64, 256), (2, 128, 512)}, key.shape
+                     ^^^^^^^^^^^^^
+E       TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+E           1. __getitem__(self, arg: int, /) -&gt; int
+E
+E       Invoked with types: ttnn._ttnn.types.Shape, slice
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:254: TypeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_traced_decode_batch_contract[blackhole-batch1-full_attention-device_params0-mesh_device0]" time="4.743"><properties><property name="start_timestamp" value="2026-09-05T12:09:48" /><property name="end_timestamp" value="2026-09-05T12:09:53" /></properties><failure message="TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:&#10;    1. __getitem__(self, arg: int, /) -&gt; int&#10;&#10;Invoked with types: ttnn._ttnn.types.Shape, slice">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f9fca480350&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 5, batch = 1
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    @pytest.mark.parametrize("batch", [1, 32], ids=["batch1", "batch32"])
+    def test_optimized_traced_decode_batch_contract(monkeypatch, mesh_device, device_params, layer_idx, batch):
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=("decode_forward", "_attention_decode", "_dense_mlp", "_moe_decode_single_user"),
+        )
+        per_user_pcc = []
+        best_replay_user = []
+        pcc_results = []
+        if batch == 32:
+            original_comp_pcc = functional_tests.comp_pcc
+
+            def comp_pcc_with_per_user_gate(reference, actual, threshold):
+                ok, pcc = original_comp_pcc(reference, actual, threshold)
+                pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+                if threshold == 0.995 and reference.shape[0] == batch:
+                    per_user_pcc.extend(
+                        float(original_comp_pcc(reference[index : index + 1], actual[index : index + 1], threshold)[1])
+                        for index in range(batch)
+                    )
+                    reference_rows = torch.nn.functional.normalize(reference.float().reshape(batch, -1), dim=-1)
+                    actual_rows = torch.nn.functional.normalize(actual.float().reshape(batch, -1), dim=-1)
+                    best_replay_user.extend((reference_rows @ actual_rows.T).argmax(dim=1).tolist())
+                return True, pcc
+
+            monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_with_per_user_gate)
+&gt;       functional_tests.test_traced_decode_batch_contract(mesh_device, device_params, layer_idx, batch)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:675:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py:713: in test_traced_decode_batch_contract
+    decoder.prefill_forward(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder.OptimizedDecoder object at 0x7f9eb81168d0&gt;
+hidden_states = ttnn.Tensor([[[[ 9.6875e-01,  1.3984e+00,  ..., -3.9062e-01, -2.6562e-01],
+               [ 2.4062e+00, -6.8359e-01,  ...e+00,  ...,  3.0078e-01,  6.8359e-01]]]], shape=Shape([1, 1, 32, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+__name = 'prefill_forward'
+__original = &lt;function OptimizedDecoder.prefill_forward at 0x7f9fc602ccc0&gt;
+kwargs = {'kv_cache': (ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+               [ 0.0000,  0.0000,  ...,  0.00...  ...,  0.0000e+00,  0.0000e+00]]]], shape=Shape([1, 1, 32, 512]), dtype=DataType::BFLOAT16, layout=Layout::TILE), ...}
+key = ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+               [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+...000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([2, 2, 128, 512]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+value = ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+               [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+...000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([2, 2, 128, 512]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+@py_assert1 = None, @py_assert6 = None, @py_assert3 = None
+
+    def checked_cache(self, hidden_states, *, __name=name, __original=original, **kwargs):
+        key, value = kwargs["kv_cache"]
+        assert key.dtype == value.dtype == cache_dtype, (key.dtype, value.dtype, cache_dtype)
+        assert key.layout == value.layout == ttnn.TILE_LAYOUT
+        assert key.shape == value.shape
+&gt;       assert tuple(key.shape[1:]) in {(8, 64, 256), (2, 128, 512)}, key.shape
+                     ^^^^^^^^^^^^^
+E       TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+E           1. __getitem__(self, arg: int, /) -&gt; int
+E
+E       Invoked with types: ttnn._ttnn.types.Shape, slice
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:254: TypeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_real_weights_prefill_decode[blackhole-full_attention_shared_cache_view-device_params0-mesh_device0]" time="4.751"><properties><property name="start_timestamp" value="2026-09-05T12:09:53" /><property name="end_timestamp" value="2026-09-05T12:09:58" /></properties><failure message="TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:&#10;    1. __getitem__(self, arg: int, /) -&gt; int&#10;&#10;Invoked with types: ttnn._ttnn.types.Shape, slice">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7f9fc6794ad0&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 5
+shared_physical = True, decode_pcc = 0.995
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,decode_pcc",
+        [
+            pytest.param(0, True, 0.995, id="sliding_attention_shared_cache"),
+            pytest.param(5, False, 0.995, id="full_attention_natural_cache"),
+            pytest.param(5, True, 0.995, id="full_attention_shared_cache_view"),
+        ],
+    )
+    def test_optimized_real_weights_prefill_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        decode_pcc,
+    ):
+        _install_requested_kv_cache_dtype(monkeypatch)
+        pcc_results = []
+        original_comp_pcc = functional_tests.comp_pcc
+
+        def comp_pcc_recording(reference, actual, threshold):
+            ok, pcc = original_comp_pcc(reference, actual, threshold)
+            pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+            # Let the functional oracle finish writing its raw measurement so
+            # rejected optimization candidates retain immutable provenance.
+            return True, pcc
+
+        monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_recording)
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=(
+                "decode_forward",
+                "_attention_prefill",
+                "_attention_decode",
+                "_dense_mlp",
+                "_moe_prefill",
+                "_moe_prefill_chunk",
+                "_moe_decode_single_user",
+            ),
+        )
+&gt;       functional_tests.test_functional_decoder_real_weights_prefill_decode(
+            mesh_device,
+            device_params,
+            layer_idx,
+            shared_physical,
+            decode_pcc,
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:498:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py:376: in test_functional_decoder_real_weights_prefill_decode
+    tt_prefill = decoder.prefill_forward(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder.OptimizedDecoder object at 0x7f9eb8116300&gt;
+hidden_states = ttnn.Tensor([[[[ 9.6875e-01,  1.3984e+00,  ..., -3.9062e-01, -2.6562e-01],
+               [ 2.4062e+00, -6.8359e-01,  ...e+00,  ...,  3.0078e-01,  6.8359e-01]]]], shape=Shape([1, 1, 32, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+__name = 'prefill_forward'
+__original = &lt;function _install_requested_kv_cache_dtype.&lt;locals&gt;.checked_cache at 0x7f9fc6197560&gt;
+kwargs = {'kv_cache': (ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+               [ 0.0000,  0.0000,  ...,  0.00...e-01,  ...,  0.0000e+00,  0.0000e+00]]]], shape=Shape([1, 1, 32, 512]), dtype=DataType::BFLOAT16, layout=Layout::TILE)}
+key = ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+               [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+...0000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([4, 8, 64, 256]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+value = ttnn.Tensor([[[[ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+               [ 0.0000,  0.0000,  ...,  0.0000,  0.0000],
+...0000,  0.0000,  ...,  0.0000,  0.0000]]]], shape=Shape([4, 8, 64, 256]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+@py_assert1 = None, @py_assert6 = None, @py_assert3 = None
+
+    def checked_cache(self, hidden_states, *, __name=name, __original=original, **kwargs):
+        key, value = kwargs["kv_cache"]
+        assert key.dtype == value.dtype == cache_dtype, (key.dtype, value.dtype, cache_dtype)
+        assert key.layout == value.layout == ttnn.TILE_LAYOUT
+        assert key.shape == value.shape
+&gt;       assert tuple(key.shape[1:]) in {(8, 64, 256), (2, 128, 512)}, key.shape
+                     ^^^^^^^^^^^^^
+E       TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+E           1. __getitem__(self, arg: int, /) -&gt; int
+E
+E       Invoked with types: ttnn._ttnn.types.Shape, slice
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:254: TypeError</failure></testcase></testsuite></testsuites>

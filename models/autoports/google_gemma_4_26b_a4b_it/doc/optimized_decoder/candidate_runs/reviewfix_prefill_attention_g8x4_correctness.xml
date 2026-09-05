@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="3" time="16.299" timestamp="2026-09-05T12:54:05.614006+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_real_weights_prefill_decode[blackhole-sliding_attention_shared_cache-device_params0-mesh_device0]" time="5.707"><properties><property name="start_timestamp" value="2026-09-05T12:54:06" /><property name="end_timestamp" value="2026-09-05T12:54:12" /></properties><failure message="TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:&#10;    1. __getitem__(self, arg: int, /) -&gt; int&#10;&#10;Invoked with types: ttnn._ttnn.types.Shape, slice">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7bc96a66fad0&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 0
+shared_physical = True, decode_pcc = 0.995
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,decode_pcc",
+        [
+            pytest.param(0, True, 0.995, id="sliding_attention_shared_cache"),
+            pytest.param(5, False, 0.995, id="full_attention_natural_cache"),
+            pytest.param(5, True, 0.995, id="full_attention_shared_cache_view"),
+        ],
+    )
+    def test_optimized_real_weights_prefill_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        decode_pcc,
+    ):
+        pcc_results = []
+        original_comp_pcc = functional_tests.comp_pcc
+
+        def comp_pcc_recording(reference, actual, threshold):
+            ok, pcc = original_comp_pcc(reference, actual, threshold)
+            pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+            # Let the functional oracle finish writing its raw measurement so
+            # rejected optimization candidates retain immutable provenance.
+            return True, pcc
+
+        monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_recording)
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=(
+                "decode_forward",
+                "_attention_prefill",
+                "_attention_decode",
+                "_dense_mlp",
+                "_moe_prefill",
+                "_moe_prefill_chunk",
+                "_moe_decode_single_user",
+            ),
+        )
+&gt;       functional_tests.test_functional_decoder_real_weights_prefill_decode(
+            mesh_device,
+            device_params,
+            layer_idx,
+            shared_physical,
+            decode_pcc,
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:602:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py:376: in test_functional_decoder_real_weights_prefill_decode
+    tt_prefill = decoder.prefill_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:325: in checked_cache
+    return __original(self, hidden_states, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2060: in prefill_forward
+    return super().prefill_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tt/functional_decoder.py:363: in prefill_forward
+    return self._prefill_forward_single_user(
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2097: in _prefill_forward_single_user
+    attn_out = self._attention_prefill(
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:170: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2335: in _attention_prefill
+    xqkv = self._linear(x, "qkv", compute_kernel_config=self.prefill_attention_compute_config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1720: in _linear
+    return self._prefill_attention_linear(x, weight_name, compute_kernel_config=compute_kernel_config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder.OptimizedDecoder object at 0x7bc96a7ce0c0&gt;
+x = ttnn.Tensor([[[[ 4.5938e+00,  9.6875e-01,  ..., -5.3906e-01,  5.2734e-01],
+               [-1.9375e+00,  3.8906e+00,  ...e+00,  ..., -3.1719e+00, -2.4219e+00]]]], shape=Shape([1, 1, 32, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+role = 'qkv'
+
+    def _prefill_attention_linear(
+        self, x: ttnn.Tensor, role: str, *, compute_kernel_config: ttnn.DeviceComputeKernelConfig
+    ) -&gt; ttnn.Tensor:
+        options = self.prefill_attention_options[role]
+        weight = getattr(self.weights, role)
+&gt;       rows = math.prod(x.padded_shape[:-1])
+                         ^^^^^^^^^^^^^^^^^^^
+E       TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+E           1. __getitem__(self, arg: int, /) -&gt; int
+E
+E       Invoked with types: ttnn._ttnn.types.Shape, slice
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1761: TypeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_real_weights_prefill_decode[blackhole-full_attention_natural_cache-device_params0-mesh_device0]" time="4.667"><properties><property name="start_timestamp" value="2026-09-05T12:54:12" /><property name="end_timestamp" value="2026-09-05T12:54:17" /></properties><failure message="TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:&#10;    1. __getitem__(self, arg: int, /) -&gt; int&#10;&#10;Invoked with types: ttnn._ttnn.types.Shape, slice">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7bc96bc0cf20&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 5
+shared_physical = False, decode_pcc = 0.995
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,decode_pcc",
+        [
+            pytest.param(0, True, 0.995, id="sliding_attention_shared_cache"),
+            pytest.param(5, False, 0.995, id="full_attention_natural_cache"),
+            pytest.param(5, True, 0.995, id="full_attention_shared_cache_view"),
+        ],
+    )
+    def test_optimized_real_weights_prefill_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        decode_pcc,
+    ):
+        pcc_results = []
+        original_comp_pcc = functional_tests.comp_pcc
+
+        def comp_pcc_recording(reference, actual, threshold):
+            ok, pcc = original_comp_pcc(reference, actual, threshold)
+            pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+            # Let the functional oracle finish writing its raw measurement so
+            # rejected optimization candidates retain immutable provenance.
+            return True, pcc
+
+        monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_recording)
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=(
+                "decode_forward",
+                "_attention_prefill",
+                "_attention_decode",
+                "_dense_mlp",
+                "_moe_prefill",
+                "_moe_prefill_chunk",
+                "_moe_decode_single_user",
+            ),
+        )
+&gt;       functional_tests.test_functional_decoder_real_weights_prefill_decode(
+            mesh_device,
+            device_params,
+            layer_idx,
+            shared_physical,
+            decode_pcc,
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:602:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py:376: in test_functional_decoder_real_weights_prefill_decode
+    tt_prefill = decoder.prefill_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:325: in checked_cache
+    return __original(self, hidden_states, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2060: in prefill_forward
+    return super().prefill_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tt/functional_decoder.py:363: in prefill_forward
+    return self._prefill_forward_single_user(
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2097: in _prefill_forward_single_user
+    attn_out = self._attention_prefill(
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:170: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2335: in _attention_prefill
+    xqkv = self._linear(x, "qkv", compute_kernel_config=self.prefill_attention_compute_config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1720: in _linear
+    return self._prefill_attention_linear(x, weight_name, compute_kernel_config=compute_kernel_config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder.OptimizedDecoder object at 0x7bc96a8c4830&gt;
+x = ttnn.Tensor([[[[ 1.3125e+00,  1.6000e+01,  ..., -2.2250e+01, -3.7500e+00],
+               [ 3.2500e+00, -7.7812e+00,  ...e+01,  ...,  1.7000e+01,  9.5625e+00]]]], shape=Shape([1, 1, 32, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+role = 'qkv'
+
+    def _prefill_attention_linear(
+        self, x: ttnn.Tensor, role: str, *, compute_kernel_config: ttnn.DeviceComputeKernelConfig
+    ) -&gt; ttnn.Tensor:
+        options = self.prefill_attention_options[role]
+        weight = getattr(self.weights, role)
+&gt;       rows = math.prod(x.padded_shape[:-1])
+                         ^^^^^^^^^^^^^^^^^^^
+E       TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+E           1. __getitem__(self, arg: int, /) -&gt; int
+E
+E       Invoked with types: ttnn._ttnn.types.Shape, slice
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1761: TypeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_real_weights_prefill_decode[blackhole-full_attention_shared_cache_view-device_params0-mesh_device0]" time="4.781"><properties><property name="start_timestamp" value="2026-09-05T12:54:17" /><property name="end_timestamp" value="2026-09-05T12:54:21" /></properties><failure message="TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:&#10;    1. __getitem__(self, arg: int, /) -&gt; int&#10;&#10;Invoked with types: ttnn._ttnn.types.Shape, slice">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7bc96deb12e0&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 5
+shared_physical = True, decode_pcc = 0.995
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,decode_pcc",
+        [
+            pytest.param(0, True, 0.995, id="sliding_attention_shared_cache"),
+            pytest.param(5, False, 0.995, id="full_attention_natural_cache"),
+            pytest.param(5, True, 0.995, id="full_attention_shared_cache_view"),
+        ],
+    )
+    def test_optimized_real_weights_prefill_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        decode_pcc,
+    ):
+        pcc_results = []
+        original_comp_pcc = functional_tests.comp_pcc
+
+        def comp_pcc_recording(reference, actual, threshold):
+            ok, pcc = original_comp_pcc(reference, actual, threshold)
+            pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+            # Let the functional oracle finish writing its raw measurement so
+            # rejected optimization candidates retain immutable provenance.
+            return True, pcc
+
+        monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_recording)
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=(
+                "decode_forward",
+                "_attention_prefill",
+                "_attention_decode",
+                "_dense_mlp",
+                "_moe_prefill",
+                "_moe_prefill_chunk",
+                "_moe_decode_single_user",
+            ),
+        )
+&gt;       functional_tests.test_functional_decoder_real_weights_prefill_decode(
+            mesh_device,
+            device_params,
+            layer_idx,
+            shared_physical,
+            decode_pcc,
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:602:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py:376: in test_functional_decoder_real_weights_prefill_decode
+    tt_prefill = decoder.prefill_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:325: in checked_cache
+    return __original(self, hidden_states, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2060: in prefill_forward
+    return super().prefill_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tt/functional_decoder.py:363: in prefill_forward
+    return self._prefill_forward_single_user(
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2097: in _prefill_forward_single_user
+    attn_out = self._attention_prefill(
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:170: in wrapped
+    output = __original(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2335: in _attention_prefill
+    xqkv = self._linear(x, "qkv", compute_kernel_config=self.prefill_attention_compute_config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1720: in _linear
+    return self._prefill_attention_linear(x, weight_name, compute_kernel_config=compute_kernel_config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder.OptimizedDecoder object at 0x7bc969c749b0&gt;
+x = ttnn.Tensor([[[[ 1.3125e+00,  1.6000e+01,  ..., -2.2250e+01, -3.7500e+00],
+               [ 3.2500e+00, -7.7812e+00,  ...e+01,  ...,  1.7000e+01,  9.5625e+00]]]], shape=Shape([1, 1, 32, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+role = 'qkv'
+
+    def _prefill_attention_linear(
+        self, x: ttnn.Tensor, role: str, *, compute_kernel_config: ttnn.DeviceComputeKernelConfig
+    ) -&gt; ttnn.Tensor:
+        options = self.prefill_attention_options[role]
+        weight = getattr(self.weights, role)
+&gt;       rows = math.prod(x.padded_shape[:-1])
+                         ^^^^^^^^^^^^^^^^^^^
+E       TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+E           1. __getitem__(self, arg: int, /) -&gt; int
+E
+E       Invoked with types: ttnn._ttnn.types.Shape, slice
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:1761: TypeError</failure></testcase></testsuite></testsuites>

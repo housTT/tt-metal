@@ -1,0 +1,1193 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="4" time="22.577" timestamp="2026-09-05T12:31:25.695640+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_nonaligned_prefill_cache_consuming_decode[blackhole-kv_bfp8-sliding_attention_cross_wrap-device_params0-mesh_device0]" time="6.512"><properties><property name="start_timestamp" value="2026-09-05T12:31:26" /><property name="end_timestamp" value="2026-09-05T12:31:33" /></properties><failure message="AssertionError: [{'comparison': 'hf_vs_eager', 'finite': True, 'passed': False, 'pcc': 0.9902943566143789, ...}, {'comparison': 'hf_vs_eager', 'finite': True, 'passed': False, 'pcc': 0.9902943566143789, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9902943566143789, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9902943566143789, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9902943566143789, ...}]&#10;assert False&#10; +  where False = all(&lt;generator object test_optimized_nonaligned_prefill_cache_consuming_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x794ea811fd30&gt;)">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x794eb3181af0&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 0
+shared_physical = True, logical_seq_len = 1023, cache_position_modulo = 1024
+cache_dtype_name = 'bfp8'
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,logical_seq_len,cache_position_modulo",
+        [
+            pytest.param(0, True, 1023, 1024, id="sliding_attention_cross_wrap"),
+            pytest.param(0, True, 1025, 1024, id="sliding_attention_bounded_wrap"),
+            pytest.param(5, False, 33, None, id="full_attention_natural_cache"),
+            pytest.param(5, True, 33, None, id="full_attention_shared_cache_view"),
+        ],
+    )
+    @pytest.mark.parametrize("cache_dtype_name", ["bf16", "bfp8"], ids=["kv_bf16", "kv_bfp8"])
+    def test_optimized_nonaligned_prefill_cache_consuming_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        logical_seq_len,
+        cache_position_modulo,
+        cache_dtype_name,
+    ):
+        """Cross cache dtype and physical mapping for the same HF logical history."""
+        _requested_kv_cache_dtype()
+        monkeypatch.setenv("GEMMA4_OPT_KV_CACHE_DTYPE", cache_dtype_name)
+        _install_requested_kv_cache_dtype(monkeypatch)
+        cache_dtype = _requested_kv_cache_dtype()
+        cfg = functional_tests._load_text_config()
+        layer_type = cfg.layer_types[layer_idx]
+        state = functional_tests._load_layer_state(layer_idx)
+        decoder = OptimizedDecoder.from_state_dict(
+            state,
+            hf_config=cfg,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+        )
+        prefix = f"model.language_model.layers.{layer_idx}."
+        reference = functional_tests.Gemma4TextDecoderLayer(cfg, layer_idx=layer_idx).eval().to(dtype=torch.bfloat16)
+        reference.load_state_dict({name[len(prefix) :]: value for name, value in state.items()}, strict=True)
+        rotary = functional_tests.Gemma4TextRotaryEmbedding(cfg)
+        sliding_window = cfg.sliding_window if layer_type == "sliding_attention" else None
+        positions = list(range(logical_seq_len, logical_seq_len + 3))
+        # Keep at least two physical pages so the full-cache permutation changes
+        # the page that is actually read, including for a 33-token prefix.
+        cache_capacity = cache_position_modulo or 256
+        cache_shape = functional_tests._cache_shape(
+            layer_type,
+            shared_physical=shared_physical,
+            token_capacity=cache_capacity,
+        )
+        pages_a = torch.arange(cache_shape[0], dtype=torch.int32).view(1, -1)
+        pages_b = pages_a.roll(1, dims=1)
+        assert not torch.equal(pages_a, pages_b)
+        zero_cache = torch.zeros(cache_shape, dtype=torch.bfloat16)
+        # Retain the original failing sliding/shared-view inputs, and use the
+        # same seed for the natural full-cache control and both cache dtypes.
+        seed = 9101 + layer_idx
+        torch.manual_seed(seed)
+        decode_hidden = torch.randn(1, 3, functional_tests.HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([positions]), layer_type=layer_type)
+        decode_payloads = [
+            {
+                "hidden_states": decode_hidden[:, step : step + 1].unsqueeze(1),
+                "position_cos": decode_cos[:, step : step + 1].unsqueeze(1),
+                "position_sin": decode_sin[:, step : step + 1].unsqueeze(1),
+                "current_pos": torch.tensor([position], dtype=torch.int32),
+            }
+            for step, position in enumerate(positions)
+        ]
+        hidden = torch.randn(1, logical_seq_len, functional_tests.HIDDEN_SIZE, dtype=torch.bfloat16)
+        prefix_positions = torch.arange(logical_seq_len).unsqueeze(0)
+        cos, sin = rotary(hidden, prefix_positions, layer_type=layer_type)
+        hf_cache = functional_tests.DynamicCache(config=cfg)
+        with torch.no_grad():
+            hf_prefill = reference(
+                hidden,
+                shared_kv_states={},
+                position_embeddings=(cos, sin),
+                attention_mask=functional_tests._causal_mask(logical_seq_len, sliding_window=sliding_window),
+                position_ids=prefix_positions,
+                past_key_values=hf_cache,
+            )
+            hf_decode = []
+            for step, position in enumerate(positions):
+                # HF evicts sliding history: size the mask for the keys its
+                # next update returns, not the absolute sequence position.
+                key_length, _ = hf_cache.get_mask_sizes(1, layer_idx)
+                hf_decode.append(
+                    reference(
+                        decode_hidden[:, step : step + 1],
+                        shared_kv_states={},
+                        position_embeddings=(decode_cos[:, step : step + 1], decode_sin[:, step : step + 1]),
+                        attention_mask=functional_tests._decode_mask(key_length, sliding_window=sliding_window),
+                        position_ids=torch.tensor([[position]]),
+                        past_key_values=hf_cache,
+                    )
+                )
+        prefill_inputs = {
+            "hidden_states": functional_tests._as_tt(mesh_device, hidden.unsqueeze(1)),
+            "position_cos": functional_tests._as_tt(mesh_device, cos.unsqueeze(1)),
+            "position_sin": functional_tests._as_tt(mesh_device, sin.unsqueeze(1)),
+        }
+
+        def fresh_decode_args(page_table):
+            payload = {**decode_payloads[0], "page_table": page_table, "key_cache": zero_cache, "value_cache": zero_cache}
+            return {**mutable_tests._device_args(mesh_device, payload), "cache_position_modulo": cache_position_modulo}
+
+        stable = fresh_decode_args(pages_a)
+        stable_tensors = {
+            name: value for name, value in stable.items() if name not in ("kv_cache", "cache_position_modulo")
+        }
+        stable_tensors.update(key_cache=stable["kv_cache"][0], value_cache=stable["kv_cache"][1])
+        addresses = {name: int(value.buffer_address()) for name, value in stable_tensors.items()}
+        fill_source_dtypes = []
+        tail_source_dtypes = []
+        original_fill = ttnn.experimental.paged_fill_cache
+        original_update = ttnn.experimental.paged_update_cache
+
+        def checked_fill(cache, source, *args, **kwargs):
+            fill_source_dtypes.append(source.dtype)
+            assert source.dtype == cache.dtype == cache_dtype
+            return original_fill(cache, source, *args, **kwargs)
+
+        def checked_update(cache, source, *args, **kwargs):
+            tail_source_dtypes.append(source.dtype)
+            assert cache.dtype == cache_dtype
+            assert source.dtype == ttnn.bfloat16
+            return original_update(cache, source, *args, **kwargs)
+
+        results, replay_outputs = [], []
+
+        def compare(label, expected, actual, threshold, *, variant, position=None):
+            finite = bool(torch.isfinite(actual).all())
+            passed, pcc = functional_tests.comp_pcc(expected, actual, threshold)
+            results.append(
+                {
+                    "comparison": label,
+                    "variant": variant,
+                    "position": position,
+                    "pcc": float(pcc),
+                    "threshold": threshold,
+                    "passed": bool(passed) and finite,
+                    "finite": finite,
+                }
+            )
+
+        # Build both physical cache mappings through the decoder's actual view,
+        # then finish all eager work before any trace owns device buffers. Host
+        # snapshots keep their original physical shape; no natural/shared host
+        # reshape is used to manufacture a tiled cache reinterpretation.
+        cases = []
+        for variant, page_table in enumerate((pages_a, pages_b)):
+            eager = fresh_decode_args(page_table)
+            with monkeypatch.context() as cache_ops:
+                cache_ops.setattr(ttnn.experimental, "paged_fill_cache", checked_fill)
+                cache_ops.setattr(ttnn.experimental, "paged_update_cache", checked_update)
+                prefill_output = decoder.prefill_forward(
+                    **prefill_inputs,
+                    page_table=eager["page_table"],
+                    kv_cache=eager["kv_cache"],
+                    cache_position_modulo=cache_position_modulo,
+                )
+            prefill_host = functional_tests._to_torch(mesh_device, prefill_output).reshape(
+                1, logical_seq_len, functional_tests.HIDDEN_SIZE
+            )
+            compare("hf_vs_prefill", hf_prefill, prefill_host, 0.995, variant=variant)
+            prefill_output.deallocate(True)
+            physical_cache = [functional_tests._to_torch(mesh_device, tensor) for tensor in eager["kv_cache"]]
+            assert all(tuple(tensor.shape) == cache_shape for tensor in physical_cache)
+            cache_payload = {"page_table": page_table, "key_cache": physical_cache[0], "value_cache": physical_cache[1]}
+            staged_cache = _stage_payload_to_stable(mesh_device, cache_payload, stable)
+            # Verify the physical snapshot/upload round trip before using it as a
+            # trace starting state, including BFP8 packing headers and tiled view.
+            _copy_staged_payload_to_stable(staged_cache, stable)
+            for role, target, expected in zip(("key", "value"), stable["kv_cache"], physical_cache):
+                actual = functional_tests._to_torch(mesh_device, target)
+                compare(f"{role}_snapshot_roundtrip", expected, actual, 0.9999, variant=variant)
+            if variant == 1:
+                compare("page_mapping_prefill", cases[0]["prefill"], prefill_host, 0.9999, variant=variant)
+                for role, original, permuted in zip(("key", "value"), cases[0]["physical_cache"], physical_cache):
+                    compare(
+                        f"{role}_logical_page_mapping",
+                        original.index_select(0, pages_a.flatten().long()),
+                        permuted.index_select(0, pages_b.flatten().long()),
+                        0.9999,
+                        variant=variant,
+                    )
+            eager_outputs = []
+            for step, position in enumerate(positions):
+                host_copies = _copy_payload_to_stable(mesh_device, decode_payloads[step], eager)
+                eager_output = decoder.decode_forward(**eager)
+                eager_host = functional_tests._to_torch(mesh_device, eager_output).reshape(
+                    1, 1, functional_tests.HIDDEN_SIZE
+                )
+                eager_output.deallocate(True)
+                eager_outputs.append(eager_host)
+                compare("hf_vs_eager", hf_decode[step], eager_host, 0.995, variant=variant, position=position)
+            cases.append(
+                {
+                    "prefill": prefill_host,
+                    "physical_cache": physical_cache,
+                    "staged_cache": staged_cache,
+                    "eager": eager_outputs,
+                }
+            )
+            for tensor in (
+                *eager["kv_cache"],
+                *(value for name, value in eager.items() if name not in ("kv_cache", "cache_position_modulo")),
+            ):
+                tensor.deallocate(True)
+
+        staged_decode = [_stage_payload_to_stable(mesh_device, payload, stable) for payload in decode_payloads]
+        _copy_staged_payload_to_stable(cases[0]["staged_cache"], stable)
+        _copy_staged_payload_to_stable(staged_decode[0], stable)
+        # HF was advanced exactly once per logical token above. Warm/capture
+        # rewrite only the first decode row. All prefill, eager calls and host
+        # staging allocations are complete before the trace becomes active.
+        warm_output = decoder.decode_forward(**stable)
+        ttnn.synchronize_device(mesh_device)
+        warm_output.deallocate(True)
+        trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
+        traced_output = decoder.decode_forward(**stable)
+        ttnn.end_trace_capture(mesh_device, trace_id, cq_id=0)
+        try:
+            for round_index, variant in enumerate((0, 1, 0)):
+                _copy_staged_payload_to_stable(cases[variant]["staged_cache"], stable)
+                round_outputs = []
+                for step, position in enumerate(positions):
+                    _copy_staged_payload_to_stable(staged_decode[step], stable)
+                    ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
+                    replay = functional_tests._to_torch(mesh_device, traced_output).reshape_as(hf_decode[step])
+                    round_outputs.append(replay)
+                    compare("hf_vs_replay", hf_decode[step], replay, 0.995, variant=variant, position=position)
+                    compare(
+                        "eager_vs_replay", cases[variant]["eager"][step], replay, 0.9999, variant=variant, position=position
+                    )
+                    if round_index &gt; 0:
+                        compare(
+                            "repeat_a_replay" if round_index == 2 else "page_mapping_replay",
+                            replay_outputs[0][step],
+                            replay,
+                            0.9999,
+                            variant=variant,
+                            position=position,
+                        )
+                    assert {name: int(value.buffer_address()) for name, value in stable_tensors.items()} == addresses
+                replay_outputs.append(round_outputs)
+        finally:
+            ttnn.release_trace(mesh_device, trace_id)
+
+        artifact = (
+            ARTIFACT_DIR
+            / f"cache_{cache_dtype_name}_prefill_trace_{layer_type}_shared{int(shared_physical)}_seq{logical_seq_len}.json"
+        )
+        ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+        artifact.write_text(
+            json.dumps(
+                {
+                    "model_id": functional_tests.MODEL_ID,
+                    "layer_idx": layer_idx,
+                    "activation_source": "seeded random BF16 hidden states; real checkpoint weights",
+                    "activation_seed": seed,
+                    "cache_dtype": str(cache_dtype),
+                    "logical_history": "identical prefix and decode inputs for both physical page mappings",
+                    "logical_prefill_length": logical_seq_len,
+                    "positions": positions,
+                    "payload_order": ["A", "B", "A"],
+                    "page_tables": [pages_a.tolist(), pages_b.tolist()],
+                    "stable_addresses": addresses,
+                    "trace_capture_count": 1,
+                    "trace_replay_count": 9,
+                    "all_eager_and_staging_complete_before_trace": True,
+                    "bulk_fill_source_dtypes": [str(dtype) for dtype in fill_source_dtypes],
+                    "tail_update_source_dtypes": [str(dtype) for dtype in tail_source_dtypes],
+                    "results": results,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        _stamp_artifact(artifact)
+        assert fill_source_dtypes == [cache_dtype, cache_dtype] * 2
+        expected_tail_dtypes = (
+            [ttnn.bfloat16, ttnn.bfloat16] * (2 * (logical_seq_len % 32)) if cache_position_modulo else []
+        )
+        assert tail_source_dtypes == expected_tail_dtypes
+&gt;       assert all(result["passed"] for result in results), [result for result in results if not result["passed"]]
+E       AssertionError: [{'comparison': 'hf_vs_eager', 'finite': True, 'passed': False, 'pcc': 0.9902943566143789, ...}, {'comparison': 'hf_vs_eager', 'finite': True, 'passed': False, 'pcc': 0.9902943566143789, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9902943566143789, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9902943566143789, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9902943566143789, ...}]
+E       assert False
+E        +  where False = all(&lt;generator object test_optimized_nonaligned_prefill_cache_consuming_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x794ea811fd30&gt;)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:894: AssertionError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_nonaligned_prefill_cache_consuming_decode[blackhole-kv_bfp8-sliding_attention_bounded_wrap-device_params0-mesh_device0]" time="5.230"><properties><property name="start_timestamp" value="2026-09-05T12:31:33" /><property name="end_timestamp" value="2026-09-05T12:31:38" /></properties><failure message="AssertionError: [{'comparison': 'hf_vs_eager', 'finite': True, 'passed': False, 'pcc': 0.9946248866026396, ...}, {'comparison': 'hf_vs_eager', 'finite': True, 'passed': False, 'pcc': 0.9946248866026396, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9946248866026396, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9946248866026396, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9946248866026396, ...}]&#10;assert False&#10; +  where False = all(&lt;generator object test_optimized_nonaligned_prefill_cache_consuming_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x794ea8156dc0&gt;)">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x794eb2f91970&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 0
+shared_physical = True, logical_seq_len = 1025, cache_position_modulo = 1024
+cache_dtype_name = 'bfp8'
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,logical_seq_len,cache_position_modulo",
+        [
+            pytest.param(0, True, 1023, 1024, id="sliding_attention_cross_wrap"),
+            pytest.param(0, True, 1025, 1024, id="sliding_attention_bounded_wrap"),
+            pytest.param(5, False, 33, None, id="full_attention_natural_cache"),
+            pytest.param(5, True, 33, None, id="full_attention_shared_cache_view"),
+        ],
+    )
+    @pytest.mark.parametrize("cache_dtype_name", ["bf16", "bfp8"], ids=["kv_bf16", "kv_bfp8"])
+    def test_optimized_nonaligned_prefill_cache_consuming_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        logical_seq_len,
+        cache_position_modulo,
+        cache_dtype_name,
+    ):
+        """Cross cache dtype and physical mapping for the same HF logical history."""
+        _requested_kv_cache_dtype()
+        monkeypatch.setenv("GEMMA4_OPT_KV_CACHE_DTYPE", cache_dtype_name)
+        _install_requested_kv_cache_dtype(monkeypatch)
+        cache_dtype = _requested_kv_cache_dtype()
+        cfg = functional_tests._load_text_config()
+        layer_type = cfg.layer_types[layer_idx]
+        state = functional_tests._load_layer_state(layer_idx)
+        decoder = OptimizedDecoder.from_state_dict(
+            state,
+            hf_config=cfg,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+        )
+        prefix = f"model.language_model.layers.{layer_idx}."
+        reference = functional_tests.Gemma4TextDecoderLayer(cfg, layer_idx=layer_idx).eval().to(dtype=torch.bfloat16)
+        reference.load_state_dict({name[len(prefix) :]: value for name, value in state.items()}, strict=True)
+        rotary = functional_tests.Gemma4TextRotaryEmbedding(cfg)
+        sliding_window = cfg.sliding_window if layer_type == "sliding_attention" else None
+        positions = list(range(logical_seq_len, logical_seq_len + 3))
+        # Keep at least two physical pages so the full-cache permutation changes
+        # the page that is actually read, including for a 33-token prefix.
+        cache_capacity = cache_position_modulo or 256
+        cache_shape = functional_tests._cache_shape(
+            layer_type,
+            shared_physical=shared_physical,
+            token_capacity=cache_capacity,
+        )
+        pages_a = torch.arange(cache_shape[0], dtype=torch.int32).view(1, -1)
+        pages_b = pages_a.roll(1, dims=1)
+        assert not torch.equal(pages_a, pages_b)
+        zero_cache = torch.zeros(cache_shape, dtype=torch.bfloat16)
+        # Retain the original failing sliding/shared-view inputs, and use the
+        # same seed for the natural full-cache control and both cache dtypes.
+        seed = 9101 + layer_idx
+        torch.manual_seed(seed)
+        decode_hidden = torch.randn(1, 3, functional_tests.HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([positions]), layer_type=layer_type)
+        decode_payloads = [
+            {
+                "hidden_states": decode_hidden[:, step : step + 1].unsqueeze(1),
+                "position_cos": decode_cos[:, step : step + 1].unsqueeze(1),
+                "position_sin": decode_sin[:, step : step + 1].unsqueeze(1),
+                "current_pos": torch.tensor([position], dtype=torch.int32),
+            }
+            for step, position in enumerate(positions)
+        ]
+        hidden = torch.randn(1, logical_seq_len, functional_tests.HIDDEN_SIZE, dtype=torch.bfloat16)
+        prefix_positions = torch.arange(logical_seq_len).unsqueeze(0)
+        cos, sin = rotary(hidden, prefix_positions, layer_type=layer_type)
+        hf_cache = functional_tests.DynamicCache(config=cfg)
+        with torch.no_grad():
+            hf_prefill = reference(
+                hidden,
+                shared_kv_states={},
+                position_embeddings=(cos, sin),
+                attention_mask=functional_tests._causal_mask(logical_seq_len, sliding_window=sliding_window),
+                position_ids=prefix_positions,
+                past_key_values=hf_cache,
+            )
+            hf_decode = []
+            for step, position in enumerate(positions):
+                # HF evicts sliding history: size the mask for the keys its
+                # next update returns, not the absolute sequence position.
+                key_length, _ = hf_cache.get_mask_sizes(1, layer_idx)
+                hf_decode.append(
+                    reference(
+                        decode_hidden[:, step : step + 1],
+                        shared_kv_states={},
+                        position_embeddings=(decode_cos[:, step : step + 1], decode_sin[:, step : step + 1]),
+                        attention_mask=functional_tests._decode_mask(key_length, sliding_window=sliding_window),
+                        position_ids=torch.tensor([[position]]),
+                        past_key_values=hf_cache,
+                    )
+                )
+        prefill_inputs = {
+            "hidden_states": functional_tests._as_tt(mesh_device, hidden.unsqueeze(1)),
+            "position_cos": functional_tests._as_tt(mesh_device, cos.unsqueeze(1)),
+            "position_sin": functional_tests._as_tt(mesh_device, sin.unsqueeze(1)),
+        }
+
+        def fresh_decode_args(page_table):
+            payload = {**decode_payloads[0], "page_table": page_table, "key_cache": zero_cache, "value_cache": zero_cache}
+            return {**mutable_tests._device_args(mesh_device, payload), "cache_position_modulo": cache_position_modulo}
+
+        stable = fresh_decode_args(pages_a)
+        stable_tensors = {
+            name: value for name, value in stable.items() if name not in ("kv_cache", "cache_position_modulo")
+        }
+        stable_tensors.update(key_cache=stable["kv_cache"][0], value_cache=stable["kv_cache"][1])
+        addresses = {name: int(value.buffer_address()) for name, value in stable_tensors.items()}
+        fill_source_dtypes = []
+        tail_source_dtypes = []
+        original_fill = ttnn.experimental.paged_fill_cache
+        original_update = ttnn.experimental.paged_update_cache
+
+        def checked_fill(cache, source, *args, **kwargs):
+            fill_source_dtypes.append(source.dtype)
+            assert source.dtype == cache.dtype == cache_dtype
+            return original_fill(cache, source, *args, **kwargs)
+
+        def checked_update(cache, source, *args, **kwargs):
+            tail_source_dtypes.append(source.dtype)
+            assert cache.dtype == cache_dtype
+            assert source.dtype == ttnn.bfloat16
+            return original_update(cache, source, *args, **kwargs)
+
+        results, replay_outputs = [], []
+
+        def compare(label, expected, actual, threshold, *, variant, position=None):
+            finite = bool(torch.isfinite(actual).all())
+            passed, pcc = functional_tests.comp_pcc(expected, actual, threshold)
+            results.append(
+                {
+                    "comparison": label,
+                    "variant": variant,
+                    "position": position,
+                    "pcc": float(pcc),
+                    "threshold": threshold,
+                    "passed": bool(passed) and finite,
+                    "finite": finite,
+                }
+            )
+
+        # Build both physical cache mappings through the decoder's actual view,
+        # then finish all eager work before any trace owns device buffers. Host
+        # snapshots keep their original physical shape; no natural/shared host
+        # reshape is used to manufacture a tiled cache reinterpretation.
+        cases = []
+        for variant, page_table in enumerate((pages_a, pages_b)):
+            eager = fresh_decode_args(page_table)
+            with monkeypatch.context() as cache_ops:
+                cache_ops.setattr(ttnn.experimental, "paged_fill_cache", checked_fill)
+                cache_ops.setattr(ttnn.experimental, "paged_update_cache", checked_update)
+                prefill_output = decoder.prefill_forward(
+                    **prefill_inputs,
+                    page_table=eager["page_table"],
+                    kv_cache=eager["kv_cache"],
+                    cache_position_modulo=cache_position_modulo,
+                )
+            prefill_host = functional_tests._to_torch(mesh_device, prefill_output).reshape(
+                1, logical_seq_len, functional_tests.HIDDEN_SIZE
+            )
+            compare("hf_vs_prefill", hf_prefill, prefill_host, 0.995, variant=variant)
+            prefill_output.deallocate(True)
+            physical_cache = [functional_tests._to_torch(mesh_device, tensor) for tensor in eager["kv_cache"]]
+            assert all(tuple(tensor.shape) == cache_shape for tensor in physical_cache)
+            cache_payload = {"page_table": page_table, "key_cache": physical_cache[0], "value_cache": physical_cache[1]}
+            staged_cache = _stage_payload_to_stable(mesh_device, cache_payload, stable)
+            # Verify the physical snapshot/upload round trip before using it as a
+            # trace starting state, including BFP8 packing headers and tiled view.
+            _copy_staged_payload_to_stable(staged_cache, stable)
+            for role, target, expected in zip(("key", "value"), stable["kv_cache"], physical_cache):
+                actual = functional_tests._to_torch(mesh_device, target)
+                compare(f"{role}_snapshot_roundtrip", expected, actual, 0.9999, variant=variant)
+            if variant == 1:
+                compare("page_mapping_prefill", cases[0]["prefill"], prefill_host, 0.9999, variant=variant)
+                for role, original, permuted in zip(("key", "value"), cases[0]["physical_cache"], physical_cache):
+                    compare(
+                        f"{role}_logical_page_mapping",
+                        original.index_select(0, pages_a.flatten().long()),
+                        permuted.index_select(0, pages_b.flatten().long()),
+                        0.9999,
+                        variant=variant,
+                    )
+            eager_outputs = []
+            for step, position in enumerate(positions):
+                host_copies = _copy_payload_to_stable(mesh_device, decode_payloads[step], eager)
+                eager_output = decoder.decode_forward(**eager)
+                eager_host = functional_tests._to_torch(mesh_device, eager_output).reshape(
+                    1, 1, functional_tests.HIDDEN_SIZE
+                )
+                eager_output.deallocate(True)
+                eager_outputs.append(eager_host)
+                compare("hf_vs_eager", hf_decode[step], eager_host, 0.995, variant=variant, position=position)
+            cases.append(
+                {
+                    "prefill": prefill_host,
+                    "physical_cache": physical_cache,
+                    "staged_cache": staged_cache,
+                    "eager": eager_outputs,
+                }
+            )
+            for tensor in (
+                *eager["kv_cache"],
+                *(value for name, value in eager.items() if name not in ("kv_cache", "cache_position_modulo")),
+            ):
+                tensor.deallocate(True)
+
+        staged_decode = [_stage_payload_to_stable(mesh_device, payload, stable) for payload in decode_payloads]
+        _copy_staged_payload_to_stable(cases[0]["staged_cache"], stable)
+        _copy_staged_payload_to_stable(staged_decode[0], stable)
+        # HF was advanced exactly once per logical token above. Warm/capture
+        # rewrite only the first decode row. All prefill, eager calls and host
+        # staging allocations are complete before the trace becomes active.
+        warm_output = decoder.decode_forward(**stable)
+        ttnn.synchronize_device(mesh_device)
+        warm_output.deallocate(True)
+        trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
+        traced_output = decoder.decode_forward(**stable)
+        ttnn.end_trace_capture(mesh_device, trace_id, cq_id=0)
+        try:
+            for round_index, variant in enumerate((0, 1, 0)):
+                _copy_staged_payload_to_stable(cases[variant]["staged_cache"], stable)
+                round_outputs = []
+                for step, position in enumerate(positions):
+                    _copy_staged_payload_to_stable(staged_decode[step], stable)
+                    ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
+                    replay = functional_tests._to_torch(mesh_device, traced_output).reshape_as(hf_decode[step])
+                    round_outputs.append(replay)
+                    compare("hf_vs_replay", hf_decode[step], replay, 0.995, variant=variant, position=position)
+                    compare(
+                        "eager_vs_replay", cases[variant]["eager"][step], replay, 0.9999, variant=variant, position=position
+                    )
+                    if round_index &gt; 0:
+                        compare(
+                            "repeat_a_replay" if round_index == 2 else "page_mapping_replay",
+                            replay_outputs[0][step],
+                            replay,
+                            0.9999,
+                            variant=variant,
+                            position=position,
+                        )
+                    assert {name: int(value.buffer_address()) for name, value in stable_tensors.items()} == addresses
+                replay_outputs.append(round_outputs)
+        finally:
+            ttnn.release_trace(mesh_device, trace_id)
+
+        artifact = (
+            ARTIFACT_DIR
+            / f"cache_{cache_dtype_name}_prefill_trace_{layer_type}_shared{int(shared_physical)}_seq{logical_seq_len}.json"
+        )
+        ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+        artifact.write_text(
+            json.dumps(
+                {
+                    "model_id": functional_tests.MODEL_ID,
+                    "layer_idx": layer_idx,
+                    "activation_source": "seeded random BF16 hidden states; real checkpoint weights",
+                    "activation_seed": seed,
+                    "cache_dtype": str(cache_dtype),
+                    "logical_history": "identical prefix and decode inputs for both physical page mappings",
+                    "logical_prefill_length": logical_seq_len,
+                    "positions": positions,
+                    "payload_order": ["A", "B", "A"],
+                    "page_tables": [pages_a.tolist(), pages_b.tolist()],
+                    "stable_addresses": addresses,
+                    "trace_capture_count": 1,
+                    "trace_replay_count": 9,
+                    "all_eager_and_staging_complete_before_trace": True,
+                    "bulk_fill_source_dtypes": [str(dtype) for dtype in fill_source_dtypes],
+                    "tail_update_source_dtypes": [str(dtype) for dtype in tail_source_dtypes],
+                    "results": results,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        _stamp_artifact(artifact)
+        assert fill_source_dtypes == [cache_dtype, cache_dtype] * 2
+        expected_tail_dtypes = (
+            [ttnn.bfloat16, ttnn.bfloat16] * (2 * (logical_seq_len % 32)) if cache_position_modulo else []
+        )
+        assert tail_source_dtypes == expected_tail_dtypes
+&gt;       assert all(result["passed"] for result in results), [result for result in results if not result["passed"]]
+E       AssertionError: [{'comparison': 'hf_vs_eager', 'finite': True, 'passed': False, 'pcc': 0.9946248866026396, ...}, {'comparison': 'hf_vs_eager', 'finite': True, 'passed': False, 'pcc': 0.9946248866026396, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9946248866026396, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9946248866026396, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9946248866026396, ...}]
+E       assert False
+E        +  where False = all(&lt;generator object test_optimized_nonaligned_prefill_cache_consuming_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x794ea8156dc0&gt;)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:894: AssertionError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_nonaligned_prefill_cache_consuming_decode[blackhole-kv_bfp8-full_attention_natural_cache-device_params0-mesh_device0]" time="5.022"><properties><property name="start_timestamp" value="2026-09-05T12:31:38" /><property name="end_timestamp" value="2026-09-05T12:31:43" /></properties><failure message="AssertionError: [{'comparison': 'hf_vs_eager', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}, {'comparison': 'hf_vs_eager', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}]&#10;assert False&#10; +  where False = all(&lt;generator object test_optimized_nonaligned_prefill_cache_consuming_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x794ea8156a80&gt;)">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x794eb301ab10&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 5
+shared_physical = False, logical_seq_len = 33, cache_position_modulo = None
+cache_dtype_name = 'bfp8'
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,logical_seq_len,cache_position_modulo",
+        [
+            pytest.param(0, True, 1023, 1024, id="sliding_attention_cross_wrap"),
+            pytest.param(0, True, 1025, 1024, id="sliding_attention_bounded_wrap"),
+            pytest.param(5, False, 33, None, id="full_attention_natural_cache"),
+            pytest.param(5, True, 33, None, id="full_attention_shared_cache_view"),
+        ],
+    )
+    @pytest.mark.parametrize("cache_dtype_name", ["bf16", "bfp8"], ids=["kv_bf16", "kv_bfp8"])
+    def test_optimized_nonaligned_prefill_cache_consuming_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        logical_seq_len,
+        cache_position_modulo,
+        cache_dtype_name,
+    ):
+        """Cross cache dtype and physical mapping for the same HF logical history."""
+        _requested_kv_cache_dtype()
+        monkeypatch.setenv("GEMMA4_OPT_KV_CACHE_DTYPE", cache_dtype_name)
+        _install_requested_kv_cache_dtype(monkeypatch)
+        cache_dtype = _requested_kv_cache_dtype()
+        cfg = functional_tests._load_text_config()
+        layer_type = cfg.layer_types[layer_idx]
+        state = functional_tests._load_layer_state(layer_idx)
+        decoder = OptimizedDecoder.from_state_dict(
+            state,
+            hf_config=cfg,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+        )
+        prefix = f"model.language_model.layers.{layer_idx}."
+        reference = functional_tests.Gemma4TextDecoderLayer(cfg, layer_idx=layer_idx).eval().to(dtype=torch.bfloat16)
+        reference.load_state_dict({name[len(prefix) :]: value for name, value in state.items()}, strict=True)
+        rotary = functional_tests.Gemma4TextRotaryEmbedding(cfg)
+        sliding_window = cfg.sliding_window if layer_type == "sliding_attention" else None
+        positions = list(range(logical_seq_len, logical_seq_len + 3))
+        # Keep at least two physical pages so the full-cache permutation changes
+        # the page that is actually read, including for a 33-token prefix.
+        cache_capacity = cache_position_modulo or 256
+        cache_shape = functional_tests._cache_shape(
+            layer_type,
+            shared_physical=shared_physical,
+            token_capacity=cache_capacity,
+        )
+        pages_a = torch.arange(cache_shape[0], dtype=torch.int32).view(1, -1)
+        pages_b = pages_a.roll(1, dims=1)
+        assert not torch.equal(pages_a, pages_b)
+        zero_cache = torch.zeros(cache_shape, dtype=torch.bfloat16)
+        # Retain the original failing sliding/shared-view inputs, and use the
+        # same seed for the natural full-cache control and both cache dtypes.
+        seed = 9101 + layer_idx
+        torch.manual_seed(seed)
+        decode_hidden = torch.randn(1, 3, functional_tests.HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([positions]), layer_type=layer_type)
+        decode_payloads = [
+            {
+                "hidden_states": decode_hidden[:, step : step + 1].unsqueeze(1),
+                "position_cos": decode_cos[:, step : step + 1].unsqueeze(1),
+                "position_sin": decode_sin[:, step : step + 1].unsqueeze(1),
+                "current_pos": torch.tensor([position], dtype=torch.int32),
+            }
+            for step, position in enumerate(positions)
+        ]
+        hidden = torch.randn(1, logical_seq_len, functional_tests.HIDDEN_SIZE, dtype=torch.bfloat16)
+        prefix_positions = torch.arange(logical_seq_len).unsqueeze(0)
+        cos, sin = rotary(hidden, prefix_positions, layer_type=layer_type)
+        hf_cache = functional_tests.DynamicCache(config=cfg)
+        with torch.no_grad():
+            hf_prefill = reference(
+                hidden,
+                shared_kv_states={},
+                position_embeddings=(cos, sin),
+                attention_mask=functional_tests._causal_mask(logical_seq_len, sliding_window=sliding_window),
+                position_ids=prefix_positions,
+                past_key_values=hf_cache,
+            )
+            hf_decode = []
+            for step, position in enumerate(positions):
+                # HF evicts sliding history: size the mask for the keys its
+                # next update returns, not the absolute sequence position.
+                key_length, _ = hf_cache.get_mask_sizes(1, layer_idx)
+                hf_decode.append(
+                    reference(
+                        decode_hidden[:, step : step + 1],
+                        shared_kv_states={},
+                        position_embeddings=(decode_cos[:, step : step + 1], decode_sin[:, step : step + 1]),
+                        attention_mask=functional_tests._decode_mask(key_length, sliding_window=sliding_window),
+                        position_ids=torch.tensor([[position]]),
+                        past_key_values=hf_cache,
+                    )
+                )
+        prefill_inputs = {
+            "hidden_states": functional_tests._as_tt(mesh_device, hidden.unsqueeze(1)),
+            "position_cos": functional_tests._as_tt(mesh_device, cos.unsqueeze(1)),
+            "position_sin": functional_tests._as_tt(mesh_device, sin.unsqueeze(1)),
+        }
+
+        def fresh_decode_args(page_table):
+            payload = {**decode_payloads[0], "page_table": page_table, "key_cache": zero_cache, "value_cache": zero_cache}
+            return {**mutable_tests._device_args(mesh_device, payload), "cache_position_modulo": cache_position_modulo}
+
+        stable = fresh_decode_args(pages_a)
+        stable_tensors = {
+            name: value for name, value in stable.items() if name not in ("kv_cache", "cache_position_modulo")
+        }
+        stable_tensors.update(key_cache=stable["kv_cache"][0], value_cache=stable["kv_cache"][1])
+        addresses = {name: int(value.buffer_address()) for name, value in stable_tensors.items()}
+        fill_source_dtypes = []
+        tail_source_dtypes = []
+        original_fill = ttnn.experimental.paged_fill_cache
+        original_update = ttnn.experimental.paged_update_cache
+
+        def checked_fill(cache, source, *args, **kwargs):
+            fill_source_dtypes.append(source.dtype)
+            assert source.dtype == cache.dtype == cache_dtype
+            return original_fill(cache, source, *args, **kwargs)
+
+        def checked_update(cache, source, *args, **kwargs):
+            tail_source_dtypes.append(source.dtype)
+            assert cache.dtype == cache_dtype
+            assert source.dtype == ttnn.bfloat16
+            return original_update(cache, source, *args, **kwargs)
+
+        results, replay_outputs = [], []
+
+        def compare(label, expected, actual, threshold, *, variant, position=None):
+            finite = bool(torch.isfinite(actual).all())
+            passed, pcc = functional_tests.comp_pcc(expected, actual, threshold)
+            results.append(
+                {
+                    "comparison": label,
+                    "variant": variant,
+                    "position": position,
+                    "pcc": float(pcc),
+                    "threshold": threshold,
+                    "passed": bool(passed) and finite,
+                    "finite": finite,
+                }
+            )
+
+        # Build both physical cache mappings through the decoder's actual view,
+        # then finish all eager work before any trace owns device buffers. Host
+        # snapshots keep their original physical shape; no natural/shared host
+        # reshape is used to manufacture a tiled cache reinterpretation.
+        cases = []
+        for variant, page_table in enumerate((pages_a, pages_b)):
+            eager = fresh_decode_args(page_table)
+            with monkeypatch.context() as cache_ops:
+                cache_ops.setattr(ttnn.experimental, "paged_fill_cache", checked_fill)
+                cache_ops.setattr(ttnn.experimental, "paged_update_cache", checked_update)
+                prefill_output = decoder.prefill_forward(
+                    **prefill_inputs,
+                    page_table=eager["page_table"],
+                    kv_cache=eager["kv_cache"],
+                    cache_position_modulo=cache_position_modulo,
+                )
+            prefill_host = functional_tests._to_torch(mesh_device, prefill_output).reshape(
+                1, logical_seq_len, functional_tests.HIDDEN_SIZE
+            )
+            compare("hf_vs_prefill", hf_prefill, prefill_host, 0.995, variant=variant)
+            prefill_output.deallocate(True)
+            physical_cache = [functional_tests._to_torch(mesh_device, tensor) for tensor in eager["kv_cache"]]
+            assert all(tuple(tensor.shape) == cache_shape for tensor in physical_cache)
+            cache_payload = {"page_table": page_table, "key_cache": physical_cache[0], "value_cache": physical_cache[1]}
+            staged_cache = _stage_payload_to_stable(mesh_device, cache_payload, stable)
+            # Verify the physical snapshot/upload round trip before using it as a
+            # trace starting state, including BFP8 packing headers and tiled view.
+            _copy_staged_payload_to_stable(staged_cache, stable)
+            for role, target, expected in zip(("key", "value"), stable["kv_cache"], physical_cache):
+                actual = functional_tests._to_torch(mesh_device, target)
+                compare(f"{role}_snapshot_roundtrip", expected, actual, 0.9999, variant=variant)
+            if variant == 1:
+                compare("page_mapping_prefill", cases[0]["prefill"], prefill_host, 0.9999, variant=variant)
+                for role, original, permuted in zip(("key", "value"), cases[0]["physical_cache"], physical_cache):
+                    compare(
+                        f"{role}_logical_page_mapping",
+                        original.index_select(0, pages_a.flatten().long()),
+                        permuted.index_select(0, pages_b.flatten().long()),
+                        0.9999,
+                        variant=variant,
+                    )
+            eager_outputs = []
+            for step, position in enumerate(positions):
+                host_copies = _copy_payload_to_stable(mesh_device, decode_payloads[step], eager)
+                eager_output = decoder.decode_forward(**eager)
+                eager_host = functional_tests._to_torch(mesh_device, eager_output).reshape(
+                    1, 1, functional_tests.HIDDEN_SIZE
+                )
+                eager_output.deallocate(True)
+                eager_outputs.append(eager_host)
+                compare("hf_vs_eager", hf_decode[step], eager_host, 0.995, variant=variant, position=position)
+            cases.append(
+                {
+                    "prefill": prefill_host,
+                    "physical_cache": physical_cache,
+                    "staged_cache": staged_cache,
+                    "eager": eager_outputs,
+                }
+            )
+            for tensor in (
+                *eager["kv_cache"],
+                *(value for name, value in eager.items() if name not in ("kv_cache", "cache_position_modulo")),
+            ):
+                tensor.deallocate(True)
+
+        staged_decode = [_stage_payload_to_stable(mesh_device, payload, stable) for payload in decode_payloads]
+        _copy_staged_payload_to_stable(cases[0]["staged_cache"], stable)
+        _copy_staged_payload_to_stable(staged_decode[0], stable)
+        # HF was advanced exactly once per logical token above. Warm/capture
+        # rewrite only the first decode row. All prefill, eager calls and host
+        # staging allocations are complete before the trace becomes active.
+        warm_output = decoder.decode_forward(**stable)
+        ttnn.synchronize_device(mesh_device)
+        warm_output.deallocate(True)
+        trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
+        traced_output = decoder.decode_forward(**stable)
+        ttnn.end_trace_capture(mesh_device, trace_id, cq_id=0)
+        try:
+            for round_index, variant in enumerate((0, 1, 0)):
+                _copy_staged_payload_to_stable(cases[variant]["staged_cache"], stable)
+                round_outputs = []
+                for step, position in enumerate(positions):
+                    _copy_staged_payload_to_stable(staged_decode[step], stable)
+                    ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
+                    replay = functional_tests._to_torch(mesh_device, traced_output).reshape_as(hf_decode[step])
+                    round_outputs.append(replay)
+                    compare("hf_vs_replay", hf_decode[step], replay, 0.995, variant=variant, position=position)
+                    compare(
+                        "eager_vs_replay", cases[variant]["eager"][step], replay, 0.9999, variant=variant, position=position
+                    )
+                    if round_index &gt; 0:
+                        compare(
+                            "repeat_a_replay" if round_index == 2 else "page_mapping_replay",
+                            replay_outputs[0][step],
+                            replay,
+                            0.9999,
+                            variant=variant,
+                            position=position,
+                        )
+                    assert {name: int(value.buffer_address()) for name, value in stable_tensors.items()} == addresses
+                replay_outputs.append(round_outputs)
+        finally:
+            ttnn.release_trace(mesh_device, trace_id)
+
+        artifact = (
+            ARTIFACT_DIR
+            / f"cache_{cache_dtype_name}_prefill_trace_{layer_type}_shared{int(shared_physical)}_seq{logical_seq_len}.json"
+        )
+        ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+        artifact.write_text(
+            json.dumps(
+                {
+                    "model_id": functional_tests.MODEL_ID,
+                    "layer_idx": layer_idx,
+                    "activation_source": "seeded random BF16 hidden states; real checkpoint weights",
+                    "activation_seed": seed,
+                    "cache_dtype": str(cache_dtype),
+                    "logical_history": "identical prefix and decode inputs for both physical page mappings",
+                    "logical_prefill_length": logical_seq_len,
+                    "positions": positions,
+                    "payload_order": ["A", "B", "A"],
+                    "page_tables": [pages_a.tolist(), pages_b.tolist()],
+                    "stable_addresses": addresses,
+                    "trace_capture_count": 1,
+                    "trace_replay_count": 9,
+                    "all_eager_and_staging_complete_before_trace": True,
+                    "bulk_fill_source_dtypes": [str(dtype) for dtype in fill_source_dtypes],
+                    "tail_update_source_dtypes": [str(dtype) for dtype in tail_source_dtypes],
+                    "results": results,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        _stamp_artifact(artifact)
+        assert fill_source_dtypes == [cache_dtype, cache_dtype] * 2
+        expected_tail_dtypes = (
+            [ttnn.bfloat16, ttnn.bfloat16] * (2 * (logical_seq_len % 32)) if cache_position_modulo else []
+        )
+        assert tail_source_dtypes == expected_tail_dtypes
+&gt;       assert all(result["passed"] for result in results), [result for result in results if not result["passed"]]
+E       AssertionError: [{'comparison': 'hf_vs_eager', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}, {'comparison': 'hf_vs_eager', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}]
+E       assert False
+E        +  where False = all(&lt;generator object test_optimized_nonaligned_prefill_cache_consuming_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x794ea8156a80&gt;)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:894: AssertionError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_nonaligned_prefill_cache_consuming_decode[blackhole-kv_bfp8-full_attention_shared_cache_view-device_params0-mesh_device0]" time="4.871"><properties><property name="start_timestamp" value="2026-09-05T12:31:43" /><property name="end_timestamp" value="2026-09-05T12:31:48" /></properties><failure message="AssertionError: [{'comparison': 'hf_vs_eager', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}, {'comparison': 'hf_vs_eager', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}]&#10;assert False&#10; +  where False = all(&lt;generator object test_optimized_nonaligned_prefill_cache_consuming_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x794ea8157b90&gt;)">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x794eb2f39880&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 5
+shared_physical = True, logical_seq_len = 33, cache_position_modulo = None
+cache_dtype_name = 'bfp8'
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,logical_seq_len,cache_position_modulo",
+        [
+            pytest.param(0, True, 1023, 1024, id="sliding_attention_cross_wrap"),
+            pytest.param(0, True, 1025, 1024, id="sliding_attention_bounded_wrap"),
+            pytest.param(5, False, 33, None, id="full_attention_natural_cache"),
+            pytest.param(5, True, 33, None, id="full_attention_shared_cache_view"),
+        ],
+    )
+    @pytest.mark.parametrize("cache_dtype_name", ["bf16", "bfp8"], ids=["kv_bf16", "kv_bfp8"])
+    def test_optimized_nonaligned_prefill_cache_consuming_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        logical_seq_len,
+        cache_position_modulo,
+        cache_dtype_name,
+    ):
+        """Cross cache dtype and physical mapping for the same HF logical history."""
+        _requested_kv_cache_dtype()
+        monkeypatch.setenv("GEMMA4_OPT_KV_CACHE_DTYPE", cache_dtype_name)
+        _install_requested_kv_cache_dtype(monkeypatch)
+        cache_dtype = _requested_kv_cache_dtype()
+        cfg = functional_tests._load_text_config()
+        layer_type = cfg.layer_types[layer_idx]
+        state = functional_tests._load_layer_state(layer_idx)
+        decoder = OptimizedDecoder.from_state_dict(
+            state,
+            hf_config=cfg,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+        )
+        prefix = f"model.language_model.layers.{layer_idx}."
+        reference = functional_tests.Gemma4TextDecoderLayer(cfg, layer_idx=layer_idx).eval().to(dtype=torch.bfloat16)
+        reference.load_state_dict({name[len(prefix) :]: value for name, value in state.items()}, strict=True)
+        rotary = functional_tests.Gemma4TextRotaryEmbedding(cfg)
+        sliding_window = cfg.sliding_window if layer_type == "sliding_attention" else None
+        positions = list(range(logical_seq_len, logical_seq_len + 3))
+        # Keep at least two physical pages so the full-cache permutation changes
+        # the page that is actually read, including for a 33-token prefix.
+        cache_capacity = cache_position_modulo or 256
+        cache_shape = functional_tests._cache_shape(
+            layer_type,
+            shared_physical=shared_physical,
+            token_capacity=cache_capacity,
+        )
+        pages_a = torch.arange(cache_shape[0], dtype=torch.int32).view(1, -1)
+        pages_b = pages_a.roll(1, dims=1)
+        assert not torch.equal(pages_a, pages_b)
+        zero_cache = torch.zeros(cache_shape, dtype=torch.bfloat16)
+        # Retain the original failing sliding/shared-view inputs, and use the
+        # same seed for the natural full-cache control and both cache dtypes.
+        seed = 9101 + layer_idx
+        torch.manual_seed(seed)
+        decode_hidden = torch.randn(1, 3, functional_tests.HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([positions]), layer_type=layer_type)
+        decode_payloads = [
+            {
+                "hidden_states": decode_hidden[:, step : step + 1].unsqueeze(1),
+                "position_cos": decode_cos[:, step : step + 1].unsqueeze(1),
+                "position_sin": decode_sin[:, step : step + 1].unsqueeze(1),
+                "current_pos": torch.tensor([position], dtype=torch.int32),
+            }
+            for step, position in enumerate(positions)
+        ]
+        hidden = torch.randn(1, logical_seq_len, functional_tests.HIDDEN_SIZE, dtype=torch.bfloat16)
+        prefix_positions = torch.arange(logical_seq_len).unsqueeze(0)
+        cos, sin = rotary(hidden, prefix_positions, layer_type=layer_type)
+        hf_cache = functional_tests.DynamicCache(config=cfg)
+        with torch.no_grad():
+            hf_prefill = reference(
+                hidden,
+                shared_kv_states={},
+                position_embeddings=(cos, sin),
+                attention_mask=functional_tests._causal_mask(logical_seq_len, sliding_window=sliding_window),
+                position_ids=prefix_positions,
+                past_key_values=hf_cache,
+            )
+            hf_decode = []
+            for step, position in enumerate(positions):
+                # HF evicts sliding history: size the mask for the keys its
+                # next update returns, not the absolute sequence position.
+                key_length, _ = hf_cache.get_mask_sizes(1, layer_idx)
+                hf_decode.append(
+                    reference(
+                        decode_hidden[:, step : step + 1],
+                        shared_kv_states={},
+                        position_embeddings=(decode_cos[:, step : step + 1], decode_sin[:, step : step + 1]),
+                        attention_mask=functional_tests._decode_mask(key_length, sliding_window=sliding_window),
+                        position_ids=torch.tensor([[position]]),
+                        past_key_values=hf_cache,
+                    )
+                )
+        prefill_inputs = {
+            "hidden_states": functional_tests._as_tt(mesh_device, hidden.unsqueeze(1)),
+            "position_cos": functional_tests._as_tt(mesh_device, cos.unsqueeze(1)),
+            "position_sin": functional_tests._as_tt(mesh_device, sin.unsqueeze(1)),
+        }
+
+        def fresh_decode_args(page_table):
+            payload = {**decode_payloads[0], "page_table": page_table, "key_cache": zero_cache, "value_cache": zero_cache}
+            return {**mutable_tests._device_args(mesh_device, payload), "cache_position_modulo": cache_position_modulo}
+
+        stable = fresh_decode_args(pages_a)
+        stable_tensors = {
+            name: value for name, value in stable.items() if name not in ("kv_cache", "cache_position_modulo")
+        }
+        stable_tensors.update(key_cache=stable["kv_cache"][0], value_cache=stable["kv_cache"][1])
+        addresses = {name: int(value.buffer_address()) for name, value in stable_tensors.items()}
+        fill_source_dtypes = []
+        tail_source_dtypes = []
+        original_fill = ttnn.experimental.paged_fill_cache
+        original_update = ttnn.experimental.paged_update_cache
+
+        def checked_fill(cache, source, *args, **kwargs):
+            fill_source_dtypes.append(source.dtype)
+            assert source.dtype == cache.dtype == cache_dtype
+            return original_fill(cache, source, *args, **kwargs)
+
+        def checked_update(cache, source, *args, **kwargs):
+            tail_source_dtypes.append(source.dtype)
+            assert cache.dtype == cache_dtype
+            assert source.dtype == ttnn.bfloat16
+            return original_update(cache, source, *args, **kwargs)
+
+        results, replay_outputs = [], []
+
+        def compare(label, expected, actual, threshold, *, variant, position=None):
+            finite = bool(torch.isfinite(actual).all())
+            passed, pcc = functional_tests.comp_pcc(expected, actual, threshold)
+            results.append(
+                {
+                    "comparison": label,
+                    "variant": variant,
+                    "position": position,
+                    "pcc": float(pcc),
+                    "threshold": threshold,
+                    "passed": bool(passed) and finite,
+                    "finite": finite,
+                }
+            )
+
+        # Build both physical cache mappings through the decoder's actual view,
+        # then finish all eager work before any trace owns device buffers. Host
+        # snapshots keep their original physical shape; no natural/shared host
+        # reshape is used to manufacture a tiled cache reinterpretation.
+        cases = []
+        for variant, page_table in enumerate((pages_a, pages_b)):
+            eager = fresh_decode_args(page_table)
+            with monkeypatch.context() as cache_ops:
+                cache_ops.setattr(ttnn.experimental, "paged_fill_cache", checked_fill)
+                cache_ops.setattr(ttnn.experimental, "paged_update_cache", checked_update)
+                prefill_output = decoder.prefill_forward(
+                    **prefill_inputs,
+                    page_table=eager["page_table"],
+                    kv_cache=eager["kv_cache"],
+                    cache_position_modulo=cache_position_modulo,
+                )
+            prefill_host = functional_tests._to_torch(mesh_device, prefill_output).reshape(
+                1, logical_seq_len, functional_tests.HIDDEN_SIZE
+            )
+            compare("hf_vs_prefill", hf_prefill, prefill_host, 0.995, variant=variant)
+            prefill_output.deallocate(True)
+            physical_cache = [functional_tests._to_torch(mesh_device, tensor) for tensor in eager["kv_cache"]]
+            assert all(tuple(tensor.shape) == cache_shape for tensor in physical_cache)
+            cache_payload = {"page_table": page_table, "key_cache": physical_cache[0], "value_cache": physical_cache[1]}
+            staged_cache = _stage_payload_to_stable(mesh_device, cache_payload, stable)
+            # Verify the physical snapshot/upload round trip before using it as a
+            # trace starting state, including BFP8 packing headers and tiled view.
+            _copy_staged_payload_to_stable(staged_cache, stable)
+            for role, target, expected in zip(("key", "value"), stable["kv_cache"], physical_cache):
+                actual = functional_tests._to_torch(mesh_device, target)
+                compare(f"{role}_snapshot_roundtrip", expected, actual, 0.9999, variant=variant)
+            if variant == 1:
+                compare("page_mapping_prefill", cases[0]["prefill"], prefill_host, 0.9999, variant=variant)
+                for role, original, permuted in zip(("key", "value"), cases[0]["physical_cache"], physical_cache):
+                    compare(
+                        f"{role}_logical_page_mapping",
+                        original.index_select(0, pages_a.flatten().long()),
+                        permuted.index_select(0, pages_b.flatten().long()),
+                        0.9999,
+                        variant=variant,
+                    )
+            eager_outputs = []
+            for step, position in enumerate(positions):
+                host_copies = _copy_payload_to_stable(mesh_device, decode_payloads[step], eager)
+                eager_output = decoder.decode_forward(**eager)
+                eager_host = functional_tests._to_torch(mesh_device, eager_output).reshape(
+                    1, 1, functional_tests.HIDDEN_SIZE
+                )
+                eager_output.deallocate(True)
+                eager_outputs.append(eager_host)
+                compare("hf_vs_eager", hf_decode[step], eager_host, 0.995, variant=variant, position=position)
+            cases.append(
+                {
+                    "prefill": prefill_host,
+                    "physical_cache": physical_cache,
+                    "staged_cache": staged_cache,
+                    "eager": eager_outputs,
+                }
+            )
+            for tensor in (
+                *eager["kv_cache"],
+                *(value for name, value in eager.items() if name not in ("kv_cache", "cache_position_modulo")),
+            ):
+                tensor.deallocate(True)
+
+        staged_decode = [_stage_payload_to_stable(mesh_device, payload, stable) for payload in decode_payloads]
+        _copy_staged_payload_to_stable(cases[0]["staged_cache"], stable)
+        _copy_staged_payload_to_stable(staged_decode[0], stable)
+        # HF was advanced exactly once per logical token above. Warm/capture
+        # rewrite only the first decode row. All prefill, eager calls and host
+        # staging allocations are complete before the trace becomes active.
+        warm_output = decoder.decode_forward(**stable)
+        ttnn.synchronize_device(mesh_device)
+        warm_output.deallocate(True)
+        trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
+        traced_output = decoder.decode_forward(**stable)
+        ttnn.end_trace_capture(mesh_device, trace_id, cq_id=0)
+        try:
+            for round_index, variant in enumerate((0, 1, 0)):
+                _copy_staged_payload_to_stable(cases[variant]["staged_cache"], stable)
+                round_outputs = []
+                for step, position in enumerate(positions):
+                    _copy_staged_payload_to_stable(staged_decode[step], stable)
+                    ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
+                    replay = functional_tests._to_torch(mesh_device, traced_output).reshape_as(hf_decode[step])
+                    round_outputs.append(replay)
+                    compare("hf_vs_replay", hf_decode[step], replay, 0.995, variant=variant, position=position)
+                    compare(
+                        "eager_vs_replay", cases[variant]["eager"][step], replay, 0.9999, variant=variant, position=position
+                    )
+                    if round_index &gt; 0:
+                        compare(
+                            "repeat_a_replay" if round_index == 2 else "page_mapping_replay",
+                            replay_outputs[0][step],
+                            replay,
+                            0.9999,
+                            variant=variant,
+                            position=position,
+                        )
+                    assert {name: int(value.buffer_address()) for name, value in stable_tensors.items()} == addresses
+                replay_outputs.append(round_outputs)
+        finally:
+            ttnn.release_trace(mesh_device, trace_id)
+
+        artifact = (
+            ARTIFACT_DIR
+            / f"cache_{cache_dtype_name}_prefill_trace_{layer_type}_shared{int(shared_physical)}_seq{logical_seq_len}.json"
+        )
+        ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+        artifact.write_text(
+            json.dumps(
+                {
+                    "model_id": functional_tests.MODEL_ID,
+                    "layer_idx": layer_idx,
+                    "activation_source": "seeded random BF16 hidden states; real checkpoint weights",
+                    "activation_seed": seed,
+                    "cache_dtype": str(cache_dtype),
+                    "logical_history": "identical prefix and decode inputs for both physical page mappings",
+                    "logical_prefill_length": logical_seq_len,
+                    "positions": positions,
+                    "payload_order": ["A", "B", "A"],
+                    "page_tables": [pages_a.tolist(), pages_b.tolist()],
+                    "stable_addresses": addresses,
+                    "trace_capture_count": 1,
+                    "trace_replay_count": 9,
+                    "all_eager_and_staging_complete_before_trace": True,
+                    "bulk_fill_source_dtypes": [str(dtype) for dtype in fill_source_dtypes],
+                    "tail_update_source_dtypes": [str(dtype) for dtype in tail_source_dtypes],
+                    "results": results,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        _stamp_artifact(artifact)
+        assert fill_source_dtypes == [cache_dtype, cache_dtype] * 2
+        expected_tail_dtypes = (
+            [ttnn.bfloat16, ttnn.bfloat16] * (2 * (logical_seq_len % 32)) if cache_position_modulo else []
+        )
+        assert tail_source_dtypes == expected_tail_dtypes
+&gt;       assert all(result["passed"] for result in results), [result for result in results if not result["passed"]]
+E       AssertionError: [{'comparison': 'hf_vs_eager', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}, {'comparison': 'hf_vs_eager', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}, {'comparison': 'hf_vs_replay', 'finite': True, 'passed': False, 'pcc': 0.9886732024623817, ...}]
+E       assert False
+E        +  where False = all(&lt;generator object test_optimized_nonaligned_prefill_cache_consuming_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x794ea8157b90&gt;)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:894: AssertionError</failure></testcase></testsuite></testsuites>

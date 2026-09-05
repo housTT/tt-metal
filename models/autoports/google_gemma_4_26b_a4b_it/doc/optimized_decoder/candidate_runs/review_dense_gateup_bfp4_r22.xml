@@ -1,0 +1,467 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="7" time="37.884" timestamp="2026-09-05T10:01:03.207850+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_real_weights_prefill_decode[blackhole-sliding_attention_shared_cache-device_params0-mesh_device0]" time="6.220"><properties><property name="start_timestamp" value="2026-09-05T10:01:04" /><property name="end_timestamp" value="2026-09-05T10:01:10" /></properties><failure message="AssertionError: [{'passed': False, 'pcc': 0.9884442989995441, 'threshold': 0.995}, {'passed': False, 'pcc': 0.9935913721591809, 'threshold': 0.995}]&#10;assert False&#10; +  where False = all(&lt;generator object test_optimized_real_weights_prefill_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x7922996e4860&gt;)">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x792299f433b0&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 0
+shared_physical = True, decode_pcc = 0.995
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,decode_pcc",
+        [
+            pytest.param(0, True, 0.995, id="sliding_attention_shared_cache"),
+            pytest.param(5, False, 0.995, id="full_attention_natural_cache"),
+            pytest.param(5, True, 0.995, id="full_attention_shared_cache_view"),
+        ],
+    )
+    def test_optimized_real_weights_prefill_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        decode_pcc,
+    ):
+        if os.getenv("GEMMA4_OPT_KV_CACHE_DTYPE") == "bfp8":
+            original_as_tt = functional_tests._as_tt
+
+            def as_tt_with_bfp8_cache(mesh, tensor, *, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT):
+                cache_geometry = tensor.ndim == 4 and tuple(tensor.shape[1:]) in {
+                    (8, 64, 256),
+                    (2, 128, 512),
+                }
+                if cache_geometry and dtype == ttnn.bfloat16:
+                    dtype = ttnn.bfloat8_b
+                return original_as_tt(mesh, tensor, dtype=dtype, layout=layout)
+
+            monkeypatch.setattr(functional_tests, "_as_tt", as_tt_with_bfp8_cache)
+        pcc_results = []
+        original_comp_pcc = functional_tests.comp_pcc
+
+        def comp_pcc_recording(reference, actual, threshold):
+            ok, pcc = original_comp_pcc(reference, actual, threshold)
+            pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+            # Let the functional oracle finish writing its raw measurement so
+            # rejected optimization candidates retain immutable provenance.
+            return True, pcc
+
+        monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_recording)
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=(
+                "decode_forward",
+                "_attention_prefill",
+                "_attention_decode",
+                "_dense_mlp",
+                "_moe_prefill",
+                "_moe_prefill_chunk",
+                "_moe_decode_single_user",
+            ),
+        )
+        functional_tests.test_functional_decoder_real_weights_prefill_decode(
+            mesh_device,
+            device_params,
+            layer_idx,
+            shared_physical,
+            decode_pcc,
+        )
+        assert all(count &gt; 0 for count in calls.values()), calls
+        layer_type = functional_tests._load_text_config().layer_types[layer_idx]
+        artifact = _stamp_artifact(ARTIFACT_DIR / f"pcc_layer{layer_idx}_{layer_type}_shared{int(shared_physical)}.json")
+        artifact["pcc_results"] = pcc_results
+        artifact_path = ARTIFACT_DIR / f"pcc_layer{layer_idx}_{layer_type}_shared{int(shared_physical)}.json"
+        artifact_path.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n")
+        candidate_id = os.getenv("GEMMA4_OPT_CANDIDATE_ID")
+        if candidate_id:
+            candidate_path = ARTIFACT_DIR / "candidate_runs" / f"{candidate_id}.json"
+            candidate = json.loads(candidate_path.read_text())
+            candidate[artifact_path.name] = artifact
+            candidate_path.write_text(json.dumps(candidate, indent=2, sort_keys=True) + "\n")
+&gt;       assert all(result["passed"] for result in pcc_results), pcc_results
+E       AssertionError: [{'passed': False, 'pcc': 0.9884442989995441, 'threshold': 0.995}, {'passed': False, 'pcc': 0.9935913721591809, 'threshold': 0.995}]
+E       assert False
+E        +  where False = all(&lt;generator object test_optimized_real_weights_prefill_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x7922996e4860&gt;)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:384: AssertionError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_traced_decode_batch_contract[blackhole-batch1-sliding_attention-device_params0-mesh_device0]" time="4.696"><properties><property name="start_timestamp" value="2026-09-05T10:01:10" /><property name="end_timestamp" value="2026-09-05T10:01:15" /></properties><failure message="AssertionError: 0.9913431331421614&#10;assert False">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7922997e7d40&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 0, batch = 1
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    @pytest.mark.parametrize("batch", [1, 32], ids=["batch1", "batch32"])
+    def test_optimized_traced_decode_batch_contract(monkeypatch, mesh_device, device_params, layer_idx, batch):
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=("decode_forward", "_attention_decode", "_dense_mlp", "_moe_decode_single_user"),
+        )
+        per_user_pcc = []
+        best_replay_user = []
+        pcc_results = []
+        if batch == 32:
+            original_comp_pcc = functional_tests.comp_pcc
+
+            def comp_pcc_with_per_user_gate(reference, actual, threshold):
+                ok, pcc = original_comp_pcc(reference, actual, threshold)
+                pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+                if threshold == 0.995 and reference.shape[0] == batch:
+                    per_user_pcc.extend(
+                        float(original_comp_pcc(reference[index : index + 1], actual[index : index + 1], threshold)[1])
+                        for index in range(batch)
+                    )
+                    reference_rows = torch.nn.functional.normalize(reference.float().reshape(batch, -1), dim=-1)
+                    actual_rows = torch.nn.functional.normalize(actual.float().reshape(batch, -1), dim=-1)
+                    best_replay_user.extend((reference_rows @ actual_rows.T).argmax(dim=1).tolist())
+                return True, pcc
+
+            monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_with_per_user_gate)
+&gt;       functional_tests.test_traced_decode_batch_contract(mesh_device, device_params, layer_idx, batch)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:542:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 0, batch = 1
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    @pytest.mark.parametrize("batch", [1, 32], ids=["batch1", "batch32"])
+    def test_traced_decode_batch_contract(mesh_device, device_params, layer_idx, batch):
+        """Trace/replay paged decode at the functional and serving batches."""
+        cfg = _load_text_config()
+        layer_type = cfg.layer_types[layer_idx]
+        state = _load_layer_state(layer_idx)
+        current_position = 32
+        if layer_type == "full_attention":
+            torch.manual_seed(layer_idx)
+            full_prefix = torch.randn(1, current_position, HIDDEN_SIZE, dtype=torch.bfloat16)
+            full_decode = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+            prefix_hidden_for_full = full_prefix.expand(batch, -1, -1).clone()
+            hidden = full_decode.expand(batch, -1, -1).clone()
+        else:
+            torch.manual_seed(2000 + layer_idx + batch)
+            prefix_hidden_for_full = None
+            hidden = torch.randn(batch, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+        positions = torch.full((batch, 1), current_position, dtype=torch.long)
+        rotary = Gemma4TextRotaryEmbedding(cfg)
+        cos, sin = rotary(hidden, positions, layer_type=layer_type)
+        if layer_type == "full_attention":
+            num_kv_heads, block_size, head_dim = FULL_NUM_KV_HEADS, FULL_BLOCK_SIZE, FULL_HEAD_DIM
+        else:
+            num_kv_heads, block_size, head_dim = (
+                SLIDING_NUM_KV_HEADS,
+                SLIDING_BLOCK_SIZE,
+                SLIDING_HEAD_DIM,
+            )
+
+        prefix = f"model.language_model.layers.{layer_idx}"
+        reference_layer = Gemma4TextDecoderLayer(cfg, layer_idx=layer_idx).eval().to(dtype=torch.bfloat16)
+        reference_layer.load_state_dict({k[len(prefix) + 1 :]: v for k, v in state.items()}, strict=True)
+        reference_cache = DynamicCache(config=cfg)
+        prefix_hidden = None
+        prefix_cos = None
+        prefix_sin = None
+        if layer_type == "full_attention":
+            prefix_hidden = prefix_hidden_for_full
+            prefix_positions = torch.arange(current_position).view(1, -1).expand(batch, -1)
+            prefix_cos, prefix_sin = rotary(
+                prefix_hidden,
+                prefix_positions,
+                layer_type=layer_type,
+            )
+            with torch.no_grad():
+                reference_layer(
+                    prefix_hidden,
+                    shared_kv_states={},
+                    position_embeddings=(prefix_cos, prefix_sin),
+                    attention_mask=_causal_mask(current_position, sliding_window=None).expand(batch, -1, -1, -1),
+                    position_ids=prefix_positions,
+                    past_key_values=reference_cache,
+                )
+        else:
+            reference_cache.update(
+                torch.zeros(batch, num_kv_heads, current_position, head_dim, dtype=torch.bfloat16),
+                torch.zeros(batch, num_kv_heads, current_position, head_dim, dtype=torch.bfloat16),
+                layer_idx=layer_idx,
+            )
+        with torch.no_grad():
+            reference = reference_layer(
+                hidden,
+                shared_kv_states={},
+                position_embeddings=(cos, sin),
+                attention_mask=_decode_mask(
+                    current_position + 1,
+                    sliding_window=cfg.sliding_window if layer_type == "sliding_attention" else None,
+                ).expand(batch, -1, -1, -1),
+                position_ids=positions,
+                past_key_values=reference_cache,
+            )
+
+        decoder = FunctionalDecoder.from_state_dict(
+            state,
+            hf_config=cfg,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+        )
+        blocks_per_user = 2 if layer_type == "full_attention" else 4
+        page_table = _as_tt(
+            mesh_device,
+            torch.arange(batch * blocks_per_user, dtype=torch.int32).view(batch, blocks_per_user),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        cache_shape = (batch * blocks_per_user, num_kv_heads, block_size, head_dim)
+        kv_cache = (
+            _as_tt(mesh_device, torch.zeros(cache_shape, dtype=torch.bfloat16)),
+            _as_tt(mesh_device, torch.zeros(cache_shape, dtype=torch.bfloat16)),
+        )
+        if layer_type == "full_attention":
+            for user_id in range(batch):
+                decoder.prefill_forward(
+                    _as_tt(mesh_device, prefix_hidden[user_id : user_id + 1].unsqueeze(1)),
+                    position_cos=_as_tt(mesh_device, prefix_cos[user_id : user_id + 1].unsqueeze(1)),
+                    position_sin=_as_tt(mesh_device, prefix_sin[user_id : user_id + 1].unsqueeze(1)),
+                    page_table=page_table,
+                    kv_cache=kv_cache,
+                    user_id=user_id,
+                )
+        if layer_type == "sliding_attention":
+            tt_cos = cos.unsqueeze(0)
+            tt_sin = sin.unsqueeze(0)
+        else:
+            tt_cos = cos.transpose(0, 1).unsqueeze(0)
+            tt_sin = sin.transpose(0, 1).unsqueeze(0)
+        decode_args = {
+            "hidden_states": _as_tt(mesh_device, hidden.transpose(0, 1).unsqueeze(0)),
+            "position_cos": _as_tt(mesh_device, tt_cos),
+            "position_sin": _as_tt(mesh_device, tt_sin),
+            "current_pos": _as_tt(
+                mesh_device,
+                torch.full((batch,), current_position, dtype=torch.int32),
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            ),
+            "page_table": page_table,
+            "kv_cache": kv_cache,
+        }
+
+        eager_output = decoder.decode_forward(**decode_args)
+        ttnn.synchronize_device(mesh_device)
+        eager = _to_torch(mesh_device, eager_output).reshape(1, batch, HIDDEN_SIZE).transpose(0, 1).to(torch.bfloat16)
+        trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
+        traced_output = decoder.decode_forward(**decode_args)
+        ttnn.end_trace_capture(mesh_device, trace_id, cq_id=0)
+        ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
+        replay = _to_torch(mesh_device, traced_output).reshape(1, batch, HIDDEN_SIZE).transpose(0, 1).to(torch.bfloat16)
+        ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
+        replay_repeat = (
+            _to_torch(mesh_device, traced_output).reshape(1, batch, HIDDEN_SIZE).transpose(0, 1).to(torch.bfloat16)
+        )
+        ttnn.release_trace(mesh_device, trace_id)
+
+        hf_ok, hf_pcc = comp_pcc(reference, replay, 0.995)
+        eager_ok, eager_pcc = comp_pcc(eager, replay, 0.9999)
+        repeat_ok, repeat_pcc = comp_pcc(replay, replay_repeat, 0.9999)
+        if not hf_ok:
+            reference_flat = torch.nn.functional.normalize(reference.float().reshape(batch, -1), dim=-1)
+            replay_flat = torch.nn.functional.normalize(replay.float().reshape(batch, -1), dim=-1)
+            user_correlation = reference_flat @ replay_flat.T
+            print("TRACE_BATCH_CORRELATION_DIAGONAL", user_correlation.diag().tolist())
+            print("TRACE_BATCH_CORRELATION_BEST_REPLAY_USER", user_correlation.argmax(dim=1).tolist())
+        ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+        (ARTIFACT_DIR / f"trace_{layer_type}_batch{batch}.json").write_text(
+            json.dumps(
+                {
+                    "model_id": MODEL_ID,
+                    "layer_idx": layer_idx,
+                    "layer_type": layer_type,
+                    "batch": batch,
+                    "current_positions": [current_position] * batch,
+                    "page_table_shape": [batch, blocks_per_user],
+                    "hf_vs_trace_replay_pcc": float(hf_pcc),
+                    "hf_vs_trace_replay_threshold": 0.995,
+                    "eager_vs_trace_replay_pcc": float(eager_pcc),
+                    "eager_vs_trace_replay_threshold": 0.9999,
+                    "repeat_replay_pcc": float(repeat_pcc),
+                    "repeat_replay_threshold": 0.9999,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+&gt;       assert hf_ok, hf_pcc
+E       AssertionError: 0.9913431331421614
+E       assert False
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py:786: AssertionError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_decoder_perf_profile[blackhole-batch1-sliding_attention_1024-device_params0-mesh_device0]" time="5.517"><properties><property name="start_timestamp" value="2026-09-05T10:01:15" /><property name="end_timestamp" value="2026-09-05T10:01:20" /></properties></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_real_weights_prefill_decode[blackhole-full_attention_natural_cache-device_params0-mesh_device0]" time="4.971"><properties><property name="start_timestamp" value="2026-09-05T10:01:20" /><property name="end_timestamp" value="2026-09-05T10:01:25" /></properties><failure message="AssertionError: [{'passed': False, 'pcc': 0.9939987729505846, 'threshold': 0.995}, {'passed': True, 'pcc': 0.9954742850849833, 'threshold': 0.995}]&#10;assert False&#10; +  where False = all(&lt;generator object test_optimized_real_weights_prefill_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x7922996e4790&gt;)">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x79229c93e870&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 5
+shared_physical = False, decode_pcc = 0.995
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,decode_pcc",
+        [
+            pytest.param(0, True, 0.995, id="sliding_attention_shared_cache"),
+            pytest.param(5, False, 0.995, id="full_attention_natural_cache"),
+            pytest.param(5, True, 0.995, id="full_attention_shared_cache_view"),
+        ],
+    )
+    def test_optimized_real_weights_prefill_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        decode_pcc,
+    ):
+        if os.getenv("GEMMA4_OPT_KV_CACHE_DTYPE") == "bfp8":
+            original_as_tt = functional_tests._as_tt
+
+            def as_tt_with_bfp8_cache(mesh, tensor, *, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT):
+                cache_geometry = tensor.ndim == 4 and tuple(tensor.shape[1:]) in {
+                    (8, 64, 256),
+                    (2, 128, 512),
+                }
+                if cache_geometry and dtype == ttnn.bfloat16:
+                    dtype = ttnn.bfloat8_b
+                return original_as_tt(mesh, tensor, dtype=dtype, layout=layout)
+
+            monkeypatch.setattr(functional_tests, "_as_tt", as_tt_with_bfp8_cache)
+        pcc_results = []
+        original_comp_pcc = functional_tests.comp_pcc
+
+        def comp_pcc_recording(reference, actual, threshold):
+            ok, pcc = original_comp_pcc(reference, actual, threshold)
+            pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+            # Let the functional oracle finish writing its raw measurement so
+            # rejected optimization candidates retain immutable provenance.
+            return True, pcc
+
+        monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_recording)
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=(
+                "decode_forward",
+                "_attention_prefill",
+                "_attention_decode",
+                "_dense_mlp",
+                "_moe_prefill",
+                "_moe_prefill_chunk",
+                "_moe_decode_single_user",
+            ),
+        )
+        functional_tests.test_functional_decoder_real_weights_prefill_decode(
+            mesh_device,
+            device_params,
+            layer_idx,
+            shared_physical,
+            decode_pcc,
+        )
+        assert all(count &gt; 0 for count in calls.values()), calls
+        layer_type = functional_tests._load_text_config().layer_types[layer_idx]
+        artifact = _stamp_artifact(ARTIFACT_DIR / f"pcc_layer{layer_idx}_{layer_type}_shared{int(shared_physical)}.json")
+        artifact["pcc_results"] = pcc_results
+        artifact_path = ARTIFACT_DIR / f"pcc_layer{layer_idx}_{layer_type}_shared{int(shared_physical)}.json"
+        artifact_path.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n")
+        candidate_id = os.getenv("GEMMA4_OPT_CANDIDATE_ID")
+        if candidate_id:
+            candidate_path = ARTIFACT_DIR / "candidate_runs" / f"{candidate_id}.json"
+            candidate = json.loads(candidate_path.read_text())
+            candidate[artifact_path.name] = artifact
+            candidate_path.write_text(json.dumps(candidate, indent=2, sort_keys=True) + "\n")
+&gt;       assert all(result["passed"] for result in pcc_results), pcc_results
+E       AssertionError: [{'passed': False, 'pcc': 0.9939987729505846, 'threshold': 0.995}, {'passed': True, 'pcc': 0.9954742850849833, 'threshold': 0.995}]
+E       assert False
+E        +  where False = all(&lt;generator object test_optimized_real_weights_prefill_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x7922996e4790&gt;)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:384: AssertionError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_traced_decode_batch_contract[blackhole-batch1-full_attention-device_params0-mesh_device0]" time="4.820"><properties><property name="start_timestamp" value="2026-09-05T10:01:25" /><property name="end_timestamp" value="2026-09-05T10:01:30" /></properties></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_decoder_perf_profile[blackhole-batch1-full_attention_1024-device_params0-mesh_device0]" time="5.807"><properties><property name="start_timestamp" value="2026-09-05T10:01:30" /><property name="end_timestamp" value="2026-09-05T10:01:36" /></properties></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_real_weights_prefill_decode[blackhole-full_attention_shared_cache_view-device_params0-mesh_device0]" time="4.917"><properties><property name="start_timestamp" value="2026-09-05T10:01:36" /><property name="end_timestamp" value="2026-09-05T10:01:41" /></properties><failure message="AssertionError: [{'passed': False, 'pcc': 0.9939987729505846, 'threshold': 0.995}, {'passed': True, 'pcc': 0.9954742850849833, 'threshold': 0.995}]&#10;assert False&#10; +  where False = all(&lt;generator object test_optimized_real_weights_prefill_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x790119026e90&gt;)">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x792299776420&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 5
+shared_physical = True, decode_pcc = 0.995
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,decode_pcc",
+        [
+            pytest.param(0, True, 0.995, id="sliding_attention_shared_cache"),
+            pytest.param(5, False, 0.995, id="full_attention_natural_cache"),
+            pytest.param(5, True, 0.995, id="full_attention_shared_cache_view"),
+        ],
+    )
+    def test_optimized_real_weights_prefill_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        decode_pcc,
+    ):
+        if os.getenv("GEMMA4_OPT_KV_CACHE_DTYPE") == "bfp8":
+            original_as_tt = functional_tests._as_tt
+
+            def as_tt_with_bfp8_cache(mesh, tensor, *, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT):
+                cache_geometry = tensor.ndim == 4 and tuple(tensor.shape[1:]) in {
+                    (8, 64, 256),
+                    (2, 128, 512),
+                }
+                if cache_geometry and dtype == ttnn.bfloat16:
+                    dtype = ttnn.bfloat8_b
+                return original_as_tt(mesh, tensor, dtype=dtype, layout=layout)
+
+            monkeypatch.setattr(functional_tests, "_as_tt", as_tt_with_bfp8_cache)
+        pcc_results = []
+        original_comp_pcc = functional_tests.comp_pcc
+
+        def comp_pcc_recording(reference, actual, threshold):
+            ok, pcc = original_comp_pcc(reference, actual, threshold)
+            pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+            # Let the functional oracle finish writing its raw measurement so
+            # rejected optimization candidates retain immutable provenance.
+            return True, pcc
+
+        monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_recording)
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=(
+                "decode_forward",
+                "_attention_prefill",
+                "_attention_decode",
+                "_dense_mlp",
+                "_moe_prefill",
+                "_moe_prefill_chunk",
+                "_moe_decode_single_user",
+            ),
+        )
+        functional_tests.test_functional_decoder_real_weights_prefill_decode(
+            mesh_device,
+            device_params,
+            layer_idx,
+            shared_physical,
+            decode_pcc,
+        )
+        assert all(count &gt; 0 for count in calls.values()), calls
+        layer_type = functional_tests._load_text_config().layer_types[layer_idx]
+        artifact = _stamp_artifact(ARTIFACT_DIR / f"pcc_layer{layer_idx}_{layer_type}_shared{int(shared_physical)}.json")
+        artifact["pcc_results"] = pcc_results
+        artifact_path = ARTIFACT_DIR / f"pcc_layer{layer_idx}_{layer_type}_shared{int(shared_physical)}.json"
+        artifact_path.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n")
+        candidate_id = os.getenv("GEMMA4_OPT_CANDIDATE_ID")
+        if candidate_id:
+            candidate_path = ARTIFACT_DIR / "candidate_runs" / f"{candidate_id}.json"
+            candidate = json.loads(candidate_path.read_text())
+            candidate[artifact_path.name] = artifact
+            candidate_path.write_text(json.dumps(candidate, indent=2, sort_keys=True) + "\n")
+&gt;       assert all(result["passed"] for result in pcc_results), pcc_results
+E       AssertionError: [{'passed': False, 'pcc': 0.9939987729505846, 'threshold': 0.995}, {'passed': True, 'pcc': 0.9954742850849833, 'threshold': 0.995}]
+E       assert False
+E        +  where False = all(&lt;generator object test_optimized_real_weights_prefill_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x790119026e90&gt;)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:384: AssertionError</failure></testcase></testsuite></testsuites>

@@ -1,0 +1,533 @@
+{
+  "decode_current_pos": 32,
+  "decode_pcc": 0.9959665959031945,
+  "decode_threshold": 0.995,
+  "layer_idx": 5,
+  "layer_type": "full_attention",
+  "model_id": "google/gemma-4-26B-A4B-it",
+  "optimized_stage_provenance": {
+    "checkout_git_sha": "6e67efeb6251e655cb27c39153db5af1da90d68b",
+    "exact_command": "pytest -q models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py::test_optimized_real_weights_prefill_decode[blackhole-full_attention_shared_cache_view-device_params0-mesh_device0]",
+    "exercised_candidate_paths": {
+      "full_attention": {
+        "host_dispatch_counters": {
+          "attention_o_input": 1,
+          "attention_o_input_padding": 1,
+          "attention_o_output_slice": 0,
+          "attention_output": 1,
+          "attention_qkv_input": 1,
+          "attention_qkv_input_padding": 0,
+          "attention_qkv_output_slice": 1,
+          "attention_sdpa_output": 1,
+          "decode_attention": 1,
+          "dense_mlp": 2,
+          "expert_decode": 1,
+          "expert_input": 1,
+          "expert_output": 1,
+          "expert_prefill": 1,
+          "folded_expert_scale": 2,
+          "folded_router_projection": 2,
+          "fused_final_scalar": 2,
+          "packed_expert_decode": 1,
+          "packed_expert_prefill": 0,
+          "prefill_2d_o_proj": 0,
+          "prefill_2d_qkv": 0,
+          "prefill_attention": 1,
+          "r22_dense_input_reshards": 0,
+          "r22_dram_input_reshard_mlp_down": 0,
+          "r22_dram_input_reshard_mlp_gate": 0,
+          "r22_dram_input_reshard_mlp_up": 0,
+          "r22_dram_input_reshard_o_proj": 0,
+          "r22_dram_input_reshard_packed_mlp_gate_up": 0,
+          "r22_dram_input_reshard_qkv": 0,
+          "r22_dram_mlp_down": 1,
+          "r22_dram_mlp_gate": 0,
+          "r22_dram_mlp_up": 0,
+          "r22_dram_o_proj": 0,
+          "r22_dram_packed_mlp_gate_up": 1,
+          "r22_dram_qkv": 0,
+          "r22_packed_dense": 1,
+          "residual_chain_decode": 1,
+          "residual_entry": 1,
+          "residual_exit": 1,
+          "router_input": 1,
+          "routing_row_major_metadata": 1,
+          "routing_row_major_scatter": 1,
+          "routing_score_tilize": 1,
+          "shared_ffn_norm": 2
+        },
+        "prefill_attention_runtime": {},
+        "r22_projection_runtime": {
+          "mlp_down": {
+            "actual_compute_kernel_config": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7918f41e6a90>",
+            "actual_input_dtype": "DataType.BFLOAT16",
+            "actual_input_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}], shape=[32, 96], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[32, 96],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+            "actual_logical_output_shape": [
+              1,
+              1,
+              1,
+              2816
+            ],
+            "actual_output_dtype": "DataType.BFLOAT16",
+            "actual_output_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}], shape=[32, 128], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[32, 128],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+            "actual_program_config": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=3,per_core_M=1,per_core_N=4,fused_activation=std::nullopt,num_workers_per_dram_bank=1)",
+            "actual_weight_dtype": "DataType.BFLOAT8_B",
+            "actual_weight_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::DRAM,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}], shape=[2112, 352], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[2112, 352],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+            "dram_banks": 8,
+            "effective_dram_banks": 8,
+            "host_dispatch_count": 1,
+            "in0_block_w": 3,
+            "input_cores": 22,
+            "input_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}], shape=[32, 96], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+            "input_shard_tiles": 3,
+            "logical_k": 2112,
+            "logical_n": 2816,
+            "output_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}], shape=[32, 128], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+            "output_storage_cores": 22,
+            "output_storage_width": 2816,
+            "per_core_M": 1,
+            "per_core_N": 4,
+            "program_class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+            "program_config": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=3,per_core_M=1,per_core_N=4,fused_activation=std::nullopt,num_workers_per_dram_bank=1)",
+            "reader_physical_row_bytes": 11968,
+            "reader_tiles": 11,
+            "readers_per_bank": 1,
+            "supported_batch": 1,
+            "weight_bank_tiles": 11,
+            "weight_dtype": "DataType.BFLOAT8_B",
+            "weight_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::DRAM,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}], shape=[2112, 352], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[2112, 352],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+            "weight_storage_width": 2816
+          },
+          "packed_dense_split": {
+            "compute_kernel_config": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7918f41e6a90>",
+            "gate_up_weight_dtype": "DataType.BFLOAT8_B",
+            "half_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}], shape=[32, 96], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[32, 96],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+            "host_dispatch_count": 1,
+            "logical_packed_shape": [
+              1,
+              1,
+              1,
+              4224
+            ],
+            "packed_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}], shape=[32, 192], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[32, 192],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+            "program_config": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=4,per_core_M=1,per_core_N=6,fused_activation=std::nullopt,num_workers_per_dram_bank=1)",
+            "split_implementation": "two tile-aligned sharded slices for decode M < 64"
+          },
+          "packed_mlp_gate_up": {
+            "actual_compute_kernel_config": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x7918f41e6a90>",
+            "actual_input_dtype": "DataType.BFLOAT16",
+            "actual_input_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}], shape=[32, 128], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[32, 128],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+            "actual_logical_output_shape": [
+              1,
+              1,
+              1,
+              4224
+            ],
+            "actual_output_dtype": "DataType.BFLOAT16",
+            "actual_output_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}], shape=[32, 192], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[32, 192],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+            "actual_program_config": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=4,per_core_M=1,per_core_N=6,fused_activation=std::nullopt,num_workers_per_dram_bank=1)",
+            "actual_weight_dtype": "DataType.BFLOAT8_B",
+            "actual_weight_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::DRAM,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}], shape=[2816, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[2816, 544],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+            "dram_banks": 8,
+            "effective_dram_banks": 8,
+            "host_dispatch_count": 1,
+            "in0_block_w": 4,
+            "input_cores": 22,
+            "input_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}], shape=[32, 128], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+            "input_shard_tiles": 4,
+            "logical_k": 2816,
+            "logical_n": 4224,
+            "output_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}], shape=[32, 192], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+            "output_storage_cores": 22,
+            "output_storage_width": 4224,
+            "per_core_M": 1,
+            "per_core_N": 6,
+            "program_class": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig",
+            "program_config": "MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(in0_block_w=4,per_core_M=1,per_core_N=6,fused_activation=std::nullopt,num_workers_per_dram_bank=1)",
+            "reader_physical_row_bytes": 18496,
+            "reader_tiles": 17,
+            "readers_per_bank": 1,
+            "supported_batch": 1,
+            "weight_bank_tiles": 17,
+            "weight_dtype": "DataType.BFLOAT8_B",
+            "weight_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::DRAM,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}], shape=[2816, 544], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[2816, 544],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
+            "weight_storage_width": 4352
+          }
+        },
+        "routing_runtime": {
+          "host_dispatch_count": 1,
+          "logical_tokens": 1,
+          "nnz": 8,
+          "scatter_base_layout": "Layout.ROW_MAJOR",
+          "scatter_output_layout": "Layout.ROW_MAJOR",
+          "scatter_output_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+          "score_consumer_layout": "Layout.TILE",
+          "score_dtype": "DataType.BFLOAT16",
+          "sparsity_layout": "Layout.ROW_MAJOR"
+        }
+      }
+    },
+    "exercised_kv_cache": {
+      "cache_descriptors": [
+        {
+          "decode_calls": 1,
+          "descriptor": {
+            "block_size": 128,
+            "cache_position_modulo": null,
+            "key": {
+              "buffer_address": 6149568,
+              "dtype": "DataType.BFLOAT16",
+              "layout": "Layout.TILE",
+              "padded_shape": [
+                4,
+                8,
+                64,
+                256
+              ],
+              "shape": [
+                4,
+                8,
+                64,
+                256
+              ]
+            },
+            "layer_kind": "full_attention",
+            "logical_cache_view": [
+              4,
+              2,
+              128,
+              512
+            ],
+            "page_table": {
+              "buffer_address": 5848960,
+              "dtype": "DataType.INT32",
+              "layout": "Layout.ROW_MAJOR",
+              "padded_shape": [
+                1,
+                4
+              ],
+              "shape": [
+                1,
+                4
+              ]
+            },
+            "page_table_values": [
+              [
+                0,
+                1,
+                2,
+                3
+              ]
+            ],
+            "user_batch": 1,
+            "value": {
+              "buffer_address": 6280640,
+              "dtype": "DataType.BFLOAT16",
+              "layout": "Layout.TILE",
+              "padded_shape": [
+                4,
+                8,
+                64,
+                256
+              ],
+              "shape": [
+                4,
+                8,
+                64,
+                256
+              ]
+            }
+          },
+          "entry_positions": [
+            [
+              32
+            ]
+          ],
+          "prefill_calls": 1
+        }
+      ],
+      "mutable_uploads": [],
+      "requested_dtype": "DataType.BFLOAT16"
+    },
+    "hardware": {
+      "arch": "Blackhole P300C",
+      "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.39"
+    },
+    "optimized_decoder_sha256": "feebc8cb2f20ad9ba81c7d0f50f8323694d6d91ebb31cb9072e18b0f6b0a9c45",
+    "optimized_test_sha256": "01ed0de36451891c6c41968baeeae34f1cb77acf4e3c6db0c322506fb83bd349",
+    "resolved_policy": {
+      "attention_batch32_runtime_geometry": {
+        "full_attention": {
+          "o_proj": {
+            "cores": 8,
+            "grid": [
+              8,
+              1
+            ],
+            "in0_block_w": 32,
+            "input_padding": 0,
+            "input_shard_tiles": 32,
+            "logical_k": 8192,
+            "logical_n": 2816,
+            "out_subblock_h": 1,
+            "out_subblock_w": 1,
+            "output_padding": 0,
+            "padded_k": 8192,
+            "padded_n": 2816,
+            "per_core_M": 1,
+            "per_core_N": 11,
+            "role": "o_proj"
+          },
+          "qkv": {
+            "cores": 8,
+            "grid": [
+              8,
+              1
+            ],
+            "in0_block_w": 1,
+            "input_padding": 0,
+            "input_shard_tiles": 11,
+            "logical_k": 2816,
+            "logical_n": 10240,
+            "out_subblock_h": 1,
+            "out_subblock_w": 4,
+            "output_padding": 0,
+            "padded_k": 2816,
+            "padded_n": 10240,
+            "per_core_M": 1,
+            "per_core_N": 40,
+            "role": "qkv"
+          }
+        },
+        "sliding_attention": {
+          "o_proj": {
+            "cores": 8,
+            "grid": [
+              8,
+              1
+            ],
+            "in0_block_w": 16,
+            "input_padding": 0,
+            "input_shard_tiles": 16,
+            "logical_k": 4096,
+            "logical_n": 2816,
+            "out_subblock_h": 1,
+            "out_subblock_w": 1,
+            "output_padding": 0,
+            "padded_k": 4096,
+            "padded_n": 2816,
+            "per_core_M": 1,
+            "per_core_N": 11,
+            "role": "o_proj"
+          },
+          "qkv": {
+            "cores": 8,
+            "grid": [
+              8,
+              1
+            ],
+            "in0_block_w": 1,
+            "input_padding": 0,
+            "input_shard_tiles": 11,
+            "logical_k": 2816,
+            "logical_n": 8192,
+            "out_subblock_h": 1,
+            "out_subblock_w": 4,
+            "output_padding": 0,
+            "padded_k": 2816,
+            "padded_n": 8192,
+            "per_core_M": 1,
+            "per_core_N": 32,
+            "role": "qkv"
+          }
+        }
+      },
+      "attention_runtime_geometry": {
+        "full_attention": {
+          "o_proj": {
+            "cores": 22,
+            "grid": [
+              11,
+              2
+            ],
+            "in0_block_w": 6,
+            "input_padding": 256,
+            "input_shard_tiles": 12,
+            "logical_k": 8192,
+            "logical_n": 2816,
+            "out_subblock_h": 1,
+            "out_subblock_w": 4,
+            "output_padding": 0,
+            "padded_k": 8448,
+            "padded_n": 2816,
+            "per_core_M": 1,
+            "per_core_N": 4,
+            "role": "o_proj"
+          },
+          "qkv": {
+            "cores": 22,
+            "grid": [
+              11,
+              2
+            ],
+            "in0_block_w": 2,
+            "input_padding": 0,
+            "input_shard_tiles": 4,
+            "logical_k": 2816,
+            "logical_n": 10240,
+            "out_subblock_h": 1,
+            "out_subblock_w": 3,
+            "output_padding": 320,
+            "padded_k": 2816,
+            "padded_n": 10560,
+            "per_core_M": 1,
+            "per_core_N": 15,
+            "role": "qkv"
+          }
+        },
+        "sliding_attention": {
+          "o_proj": {
+            "cores": 8,
+            "grid": [
+              8,
+              1
+            ],
+            "in0_block_w": 16,
+            "input_padding": 0,
+            "input_shard_tiles": 16,
+            "logical_k": 4096,
+            "logical_n": 2816,
+            "out_subblock_h": 1,
+            "out_subblock_w": 1,
+            "output_padding": 0,
+            "padded_k": 4096,
+            "padded_n": 2816,
+            "per_core_M": 1,
+            "per_core_N": 11,
+            "role": "o_proj"
+          },
+          "qkv": {
+            "cores": 22,
+            "grid": [
+              11,
+              2
+            ],
+            "in0_block_w": 2,
+            "input_padding": 0,
+            "input_shard_tiles": 4,
+            "logical_k": 2816,
+            "logical_n": 8192,
+            "out_subblock_h": 1,
+            "out_subblock_w": 3,
+            "output_padding": 256,
+            "padded_k": 2816,
+            "padded_n": 8448,
+            "per_core_M": 1,
+            "per_core_N": 12,
+            "role": "qkv"
+          }
+        }
+      },
+      "batch32_expert_gate_up_dtype": "DataType.BFLOAT8_B",
+      "constructor_defaults": {
+        "activation_dtype": "DataType.BFLOAT16",
+        "attention_allow_padding": "True",
+        "attention_math_fidelity": "MathFidelity.HiFi2",
+        "attention_weight_dtype": "None",
+        "dense_decode_dram_sharded": "False",
+        "dram_in0_block_w": "None",
+        "dram_sharded_roles": "()",
+        "dram_workers_per_bank": "1",
+        "expert_decode_input_l1": "True",
+        "expert_down_in0_block_w": "11",
+        "expert_down_out_subblock_w": "None",
+        "expert_down_per_core_n": "1",
+        "expert_down_weight_dtype": "None",
+        "expert_gate_in0_block_w": "22",
+        "expert_gate_math_fidelity": "MathFidelity.LoFi",
+        "expert_gate_out_subblock_w": "None",
+        "expert_gate_per_core_n": "1",
+        "expert_gate_weight_dtype": "DataType.BFLOAT4_B",
+        "expert_math_fidelity": "MathFidelity.LoFi",
+        "expert_weight_dtype": "DataType.BFLOAT8_B",
+        "folded_expert_scale": "True",
+        "folded_router_projection": "True",
+        "full_attention_math_fidelity": "MathFidelity.LoFi",
+        "full_o_in0_block_w": "6",
+        "full_o_out_subblock_w": "4",
+        "full_o_working_cores": "22",
+        "fused_final_scalar": "True",
+        "mlp_down_weight_dtype": "None",
+        "mlp_math_fidelity": "MathFidelity.LoFi",
+        "mlp_weight_dtype": "DataType.BFLOAT8_B",
+        "o_proj_weight_dtype": "None",
+        "packed_dense_gate_up": "True",
+        "packed_expert_decode_gate_up": "True",
+        "packed_expert_prefill_gate_up": "False",
+        "prefill_expert_chunk_size": "32",
+        "prefill_expert_down_in0_block_w": "11",
+        "prefill_expert_gate_in0_block_w": "44",
+        "prefill_expert_input_l1": "False",
+        "prefill_expert_per_core_n": "2",
+        "prefill_expert_tail_in0_block_w": "1",
+        "prefill_expert_tail_per_core_n": "11",
+        "prefill_expert_weight_dtype": "DataType.BFLOAT8_B",
+        "prefill_full_attention_math_fidelity": "MathFidelity.HiFi2",
+        "prefill_routed_active": "True",
+        "qkv_in0_block_w": "2",
+        "qkv_out_subblock_w": "3",
+        "qkv_weight_dtype": "None",
+        "qkv_working_cores": "22",
+        "r22_dram_sharded": "None",
+        "r22_packed_dense_gate_up": "None",
+        "residual_full_attention_math_fidelity": "MathFidelity.HiFi2",
+        "residual_shard_cores": "22",
+        "shared_ffn_norm": "True",
+        "tensor_cache_path": "None",
+        "weight_dtype": "DataType.BFLOAT16"
+      },
+      "environment_overrides": {
+        "GEMMA4_OPT_CANDIDATE_ID": "final_reviewfix2_default_suite_v6"
+      }
+    }
+  },
+  "pcc_results": [
+    {
+      "passed": true,
+      "pcc": 0.9983212413117581,
+      "threshold": 0.995
+    },
+    {
+      "passed": true,
+      "pcc": 0.9959665959031945,
+      "threshold": 0.995
+    }
+  ],
+  "prefill_pcc": 0.9983212413117581,
+  "prefill_threshold": 0.995,
+  "provenance": {
+    "artifact_dir": "models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_decoder",
+    "checkout_git_sha": "6e67efeb6251e655cb27c39153db5af1da90d68b",
+    "exact_command": "GEMMA4_RANGE_DOWNLOAD=1 pytest -q models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py::test_functional_decoder_real_weights_prefill_decode",
+    "functional_decoder_sha256": "1de6d3e39b2ba645f1d9f0de032178b12faa733b3d51ae4735e5ee33953cdf23",
+    "gemma4_environment": {
+      "GEMMA4_OPT_CANDIDATE_ID": "final_reviewfix2_default_suite_v6",
+      "GEMMA4_RANGE_DOWNLOAD": "1"
+    },
+    "hardware": {
+      "arch": "Arch.BLACKHOLE",
+      "device_ids": [
+        0
+      ],
+      "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.39"
+    },
+    "measured_decoder_path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py",
+    "measured_decoder_sha256": "feebc8cb2f20ad9ba81c7d0f50f8323694d6d91ebb31cb9072e18b0f6b0a9c45",
+    "multichip_test_sha256": "f1579fa50beb609c884ee04495ee3281a2d2d1f9bc7cd6728b48d2fcbaa07a69",
+    "test_sha256": "a493ef28f2abd5b25cda7d4b009e9b765681dc9b640f26ab5d5923fd44ac526c",
+    "ttnn_extension_path": "/home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so",
+    "ttnn_extension_sha256": "52deb65dd2ded7e68753dc8fbec68ae992a72dd85596b7769beda7968fbe0e98"
+  },
+  "sequence_length": 32,
+  "shared_physical_cache": true
+}

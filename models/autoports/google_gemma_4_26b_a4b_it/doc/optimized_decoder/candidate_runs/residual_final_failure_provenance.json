@@ -1,0 +1,15 @@
+{
+  "optimized_decoder_sha256": "a70afb7747860e3e6099c3d7505f53fd2201a2739ad6c70ddfc9a12384c0280f",
+  "optimized_test_sha256": "4e5109cbe0e640b8999c4f949416b2f56ffc9328c2b250f92eff8e159de763d2",
+  "hardware": "one Blackhole P300C",
+  "cases": {
+    "r11": {
+      "command": "GEMMA4_RANGE_DOWNLOAD=1 GEMMA4_FUNCTIONAL_DECODER_PERF=1 GEMMA4_FUNCTIONAL_DECODER_TRACE_ITERATIONS=5 GEMMA4_OPT_RESIDUAL_SHARD_CORES=11 pytest -q models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py::test_optimized_decoder_perf_profile[blackhole-batch32-full_attention_1024-device_params0-mesh_device0] --junitxml=models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_decoder/candidate_runs/residual_r11_final_failure.xml",
+      "error": "Statically allocated circular buffers in program 324 clash with L1 buffers on core range [0-0 - 7-3]. L1 buffer allocated at 1337344 and static circular buffer region ends at 1360932"
+    },
+    "r22": {
+      "command": "GEMMA4_RANGE_DOWNLOAD=1 GEMMA4_FUNCTIONAL_DECODER_PERF=1 GEMMA4_FUNCTIONAL_DECODER_TRACE_ITERATIONS=5 GEMMA4_OPT_RESIDUAL_SHARD_CORES=22 pytest -q models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py::test_optimized_decoder_perf_profile[blackhole-batch32-full_attention_1024-device_params0-mesh_device0] --junitxml=models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_decoder/candidate_runs/residual_r22_final_failure.xml",
+      "error": "Statically allocated circular buffers in program 324 clash with L1 buffers on core range [0-0 - 7-3]. L1 buffer allocated at 1353728 and static circular buffer region ends at 1360932"
+    }
+  }
+}

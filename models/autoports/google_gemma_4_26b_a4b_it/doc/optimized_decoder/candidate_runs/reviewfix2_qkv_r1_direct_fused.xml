@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="7.126" timestamp="2026-09-05T14:11:53.841801+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_direct_fused_optimized_equivalence[blackhole-sliding_attention-device_params0-mesh_device0]" time="6.215"><properties><property name="start_timestamp" value="2026-09-05T14:11:54" /><property name="end_timestamp" value="2026-09-05T14:12:00" /></properties><failure message="AssertionError: 0.9876215271644603&#10;assert False">mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 0
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_direct_fused_optimized_equivalence(mesh_device, device_params, layer_idx):
+        """Compare distinct fused/optimized instances, caches, and traced decode."""
+
+        cfg = functional_tests._load_text_config()
+        layer_type = cfg.layer_types[layer_idx]
+        state = functional_tests._load_layer_state(layer_idx)
+        seq_len = 32
+        torch.manual_seed(7300 + layer_idx)
+        hidden = torch.randn(1, seq_len, functional_tests.HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_hidden = torch.randn(1, 1, functional_tests.HIDDEN_SIZE, dtype=torch.bfloat16)
+        rotary = functional_tests.Gemma4TextRotaryEmbedding(cfg)
+        cos, sin = rotary(hidden, torch.arange(seq_len).unsqueeze(0), layer_type=layer_type)
+        decode_cos, decode_sin = rotary(decode_hidden, torch.tensor([[seq_len]]), layer_type=layer_type)
+
+        def run(decoder_cls):
+            decoder = decoder_cls.from_state_dict(state, hf_config=cfg, layer_idx=layer_idx, mesh_device=mesh_device)
+            page_table = functional_tests._as_tt(
+                mesh_device,
+                functional_tests._page_table(layer_type, shared_physical=False),
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
+            cache_shape = functional_tests._cache_shape(layer_type, shared_physical=False)
+            kv_cache = (
+                functional_tests._as_tt(mesh_device, torch.zeros(cache_shape, dtype=torch.bfloat16)),
+                functional_tests._as_tt(mesh_device, torch.zeros(cache_shape, dtype=torch.bfloat16)),
+            )
+            prefill = decoder.prefill_forward(
+                functional_tests._as_tt(mesh_device, hidden.unsqueeze(1)),
+                position_cos=functional_tests._as_tt(mesh_device, cos.unsqueeze(1)),
+                position_sin=functional_tests._as_tt(mesh_device, sin.unsqueeze(1)),
+                page_table=page_table,
+                kv_cache=kv_cache,
+            )
+            ttnn.synchronize_device(mesh_device)
+            prefill_host = functional_tests._to_torch(mesh_device, prefill).reshape(1, seq_len, -1).to(torch.bfloat16)
+            decode_args = {
+                "hidden_states": functional_tests._as_tt(mesh_device, decode_hidden.unsqueeze(1)),
+                "position_cos": functional_tests._as_tt(mesh_device, decode_cos.unsqueeze(1)),
+                "position_sin": functional_tests._as_tt(mesh_device, decode_sin.unsqueeze(1)),
+                "current_pos": functional_tests._as_tt(
+                    mesh_device,
+                    torch.tensor([seq_len], dtype=torch.int32),
+                    dtype=ttnn.int32,
+                    layout=ttnn.ROW_MAJOR_LAYOUT,
+                ),
+                "page_table": page_table,
+                "kv_cache": kv_cache,
+            }
+            decoder.decode_forward(**decode_args)
+            ttnn.synchronize_device(mesh_device)
+            trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
+            traced_output = decoder.decode_forward(**decode_args)
+            ttnn.end_trace_capture(mesh_device, trace_id, cq_id=0)
+            ttnn.execute_trace(mesh_device, trace_id, cq_id=0, blocking=True)
+            decode_host = functional_tests._to_torch(mesh_device, traced_output).reshape(1, 1, -1).to(torch.bfloat16)
+            ttnn.release_trace(mesh_device, trace_id)
+            return prefill_host, decode_host, getattr(decoder, "optimized_path_counters", {})
+
+        fused_prefill, fused_decode, _ = run(FusedDecoder)
+        optimized_prefill, optimized_decode, counters = run(OptimizedDecoder)
+        prefill_ok, prefill_pcc = functional_tests.comp_pcc(fused_prefill, optimized_prefill, 0.995)
+        decode_ok, decode_pcc = functional_tests.comp_pcc(fused_decode, optimized_decode, 0.995)
+        assert counters["packed_expert_decode"] &gt; 0
+        assert counters["packed_expert_prefill"] == 0
+        fusion_policy = _resolved_graph_fusion_policy()
+        for counter, enabled in fusion_policy.items():
+            if enabled:
+                assert counters[counter] &gt;= 2, (counter, counters)
+        artifact = ARTIFACT_DIR / f"direct_fused_optimized_equivalence_{layer_type}.json"
+        artifact.write_text(
+            json.dumps(
+                {
+                    "layer_idx": layer_idx,
+                    "layer_type": layer_type,
+                    "sequence_length": seq_len,
+                    "distinct_decoder_instances": True,
+                    "distinct_kv_caches": True,
+                    "decode_path": "trace_replay",
+                    "fused_vs_optimized_prefill_pcc": float(prefill_pcc),
+                    "fused_vs_optimized_decode_pcc": float(decode_pcc),
+                    "threshold": 0.995,
+                    "optimized_path_counters": counters,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
+        _stamp_artifact(artifact)
+        assert prefill_ok, prefill_pcc
+&gt;       assert decode_ok, decode_pcc
+E       AssertionError: 0.9876215271644603
+E       assert False
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:593: AssertionError</failure></testcase></testsuite></testsuites>

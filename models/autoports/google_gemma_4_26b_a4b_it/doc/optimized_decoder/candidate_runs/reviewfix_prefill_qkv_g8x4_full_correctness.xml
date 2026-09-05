@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="11.908" timestamp="2026-09-05T12:55:08.434679+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_real_weights_prefill_decode[blackhole-full_attention_natural_cache-device_params0-mesh_device0]" time="6.093"><properties><property name="start_timestamp" value="2026-09-05T12:55:09" /><property name="end_timestamp" value="2026-09-05T12:55:15" /></properties><failure message="AssertionError: [{'passed': True, 'pcc': 0.9980951817029449, 'threshold': 0.995}, {'passed': False, 'pcc': 0.9881574435826097, 'threshold': 0.995}]&#10;assert False&#10; +  where False = all(&lt;generator object test_optimized_real_weights_prefill_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x792fd40ca670&gt;)">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x795135a1b650&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 5
+shared_physical = False, decode_pcc = 0.995
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,decode_pcc",
+        [
+            pytest.param(0, True, 0.995, id="sliding_attention_shared_cache"),
+            pytest.param(5, False, 0.995, id="full_attention_natural_cache"),
+            pytest.param(5, True, 0.995, id="full_attention_shared_cache_view"),
+        ],
+    )
+    def test_optimized_real_weights_prefill_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        decode_pcc,
+    ):
+        pcc_results = []
+        original_comp_pcc = functional_tests.comp_pcc
+
+        def comp_pcc_recording(reference, actual, threshold):
+            ok, pcc = original_comp_pcc(reference, actual, threshold)
+            pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+            # Let the functional oracle finish writing its raw measurement so
+            # rejected optimization candidates retain immutable provenance.
+            return True, pcc
+
+        monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_recording)
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=(
+                "decode_forward",
+                "_attention_prefill",
+                "_attention_decode",
+                "_dense_mlp",
+                "_moe_prefill",
+                "_moe_prefill_chunk",
+                "_moe_decode_single_user",
+            ),
+        )
+        functional_tests.test_functional_decoder_real_weights_prefill_decode(
+            mesh_device,
+            device_params,
+            layer_idx,
+            shared_physical,
+            decode_pcc,
+        )
+        assert all(count &gt; 0 for count in calls.values()), calls
+        layer_type = functional_tests._load_text_config().layer_types[layer_idx]
+        artifact = _stamp_artifact(ARTIFACT_DIR / f"pcc_layer{layer_idx}_{layer_type}_shared{int(shared_physical)}.json")
+        artifact["pcc_results"] = pcc_results
+        artifact_path = ARTIFACT_DIR / f"pcc_layer{layer_idx}_{layer_type}_shared{int(shared_physical)}.json"
+        artifact_path.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n")
+        candidate_id = os.getenv("GEMMA4_OPT_CANDIDATE_ID")
+        if candidate_id:
+            candidate_path = ARTIFACT_DIR / "candidate_runs" / f"{candidate_id}.json"
+            candidate = json.loads(candidate_path.read_text())
+            candidate[artifact_path.name] = artifact
+            candidate_path.write_text(json.dumps(candidate, indent=2, sort_keys=True) + "\n")
+&gt;       assert all(result["passed"] for result in pcc_results), pcc_results
+E       AssertionError: [{'passed': True, 'pcc': 0.9980951817029449, 'threshold': 0.995}, {'passed': False, 'pcc': 0.9881574435826097, 'threshold': 0.995}]
+E       assert False
+E        +  where False = all(&lt;generator object test_optimized_real_weights_prefill_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x792fd40ca670&gt;)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:621: AssertionError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_real_weights_prefill_decode[blackhole-full_attention_shared_cache_view-device_params0-mesh_device0]" time="4.896"><properties><property name="start_timestamp" value="2026-09-05T12:55:15" /><property name="end_timestamp" value="2026-09-05T12:55:20" /></properties><failure message="AssertionError: [{'passed': True, 'pcc': 0.9980951817029449, 'threshold': 0.995}, {'passed': False, 'pcc': 0.9881574435826097, 'threshold': 0.995}]&#10;assert False&#10; +  where False = all(&lt;generator object test_optimized_real_weights_prefill_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x792fcc3a32a0&gt;)">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7951353b0200&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 5
+shared_physical = True, decode_pcc = 0.995
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,decode_pcc",
+        [
+            pytest.param(0, True, 0.995, id="sliding_attention_shared_cache"),
+            pytest.param(5, False, 0.995, id="full_attention_natural_cache"),
+            pytest.param(5, True, 0.995, id="full_attention_shared_cache_view"),
+        ],
+    )
+    def test_optimized_real_weights_prefill_decode(
+        monkeypatch,
+        mesh_device,
+        device_params,
+        layer_idx,
+        shared_physical,
+        decode_pcc,
+    ):
+        pcc_results = []
+        original_comp_pcc = functional_tests.comp_pcc
+
+        def comp_pcc_recording(reference, actual, threshold):
+            ok, pcc = original_comp_pcc(reference, actual, threshold)
+            pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+            # Let the functional oracle finish writing its raw measurement so
+            # rejected optimization candidates retain immutable provenance.
+            return True, pcc
+
+        monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_recording)
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=(
+                "decode_forward",
+                "_attention_prefill",
+                "_attention_decode",
+                "_dense_mlp",
+                "_moe_prefill",
+                "_moe_prefill_chunk",
+                "_moe_decode_single_user",
+            ),
+        )
+        functional_tests.test_functional_decoder_real_weights_prefill_decode(
+            mesh_device,
+            device_params,
+            layer_idx,
+            shared_physical,
+            decode_pcc,
+        )
+        assert all(count &gt; 0 for count in calls.values()), calls
+        layer_type = functional_tests._load_text_config().layer_types[layer_idx]
+        artifact = _stamp_artifact(ARTIFACT_DIR / f"pcc_layer{layer_idx}_{layer_type}_shared{int(shared_physical)}.json")
+        artifact["pcc_results"] = pcc_results
+        artifact_path = ARTIFACT_DIR / f"pcc_layer{layer_idx}_{layer_type}_shared{int(shared_physical)}.json"
+        artifact_path.write_text(json.dumps(artifact, indent=2, sort_keys=True) + "\n")
+        candidate_id = os.getenv("GEMMA4_OPT_CANDIDATE_ID")
+        if candidate_id:
+            candidate_path = ARTIFACT_DIR / "candidate_runs" / f"{candidate_id}.json"
+            candidate = json.loads(candidate_path.read_text())
+            candidate[artifact_path.name] = artifact
+            candidate_path.write_text(json.dumps(candidate, indent=2, sort_keys=True) + "\n")
+&gt;       assert all(result["passed"] for result in pcc_results), pcc_results
+E       AssertionError: [{'passed': True, 'pcc': 0.9980951817029449, 'threshold': 0.995}, {'passed': False, 'pcc': 0.9881574435826097, 'threshold': 0.995}]
+E       assert False
+E        +  where False = all(&lt;generator object test_optimized_real_weights_prefill_decode.&lt;locals&gt;.&lt;genexpr&gt; at 0x792fcc3a32a0&gt;)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:621: AssertionError</failure></testcase></testsuite></testsuites>

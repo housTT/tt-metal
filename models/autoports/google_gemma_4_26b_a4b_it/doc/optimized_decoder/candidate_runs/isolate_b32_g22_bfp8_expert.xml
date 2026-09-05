@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="7.155" timestamp="2026-09-05T10:25:11.111089+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_optimized_decoder" name="test_optimized_traced_decode_batch_contract[blackhole-batch32-sliding_attention-device_params0-mesh_device0]" time="6.254"><properties><property name="start_timestamp" value="2026-09-05T10:25:11" /><property name="end_timestamp" value="2026-09-05T10:25:18" /></properties><failure message="AssertionError: [{'passed': False, 'pcc': 0.9914537753704654, 'threshold': 0.995}, {'passed': True, 'pcc': 1.0, 'threshold': 0.9999}, {'passed': True, 'pcc': 1.0, 'threshold': 0.9999}]&#10;assert False&#10; +  where False = all(&lt;generator object test_optimized_traced_decode_batch_contract.&lt;locals&gt;.&lt;genexpr&gt; at 0x7e3d50bd3440&gt;)">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7e3d511371d0&gt;
+mesh_device = MeshDevice(1x1 grid, 1 devices)
+device_params = {'trace_region_size': 67108864}, layer_idx = 0, batch = 32
+
+    @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+    @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    @pytest.mark.parametrize("batch", [1, 32], ids=["batch1", "batch32"])
+    def test_optimized_traced_decode_batch_contract(monkeypatch, mesh_device, device_params, layer_idx, batch):
+        calls = _install_optimized_oracle(
+            monkeypatch,
+            functional_tests,
+            required_methods=("decode_forward", "_attention_decode", "_dense_mlp", "_moe_decode_single_user"),
+        )
+        per_user_pcc = []
+        best_replay_user = []
+        pcc_results = []
+        if batch == 32:
+            original_comp_pcc = functional_tests.comp_pcc
+
+            def comp_pcc_with_per_user_gate(reference, actual, threshold):
+                ok, pcc = original_comp_pcc(reference, actual, threshold)
+                pcc_results.append({"threshold": float(threshold), "pcc": float(pcc), "passed": bool(ok)})
+                if threshold == 0.995 and reference.shape[0] == batch:
+                    per_user_pcc.extend(
+                        float(original_comp_pcc(reference[index : index + 1], actual[index : index + 1], threshold)[1])
+                        for index in range(batch)
+                    )
+                    reference_rows = torch.nn.functional.normalize(reference.float().reshape(batch, -1), dim=-1)
+                    actual_rows = torch.nn.functional.normalize(actual.float().reshape(batch, -1), dim=-1)
+                    best_replay_user.extend((reference_rows @ actual_rows.T).argmax(dim=1).tolist())
+                return True, pcc
+
+            monkeypatch.setattr(functional_tests, "comp_pcc", comp_pcc_with_per_user_gate)
+        functional_tests.test_traced_decode_batch_contract(mesh_device, device_params, layer_idx, batch)
+        assert all(count &gt; 0 for count in calls.values()), calls
+        layer_type = functional_tests._load_text_config().layer_types[layer_idx]
+        artifact = ARTIFACT_DIR / f"trace_{layer_type}_batch{batch}.json"
+        if batch == 32:
+            if layer_type == "sliding_attention":
+                identity_mapping = best_replay_user == list(range(batch))
+            else:
+                identity_mapping = True
+            contents = json.loads(artifact.read_text())
+            contents["pcc_results"] = pcc_results
+            contents["hf_vs_trace_replay_per_user_pcc"] = per_user_pcc
+            contents["hf_vs_trace_replay_min_user_pcc"] = min(per_user_pcc)
+            contents["best_replay_user"] = best_replay_user
+            artifact.write_text(json.dumps(contents, indent=2, sort_keys=True) + "\n")
+        _stamp_artifact(artifact)
+        if batch == 32:
+&gt;           assert all(result["passed"] for result in pcc_results), pcc_results
+E           AssertionError: [{'passed': False, 'pcc': 0.9914537753704654, 'threshold': 0.995}, {'passed': True, 'pcc': 1.0, 'threshold': 0.9999}, {'passed': True, 'pcc': 1.0, 'threshold': 0.9999}]
+E           assert False
+E            +  where False = all(&lt;generator object test_optimized_traced_decode_batch_contract.&lt;locals&gt;.&lt;genexpr&gt; at 0x7e3d50bd3440&gt;)
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py:565: AssertionError</failure></testcase></testsuite></testsuites>

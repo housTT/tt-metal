@@ -1,0 +1,17 @@
+{
+  "candidate": "sliding attention BF16/LoFi",
+  "decision": "rejected",
+  "reason": "failed stronger direct-fused decode and logical-boundary gates",
+  "ordinary_hf_prefill_pcc": 0.997429713,
+  "ordinary_hf_decode_pcc": 0.999509742,
+  "trace_batch32_min_user_pcc": 0.998819747,
+  "direct_fused_decode_pcc": 0.9904219394502533,
+  "logical_boundary_minimum_pcc": 0.9941210044810026,
+  "threshold": 0.995,
+  "performance_ms": {
+    "sliding_prefill_batch1": 96.032811,
+    "sliding_decode_batch1": 1.148388,
+    "sliding_decode_batch32": 13.082569
+  },
+  "exact_command": "GEMMA4_RANGE_DOWNLOAD=1 GEMMA4_OPT_ATTENTION_FIDELITY=lofi TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\": true}' pytest -q models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py"
+}
