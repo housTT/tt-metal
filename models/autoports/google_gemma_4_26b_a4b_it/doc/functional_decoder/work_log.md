@@ -257,6 +257,6 @@ pre-commit run --files \
 ```
 
 Result: all applicable hooks passed, including Black/isort/autoflake, JSON/YAML
-checks, whitespace, large-file guard, and repository policy hooks. Stage-review
-verdict and local commit SHA(s) are appended after the independent review.
-Nothing is pushed.
+checks, whitespace, large-file guard, and repository policy hooks. The local
+functional-stage checkpoint is
+`3f1f3a9de59213e1c046dd97d62b27f3d925d2c9`. Nothing was pushed.
