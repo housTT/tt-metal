@@ -297,3 +297,13 @@ The repository pre-commit command for the scoped files passed. No C++ or CMake
 file changed, so the AGENTS.md verification matrix does not require a build.
 Fresh rereview verdict and local stage commit SHAs follow below; nothing is
 pushed.
+
+## Review verdict and local checkpoint
+
+Fresh rereview: `clean-pass` in `stage_review_rereview.md`.
+
+Stage implementation, tests, documentation, and retained evidence were
+checkpointed locally as
+`90856ce604f2531ca9a752484aa82e3cc76ad6cb` (`Add fused Gemma 4 26B decoder
+stage`). The follow-up commit records this SHA in the work log. Neither commit
+was pushed.
