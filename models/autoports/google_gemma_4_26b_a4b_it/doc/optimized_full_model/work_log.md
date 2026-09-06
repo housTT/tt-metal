@@ -423,5 +423,7 @@ Local stage checkpoints:
 - `bddb1661fe2`: implementation, complete evidence package, and clean review.
 - `de3fbfafa5f8`: remove superseded profiler copies and normalize the retained
   canonical CSVs so the stage diff is whitespace-clean.
+- `b4fe837fbfc`: add advice-enabled profiler tables, retain the exact report
+  command logs, and record the supplemental clean-pass review.
 
 Nothing was pushed.
