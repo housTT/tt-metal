@@ -14,10 +14,10 @@ Verdict: clean-pass
   whereas the generator benchmark starts with prompt 128 and advances through
   positions `[134,262)`. Its arithmetic is correct and useful as an inherited
   budget, not a same-context measured full-stack decomposition.
-- Processed profiler CSVs and watcher files beneath `generated/` match ignore
-  rules. The owner has explicitly committed to including stage-owned evidence
-  in the local checkpoint. This review precedes the post-clean-pass commit;
-  it does not attest that the commit has already been created.
+- The canonical raw/processed profiler package is tracked in the local stage
+  checkpoints. The added `*.console.log` provenance files match ignore rules
+  and need explicit inclusion in the normal follow-up packaging commit, along
+  with the new advice tables. This supplemental review precedes that commit.
 
 ## Hard-Check Gaps
 
@@ -35,6 +35,26 @@ Verdict: clean-pass
   The requested AIME24 numerical gates are separately satisfied.
 
 ## Anomaly Ledger
+
+- Observed anomaly: the original `tt_perf_report_*.txt` files were CSV/plot
+  generation console output rather than human-readable advice tables.
+  Evidence: the completion-audit packaging update renames those files to
+  `*.console.log` and adds `tt_perf_report_prefill_table.txt` and
+  `tt_perf_report_decode_table.txt` in `final/profiler_final/`.
+  Affected path: retained performance-report presentation and provenance.
+  Control or comparison: the new tables use the same canonical raw capture,
+  Blackhole architecture, eight active experts and matching phase signposts;
+  `--no-color --no-summary` retains advice output.
+  Likely subsystem: report-output packaging, not model execution.
+  Investigation performed: matched every table operation ID and name against
+  its operation CSV: 239 prefill rows and 207 decode rows, with no omissions.
+  Inspected operation-gap and matmul-advice sections, confirmed no ANSI color
+  escapes, checked both declared table hashes, rechecked all nine source
+  hashes and the raw-capture hash, and reproduced the unchanged device sums.
+  Resolution: fixed. Human-readable tables, machine-readable CSVs, plots and
+  console provenance are present and separately identified. Their heuristic
+  advice reflects the already-reviewed CSV/policy evidence; the generic
+  suggestion to use tracing does not negate the verified traced decode path.
 
 - Observed anomaly: the BF16 embedding initially appeared to require reducing
   P150 context to 49,664.
@@ -186,6 +206,15 @@ Verdict: clean-pass
   canonical compressed profiler SHA
   `6a0c420653dbeb6567f3cfc5d70bfbdf87ad593ec0a8bbb6b24444ef962b1fe3`.
   Remaining source identities are in the verified provenance manifest.
+- Supplemental packaging review: inspected the advice-table update after
+  local checkpoints `bddb1661fe2`, `de3fbfafa5f8` and `514d2605d34`.
+  Prefill table SHA is
+  `0c44714c9acacbd162130541d23be401ec5a024a45dfda05c5de84c8cee269e6`;
+  decode table SHA is
+  `32509d19fc32a3697eaf8aaaf0c95fd68f4d759215f3f85fa4c6fb260de24ff3`.
+  Both match the manifest. Runtime sources and canonical raw data remain
+  identical to the clean-pass snapshot. Only this report was changed by the
+  reviewer during the supplemental inspection.
 
 ## Residual Risk
 

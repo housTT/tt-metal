@@ -265,11 +265,24 @@ python_env/bin/tt-perf-report <raw_ops.csv> \
   --arch blackhole --active-experts 8 \
   --start-signpost FULL_MODEL_REDUCED_DECODE \
   --end-signpost FULL_MODEL_REDUCED_DECODE_END ...
+
+python_env/bin/tt-perf-report <raw_ops.csv> \
+  --arch blackhole --active-experts 8 --no-color --no-summary \
+  --start-signpost FULL_MODEL_REDUCED_PREFILL \
+  --end-signpost FULL_MODEL_REDUCED_PREFILL_END \
+  > final/profiler_final/tt_perf_report_prefill_table.txt
+
+python_env/bin/tt-perf-report <raw_ops.csv> \
+  --arch blackhole --active-experts 8 --no-color --no-summary \
+  --start-signpost FULL_MODEL_REDUCED_DECODE \
+  --end-signpost FULL_MODEL_REDUCED_DECODE_END \
+  > final/profiler_final/tt_perf_report_decode_table.txt
 ```
 
 The actual executable is `python_env/bin/tt-perf-report`, package version 1.2.9.
-The retained raw CSV and separate processed CSV/report/PNG pairs are under
-`final/profiler_final/`. Mid-run dumps plus the 20,000-program support count
+The retained raw CSV, processed CSV/report/PNG pairs, advice-enabled text
+tables, and command logs are under `final/profiler_final/`. Mid-run dumps plus
+the 20,000-program support count
 prevent the profiler-buffer truncation found in the superseded capture. Device
 0 contains exactly 195 model-trace and 12 sampling-trace operations in both
 replay sessions. Prefill spans 9.657513 ms between host signposts and sums

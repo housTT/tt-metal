@@ -184,6 +184,11 @@ full-table terminal conversion. No evidence supports changing the preserved
 decoder matmul, CCL, program-config, or kernel winners in this full-model-only
 pass.
 
+The canonical profiler directory contains both machine-readable operation and
+summary CSVs and advice-enabled human-readable tables:
+`tt_perf_report_prefill_table.txt` and `tt_perf_report_decode_table.txt`.
+Separate `*.console.log` files retain the CSV/plot generation provenance.
+
 ## Runtime and hardware audit
 
 All retained accuracy, capacity, latency, sampler, state, and qualitative paths
@@ -216,7 +221,8 @@ polling. The failing and fixed console/watcher logs are retained.
   nonaligned boundary, and serving-state capability evidence.
 - `final/sampler/`: all-profile split-greedy versus force-argmax A/B results.
 - `final/profiler_final/`: one compressed raw Tracy CSV plus separate processed
-  warmed-prefill and decode operation CSVs, reports, tables, and plots.
+  warmed-prefill and decode operation CSVs, advice-enabled text tables,
+  command logs, summary CSVs, and plots.
 - `operation_topology.json`, `perf_summary.json`, and `provenance.json`:
   compact topology, performance, and exact-source/artifact provenance.
 - `work_log.md`: commands, checklist closure, watcher AutoFix, and commit SHAs.
