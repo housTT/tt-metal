@@ -389,4 +389,14 @@ Python/JSON/Markdown-only change, so `AGENTS.md` does not require a C++ build.
 - [x] Final performance/profiler artifacts reproduce the final default path.
 - [x] No full-model or vLLM work started; no optimization is deferred.
 
-Stage review and local commit records are appended after the independent gate.
+## Independent gate and local commits
+
+The final independent review is recorded in `STAGE_REVIEW.md` with verdict
+`clean-pass` and no required work.
+
+- Stage starting commit: `537f844d043a202f921053d465a20f52f3021431`.
+- Optimized implementation and evidence commit:
+  `d03bc791f7c2dbf9fc955332b53544e120fe1b16`.
+- This commit-record-only work-log update is the final local follow-up commit;
+  its SHA is reported in the handoff because a commit cannot contain its own
+  identifier.
