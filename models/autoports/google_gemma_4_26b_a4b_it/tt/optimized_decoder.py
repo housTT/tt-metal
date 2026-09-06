@@ -1755,6 +1755,11 @@ class OptimizedDecoder(FunctionalDecoder):
             decoder.weights = replace(decoder.weights, **obsolete_weights)
         return decoder
 
+    def _activation_dtype_for(self, role: str) -> ttnn.DataType:
+        """Return a role-specific activation dtype when a subclass supplies one."""
+
+        return getattr(self, f"{role}_activation_dtype", self.activation_dtype)
+
     def _linear(
         self,
         x: ttnn.Tensor,
@@ -1779,7 +1784,7 @@ class OptimizedDecoder(FunctionalDecoder):
         result = ttnn.linear(
             x,
             weight,
-            dtype=self.activation_dtype,
+            dtype=self._activation_dtype_for("attention" if weight_name in {"qkv", "o_proj"} else "dense_mlp"),
             memory_config=kwargs.pop("memory_config", ttnn.DRAM_MEMORY_CONFIG),
             compute_kernel_config=compute_kernel_config,
             **kwargs,
@@ -1850,7 +1855,7 @@ class OptimizedDecoder(FunctionalDecoder):
         output = ttnn.linear(
             working,
             weight,
-            dtype=self.activation_dtype,
+            dtype=self._activation_dtype_for("attention"),
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
             compute_kernel_config=compute_kernel_config,
             **kwargs,
@@ -1911,7 +1916,7 @@ class OptimizedDecoder(FunctionalDecoder):
         output = ttnn.linear(
             working,
             weight,
-            dtype=self.activation_dtype,
+            dtype=self._activation_dtype_for("attention" if role in {"qkv", "o_proj"} else "dense_mlp"),
             program_config=config,
             memory_config=self.decode_dram_output_configs[role],
             compute_kernel_config=compute_kernel_config,
@@ -2005,19 +2010,25 @@ class OptimizedDecoder(FunctionalDecoder):
         """Route from one unweighted RMS-normalized residual tensor."""
 
         tokens = router_in.shape[-2]
+        router_input_memory_config = self._router_input_memory_config(tokens)
         if router_in.is_sharded():
             router_in = self._tracked_sharded_to_interleaved(
                 router_in,
-                ttnn.DRAM_MEMORY_CONFIG,
+                router_input_memory_config,
                 "router_input",
             )
         if self.folded_router_projection:
             self.optimized_path_counters["folded_router_projection"] += 1
         else:
-            router_in = ttnn.mul(router_in, self.weights.router_scale, memory_config=ttnn.DRAM_MEMORY_CONFIG)
-            router_in = ttnn.mul(router_in, self.router_hidden_scale, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            router_in = ttnn.mul(router_in, self.weights.router_scale, memory_config=router_input_memory_config)
+            router_in = ttnn.mul(router_in, self.router_hidden_scale, memory_config=router_input_memory_config)
         router_in = ttnn.reshape(router_in, [tokens, HIDDEN_SIZE])
-        router_in = ttnn.typecast(router_in, ttnn.float32)
+        if router_input_memory_config == ttnn.L1_MEMORY_CONFIG:
+            router_in = ttnn.typecast(router_in, ttnn.float32, memory_config=router_input_memory_config)
+        else:
+            # Preserve the established default call exactly; the opt-in hook
+            # only constrains placement for the L1 candidate.
+            router_in = ttnn.typecast(router_in, ttnn.float32)
         logits = ttnn.linear(
             router_in,
             self.weights.router_proj,
@@ -2051,7 +2062,25 @@ class OptimizedDecoder(FunctionalDecoder):
         else:
             routing = ttnn.mul(routing, self.weights.router_per_expert_scale, memory_config=ttnn.DRAM_MEMORY_CONFIG)
             routing = ttnn.typecast(routing, ttnn.bfloat16)
+        if (
+            getattr(self, "indexed_expert_decode", False)
+            and getattr(self, "_in_decode_forward", False)
+            and self.folded_expert_scale
+        ):
+            # Indexed sparse matmul consumes an independently exact top-k
+            # index tensor. BF16 routing scores cannot provide that invariant.
+            self.decode_route_indices = ttnn.to_layout(
+                ttnn.reshape(top_indices, [1, 1, tokens, TOP_K_EXPERTS]),
+                ttnn.ROW_MAJOR_LAYOUT,
+            )
+            self.decode_compact_route_scores = ttnn.reshape(top_values, [1, 1, tokens, TOP_K_EXPERTS])
         return ttnn.reshape(routing, [1, 1, tokens, NUM_EXPERTS])
+
+    def _router_input_memory_config(self, tokens: int) -> ttnn.MemoryConfig:
+        """Return the router input placement; subclasses may opt in to L1."""
+
+        del tokens
+        return ttnn.DRAM_MEMORY_CONFIG
 
     def _router_weights(self, residual: ttnn.Tensor) -> ttnn.Tensor:
         """Use the optimized router for prefill and non-sharded candidates."""
@@ -2242,9 +2271,11 @@ class OptimizedDecoder(FunctionalDecoder):
             if self.r22_packed_dense_gate_up:
                 r22_counters_before["r22_packed_dense"] = self.optimized_path_counters["r22_packed_dense"]
             if self.routing_row_major:
+                routing_counters = ["routing_row_major_scatter", "routing_row_major_metadata"]
+                if not getattr(self, "indexed_expert_decode", False):
+                    routing_counters.append("routing_score_tilize")
                 r22_counters_before.update(
-                    (counter, self.optimized_path_counters[counter])
-                    for counter in ("routing_row_major_scatter", "routing_row_major_metadata", "routing_score_tilize")
+                    (counter, self.optimized_path_counters[counter]) for counter in routing_counters
                 )
         self.optimized_path_counters["residual_chain_decode"] += 1
         hidden_states = self._tracked_to_memory_config(
@@ -2479,7 +2510,7 @@ class OptimizedDecoder(FunctionalDecoder):
                 xqkv = ttnn.linear(
                     x,
                     attention_weights["qkv"],
-                    dtype=self.activation_dtype,
+                    dtype=self._activation_dtype_for("attention"),
                     program_config=attention_program_configs["qkv"],
                     memory_config=attention_memory_configs["qkv_output"],
                     # Keep the selected fidelity while changing projection storage.
@@ -2611,7 +2642,7 @@ class OptimizedDecoder(FunctionalDecoder):
                 attn_out = ttnn.linear(
                     attn_out,
                     attention_weights["o_proj"],
-                    dtype=self.activation_dtype,
+                    dtype=self._activation_dtype_for("attention"),
                     program_config=attention_program_configs["o_proj"],
                     memory_config=attention_memory_configs["o_output"],
                     compute_kernel_config=self.decode_attention_compute_config,
@@ -2673,7 +2704,7 @@ class OptimizedDecoder(FunctionalDecoder):
             gate_up = ttnn.linear(
                 x,
                 packed_weight,
-                dtype=self.activation_dtype,
+                dtype=self._activation_dtype_for("dense_mlp"),
                 memory_config=kwargs.pop("memory_config", ttnn.DRAM_MEMORY_CONFIG),
                 compute_kernel_config=self.mlp_compute_config,
                 **kwargs,
@@ -2732,7 +2763,7 @@ class OptimizedDecoder(FunctionalDecoder):
         gate = ttnn.linear(
             x,
             self.weights.mlp_gate,
-            dtype=self.activation_dtype,
+            dtype=self._activation_dtype_for("dense_mlp"),
             program_config=self.residual_dense_program_configs["mlp_gate"],
             memory_config=self.residual_intermediate_memory_config,
             compute_kernel_config=self.mlp_compute_config,
@@ -2740,7 +2771,7 @@ class OptimizedDecoder(FunctionalDecoder):
         up = ttnn.linear(
             x,
             self.weights.mlp_up,
-            dtype=self.activation_dtype,
+            dtype=self._activation_dtype_for("dense_mlp"),
             program_config=self.residual_dense_program_configs["mlp_up"],
             memory_config=self.residual_intermediate_memory_config,
             compute_kernel_config=self.mlp_compute_config,
@@ -2754,7 +2785,7 @@ class OptimizedDecoder(FunctionalDecoder):
         return ttnn.linear(
             hidden,
             self.weights.mlp_down,
-            dtype=self.activation_dtype,
+            dtype=self._activation_dtype_for("dense_mlp"),
             program_config=self.residual_dense_program_configs["mlp_down"],
             memory_config=self.residual_memory_config,
             compute_kernel_config=self.mlp_compute_config,
@@ -2784,7 +2815,7 @@ class OptimizedDecoder(FunctionalDecoder):
             return ttnn.linear(
                 activation,
                 weight,
-                dtype=self.activation_dtype,
+                dtype=self._activation_dtype_for("dense_mlp"),
                 program_config=self.residual_dense_program_configs[role],
                 memory_config=output_config,
                 compute_kernel_config=self.mlp_compute_config,
@@ -2980,6 +3011,7 @@ class OptimizedDecoder(FunctionalDecoder):
     def _moe_prefill_chunk(self, hidden_states: ttnn.Tensor, routing_weights: ttnn.Tensor) -> ttnn.Tensor:
         chunk_size = self.prefill_expert_chunk_size
         seq_len = hidden_states.shape[2]
+        packed_expert_width = getattr(self, "packed_expert_width", _PACKED_EXPERT_WIDTH)
         if seq_len % TILE_SIZE != 0 or chunk_size % TILE_SIZE != 0:
             raise ValueError(f"physical prefill and expert chunk must be tile aligned, got {seq_len=} {chunk_size=}")
         if seq_len > chunk_size:
@@ -3025,13 +3057,13 @@ class OptimizedDecoder(FunctionalDecoder):
                 "nnz": nnz,
                 "memory_config": ttnn.DRAM_MEMORY_CONFIG,
                 "output_tile": output_tile,
-                "dtype": self.activation_dtype,
+                "dtype": self._activation_dtype_for("moe"),
                 "compute_kernel_config": self.expert_compute_config,
             }
             gate_up_config = _optimized_sparse_prefill_config(
                 self.mesh_device,
                 n=(
-                    _PACKED_EXPERT_WIDTH
+                    packed_expert_width
                     if self.packed_expert_prefill_gate_up
                     else self.expert_weights.intermediate_size_per_device
                 ),
@@ -3055,7 +3087,7 @@ class OptimizedDecoder(FunctionalDecoder):
                     **common,
                 )
                 gate_up = ttnn.transpose(gate_up, 1, 3)
-                gate_up = ttnn.reshape(gate_up, (1, NUM_EXPERTS, physical_chunk, _PACKED_EXPERT_WIDTH))
+                gate_up = ttnn.reshape(gate_up, (1, NUM_EXPERTS, physical_chunk, packed_expert_width))
                 down_input = self._packed_expert_activation(gate_up)
             else:
                 gate = ttnn.sparse_matmul(
@@ -3088,7 +3120,7 @@ class OptimizedDecoder(FunctionalDecoder):
                 output_tile=output_tile,
                 program_config=down_config,
                 is_input_a_sparse=True,
-                dtype=self.activation_dtype,
+                dtype=self._activation_dtype_for("moe"),
                 compute_kernel_config=self.expert_compute_config,
             )
             next_states = ttnn.reshape(down, (1, NUM_EXPERTS, physical_chunk, HIDDEN_SIZE))
@@ -3162,10 +3194,9 @@ class OptimizedDecoder(FunctionalDecoder):
         )
         common = {
             "sparsity": sparsity,
-            "nnz": TOP_K_EXPERTS,
             "memory_config": ttnn.L1_MEMORY_CONFIG,
             "output_tile": output_tile,
-            "dtype": self.activation_dtype,
+            "dtype": self._activation_dtype_for("moe"),
         }
         if self.packed_expert_decode_gate_up:
             self.optimized_path_counters["packed_expert_decode"] += 1
@@ -3233,7 +3264,8 @@ class OptimizedDecoder(FunctionalDecoder):
             self.routing_runtime.update(
                 sparsity_layout=str(sparsity.layout),
                 score_consumer_layout=str(routing_scores.layout),
-                nnz=TOP_K_EXPERTS,
+                nnz=None,
+                nnz_policy="runtime_inferred",
                 host_dispatch_count=self.optimized_path_counters["routing_row_major_metadata"],
             )
         routing_3d = ttnn.reshape(routing_scores, (batch, NUM_EXPERTS, 1))

@@ -132,6 +132,107 @@ def _load_layer_state(layer_idx: int) -> dict[str, torch.Tensor]:
     return state
 
 
+def _recorded_layer_inputs(layer_idx: int, seq_len: int, *, batch: int = 1) -> tuple[torch.Tensor, torch.Tensor] | None:
+    """Load opt-in prompt-derived layer inputs for precision qualification."""
+
+    artifact = os.getenv("GEMMA4_RECORDED_ACTIVATIONS")
+    if not artifact:
+        return None
+    recorded = torch.load(artifact, map_location="cpu", weights_only=True)
+    hidden = recorded[f"layer{layer_idx}_input"]
+    if hidden.ndim != 3 or hidden.shape[0] != 1 or hidden.shape[-1] != HIDDEN_SIZE:
+        raise ValueError(f"invalid recorded layer-{layer_idx} input shape {tuple(hidden.shape)}")
+    if hidden.shape[1] < seq_len:
+        raise ValueError(f"recorded layer-{layer_idx} input has {hidden.shape[1]} tokens, need {seq_len}")
+    prefill = hidden[:, :seq_len].to(torch.bfloat16).expand(batch, -1, -1).clone()
+    token_indices = torch.arange(batch) % hidden.shape[1]
+    decode = hidden[0, token_indices].unsqueeze(1).to(torch.bfloat16)
+    return prefill, decode
+
+
+def test_capture_prompt_derived_layer_inputs():
+    """Explicit opt-in producer for real layer-0/layer-5 activation evidence."""
+
+    if os.environ.get("GEMMA4_CAPTURE_RECORDED_ACTIVATIONS") != "1":
+        pytest.skip("activation capture is an explicit host evidence step")
+
+    import gc
+
+    from transformers import AutoTokenizer
+
+    snapshot = _model_snapshot()
+    if snapshot is None:
+        pytest.skip("complete local HF snapshot is required for activation capture")
+    cfg = _load_text_config()
+    tokenizer = AutoTokenizer.from_pretrained(snapshot, local_files_only=True)
+    prompt = (
+        "Explain how tensor parallel decoder execution preserves numerical correctness across attention, "
+        "mixture-of-experts routing, collective reductions, residual connections, and paged key-value caches."
+    )
+    input_ids = tokenizer(prompt, return_tensors="pt", add_special_tokens=True).input_ids[:, :32]
+    if input_ids.shape[1] != 32:
+        raise ValueError(f"capture prompt produced only {input_ids.shape[1]} tokens")
+
+    index = json.loads((snapshot / "model.safetensors.index.json").read_text())["weight_map"]
+    embedding_key = "model.language_model.embed_tokens.weight"
+    with safe_open(snapshot / index[embedding_key], framework="pt", device="cpu") as shard:
+        embedding = shard.get_tensor(embedding_key)
+    hidden = torch.nn.functional.embedding(input_ids, embedding)
+    hidden = hidden * torch.tensor(cfg.hidden_size**0.5, dtype=embedding.dtype)
+    hidden = hidden.to(torch.bfloat16)
+    layer_inputs = {"layer0_input": hidden.clone()}
+    positions = torch.arange(input_ids.shape[1]).unsqueeze(0)
+    rotary = Gemma4TextRotaryEmbedding(cfg)
+    shared_kv_states = {}
+    with torch.no_grad():
+        for layer_idx in range(5):
+            state = _load_layer_state(layer_idx)
+            prefix = f"model.language_model.layers.{layer_idx}."
+            layer = Gemma4TextDecoderLayer(cfg, layer_idx=layer_idx).eval().to(dtype=torch.bfloat16)
+            layer.load_state_dict({key.removeprefix(prefix): value for key, value in state.items()}, strict=True)
+            layer_type = cfg.layer_types[layer_idx]
+            hidden = layer(
+                hidden,
+                shared_kv_states=shared_kv_states,
+                position_embeddings=rotary(hidden, positions, layer_type=layer_type),
+                attention_mask=_causal_mask(
+                    input_ids.shape[1],
+                    sliding_window=cfg.sliding_window if layer_type == "sliding_attention" else None,
+                ),
+                position_ids=positions,
+            )
+            del layer, state
+            gc.collect()
+    layer_inputs["layer5_input"] = hidden.clone()
+
+    artifact = Path(
+        os.getenv(
+            "GEMMA4_RECORDED_ACTIVATIONS_OUTPUT",
+            "models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_multichip_decoder/"
+            "precision/recorded_layer_inputs.pt",
+        )
+    )
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(layer_inputs, artifact)
+    provenance = {
+        "model_id": MODEL_ID,
+        "snapshot_revision": snapshot.name,
+        "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
+        "token_ids": input_ids.flatten().tolist(),
+        "sequence_length": input_ids.shape[1],
+        "layers": {name: list(value.shape) for name, value in layer_inputs.items()},
+        "dtype": str(hidden.dtype),
+        "artifact": str(artifact),
+        "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+        "exact_command": os.getenv(
+            "GEMMA4_EVIDENCE_COMMAND",
+            "GEMMA4_CAPTURE_RECORDED_ACTIVATIONS=1 pytest -q -s "
+            f"{Path(__file__)}::test_capture_prompt_derived_layer_inputs",
+        ),
+    }
+    artifact.with_suffix(".json").write_text(json.dumps(provenance, indent=2, sort_keys=True) + "\n")
+
+
 def _range_download_layer_state(layer_idx: int) -> dict[str, torch.Tensor]:
     """Fetch only one canonical HF layer from the public safetensor shards."""
     cache_dir = Path(os.getenv("GEMMA4_REAL_LAYER_CACHE", "/tmp/gemma4_real_layer_cache"))
@@ -323,10 +424,13 @@ def test_functional_decoder_real_weights_prefill_decode(
     layer_type = cfg.layer_types[layer_idx]
     state = _load_layer_state(layer_idx)
     seq_len = 32
-    torch.manual_seed(layer_idx)
-
-    hidden = torch.randn(1, seq_len, HIDDEN_SIZE, dtype=torch.bfloat16)
-    decode_hidden = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+    recorded_inputs = _recorded_layer_inputs(layer_idx, seq_len)
+    if recorded_inputs is None:
+        torch.manual_seed(layer_idx)
+        hidden = torch.randn(1, seq_len, HIDDEN_SIZE, dtype=torch.bfloat16)
+        decode_hidden = torch.randn(1, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+    else:
+        hidden, decode_hidden = recorded_inputs
     rotary = Gemma4TextRotaryEmbedding(cfg)
     position_ids = torch.arange(seq_len).unsqueeze(0)
     decode_position_ids = torch.tensor([[seq_len]])
@@ -410,6 +514,17 @@ def test_functional_decoder_real_weights_prefill_decode(
                 "prefill_threshold": 0.995,
                 "decode_pcc": float(actual_decode_pcc),
                 "decode_threshold": decode_pcc,
+                "input_provenance": (
+                    {
+                        "kind": "recorded_target_model_activation",
+                        "artifact": os.environ["GEMMA4_RECORDED_ACTIVATIONS"],
+                        "sha256": hashlib.sha256(
+                            Path(os.environ["GEMMA4_RECORDED_ACTIVATIONS"]).read_bytes()
+                        ).hexdigest(),
+                    }
+                    if recorded_inputs is not None
+                    else {"kind": "seeded_random"}
+                ),
                 "provenance": _evidence_provenance(
                     mesh_device,
                     "GEMMA4_RANGE_DOWNLOAD=1 pytest -q "

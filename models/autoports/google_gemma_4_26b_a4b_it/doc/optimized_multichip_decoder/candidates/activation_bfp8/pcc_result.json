@@ -1,0 +1,17 @@
+{
+  "candidate": "BFP8 activation and CCL-facing hidden-state family",
+  "mesh": "P150x4 proxy (1x4 P300C)",
+  "workload": "real-weight B32 cache-consuming prefill/decode against the accepted optimized oracle",
+  "command_environment": {
+    "GEMMA4_MULTICHIP_ACTIVATION_DTYPE": "bfp8",
+    "GEMMA4_RANGE_DOWNLOAD": "1",
+    "TTNN_CONFIG_OVERRIDES": "{\"throw_exception_on_fallback\":true}"
+  },
+  "results": {
+    "sliding_attention_pcc": 0.994058,
+    "full_attention_pcc": 0.994514,
+    "threshold": 0.995
+  },
+  "adaptation": "The candidate was allowed to complete despite initial row-major BFP8 layout diagnostics; the exercised tile-layout compute path produced finite outputs.",
+  "verdict": "rejected: both meaningful layer kinds complete but miss the accepted PCC threshold"
+}

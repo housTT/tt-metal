@@ -1,0 +1,198 @@
+{
+  "all_reduce_dispatches_per_layer": [
+    9,
+    15
+  ],
+  "cache_contract": [
+    {
+      "current_position_replicated": true,
+      "current_position_shape": [
+        1
+      ],
+      "full_kv_rank_pair_duplication": null,
+      "layer_idx": 0,
+      "layer_type": "sliding_attention",
+      "local_cache_shape": [
+        4,
+        2,
+        64,
+        256
+      ],
+      "local_kv_heads": 2,
+      "page_table_replicated": true,
+      "page_table_shape": [
+        1,
+        4
+      ]
+    },
+    {
+      "current_position_replicated": true,
+      "current_position_shape": [
+        1
+      ],
+      "full_kv_rank_pair_duplication": [
+        {
+          "rank_0_1_bit_exact": true,
+          "rank_2_3_bit_exact": true
+        },
+        {
+          "rank_0_1_bit_exact": true,
+          "rank_2_3_bit_exact": true
+        }
+      ],
+      "layer_idx": 5,
+      "layer_type": "full_attention",
+      "local_cache_shape": [
+        2,
+        1,
+        128,
+        512
+      ],
+      "local_kv_heads": 1,
+      "page_table_replicated": true,
+      "page_table_shape": [
+        1,
+        2
+      ]
+    }
+  ],
+  "chained_decode_threshold_by_layer": [
+    0.99,
+    0.98
+  ],
+  "chained_discontinuity": "layer-5 inputs differ after approximate TP4 layer-0 output",
+  "chained_eager_decode_pcc_by_layer": [
+    0.9991172207759556,
+    0.9860831816163331
+  ],
+  "chained_inputs_identical_by_layer": [
+    true,
+    false
+  ],
+  "chained_prefill_pcc_by_layer": [
+    0.9977918067606355,
+    0.9915436410778138
+  ],
+  "chained_prefill_threshold": 0.99,
+  "chained_trace_decode_pcc": 0.9860831816163331,
+  "chained_trace_decode_threshold": 0.98,
+  "eager_vs_trace_bit_exact_all_ranks": true,
+  "exact_command": "GEMMA4_RANGE_DOWNLOAD=1 TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\":true}' timeout 1800 python_env/bin/python -m pytest -q -s models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py -k test_tp4_stacked_mixed_attention_shared_persistent_ccl_trace --junitxml=models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts/stacked_tp4_mixed_trace.xml",
+  "fallback_policy": "TTNN throw_exception_on_fallback=true",
+  "layer_indices": [
+    0,
+    5
+  ],
+  "layer_types": [
+    "sliding_attention",
+    "full_attention"
+  ],
+  "mesh_shape": [
+    1,
+    4
+  ],
+  "optimized_reference_artifact": "stacked_tp4_optimized_reference.pt.gz",
+  "optimized_reference_sha256": "0385dd042d370971b751a45868831745ed960e3ed304cfede4a3ce85d2bccd2e",
+  "page_table_and_current_position_replicated": true,
+  "path_counters_after_capture": [
+    {
+      "all_reduce": 9,
+      "attention_tp": 3,
+      "coherent_r22_dense": 0,
+      "collective_output_to_residual": 6,
+      "dense_tp": 3,
+      "expert_tp": 3
+    },
+    {
+      "all_reduce": 15,
+      "attention_tp": 5,
+      "coherent_r22_dense": 0,
+      "collective_output_to_residual": 0,
+      "dense_tp": 5,
+      "expert_tp": 5
+    }
+  ],
+  "path_counters_unchanged_by_replay": true,
+  "persistent_resource_index_after_trace_capture": 0,
+  "persistent_resource_index_history": {
+    "after_eager_chain": 0,
+    "after_prefill_chain": 0,
+    "after_same_input_layer5_prefill_decode": 0,
+    "after_trace_capture": 0,
+    "after_trace_replays": 0,
+    "initial": 0
+  },
+  "public_input_layout": "replicated TILE DRAM INTERLEAVED",
+  "public_output_layout": "replicated TILE DRAM INTERLEAVED",
+  "replicas_bit_exact": true,
+  "same_input_eager_decode_pcc_by_layer": [
+    0.9991172207759556,
+    0.9952840748108895
+  ],
+  "same_input_prefill_pcc_by_layer": [
+    0.9977918067606355,
+    0.9989441195163276
+  ],
+  "same_input_selected_policy_threshold": 0.99,
+  "selected_policy_by_layer": [
+    {
+      "attention_weight_dtype": "DataType.BFLOAT16",
+      "folded_expert_scale": true,
+      "folded_router_projection": true,
+      "fused_final_scalar": true,
+      "packed_expert_decode_gate_up": true,
+      "residual_shard_cores": 22,
+      "routing_row_major": true,
+      "shared_ffn_norm": true
+    },
+    {
+      "attention_weight_dtype": "DataType.BFLOAT8_B",
+      "folded_expert_scale": true,
+      "folded_router_projection": false,
+      "fused_final_scalar": true,
+      "packed_expert_decode_gate_up": true,
+      "residual_shard_cores": 0,
+      "routing_row_major": false,
+      "shared_ffn_norm": false
+    }
+  ],
+  "sequence_length": 32,
+  "shared_persistent_buffer_shape": [
+    1,
+    1,
+    32,
+    11264
+  ],
+  "shared_persistent_resource_slots": 3,
+  "shared_resource_slot_sequence": [
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      1
+    ],
+    [
+      0,
+      2
+    ],
+    [
+      5,
+      0
+    ],
+    [
+      5,
+      1
+    ],
+    [
+      5,
+      2
+    ]
+  ],
+  "source_sha256": "fe7cf075e4c1080c9e07fc81e7a3fd36252617e336bdbaf9802104e56adae4b0",
+  "stress_trace_replays": 20,
+  "test_sha256": "d194edbda2202c6493db2de0135b806a3172a29020b4c18d48bcc80e7acd413e",
+  "tp_size": 4,
+  "trace_replays_bit_exact_all_ranks": true
+}

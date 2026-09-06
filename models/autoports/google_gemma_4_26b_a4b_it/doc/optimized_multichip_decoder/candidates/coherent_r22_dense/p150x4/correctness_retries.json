@@ -1,0 +1,17 @@
+{
+  "candidate": "TP4 full-attention R22 residual plus coherent dense family",
+  "mesh": "P150x4 proxy (1x4 P300C)",
+  "threshold": 0.995,
+  "retries": [
+    {"adaptation": "legal one-tile dense-down K block", "decode_pcc": 0.994723},
+    {"adaptation": "BF16 attention weights", "decode_pcc": 0.994419},
+    {"adaptation": "HiFi2 MLP and expert math", "decode_pcc": 0.994771},
+    {"adaptation": "BF16 expert weights", "decode_pcc": 0.994771}
+  ],
+  "sliding_latency_retry": {
+    "adaptation": "replace illegal in0_block_w=3 for local Kt=17 with in0_block_w=1",
+    "candidate_decode_ms": 0.690094,
+    "control_decode_ms": 0.677389
+  },
+  "verdict": "rejected: adapted sliding path regresses 1.9%; all four completed full-attention repairs remain below PCC"
+}

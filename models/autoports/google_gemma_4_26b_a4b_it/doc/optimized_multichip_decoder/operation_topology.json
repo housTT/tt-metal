@@ -1,0 +1,53 @@
+{
+  "model_id": "google/gemma-4-26B-A4B-it",
+  "audit_order": "before candidate implementation",
+  "repeated_same_input_matmuls": {
+    "qkv": "already one packed rank-local projection",
+    "dense_gate_up": "TP4 retains packed decode; coherent R22 TP1/TP2 use separate projections and no longer retain an unused packed tensor",
+    "expert_gate_up": "changed from two sparse matmuls to one packed sparse matmul in prefill and all TP decode profiles"
+  },
+  "material_collectives": {
+    "per_layer": ["attention output all-reduce", "dense output all-reduce", "active-expert output all-reduce"],
+    "tp1": "identity",
+    "tp2": "persistent async BF16 Linear with one link",
+    "tp4": "persistent async BF16 Ring with two links",
+    "between_layers": "none"
+  },
+  "reshard_and_layout": {
+    "selected_tp1_tp2_decode": "R22 residual; dense remains in the coherent sharded family and reduction output converts directly to the next residual contract without a DRAM restore",
+    "selected_tp4_sliding_decode": "R22 residual with direct reduction-to-residual conversion",
+    "selected_tp4_full_decode": "R0 interleaved; adapted R22 accuracy retries failed"
+  },
+  "fused_and_packed": {
+    "packed_qkv": "selected",
+    "packed_dense_gate_up": "selected",
+    "packed_active_expert_gate_up": "selected for prefill and decode on TP1/2/4",
+    "fused_matmul_reduce_scatter": "rejected by inherited shape-faithful and complete-layer evidence; exact Gemma row producers and following fractured consumer were adapted before rejection",
+    "fused_all_gather_matmul": "rejected by inherited exact residual-consumer evidence",
+    "dense_all_expert_moe": "not applicable as a completion path; selected implementation remains dynamic top-8 sparse"
+  },
+  "routing_metadata": {
+    "audit_finding": "a fixed nnz=8 hint is not exact after routing-score conversion because selected BF16 scores may round to zero",
+    "safe_fallback": "omit nnz and let TTNN infer runtime nonzeros",
+    "selected_path": "carry exact TopK indices and compact scores into indexed sparse gate/up and down matmuls",
+    "active_experts": 8,
+    "dense_all_expert_execution": false
+  },
+  "precision_policy": {
+    "recorded_activation_artifact": "precision/recorded_layer_inputs.pt",
+    "full_attention_dense_mlp": "BF16 gate, up, and down; the shared weight override produced 0.999831 prefill PCC on prompt-derived layer-5 input versus 0.992689 for BFP8",
+    "sliding_attention_dense_gate_up": "BFP8; prompt-derived layer-0 input passes the 0.995 gate",
+    "activation_and_ccl": "BF16 selected; recorded-input TP2 BFP8 CCL is slightly slower and seeded stress has lower PCC margin",
+    "kv_cache": "BF16 unchanged"
+  },
+  "selected_actions": [
+    "capacity-neutral shared prefill/decode packed expert gate/up weights",
+    "coherent R22 dense family on TP1 and TP2",
+    "collective result conversion directly to the residual consumer layout",
+    "TP2 full-attention DRAM-sharded O projection",
+    "TP4 sliding-attention DRAM-sharded QKV projection after two alternating controls confirmed a 1.50-1.65% decode win",
+    "preserve persistent BF16 CCL, TP4 Ring/two-link placement, and BF16 KV cache",
+    "replace unsafe fixed-nnz metadata with exact runtime TopK indexed sparse execution",
+    "use BF16 dense gate/up/down for full-attention recorded-activation correctness and omit unused TP1/TP2 packed dense storage"
+  ]
+}

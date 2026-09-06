@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="2" time="23.083" timestamp="2026-09-06T00:20:13.459468+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_p150x2_batch32_trace_and_optimized_pcc[blackhole-sliding_attention-mesh_device0-device_params0]" time="13.280"><properties><property name="start_timestamp" value="2026-09-06T00:20:14" /><property name="end_timestamp" value="2026-09-06T00:20:27" /></properties><failure message="AssertionError: TP2 batch-32 layer 0 PCC=0.9949047359644795&#10;assert False">mesh_device = MeshDevice(2x2 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_2D, 'trace_region_size': 67108864}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7bc49ace7740&gt;
+layer_idx = 0
+
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_2D, "trace_region_size": 64 * 1024 * 1024}],
+        indirect=True,
+    )
+    @pytest.mark.parametrize("mesh_device", [(2, 2)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_p150x2_batch32_trace_and_optimized_pcc(mesh_device, device_params, monkeypatch, layer_idx):
+        """Apply the same B32 trace/PCC gate to the release-blocking TP2 profile."""
+        import torch
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        proxy_mesh = mesh_device.create_submesh(ttnn.MeshShape((1, 2)), offset=ttnn.MeshCoordinate(0, 0))
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+        output, latency_ms, cache_shape = _run_traced_batch32(
+            MultichipDecoder, proxy_mesh, cfg, state, layer_idx, local_cache=True
+        )
+        reference_dir = Path("models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts")
+        reference = torch.load(reference_dir / f"optimized_batch32_layer{layer_idx}.pt", weights_only=True)
+        pcc_ok, pcc = functional_tests.comp_pcc(reference, output, 0.995)
+&gt;       assert pcc_ok, f"TP2 batch-32 layer {layer_idx} PCC={pcc}"
+E       AssertionError: TP2 batch-32 layer 0 PCC=0.9949047359644795
+E       assert False
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:2846: AssertionError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_p150x2_batch32_trace_and_optimized_pcc[blackhole-full_attention-mesh_device0-device_params0]" time="8.819"><properties><property name="start_timestamp" value="2026-09-06T00:20:27" /><property name="end_timestamp" value="2026-09-06T00:20:36" /></properties><failure message="AssertionError: TP2 batch-32 layer 5 PCC=0.9943609064783963&#10;assert False">mesh_device = MeshDevice(2x2 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_2D, 'trace_region_size': 67108864}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7bc49ab13950&gt;
+layer_idx = 5
+
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_2D, "trace_region_size": 64 * 1024 * 1024}],
+        indirect=True,
+    )
+    @pytest.mark.parametrize("mesh_device", [(2, 2)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_p150x2_batch32_trace_and_optimized_pcc(mesh_device, device_params, monkeypatch, layer_idx):
+        """Apply the same B32 trace/PCC gate to the release-blocking TP2 profile."""
+        import torch
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        proxy_mesh = mesh_device.create_submesh(ttnn.MeshShape((1, 2)), offset=ttnn.MeshCoordinate(0, 0))
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+        output, latency_ms, cache_shape = _run_traced_batch32(
+            MultichipDecoder, proxy_mesh, cfg, state, layer_idx, local_cache=True
+        )
+        reference_dir = Path("models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts")
+        reference = torch.load(reference_dir / f"optimized_batch32_layer{layer_idx}.pt", weights_only=True)
+        pcc_ok, pcc = functional_tests.comp_pcc(reference, output, 0.995)
+&gt;       assert pcc_ok, f"TP2 batch-32 layer {layer_idx} PCC={pcc}"
+E       AssertionError: TP2 batch-32 layer 5 PCC=0.9943609064783963
+E       assert False
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:2846: AssertionError</failure></testcase></testsuite></testsuites>

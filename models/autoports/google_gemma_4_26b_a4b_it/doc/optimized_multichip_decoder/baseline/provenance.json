@@ -1,0 +1,62 @@
+{
+  "model_id": "google/gemma-4-26B-A4B-it",
+  "checkout_git_sha": "537f844d043a202f921053d465a20f52f3021431",
+  "measured_decoder_path": "models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py",
+  "measured_decoder_sha256": "7279e13a379bd9260006f2ab220a1fa7b35d01ccec1ccc79dddd17bab058f3bf",
+  "multichip_test_sha256": "22561a48f9654b9b5d07b64bed1601ccb0e25d78312c55ec95b68d29c1ee06ff",
+  "functional_test_sha256": "a493ef28f2abd5b25cda7d4b009e9b765681dc9b640f26ab5d5923fd44ac526c",
+  "measurement_regime": {
+    "prefill_warmups": 1,
+    "decode_trace_warmups_recorded": 6,
+    "decode_trace_warmups_explanation": "five requested warmups plus the trace-validation replay",
+    "decode_trace_iterations": 30,
+    "fallback_policy": "throw_exception_on_fallback=true",
+    "measured_path": "MultichipDecoder on the listed target mesh; no replicated single-chip fallback"
+  },
+  "erratum": "The immutable timing JSONs embedded a stale delegated FunctionalDecoder command even though their measured decoder path, source hash, mesh device IDs, profile artifact directory, and test hash identify the multichip harness. The commands below are reconstructed from those retained fields and the profile wrapper semantics. They are reproducibility commands, not claimed verbatim shell history.",
+  "profiles": {
+    "p150": {
+      "mesh": "1x1",
+      "device_ids": [
+        1
+      ],
+      "sliding_command_reconstructed": "GEMMA4_FUNCTIONAL_DECODER_PERF=1 GEMMA4_FUNCTIONAL_DECODER_TRACE_ITERATIONS=30 GEMMA4_FUNCTIONAL_DECODER_TRACE_WARMUPS=5 GEMMA4_MULTICHIP_ARTIFACT_DIR=models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_multichip_decoder/baseline/p150 GEMMA4_RANGE_DOWNLOAD=1 TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\":true}' python_env/bin/python3 -m pytest -q -s 'models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py::test_required_profile_perf_profile[blackhole-sliding_attention-p150_tp1-mesh_device0-device_params0]'",
+      "full_command_reconstructed": "GEMMA4_FUNCTIONAL_DECODER_PERF=1 GEMMA4_FUNCTIONAL_DECODER_TRACE_ITERATIONS=30 GEMMA4_FUNCTIONAL_DECODER_TRACE_WARMUPS=5 GEMMA4_MULTICHIP_ARTIFACT_DIR=models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_multichip_decoder/baseline/p150 GEMMA4_RANGE_DOWNLOAD=1 TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\":true}' python_env/bin/python3 -m pytest -q -s 'models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py::test_required_profile_perf_profile[blackhole-full_attention-p150_tp1-mesh_device0-device_params0]'",
+      "artifacts": {
+        "sliding_timing_sha256": "9c010d0117f14885c872b0bae1771f8eddc753ef6f00ce948e52afff4b13c461",
+        "full_timing_sha256": "78bd3e10ee69618d17645b5146c2e4dfd3faddcc6564516f5725b801417adb2e",
+        "junit_sha256": "a915de23bdb80aefc993add4f0cd8d93c42d9ca46e6a25c61a416901ba9252bc"
+      }
+    },
+    "p150x2": {
+      "mesh": "1x2 submesh of the 2x2 QB2",
+      "device_ids": [
+        1,
+        0
+      ],
+      "sliding_command_reconstructed": "GEMMA4_FUNCTIONAL_DECODER_PERF=1 GEMMA4_FUNCTIONAL_DECODER_TRACE_ITERATIONS=30 GEMMA4_FUNCTIONAL_DECODER_TRACE_WARMUPS=5 GEMMA4_MULTICHIP_ARTIFACT_DIR=models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_multichip_decoder/baseline/p150x2 GEMMA4_RANGE_DOWNLOAD=1 TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\":true}' python_env/bin/python3 -m pytest -q -s 'models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py::test_required_profile_perf_profile[blackhole-sliding_attention-p150x2_tp2-mesh_device0-device_params0]'",
+      "full_command_reconstructed": "GEMMA4_FUNCTIONAL_DECODER_PERF=1 GEMMA4_FUNCTIONAL_DECODER_TRACE_ITERATIONS=30 GEMMA4_FUNCTIONAL_DECODER_TRACE_WARMUPS=5 GEMMA4_MULTICHIP_ARTIFACT_DIR=models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_multichip_decoder/baseline/p150x2 GEMMA4_RANGE_DOWNLOAD=1 TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\":true}' python_env/bin/python3 -m pytest -q -s 'models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py::test_required_profile_perf_profile[blackhole-full_attention-p150x2_tp2-mesh_device0-device_params0]'",
+      "artifacts": {
+        "sliding_timing_sha256": "9d85523cf82eaa7b6eaa3d731ba6117c1168f97821519381b37f3db917bf3ff8",
+        "full_timing_sha256": "2f8e50c70a6496219a1ec2a71fb0cddc95a6da8efd68d80d75c277c485c1f137",
+        "junit_sha256": "cd044648c1f699d057f99802d10b35c5bf6c5188d1b851f9c97f256319fb76f8"
+      }
+    },
+    "p150x4": {
+      "mesh": "1x4",
+      "device_ids": [
+        1,
+        0,
+        3,
+        2
+      ],
+      "sliding_command_reconstructed": "GEMMA4_FUNCTIONAL_DECODER_PERF=1 GEMMA4_FUNCTIONAL_DECODER_TRACE_ITERATIONS=30 GEMMA4_FUNCTIONAL_DECODER_TRACE_WARMUPS=5 GEMMA4_MULTICHIP_ARTIFACT_DIR=models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_multichip_decoder/baseline/p150x4 GEMMA4_RANGE_DOWNLOAD=1 TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\":true}' python_env/bin/python3 -m pytest -q -s 'models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py::test_multichip_perf_profile[blackhole-sliding_attention-batch1-mesh_device0-device_params0]'",
+      "full_command_reconstructed": "GEMMA4_FUNCTIONAL_DECODER_PERF=1 GEMMA4_FUNCTIONAL_DECODER_TRACE_ITERATIONS=30 GEMMA4_FUNCTIONAL_DECODER_TRACE_WARMUPS=5 GEMMA4_MULTICHIP_ARTIFACT_DIR=models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_multichip_decoder/baseline/p150x4 GEMMA4_RANGE_DOWNLOAD=1 TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\":true}' python_env/bin/python3 -m pytest -q -s 'models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py::test_multichip_perf_profile[blackhole-full_attention-batch1-mesh_device0-device_params0]'",
+      "artifacts": {
+        "sliding_timing_sha256": "d6e91a3950d06dea870acf821d8755c05b5206201c61278b2e6a28ca3a14a763",
+        "full_timing_sha256": "c460279aa58bd4e52922d9150db79a8dc210d72aa416d1e052f5d36161beca97",
+        "junit_sha256": "af24cddb2104132d15daec744ca6f07e69c78c07f7a96737d8aa50b882a78e4c"
+      }
+    }
+  }
+}

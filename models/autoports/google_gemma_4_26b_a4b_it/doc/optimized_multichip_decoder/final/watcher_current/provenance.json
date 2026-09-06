@@ -1,0 +1,23 @@
+{
+  "model_id": "google/gemma-4-26B-A4B-it",
+  "decoder_sha256": "9c6735c56ff48309215845e3f73aa640c54fdb7e5ca0a5ff3b36155b409473ba",
+  "multichip_test_sha256": "54a87ce28b179efc740bd5ea1078340348a2fd7dee92f01379e3c814916f8071",
+  "optimized_decoder_sha256": "f6a095438c10306640eefbfd6c5de9b2de9d08ccc59f400dd52044229201ce2b",
+  "reference_provenance": "../tp4_full_b32_matched_reference/reference_provenance.json",
+  "watcher_policy": "TT_METAL_WATCHER=10 with active-Ethernet instrumentation disabled; worker and idle-Ethernet watcher remained enabled",
+  "fallback_policy": "TTNN throw_exception_on_fallback=true",
+  "result": "12 passed, 99 deselected in 108.48 seconds; watcher log contains no error",
+  "exact_command": "TT_METAL_WATCHER=10 TT_METAL_WATCHER_DISABLE_ETH=1 TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\":true}' GEMMA4_RECORDED_ACTIVATIONS=models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_multichip_decoder/precision/recorded_layer_inputs.pt GEMMA4_MULTICHIP_REFERENCE_DIR=models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_multichip_decoder/final/tp4_full_b32_matched_reference GEMMA4_MULTICHIP_ARTIFACT_DIR=models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_multichip_decoder/final/watcher_current GEMMA4_RANGE_DOWNLOAD=1 python_env/bin/python -m pytest -q -s models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py -k 'p150x2_proxy_real_weights_prefill_decode or multichip_real_weights_prefill_decode or p150x2_batch32_trace_and_optimized_pcc or multichip_batch32_trace_and_optimized_pcc or multichip_non_aligned_prefill_and_decode_trace or tp2_stacked_mixed_attention_shared_persistent_ccl_trace or tp4_stacked_mixed_attention_shared_persistent_ccl_trace'",
+  "artifacts": {
+    "stacked_tp2_mixed_trace_watcher.json": "cb9ef6d7ef0ab64cf36490440ac278e7b7923527cdd98e5c27cb1e3525c10a8d",
+    "stacked_tp4_mixed_trace_watcher.json": "e953a59ad526269b0fd4ad4e7484bf438f95b55ab42ff32d3471f2c270c7384e",
+    "nonaligned_sliding_attention_batch1_watcher.json": "892c34f8103b1da77fdb91a501ff378c1afbaea987462a85b1a206ca817d3280",
+    "nonaligned_full_attention_batch1_watcher.json": "09b082895dc476b8fe7aab855fbe0fbdc675dfdba44315206bf891ec8c792106",
+    "multichip_batch32_layer0_watcher.json": "98577eb62dd914504133e482ba2adb7d36f55e1ecf91c104665f629ac127cb12",
+    "multichip_batch32_layer5_watcher.json": "3a9313a10c64fa0af0d1f6e1cffad7afb292c846ea279dd484779f63f41b31be",
+    "p150x2_batch32_layer0_watcher.json": "a97bef09a1a0546fbe0f1faf31ea7914ad6243d0b571694c8f28914eff544218",
+    "p150x2_batch32_layer5_watcher.json": "3b5b461934c23c3793fdc3684e82184519d716170a8d05f1e434347258232300",
+    "junit.xml": "0e31ed3ba3f073b6e6360f64c290fd62ee9b8ea6cbb5fefd57c830015a9b58d2",
+    "watcher.log": "7cce293620ce0ccdf6ad73e15528609c959331cb8921ddc75eb330d0dbed08cb"
+  }
+}

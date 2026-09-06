@@ -202,5 +202,46 @@
       "P150 real-weight representative-layer probes pass at both the 50623-token nonaligned boundary and aligned 50624-token limit; 50625 is rejected safely before device allocation.",
       "The earlier P150 53343/53344 real-weight probes also passed but are superseded/non-boundary evidence after correcting MoE concat lifetime to include both accumulated chunks and the newly allocated concat output."
     ]
+  },
+  "optimized_multichip_decoder": {
+    "hardware": "one P300C QB2: 1/2/4 devices as accepted proxies for mandatory P150/P150x2/P150x4 profiles",
+    "current_supported_context": 50624,
+    "profile_dependent_context": true,
+    "kv_cache_contract_changed": false,
+    "kv_cache_dtype": "BF16",
+    "activation_dtype": "BF16 for attention, dense MLP, MoE, residual/norm, and CCL payloads; role-isolated and combined BFP8 candidates were rejected",
+    "activation_sharding": "decode-local R22 height sharding where selected; unchanged public replicated BF16 TILE DRAM residual",
+    "expert_routing": "gate-selected runtime top-8 with exact indexed sparse execution; no dense all-expert execution and no fixed nnz metadata",
+    "inter_layer_residual_contract": "replicated BF16 TILE DRAM [1,1,logical_M,2816]; no gather, reshard, or collective between decoder layers",
+    "capacity_artifact": "optimized_multichip_decoder/capacity_projection.json",
+    "profiles": {
+      "P150": {
+        "tp_size": 1,
+        "supported_context_tokens": 50624,
+      "full_stack_projection_bytes_per_device": 34091067904,
+      "full_stack_headroom_bytes_per_device": 268670464
+      },
+      "P150x2": {
+        "tp_size": 2,
+        "supported_context_tokens": 262144,
+      "full_stack_projection_bytes_per_device": 33498448896,
+      "full_stack_headroom_bytes_per_device": 861289472
+      },
+    "P150x4": {
+      "tp_size": 4,
+      "supported_context_tokens": 262144,
+      "full_stack_projection_bytes_per_device": 29333556224,
+      "full_stack_headroom_bytes_per_device": 5026182144
+      }
+    },
+    "notes": [
+      "The optimized packed expert tensor replaces, rather than supplements, the separate gate/up tensors and is shared by prefill and decode.",
+    "P150x2 full attention adds a 61276160-byte retained O-projection family and remains within the conservative full-stack capacity projection.",
+    "P150x4 reclaims the prior 4411883520-byte redundant packed-expert retained copy and retains a 288358400-byte DRAM-sharded QKV decode copy across the 25 sliding-attention layers.",
+      "No public sequence alignment is added. The decoder continues to own tile padding, cache masking, and logical slicing, with final S=33 prefill/decode trace evidence.",
+    "Indexed sparse routing adds only transient exact TopK indices and compact scores; it does not change persistent per-device memory or the context limit.",
+    "Full-attention dense gate, up, and down are BF16 for recorded-activation correctness. Coherent R22 TP1/TP2 no longer allocate an unused packed dense tensor, offsetting most of that precision repair's persistent cost.",
+    "The final-source P150 50624 physical boundary was rerun after changing packed-expert construction to avoid all separate gate/up device allocations; both meaningful layer kinds pass."
+    ]
   }
 }

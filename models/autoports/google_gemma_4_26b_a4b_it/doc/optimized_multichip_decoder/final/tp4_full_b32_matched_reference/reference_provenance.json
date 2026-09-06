@@ -1,0 +1,23 @@
+{
+  "model_id": "google/gemma-4-26B-A4B-it",
+  "purpose": "policy-matched prompt-derived B32 single-chip oracles for multichip stress and watcher validation",
+  "recorded_activation_sha256": "c89172f7d09d9da3c96aca73362c213265519f6dda365a8cb84402f71dcdc44a",
+  "optimized_decoder_sha256": "f6a095438c10306640eefbfd6c5de9b2de9d08ccc59f400dd52044229201ce2b",
+  "multichip_test_sha256": "54a87ce28b179efc740bd5ea1078340348a2fd7dee92f01379e3c814916f8071",
+  "ttnn_extension_sha256": "52deb65dd2ded7e68753dc8fbec68ae992a72dd85596b7769beda7968fbe0e98",
+  "fallback_policy": "throw_exception_on_fallback=true",
+  "captures": {
+    "layer0_sliding_attention": {
+      "precision_policy": "BF16 attention weights; inherited BFP8 dense weights",
+      "exact_command": "GEMMA4_CAPTURE_SINGLE_CHIP_REFERENCE=1 GEMMA4_RECORDED_ACTIVATIONS=models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_multichip_decoder/precision/recorded_layer_inputs.pt GEMMA4_OPT_ATTENTION_WEIGHT_DTYPE=bf16 GEMMA4_MULTICHIP_ARTIFACT_DIR=models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_multichip_decoder/final/tp4_full_b32_matched_reference GEMMA4_RANGE_DOWNLOAD=1 TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\":true}' python_env/bin/python3 -m pytest -q -s models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py -k 'test_capture_optimized_batch32_reference and sliding_attention'",
+      "tensor_sha256": "fcd5407e18a7f83d384af53f74205dee17a588130c32a81c20c7777d6598e378",
+      "metadata_sha256": "304a2d6d94e6b5b407deff22dd30b7f8bf79762d370adad7e3a6bc7b7110e18a"
+    },
+    "layer5_full_attention": {
+      "precision_policy": "inherited BFP8 attention weights; BF16 dense gate, up, and down weights",
+      "exact_command": "GEMMA4_CAPTURE_SINGLE_CHIP_REFERENCE=1 GEMMA4_RECORDED_ACTIVATIONS=models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_multichip_decoder/precision/recorded_layer_inputs.pt GEMMA4_OPT_MLP_WEIGHT_DTYPE=bf16 GEMMA4_MULTICHIP_ARTIFACT_DIR=models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_multichip_decoder/final/tp4_full_b32_matched_reference GEMMA4_RANGE_DOWNLOAD=1 TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\":true}' python_env/bin/python3 -m pytest -q -s models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py -k 'test_capture_optimized_batch32_reference and full_attention'",
+      "tensor_sha256": "20d317e7ac2de1a058cf33d4a6ebb9c0f10919a01be8cae7406ed4d96c2761eb",
+      "metadata_sha256": "3043388bf9abddb7097096a208a6437fc49ae5a9ad16d0b882003d2ddc5197de"
+    }
+  }
+}

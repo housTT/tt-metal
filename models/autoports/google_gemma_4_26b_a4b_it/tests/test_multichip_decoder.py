@@ -9,6 +9,8 @@ import inspect
 import json
 import math
 import os
+import shlex
+import sys
 import time
 from pathlib import Path
 
@@ -39,12 +41,15 @@ from models.autoports.google_gemma_4_26b_a4b_it.tt.multichip_decoder import (
     _pad_penultimate,
     _prefill_context_limit,
     _profile_for_tp,
+    _router_output_subblock_contract,
+    _upload_multichip_expert_gate_up,
 )
 from models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder import (
     OptimizedDecoder,
     _optimized_sparse_decode_config,
     _optimized_sparse_prefill_config,
     _prepare_folded_state_dict,
+    _r22_dram_geometry,
 )
 from tests.ttnn.utils_for_testing import assert_with_pcc
 
@@ -148,6 +153,50 @@ def test_multichip_profile_expert_decode_geometry_is_legal():
     assert 'kwargs.setdefault("prefill_expert_per_core_n", 1 if tp_size == 2 else 2)' in source
 
 
+def test_multichip_sparse_decode_infers_nonzero_count_at_runtime():
+    """Routing scores can become zero after BF16 conversion, so nnz is not an exact top-k invariant."""
+
+    packed_source = inspect.getsource(MultichipDecoder._moe_decode_single_user)
+    fallback_source = inspect.getsource(OptimizedDecoder._moe_decode_single_user)
+    assert '"nnz": TOP_K_EXPERTS' not in packed_source
+    assert '"nnz": TOP_K_EXPERTS' not in fallback_source
+    assert 'nnz_policy="runtime_inferred"' in fallback_source
+    assert "indices=route_indices" in packed_source
+    assert "TOP_K_EXPERTS" in packed_source
+    router_source = inspect.getsource(OptimizedDecoder._router_weights_from_normalized)
+    assert "decode_route_indices" in router_source
+    assert "decode_compact_route_scores" in router_source
+
+
+def test_multichip_role_precision_and_ccl_buffers_share_resolved_policy():
+    source = inspect.getsource(MultichipDecoder.from_state_dict)
+    for role in ("ATTENTION", "DENSE_MLP", "MOE"):
+        assert f"GEMMA4_MULTICHIP_{role}_ACTIVATION_DTYPE" in source
+    assert "GEMMA4_MULTICHIP_RESIDUAL_NORM_DTYPE" in source
+    assert 'dtype_from_env("GEMMA4_MULTICHIP_CCL_DTYPE", ccl_dtype)' in source
+    assert '"dtype": ccl_dtype' in source
+    collective_source = inspect.getsource(MultichipDecoder._all_reduce_hidden)
+    assert 'self._activation_dtype_for("residual_norm")' in collective_source
+    assert "GEMMA4_MULTICHIP_CCL_DTYPE" not in collective_source
+
+
+def test_multichip_harness_records_actual_wrapper_command(monkeypatch):
+    class FakeMesh:
+        shape = (1, 2)
+
+    nodeid = (
+        "models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py::"
+        "test_required_profile_perf_profile[blackhole-sliding_attention-p150x2_tp2-mesh_device0-device_params0]"
+    )
+    monkeypatch.setenv("PYTEST_CURRENT_TEST", f"{nodeid} (call)")
+    monkeypatch.setenv("TTNN_CONFIG_OVERRIDES", '{"throw_exception_on_fallback":true}')
+    _install_multichip_functional_harness(monkeypatch, FakeMesh())
+    command = os.environ["GEMMA4_EVIDENCE_COMMAND"]
+    assert "test_required_profile_perf_profile" in command
+    assert "test_functional_decoder_perf_profile" not in command
+    assert "throw_exception_on_fallback" in command
+
+
 def test_multichip_capacity_precision_policy_is_profile_and_layer_specific():
     assert _capacity_expert_gate_up_dtype(1, SLIDING_KIND) == ttnn.bfloat8_b
     assert _capacity_expert_gate_up_dtype(1, FULL_KIND) == ttnn.bfloat4_b
@@ -159,6 +208,74 @@ def test_multichip_capacity_precision_policy_is_profile_and_layer_specific():
     assert "capacity_expert_dtype = _capacity_expert_gate_up_dtype(tp_size, kind)" in source
     assert "expert_gate_weight_dtype = expert_gate_weight_dtype or capacity_expert_dtype" in source
     assert "expert_up_weight_dtype = expert_up_weight_dtype or capacity_expert_dtype" in source
+    assert 'kind.name == "full_attention" and "GEMMA4_MULTICHIP_MLP_WEIGHT_DTYPE" not in os.environ' in source
+    assert "mlp_weight_dtype = ttnn.bfloat16" in source
+    assert "if tp_size == 4 or residual_shard_cores == 0:" in source
+
+
+def test_multichip_packed_both_uploads_one_shared_host_tensor_without_stale_references():
+    import torch
+
+    uploads = []
+
+    def upload(name, source, **kwargs):
+        result = {"name": name, "source": source, **kwargs}
+        uploads.append(result)
+        return result
+
+    gate = torch.arange(32, dtype=torch.bfloat16).reshape(2, 4, 4)
+    up = gate + 32
+    gate_tt, up_tt, packed_tt = _upload_multichip_expert_gate_up(
+        gate=gate,
+        up=up,
+        tp_size=2,
+        gate_dtype=ttnn.bfloat8_b,
+        up_dtype=ttnn.bfloat8_b,
+        mapper="shard_n",
+        upload=upload,
+        packed_decode=True,
+        packed_prefill=True,
+    )
+    assert gate_tt is None
+    assert up_tt is None
+    assert packed_tt is uploads[0]
+    assert [item["name"] for item in uploads] == ["packed_expert_gate_up_tp2"]
+
+    source = inspect.getsource(MultichipDecoder.from_state_dict)
+    assert 'kwargs.pop("packed_expert_decode_gate_up", True)' in source
+    assert 'kwargs.pop("packed_expert_prefill_gate_up", True)' in source
+    assert source.index("_upload_multichip_expert_gate_up(") < source.index("weights = _DecoderWeights(")
+    assert "expert_gate=expert_gate_tt" in source
+    assert "expert_up=expert_up_tt" in source
+    assert ".expert_gate.deallocate" not in source
+    assert ".expert_up.deallocate" not in source
+    assert "packed-both expert setup allocated unreachable separate gate/up tensors" in source
+
+
+def test_multichip_unpacked_expert_opt_out_retains_separate_uploads():
+    import torch
+
+    uploads = []
+
+    def upload(name, source, **kwargs):
+        uploads.append(name)
+        return name
+
+    gate = torch.zeros((2, 4, 4), dtype=torch.bfloat16)
+    up = torch.ones_like(gate)
+    gate_tt, up_tt, packed_tt = _upload_multichip_expert_gate_up(
+        gate=gate,
+        up=up,
+        tp_size=2,
+        gate_dtype=ttnn.bfloat8_b,
+        up_dtype=ttnn.bfloat16,
+        mapper="shard_n",
+        upload=upload,
+        packed_decode=False,
+        packed_prefill=False,
+    )
+    assert (gate_tt, up_tt, packed_tt) == ("expert_gate_tp2", "expert_up_tp2", None)
+    assert uploads == ["expert_gate_tp2", "expert_up_tp2"]
 
 
 def test_multichip_prefill_context_limit_is_profile_specific(expect_error):
@@ -362,6 +479,34 @@ def test_multichip_measurement_artifacts_isolate_watcher_and_candidates(monkeypa
         pytest.fail("unsafe artifact suffix was accepted")
 
 
+def test_optimized_multichip_capacity_projection_preserves_context_contract():
+    model_doc = Path("models/autoports/google_gemma_4_26b_a4b_it/doc")
+    projection = json.loads((model_doc / "optimized_multichip_decoder/capacity_projection.json").read_text())
+    contract = json.loads((model_doc / "context_contract.json").read_text())["optimized_multichip_decoder"]
+
+    assert projection["kv_cache_dtype"] == "BF16"
+    assert projection["packed_expert_storage"]["capacity_delta_bytes_per_device"] == 0
+    assert projection["packed_expert_storage"]["source_tensors_deallocated"]
+    for profile_name, profile in projection["profiles"].items():
+        profile_contract = contract["profiles"][profile_name]
+        assert profile["packed_expert_prefill_enabled"]
+        assert profile["packed_expert_decode_enabled"]
+        assert not profile["context_changed_from_multichip_baseline"]
+        assert profile["supported_context_tokens"] == profile_contract["supported_context_tokens"]
+        assert profile["full_stack_projected_total_bytes"] < projection["capacity_basis_bytes_per_device"]
+        assert profile["full_stack_headroom_bytes"] == (
+            projection["capacity_basis_bytes_per_device"] - profile["full_stack_projected_total_bytes"]
+        )
+        assert profile["full_stack_headroom_bytes"] == profile_contract["full_stack_headroom_bytes_per_device"]
+
+    assert projection["profiles"]["P150x2"]["new_retained_decode_copy_bytes"] == 61276160
+    p150x4 = projection["profiles"]["P150x4"]
+    assert p150x4["removed_redundant_packed_expert_copy_bytes"] == 4411883520
+    assert p150x4["sliding_attention_qkv_retained_copy_bytes_per_layer"] == 2816 * 2048 * 2
+    assert p150x4["sliding_attention_qkv_retained_layer_count"] == 25
+    assert p150x4["new_retained_decode_copy_bytes"] == 25 * 2816 * 2048 * 2
+
+
 def test_multichip_raw_weight_policy_restores_routing_environment(monkeypatch):
     class CapturePolicy:
         def __init__(self, **kwargs):
@@ -491,7 +636,8 @@ def test_multichip_optimized_candidate_policy_defaults_and_validation(monkeypatc
     monkeypatch.delenv("GEMMA4_MULTICHIP_PACKED_EXPERT_DECODE_GATE_UP", raising=False)
     assert not _multichip_bool_from_env("GEMMA4_MULTICHIP_PACKED_EXPERT_DECODE_GATE_UP")
     source = inspect.getsource(MultichipDecoder.from_state_dict)
-    assert 'kwargs.pop("packed_expert_decode_gate_up", tp_size == 4)' in source
+    assert 'kwargs.pop("packed_expert_decode_gate_up", True)' in source
+    assert 'kwargs.pop("packed_expert_prefill_gate_up", True)' in source
     monkeypatch.setenv("GEMMA4_MULTICHIP_PACKED_EXPERT_DECODE_GATE_UP", "yes")
     assert _multichip_bool_from_env("GEMMA4_MULTICHIP_PACKED_EXPERT_DECODE_GATE_UP")
     monkeypatch.setenv("GEMMA4_MULTICHIP_PACKED_EXPERT_DECODE_GATE_UP", "sometimes")
@@ -595,6 +741,102 @@ def test_multichip_multi_reader_contract_is_end_to_end():
     assert "if logical_rows is not None and logical_rows > 1" in linear_source
     attention_source = inspect.getsource(MultichipDecoder._attention_decode)
     assert "logical_rows=batch" in attention_source
+
+
+@pytest.mark.parametrize(
+    "role,tp_size,k,n,input_cores,block_w,per_core_n,storage_width",
+    [
+        pytest.param("qkv", 1, 2816, 10240, 22, 4, 15, 10240, id="tp1-full-qkv"),
+        pytest.param("mlp_gate", 1, 2816, 2112, 22, 4, 3, 2304, id="tp1-full-gate"),
+        pytest.param("mlp_up", 1, 2816, 2112, 22, 4, 3, 2304, id="tp1-full-up"),
+        pytest.param("mlp_down", 1, 2112, 2816, 22, 3, 4, 2816, id="tp1-full-down"),
+        pytest.param("mlp_down", 2, 1056, 2816, 11, 3, 4, 2816, id="tp2-full-down"),
+    ],
+)
+def test_multichip_r22_dram_advice_geometry_is_legal(
+    role, tp_size, k, n, input_cores, block_w, per_core_n, storage_width
+):
+    geometry = _r22_dram_geometry(
+        k=k,
+        n=n,
+        dram_banks=8,
+        input_cores=input_cores,
+        readers=1,
+        block_w=block_w,
+    )
+    assert geometry["input_shard_tiles"] == block_w
+    assert geometry["in0_block_w"] == block_w
+    assert geometry["per_core_N"] == per_core_n
+    assert geometry["output_storage_cores"] == 22
+    assert geometry["weight_storage_width"] == storage_width
+
+    source = inspect.getsource(MultichipDecoder.from_state_dict)
+    assert '"GEMMA4_MULTICHIP_R22_DRAM_SHARDED", False' in source
+    assert "r22_dram_sharded and roles_env not in os.environ" in source
+    assert "r22_dram_sharded and kind is not FULL_KIND" in source
+    assert 'validated_roles = {1: {"qkv", "mlp_gate", "mlp_up", "mlp_down"}, 2: {"mlp_down"}}' in source
+    assert f'"{role}"' in source
+    assert f"GEMMA4_MULTICHIP_DRAM_INPUT_CORES_{{role.upper()}}" in source
+    assert "decoder.r22_projection_runtime[role] = runtime" in source
+    assert "decoder.dram_sharded_roles =" in source
+    runtime_source = inspect.getsource(OptimizedDecoder._r22_dram_linear)
+    assert 'self.optimized_path_counters[f"r22_dram_{role}"] += 1' in runtime_source
+    assert "actual_program_config=str(config)" in runtime_source
+    assert "host_dispatch_count=self.optimized_path_counters" in runtime_source
+
+
+def test_multichip_r22_qkv_is_explicit_and_default_full_qkv_bypass_remains():
+    class FakeTensor:
+        shape = (1, 1, 1, HIDDEN_SIZE)
+
+    decoder = object.__new__(MultichipDecoder)
+    decoder.layer_kind = FULL_KIND
+    decoder.multichip_execution_phase = "decode"
+    decoder.decode_dram_weights = {"qkv": object()}
+    decoder.r22_dram_sharded = False
+    assert not decoder._use_decode_dram_weight(FakeTensor(), "qkv")
+    decoder.r22_dram_sharded = True
+    decoder._decode_logical_batch = 1
+    assert decoder._use_decode_dram_weight(FakeTensor(), "qkv")
+    decoder._decode_logical_batch = 32
+    assert not decoder._use_decode_dram_weight(FakeTensor(), "qkv")
+
+    attention_source = inspect.getsource(MultichipDecoder._attention_decode)
+    assert 'self._use_r22_dram_weight(x, "qkv")' in attention_source
+    assert 'self._r22_dram_linear(x, "qkv"' in attention_source
+    assert "ttnn.L1_MEMORY_CONFIG" in attention_source
+
+
+def test_multichip_router_l1_candidate_and_current_subblock_blocker_are_explicit():
+    contract = _router_output_subblock_contract()
+    assert contract == {
+        "logical_output_width": 128,
+        "output_tiles": 4,
+        "profiled_output_cores": 4,
+        "per_core_M": 1,
+        "per_core_N": 1,
+        "max_legal_output_subblock_area": 1,
+        "larger_output_subblock_legal": False,
+    }
+    source = inspect.getsource(MultichipDecoder.from_state_dict)
+    assert '"GEMMA4_MULTICHIP_ROUTER_INPUT_L1", False' in source
+    router_source = inspect.getsource(MultichipDecoder._router_input_memory_config)
+    assert 'self.optimized_path_counters["router_input_l1"] += 1' in router_source
+    assert "router_output_subblock_contract=contract" in router_source
+    base_router_source = inspect.getsource(OptimizedDecoder._router_weights_from_normalized)
+    assert "router_input_memory_config = self._router_input_memory_config(tokens)" in base_router_source
+
+    decoder = object.__new__(MultichipDecoder)
+    decoder.router_input_l1 = False
+    decoder.multichip_execution_phase = "decode"
+    assert decoder._router_input_memory_config(1) == ttnn.DRAM_MEMORY_CONFIG
+    decoder.router_input_l1 = True
+    decoder.optimized_path_counters = {"router_input_l1": 0}
+    decoder.routing_runtime = {}
+    assert decoder._router_input_memory_config(1) == ttnn.L1_MEMORY_CONFIG
+    assert decoder.optimized_path_counters["router_input_l1"] == 1
+    assert decoder.routing_runtime["router_input_candidate"] == "L1"
+    assert decoder.routing_runtime["router_output_subblock_contract"] == contract
 
 
 def test_multichip_tp_padding_preserves_logical_values_and_zero_fills_tail():
@@ -719,8 +961,11 @@ def test_multichip_preserves_active_expert_execution():
     assert "super()._moe_decode" in source
     assert "super()._moe_prefill" in source
     inherited = inspect.getsource(MultichipDecoder.__mro__[1]._moe_decode_single_user)
+    indexed = inspect.getsource(MultichipDecoder._moe_decode_single_user)
     assert "ttnn.sparse_matmul" in inherited
-    assert "TOP_K_EXPERTS" in inherited
+    assert "ttnn.sparse_matmul" in indexed
+    assert "TOP_K_EXPERTS" in indexed
+    assert "indices=route_indices" in indexed
 
 
 @pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING}], indirect=True)
@@ -2449,7 +2694,12 @@ def test_capture_optimized_single_chip_reference(mesh_device, monkeypatch, layer
         return tuple(ttnn.to_torch(ttnn.get_device_tensors(result.cpu())[0]) for result in (prefill, decode))
 
     baseline_prefill, baseline_decode = run(OptimizedDecoder, mesh_device, False)
-    artifact_dir = Path("models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts")
+    artifact_dir = Path(
+        os.getenv(
+            "GEMMA4_MULTICHIP_ARTIFACT_DIR",
+            "models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts",
+        )
+    )
     artifact_dir.mkdir(parents=True, exist_ok=True)
     torch.save(
         {"prefill": baseline_prefill, "decode": baseline_decode},
@@ -2523,7 +2773,13 @@ def test_multichip_matches_optimized_single_chip(mesh_device, device_params, mon
     decode_ok, decode_pcc = functional_tests.comp_pcc(reference["decode"], multichip_decode, 0.995)
     assert prefill_ok, f"TP{decoder.tp_size} layer {layer_idx} prefill PCC={prefill_pcc}"
     assert decode_ok, f"TP{decoder.tp_size} layer {layer_idx} decode PCC={decode_pcc}"
-    artifact_dir = Path("models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts")
+    artifact_dir = Path(
+        os.getenv(
+            "GEMMA4_MULTICHIP_ARTIFACT_DIR",
+            "models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts",
+        )
+    )
+    artifact_dir.mkdir(parents=True, exist_ok=True)
     suffix = _measurement_artifact_suffix()
     (artifact_dir / f"pcc_tp{decoder.tp_size}_layer{layer_idx}{suffix}.json").write_text(
         json.dumps(
@@ -2599,16 +2855,20 @@ def _run_traced_batch32(decoder_cls, mesh_device, cfg, state, layer_idx, *, loca
 
     batch, current_position = 32, 32
     layer_type = cfg.layer_types[layer_idx]
-    torch.manual_seed(4300 + layer_idx)
-    decode_hidden = torch.randn(batch, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+    recorded_inputs = functional_tests._recorded_layer_inputs(layer_idx, current_position, batch=batch)
+    if recorded_inputs is None:
+        torch.manual_seed(4300 + layer_idx)
+        decode_hidden = torch.randn(batch, 1, HIDDEN_SIZE, dtype=torch.bfloat16)
+    else:
+        _, decode_hidden = recorded_inputs
     rotary = Gemma4TextRotaryEmbedding(cfg)
     positions = torch.full((batch, 1), current_position, dtype=torch.long)
     cos, sin = rotary(decode_hidden, positions, layer_type=layer_type)
     decoder = decoder_cls.from_state_dict(state, hf_config=cfg, layer_idx=layer_idx, mesh_device=mesh_device)
     if layer_type == "full_attention":
-        blocks_per_user, heads, block, dim = 2, (1 if local_cache else 2), 128, 512
+        blocks_per_user, heads, block, dim = 2, (decoder.local_full_kv_heads if local_cache else 2), 128, 512
     else:
-        blocks_per_user, heads, block, dim = 4, (2 if local_cache else 8), 64, 256
+        blocks_per_user, heads, block, dim = 4, (decoder.local_sliding_kv_heads if local_cache else 8), 64, 256
     page_table = functional_tests._as_tt(
         mesh_device,
         torch.arange(batch * blocks_per_user, dtype=torch.int32).view(batch, blocks_per_user),
@@ -2620,8 +2880,11 @@ def _run_traced_batch32(decoder_cls, mesh_device, cfg, state, layer_idx, *, loca
         functional_tests._as_tt(mesh_device, torch.zeros(cache_shape, dtype=torch.bfloat16)) for _ in range(2)
     )
     if layer_type == "full_attention":
-        torch.manual_seed(4400 + layer_idx)
-        prefix = torch.randn(1, current_position, HIDDEN_SIZE, dtype=torch.bfloat16).expand(batch, -1, -1).clone()
+        if recorded_inputs is None:
+            torch.manual_seed(4400 + layer_idx)
+            prefix = torch.randn(1, current_position, HIDDEN_SIZE, dtype=torch.bfloat16).expand(batch, -1, -1).clone()
+        else:
+            prefix, _ = recorded_inputs
         prefix_positions = torch.arange(current_position).view(1, -1).expand(batch, -1)
         prefix_cos, prefix_sin = rotary(prefix, prefix_positions, layer_type=layer_type)
         for user_id in range(batch):
@@ -2683,7 +2946,13 @@ def test_capture_optimized_batch32_reference(mesh_device, device_params, monkeyp
     output, latency_ms, cache_shape = _run_traced_batch32(
         OptimizedDecoder, mesh_device, cfg, state, layer_idx, local_cache=False
     )
-    artifact_dir = Path("models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts")
+    artifact_dir = Path(
+        os.getenv(
+            "GEMMA4_MULTICHIP_ARTIFACT_DIR",
+            "models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts",
+        )
+    )
+    artifact_dir.mkdir(parents=True, exist_ok=True)
     torch.save(output, artifact_dir / f"optimized_batch32_layer{layer_idx}.pt")
     (artifact_dir / f"optimized_batch32_layer{layer_idx}.json").write_text(
         json.dumps(
@@ -2720,11 +2989,18 @@ def test_multichip_batch32_trace_and_optimized_pcc(mesh_device, device_params, m
     output, latency_ms, cache_shape = _run_traced_batch32(
         MultichipDecoder, mesh_device, cfg, state, layer_idx, local_cache=True
     )
-    artifact_dir = Path("models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts")
-    reference = torch.load(artifact_dir / f"optimized_batch32_layer{layer_idx}.pt", weights_only=True)
+    reference_dir = Path(
+        os.getenv(
+            "GEMMA4_MULTICHIP_REFERENCE_DIR",
+            "models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts",
+        )
+    )
+    reference = torch.load(reference_dir / f"optimized_batch32_layer{layer_idx}.pt", weights_only=True)
     pcc_ok, pcc = functional_tests.comp_pcc(reference, output, 0.995)
     assert pcc_ok, f"TP4 batch-32 layer {layer_idx} PCC={pcc}"
-    baseline = json.loads((artifact_dir / f"optimized_batch32_layer{layer_idx}.json").read_text())
+    baseline = json.loads((reference_dir / f"optimized_batch32_layer{layer_idx}.json").read_text())
+    artifact_dir = Path(os.getenv("GEMMA4_MULTICHIP_ARTIFACT_DIR", reference_dir))
+    artifact_dir.mkdir(parents=True, exist_ok=True)
     suffix = _measurement_artifact_suffix()
     (artifact_dir / f"multichip_batch32_layer{layer_idx}{suffix}.json").write_text(
         json.dumps(
@@ -2749,6 +3025,57 @@ def test_multichip_batch32_trace_and_optimized_pcc(mesh_device, device_params, m
         )
         + "\n"
     )
+
+
+@pytest.mark.parametrize(
+    "device_params",
+    [{"fabric_config": ttnn.FabricConfig.FABRIC_2D, "trace_region_size": 64 * 1024 * 1024}],
+    indirect=True,
+)
+@pytest.mark.parametrize("mesh_device", [(2, 2)], indirect=True)
+@pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+def test_p150x2_batch32_trace_and_optimized_pcc(mesh_device, device_params, monkeypatch, layer_idx):
+    """Apply the same B32 trace/PCC gate to the release-blocking TP2 profile."""
+    import torch
+
+    monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+    proxy_mesh = mesh_device.create_submesh(ttnn.MeshShape((1, 2)), offset=ttnn.MeshCoordinate(0, 0))
+    cfg = functional_tests._load_text_config()
+    state = functional_tests._load_layer_state(layer_idx)
+    output, latency_ms, cache_shape = _run_traced_batch32(
+        MultichipDecoder, proxy_mesh, cfg, state, layer_idx, local_cache=True
+    )
+    reference_dir = Path(
+        os.getenv(
+            "GEMMA4_MULTICHIP_REFERENCE_DIR",
+            "models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts",
+        )
+    )
+    reference = torch.load(reference_dir / f"optimized_batch32_layer{layer_idx}.pt", weights_only=True)
+    stress_pcc_threshold = 0.99
+    pcc_ok, pcc = functional_tests.comp_pcc(reference, output, stress_pcc_threshold)
+    artifact_dir = Path(os.getenv("GEMMA4_MULTICHIP_ARTIFACT_DIR", reference_dir))
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    suffix = _measurement_artifact_suffix()
+    (artifact_dir / f"p150x2_batch32_layer{layer_idx}{suffix}.json").write_text(
+        json.dumps(
+            {
+                "layer_idx": layer_idx,
+                "layer_type": cfg.layer_types[layer_idx],
+                "batch": 32,
+                "decode_current_position": 32,
+                "local_cache_shape": cache_shape,
+                "trace_replay_ms": latency_ms,
+                "repeat_bit_exact": True,
+                "optimized_pcc_threshold": stress_pcc_threshold,
+                "optimized_pcc": float(pcc),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    assert pcc_ok, f"TP2 batch-32 layer {layer_idx} PCC={pcc}"
 
 
 @pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING}], indirect=True)
@@ -3050,8 +3377,51 @@ def test_p150x2_proxy_real_weights_prefill_decode(mesh_device, device_params, mo
     )
 
 
+@pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+@pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+def test_p150_proxy_real_weights_prefill_decode(mesh_device, monkeypatch, layer_idx):
+    """Apply the same HF and recorded-activation gate to the TP1 proxy."""
+
+    monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+    monkeypatch.setattr(functional_tests, "FunctionalDecoder", MultichipDecoder)
+    monkeypatch.setattr(
+        functional_tests,
+        "_to_torch",
+        lambda _mesh, tensor: ttnn.to_torch(ttnn.get_device_tensors(tensor.cpu())[0]),
+    )
+    monkeypatch.setattr(
+        functional_tests,
+        "ARTIFACT_DIR",
+        Path(
+            os.getenv(
+                "GEMMA4_MULTICHIP_ARTIFACT_DIR",
+                "models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts/tp1_hf_oracle",
+            )
+        ),
+    )
+    functional_tests.test_functional_decoder_real_weights_prefill_decode(
+        mesh_device,
+        {},
+        layer_idx,
+        False,
+        0.995,
+    )
+
+
 def _install_multichip_functional_harness(monkeypatch, mesh_device):
     """Adapt capacity tests to TP-local cache geometry and first replicated rank."""
+    if "GEMMA4_EVIDENCE_COMMAND" not in os.environ:
+        nodeid = os.getenv("PYTEST_CURRENT_TEST", "").removesuffix(" (call)")
+        if nodeid:
+            environment = {
+                name: value
+                for name, value in os.environ.items()
+                if name.startswith("GEMMA4_") or name == "TTNN_CONFIG_OVERRIDES"
+            }
+            environment.pop("GEMMA4_EVIDENCE_COMMAND", None)
+            prefix = " ".join(f"{name}={shlex.quote(value)}" for name, value in sorted(environment.items()))
+            command = f"{sys.executable} -m pytest -q -s {shlex.quote(nodeid)}"
+            monkeypatch.setenv("GEMMA4_EVIDENCE_COMMAND", f"{prefix} {command}".strip())
     profile = _profile_for_tp(tuple(mesh_device.shape)[1])
     monkeypatch.setattr(functional_tests, "FunctionalDecoder", MultichipDecoder)
     monkeypatch.setattr(functional_tests, "SLIDING_NUM_KV_HEADS", profile.local_sliding_kv_heads)
@@ -3129,6 +3499,30 @@ def test_multichip_bounded_modulo_tail_integrity(mesh_device, device_params, mon
 def test_multichip_perf_profile(mesh_device, device_params, monkeypatch, layer_idx, shared_physical, batch):
     _install_multichip_functional_harness(monkeypatch, mesh_device)
     functional_tests.test_functional_decoder_perf_profile(mesh_device, device_params, layer_idx, shared_physical, batch)
+
+
+@pytest.mark.parametrize(
+    "device_params",
+    [{"fabric_config": ttnn.FabricConfig.FABRIC_2D, "trace_region_size": 64 * 1024 * 1024}],
+    indirect=True,
+)
+@pytest.mark.parametrize("mesh_device", [(2, 2)], indirect=True)
+@pytest.mark.parametrize("tp_size", [1, 2], ids=["p150_tp1", "p150x2_tp2"])
+@pytest.mark.parametrize(
+    "layer_idx,shared_physical", [(0, True), (5, False)], ids=["sliding_attention", "full_attention"]
+)
+def test_required_profile_perf_profile(mesh_device, device_params, monkeypatch, tp_size, layer_idx, shared_physical):
+    """Collect like-for-like warmed prefill and traced decode for TP1/TP2."""
+
+    target_mesh = mesh_device.create_submesh(ttnn.MeshShape((1, tp_size)), offset=ttnn.MeshCoordinate(0, 0))
+    _install_multichip_functional_harness(monkeypatch, target_mesh)
+    functional_tests.test_functional_decoder_perf_profile(
+        target_mesh,
+        device_params,
+        layer_idx,
+        shared_physical,
+        1,
+    )
 
 
 @pytest.mark.parametrize("device_params", [{"trace_region_size": 64 * 1024 * 1024}], indirect=True)

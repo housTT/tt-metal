@@ -1,0 +1,101 @@
+{
+  "model_id": "google/gemma-4-26B-A4B-it",
+  "capacity_basis_bytes_per_device": 34359738368,
+  "kv_cache_dtype": "BF16",
+  "decoder_layer_count": 30,
+  "full_attention_layer_count": 5,
+  "full_attention_layer_indices": [
+    5,
+    11,
+    17,
+    23,
+    29
+  ],
+  "accounting_scope": "all byte counts are per device; full-stack deltas cover 25 sliding-attention and 5 full-attention decoder layers",
+  "precision_delta_accounting": {
+    "policy": "conservative logical-byte accounting: credit removed BFP8 tensors at 1024 bytes/tile but charge BF16-minus-BFP8 precision deltas at 1024 bytes/tile",
+    "bf16_tile_bytes": 2048,
+    "bfp8_tile_bytes": 1088,
+    "conservative_credit_bytes_per_removed_bfp8_tile": 1024,
+    "conservative_precision_delta_bytes_per_tile": 1024,
+    "exact_physical_precision_delta_bytes_per_tile": 960,
+    "effect": "the full-stack projected totals overstate physical use; exact physical headroom is also recorded per profile"
+  },
+  "packed_expert_storage": {
+    "policy": "one rank-local [up,gate] tensor shared by prefill and decode replaces the separate gate and up tensors",
+    "capacity_delta_bytes_per_device": 0,
+    "source_tensors_deallocated": true
+  },
+  "profiles": {
+    "P150": {
+      "tp_size": 1,
+      "supported_context_tokens": 50624,
+      "packed_expert_prefill_enabled": true,
+      "packed_expert_decode_enabled": true,
+      "new_retained_decode_copy_bytes": 0,
+      "removed_unused_packed_dense_conservative_credit_bytes": 356843520,
+      "removed_unused_packed_dense_exact_physical_bytes": 379146240,
+      "full_attention_bf16_dense_gate_up_conservative_delta_bytes": 59473920,
+      "full_attention_bf16_dense_down_conservative_delta_bytes": 29736960,
+      "full_attention_bf16_dense_packed_gate_up_conservative_delta_bytes": 0,
+      "full_attention_bf16_dense_all_conservative_delta_bytes": 89210880,
+      "full_attention_bf16_dense_all_exact_physical_delta_bytes": 83635200,
+      "projected_total_bytes": 27017021440,
+      "full_stack_projected_total_bytes": 34091067904,
+      "full_stack_headroom_bytes": 268670464,
+      "exact_physical_full_stack_headroom_bytes": 296548864,
+      "context_changed_from_multichip_baseline": false
+    },
+    "P150x2": {
+      "tp_size": 2,
+      "supported_context_tokens": 262144,
+      "packed_expert_prefill_enabled": true,
+      "packed_expert_decode_enabled": true,
+      "new_retained_decode_copy_bytes": 61276160,
+      "removed_unused_packed_dense_conservative_credit_bytes": 178421760,
+      "removed_unused_packed_dense_exact_physical_bytes": 189573120,
+      "full_attention_bf16_dense_gate_up_conservative_delta_bytes": 29736960,
+      "full_attention_bf16_dense_down_conservative_delta_bytes": 14868480,
+      "full_attention_bf16_dense_packed_gate_up_conservative_delta_bytes": 0,
+      "full_attention_bf16_dense_all_conservative_delta_bytes": 44605440,
+      "full_attention_bf16_dense_all_exact_physical_delta_bytes": 41817600,
+      "retained_copy_roles": ["full_attention.o_proj"],
+      "projected_total_bytes": 16413819904,
+      "full_stack_projected_total_bytes": 33498448896,
+      "full_stack_headroom_bytes": 861289472,
+      "exact_physical_full_stack_headroom_bytes": 875228672,
+      "context_changed_from_multichip_baseline": false
+    },
+    "P150x4": {
+      "tp_size": 4,
+      "supported_context_tokens": 262144,
+      "packed_expert_prefill_enabled": true,
+      "packed_expert_decode_enabled": true,
+      "new_retained_decode_copy_bytes": 288358400,
+      "sliding_attention_qkv_retained_copy_bytes_per_layer": 11534336,
+      "sliding_attention_qkv_retained_layer_count": 25,
+      "removed_redundant_packed_expert_copy_bytes": 4411883520,
+      "removed_redundant_packed_expert_copy_conservative_credit_bytes": 4411883520,
+      "removed_redundant_packed_expert_copy_exact_physical_bytes": 4411883520,
+      "full_attention_bf16_dense_gate_up_conservative_delta_bytes": 14868480,
+      "full_attention_bf16_dense_down_conservative_delta_bytes": 7434240,
+      "full_attention_bf16_dense_packed_gate_up_conservative_delta_bytes": 14868480,
+      "full_attention_bf16_dense_all_conservative_delta_bytes": 37171200,
+      "full_attention_bf16_dense_all_exact_physical_delta_bytes": 34848000,
+      "projected_total_bytes": 11164799648,
+      "full_stack_projected_total_bytes": 29333556224,
+      "full_stack_headroom_bytes": 5026182144,
+      "exact_physical_full_stack_headroom_bytes": 5028505344,
+      "context_changed_from_multichip_baseline": false
+    }
+  },
+  "notes": [
+    "The packed expert tensor contains exactly the same physical elements and dtype as the two source tensors it replaces; it is not an additional retained copy.",
+    "The prefill peak remains bounded by the prior MoE accounting because packed gate/up plus down-input has the same aggregate local width as separate gate, up, and down-input tensors.",
+    "P150x2 full attention retains one 61276160-byte five-layer decode O-projection family; its 861289472-byte conservative full-stack headroom remains positive.",
+    "Full-attention dense gate, up, and down use BF16 after recorded activations exposed a BFP8 PCC miss. Removing the unused packed dense tensor from coherent R22 TP1/TP2 offsets most of the five-layer precision delta.",
+    "P150x4 reclaims the prior 4411883520-byte redundant packed-expert allocation and retains a 288358400-byte DRAM-sharded QKV decode copy across the 25 sliding-attention layers.",
+    "Default packed-both construction uploads the shared packed expert tensor directly from host and never allocates device-side separate expert gate/up tensors, removing the prior 285474816-byte TP1 full-layer constructor peak.",
+    "No KV-cache dtype, layout, ownership, or block geometry changes; the accepted context limits remain 50624/262144/262144 tokens."
+  ]
+}

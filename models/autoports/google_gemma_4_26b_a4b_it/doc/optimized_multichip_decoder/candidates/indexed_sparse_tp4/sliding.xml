@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="11.906" timestamp="2026-09-06T00:12:36.105324+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_real_weights_prefill_decode[blackhole-sliding_attention-mesh_device0-device_params0]" time="10.947"><properties><property name="start_timestamp" value="2026-09-06T00:12:36" /><property name="end_timestamp" value="2026-09-06T00:12:48" /></properties><failure message="AssertionError: selected R22 projection was not invoked exactly once: routing_score_tilize">mesh_device = MeshDevice(1x4 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7a29383f30b0&gt;
+layer_idx = 0, shared_physical = False, decode_pcc = 0.995
+
+    @pytest.mark.parametrize("device_params", [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING}], indirect=True)
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize(
+        "layer_idx,shared_physical,decode_pcc",
+        [
+            pytest.param(0, False, 0.995, id="sliding_attention"),
+            pytest.param(5, False, 0.995, id="full_attention"),
+        ],
+    )
+    def test_multichip_real_weights_prefill_decode(
+        mesh_device, device_params, monkeypatch, layer_idx, shared_physical, decode_pcc
+    ):
+        """Reuse the established HF oracle with TP-local cache geometry."""
+
+        def local_cache_shape(layer_type, *, shared_physical, token_capacity=None):
+            if layer_type == "full_attention":
+                block_size, heads, head_dim, default_blocks = 128, 1, 512, 2
+            else:
+                block_size, heads, head_dim, default_blocks = 64, 2, 256, 4
+            blocks = default_blocks if token_capacity is None else (token_capacity + block_size - 1) // block_size
+            return blocks, heads, block_size, head_dim
+
+        def replicated_output(_mesh, tensor):
+            return ttnn.to_torch(ttnn.get_device_tensors(tensor.cpu())[0])
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        monkeypatch.setattr(functional_tests, "FunctionalDecoder", MultichipDecoder)
+        monkeypatch.setattr(functional_tests, "_cache_shape", local_cache_shape)
+        monkeypatch.setattr(functional_tests, "_to_torch", replicated_output)
+        monkeypatch.setattr(
+            functional_tests,
+            "ARTIFACT_DIR",
+            Path(
+                os.getenv(
+                    "GEMMA4_MULTICHIP_ARTIFACT_DIR",
+                    "models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts",
+                )
+            ),
+        )
+&gt;       functional_tests.test_functional_decoder_real_weights_prefill_decode(
+            mesh_device, device_params, layer_idx, shared_physical, decode_pcc
+        )
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:2828:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_functional_decoder.py:383: in test_functional_decoder_real_weights_prefill_decode
+    tt_decode = decoder.decode_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:1099: in decode_forward
+    return super().decode_forward(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.multichip_decoder.MultichipDecoder object at 0x7a2938225be0&gt;
+hidden_states = device_id: 1, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[-1.1230e-01,  4.0771e-02,  ..., -7.0312e-02,  1.0437e-02]]]], sha...1e-02,  ..., -7.0312e-02,  1.0437e-02]]]], shape=Shape([1, 1, 1, 2816]), dtype=DataType::BFLOAT16, layout=Layout::TILE)
+
+    def decode_forward(
+        self,
+        hidden_states: ttnn.Tensor,
+        *,
+        position_cos: ttnn.Tensor,
+        position_sin: ttnn.Tensor,
+        current_pos: ttnn.Tensor,
+        page_table: ttnn.Tensor,
+        kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
+        cache_position_modulo: int | None = None,
+    ) -&gt; ttnn.Tensor:
+        """Run the env-gated coherent R11/R22 hidden residual candidate."""
+        self._in_decode_forward = True
+        self._decode_logical_batch = hidden_states.shape[-2]
+        if self.residual_shard_cores == 0:
+            if any(
+                (
+                    self.folded_router_projection,
+                    self.shared_ffn_norm,
+                    self.folded_expert_scale,
+                    self.fused_final_scalar,
+                )
+            ):
+                return self._decode_forward_interleaved(
+                    hidden_states,
+                    position_cos=position_cos,
+                    position_sin=position_sin,
+                    current_pos=current_pos,
+                    page_table=page_table,
+                    kv_cache=kv_cache,
+                    cache_position_modulo=cache_position_modulo,
+                )
+            return super().decode_forward(
+                hidden_states,
+                position_cos=position_cos,
+                position_sin=position_sin,
+                current_pos=current_pos,
+                page_table=page_table,
+                kv_cache=kv_cache,
+                cache_position_modulo=cache_position_modulo,
+            )
+        if hidden_states.shape[-2] &lt; 1 or hidden_states.shape[-2] &gt; TILE_SIZE:
+            raise ValueError(f"sharded decode requires logical batch in [1, {TILE_SIZE}]")
+        if hidden_states.shape[-1] != HIDDEN_SIZE:
+            raise ValueError(f"sharded decode requires hidden width {HIDDEN_SIZE}")
+
+        r22_counters_before = {}
+        if hidden_states.shape[-2] == 1:
+            if self.r22_dram_sharded:
+                r22_counters_before = {
+                    f"r22_dram_{role}": self.optimized_path_counters[f"r22_dram_{role}"]
+                    for role in self.dram_sharded_roles
+                }
+            if self.r22_packed_dense_gate_up:
+                r22_counters_before["r22_packed_dense"] = self.optimized_path_counters["r22_packed_dense"]
+            if self.routing_row_major:
+                r22_counters_before.update(
+                    (counter, self.optimized_path_counters[counter])
+                    for counter in ("routing_row_major_scatter", "routing_row_major_metadata", "routing_score_tilize")
+                )
+        self.optimized_path_counters["residual_chain_decode"] += 1
+        hidden_states = self._tracked_to_memory_config(
+            hidden_states,
+            self.residual_memory_config,
+            "residual_entry",
+        )
+
+        residual = hidden_states
+        attn_in = self._residual_rms_norm(hidden_states, self.weights.input_ln)
+        attn_out = self._attention_decode(
+            attn_in,
+            position_cos=position_cos,
+            position_sin=position_sin,
+            current_pos=current_pos,
+            page_table=page_table,
+            kv_cache=kv_cache,
+            cache_position_modulo=cache_position_modulo,
+        )
+        attn_out = self._residual_rms_norm(attn_out, self.weights.post_attn_ln)
+        hidden_states = ttnn.add(residual, attn_out, memory_config=self.residual_memory_config)
+
+        residual = hidden_states
+        shared_ffn_in = self._shared_ffn_input(residual, sharded=True)
+        mlp_in = (
+            shared_ffn_in
+            if shared_ffn_in is not None
+            else self._residual_rms_norm(hidden_states, self.weights.pre_ff_ln)
+        )
+        mlp_out = self._dense_mlp(mlp_in)
+        hidden_1 = self._residual_rms_norm(mlp_out, self.weights.post_ff_ln_1)
+
+        router_weights = (
+            self._router_weights_from_normalized(shared_ffn_in)
+            if shared_ffn_in is not None
+            else self._router_weights_sharded(residual)
+        )
+        moe_in = (
+            shared_ffn_in if shared_ffn_in is not None else self._residual_rms_norm(residual, self.weights.pre_ff_ln_2)
+        )
+        moe_in = self._tracked_sharded_to_interleaved(
+            moe_in,
+            ttnn.L1_MEMORY_CONFIG,
+            "expert_input",
+        )
+        hidden_2 = self._moe_decode(moe_in, router_weights)
+        hidden_2 = self._tracked_to_memory_config(
+            hidden_2,
+            self.residual_memory_config,
+            "expert_output",
+        )
+        hidden_2 = self._residual_rms_norm(hidden_2, self.weights.post_ff_ln_2)
+
+        hidden_states = ttnn.add(hidden_1, hidden_2, memory_config=self.residual_memory_config)
+        hidden_states = self._residual_rms_norm(hidden_states, self.weights.post_ff_ln)
+        hidden_states = self._final_residual(
+            residual,
+            hidden_states,
+            memory_config=self.residual_memory_config,
+        )
+        for counter, before in r22_counters_before.items():
+            if self.optimized_path_counters[counter] != before + 1:
+&gt;               raise AssertionError(f"selected R22 projection was not invoked exactly once: {counter}")
+E               AssertionError: selected R22 projection was not invoked exactly once: routing_score_tilize
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2322: AssertionError</failure></testcase></testsuite></testsuites>

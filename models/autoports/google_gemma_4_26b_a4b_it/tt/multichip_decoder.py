@@ -51,6 +51,7 @@ from models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder import (
     _optimized_sparse_decode_config,
     _pad_dram_weight_for_readers,
     _prepare_folded_state_dict,
+    _r22_dram_weight_and_config,
     _resolved_graph_fusion_policy,
     _width_sharded_memory_config,
 )
@@ -95,6 +96,7 @@ def _construct_raw_weight_decoder(
     *,
     _prepared_graph_folds: bool = False,
     _prepared_packed_expert_decode: bool = False,
+    _prepared_packed_expert_prefill: bool = False,
     **kwargs: Any,
 ) -> Any:
     """Construct the inherited runtime without enabling unprepared policies."""
@@ -104,6 +106,8 @@ def _construct_raw_weight_decoder(
         unsupported.difference_update(_GRAPH_FUSION_POLICY_FLAGS)
     if _prepared_packed_expert_decode:
         unsupported.discard("packed_expert_decode_gate_up")
+    if _prepared_packed_expert_prefill:
+        unsupported.discard("packed_expert_prefill_gate_up")
     incompatible = {name: kwargs[name] for name in unsupported if name in kwargs and kwargs[name] is not False}
     if incompatible:
         raise ValueError(
@@ -185,6 +189,26 @@ def _multichip_bool_from_env(name: str, default: bool = False) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     raise ValueError(f"{name} must be a boolean, got {value!r}")
+
+
+def _router_output_subblock_contract(output_width: int = NUM_EXPERTS, output_cores: int = 4) -> dict[str, Any]:
+    """Describe the exact subblock limit of the profiled four-core router."""
+
+    if output_width % TILE_SIZE:
+        raise ValueError(f"router output width {output_width} must be tile aligned")
+    output_tiles = output_width // TILE_SIZE
+    if output_cores < 1 or output_tiles % output_cores:
+        raise ValueError(f"router output tiles {output_tiles} must divide over {output_cores} cores")
+    per_core_n = output_tiles // output_cores
+    return {
+        "logical_output_width": output_width,
+        "output_tiles": output_tiles,
+        "profiled_output_cores": output_cores,
+        "per_core_M": 1,
+        "per_core_N": per_core_n,
+        "max_legal_output_subblock_area": per_core_n,
+        "larger_output_subblock_legal": per_core_n >= 2,
+    }
 
 
 @dataclass(frozen=True)
@@ -274,6 +298,38 @@ def _packed_expert_gate_up_mesh_source(
         [torch.cat((up_shards[rank], gate_shards[rank]), dim=-1) for rank in range(tp_size)],
         dim=-1,
     ).unsqueeze(0)
+
+
+def _upload_multichip_expert_gate_up(
+    *,
+    gate: Any,
+    up: Any,
+    tp_size: int,
+    gate_dtype: ttnn.DataType,
+    up_dtype: ttnn.DataType,
+    mapper: Any,
+    upload: Any,
+    packed_decode: bool,
+    packed_prefill: bool,
+) -> tuple[Any | None, Any | None, Any | None]:
+    """Upload only the expert gate/up forms reachable by the selected phases."""
+
+    packed_both = packed_decode and packed_prefill
+    gate_tt = up_tt = None
+    if not packed_both:
+        gate_tt = upload(f"expert_gate_tp{tp_size}", gate.unsqueeze(0), dtype=gate_dtype, mapper=mapper)
+        up_tt = upload(f"expert_up_tp{tp_size}", up.unsqueeze(0), dtype=up_dtype, mapper=mapper)
+
+    packed_tt = None
+    if packed_decode or packed_prefill:
+        packed_name = "packed_expert_gate_up" if packed_decode else "packed_expert_prefill_gate_up"
+        packed_tt = upload(
+            f"{packed_name}_tp{tp_size}",
+            _packed_expert_gate_up_mesh_source(gate, up, tp_size),
+            dtype=gate_dtype,
+            mapper=mapper,
+        )
+    return gate_tt, up_tt, packed_tt
 
 
 def _require_target_mesh(mesh_device: Any) -> TPProfile:
@@ -383,6 +439,13 @@ class MultichipDecoder(OptimizedDecoder):
         expert_up_weight_dtype = dtype_from_env("GEMMA4_MULTICHIP_EXPERT_UP_WEIGHT_DTYPE", expert_up_weight_dtype)
         expert_down_weight_dtype = dtype_from_env("GEMMA4_MULTICHIP_EXPERT_DOWN_WEIGHT_DTYPE", expert_down_weight_dtype)
         activation_dtype = dtype_from_env("GEMMA4_MULTICHIP_ACTIVATION_DTYPE", activation_dtype)
+        attention_activation_dtype = dtype_from_env("GEMMA4_MULTICHIP_ATTENTION_ACTIVATION_DTYPE", activation_dtype)
+        dense_mlp_activation_dtype = dtype_from_env("GEMMA4_MULTICHIP_DENSE_MLP_ACTIVATION_DTYPE", activation_dtype)
+        moe_activation_dtype = dtype_from_env("GEMMA4_MULTICHIP_MOE_ACTIVATION_DTYPE", activation_dtype)
+        residual_norm_dtype = dtype_from_env("GEMMA4_MULTICHIP_RESIDUAL_NORM_DTYPE", activation_dtype)
+        ccl_dtype = dtype_from_env("GEMMA4_MULTICHIP_CCL_DTYPE", ccl_dtype)
+        if ccl_dtype not in {ttnn.bfloat16, ttnn.bfloat8_b}:
+            raise ValueError("GEMMA4_MULTICHIP_CCL_DTYPE must be bf16 or bfp8")
         for env_name, kwarg_name in (
             ("GEMMA4_MULTICHIP_ATTENTION_FIDELITY", "attention_math_fidelity"),
             (
@@ -431,7 +494,11 @@ class MultichipDecoder(OptimizedDecoder):
         graph_fusion_policy = _multichip_graph_fusion_policy(kwargs, defaults=graph_defaults)
         packed_expert_decode = _multichip_bool_from_env(
             "GEMMA4_MULTICHIP_PACKED_EXPERT_DECODE_GATE_UP",
-            bool(kwargs.pop("packed_expert_decode_gate_up", tp_size == 4)),
+            bool(kwargs.pop("packed_expert_decode_gate_up", True)),
+        )
+        packed_expert_prefill = _multichip_bool_from_env(
+            "GEMMA4_MULTICHIP_PACKED_EXPERT_PREFILL_GATE_UP",
+            bool(kwargs.pop("packed_expert_prefill_gate_up", True)),
         )
         original_state_dict = state_dict
         state_dict = _prepare_folded_state_dict(
@@ -454,13 +521,20 @@ class MultichipDecoder(OptimizedDecoder):
         attention_weight_dtype = attention_weight_dtype or (
             ttnn.bfloat16 if kind.name == "sliding_attention" else ttnn.bfloat8_b
         )
+        # Prompt-derived layer-5 activations expose a full-attention prefill
+        # error that random inputs hide: BFP8 dense gate/up reaches only
+        # 0.9927 PCC while BF16 reaches 0.9998.  Keep decode's separate DRAM
+        # candidates independently tunable, but make the shared full-layer
+        # gate/up source precise enough for the accepted 0.995 contract.
+        if kind.name == "full_attention" and "GEMMA4_MULTICHIP_MLP_WEIGHT_DTYPE" not in os.environ:
+            mlp_weight_dtype = ttnn.bfloat16
         mlp_down_weight_dtype = mlp_down_weight_dtype or mlp_weight_dtype
         capacity_expert_dtype = _capacity_expert_gate_up_dtype(tp_size, kind)
         expert_gate_weight_dtype = expert_gate_weight_dtype or capacity_expert_dtype
         expert_up_weight_dtype = expert_up_weight_dtype or capacity_expert_dtype
         expert_down_weight_dtype = expert_down_weight_dtype or expert_weight_dtype
-        if packed_expert_decode and expert_gate_weight_dtype != expert_up_weight_dtype:
-            raise ValueError("packed expert decode requires matching gate and up weight dtypes")
+        if (packed_expert_decode or packed_expert_prefill) and expert_gate_weight_dtype != expert_up_weight_dtype:
+            raise ValueError("packed expert gate/up requires matching gate and up weight dtypes")
 
         def get(name: str) -> Any:
             return state_dict[f"{prefix}.{name}"]
@@ -533,6 +607,17 @@ class MultichipDecoder(OptimizedDecoder):
         expert_down = _pad_penultimate(
             get("experts.down_proj").transpose(-2, -1).contiguous(), profile.padded_moe_intermediate_size
         )
+        expert_gate_tt, expert_up_tt, packed_expert_gate_up = _upload_multichip_expert_gate_up(
+            gate=expert_gate,
+            up=expert_up,
+            tp_size=tp_size,
+            gate_dtype=expert_gate_weight_dtype,
+            up_dtype=expert_up_weight_dtype,
+            mapper=shard_n,
+            upload=upload,
+            packed_decode=packed_expert_decode,
+            packed_prefill=packed_expert_prefill,
+        )
 
         def replicated(name: str, source: Any, dtype: ttnn.DataType = weight_dtype, layout=ttnn.TILE_LAYOUT):
             return upload(name, source, dtype=dtype, mapper=replicate, layout=layout)
@@ -583,15 +668,8 @@ class MultichipDecoder(OptimizedDecoder):
             router_per_expert_scale=replicated(
                 "router_per_expert_scale", get("router.per_expert_scale").reshape(1, NUM_EXPERTS), router_weight_dtype
             ),
-            expert_gate=upload(
-                f"expert_gate_tp{tp_size}",
-                expert_gate.unsqueeze(0),
-                dtype=expert_gate_weight_dtype,
-                mapper=shard_n,
-            ),
-            expert_up=upload(
-                f"expert_up_tp{tp_size}", expert_up.unsqueeze(0), dtype=expert_up_weight_dtype, mapper=shard_n
-            ),
+            expert_gate=expert_gate_tt,
+            expert_up=expert_up_tt,
             expert_down=upload(
                 f"expert_down_tp{tp_size}",
                 expert_down.unsqueeze(0),
@@ -615,22 +693,28 @@ class MultichipDecoder(OptimizedDecoder):
             cls,
             _prepared_graph_folds=True,
             _prepared_packed_expert_decode=packed_expert_decode,
+            _prepared_packed_expert_prefill=packed_expert_prefill,
             hf_config=text_config,
             layer_idx=layer_idx,
             layer_kind=kind,
             mesh_device=mesh_device,
             weights=weights,
             expert_prefill_sparsity=sparsity,
-            activation_dtype=activation_dtype,
+            activation_dtype=residual_norm_dtype,
             eps=text_config.rms_norm_eps,
             dense_decode_dram_sharded=False,
             dram_sharded_roles=(),
             residual_shard_cores=residual_shard_cores,
             packed_expert_decode_gate_up=packed_expert_decode,
+            packed_expert_prefill_gate_up=packed_expert_prefill,
             **graph_fusion_policy,
             **kwargs,
         )
         decoder.ccl_dtype = ccl_dtype
+        decoder.attention_activation_dtype = attention_activation_dtype
+        decoder.dense_mlp_activation_dtype = dense_mlp_activation_dtype
+        decoder.moe_activation_dtype = moe_activation_dtype
+        decoder.residual_norm_activation_dtype = residual_norm_dtype
         decoder.tp_profile = profile
         decoder.tp_size = tp_size
         decoder.topology = ttnn.Topology.Ring if tp_size == 4 else ttnn.Topology.Linear
@@ -648,17 +732,21 @@ class MultichipDecoder(OptimizedDecoder):
         decoder.batch32_expert_gate = decoder.weights.expert_gate
         decoder.batch32_expert_up = decoder.weights.expert_up
         if packed_expert_decode:
-            decoder.decode_packed_expert_gate_up = upload(
-                f"packed_expert_gate_up_tp{tp_size}",
-                _packed_expert_gate_up_mesh_source(expert_gate, expert_up, tp_size),
-                dtype=expert_gate_weight_dtype,
-                mapper=shard_n,
-            )
+            decoder.decode_packed_expert_gate_up = packed_expert_gate_up
             decoder.decode_packed_expert_gate_up_batch32 = decoder.decode_packed_expert_gate_up
         decoder.prefill_packed_expert_gate_up = None
-        decoder.packed_mlp_gate_up = ttnn.concat(
-            [weights.mlp_gate, weights.mlp_up], dim=-1, memory_config=ttnn.DRAM_MEMORY_CONFIG
-        )
+        decoder.packed_expert_width = 2 * profile.local_moe_intermediate_size
+        if packed_expert_prefill:
+            decoder.prefill_packed_expert_gate_up = packed_expert_gate_up
+        decoder.packed_expert_weights_capacity_neutral = packed_expert_prefill and packed_expert_decode
+        if decoder.packed_expert_weights_capacity_neutral:
+            if decoder.weights.expert_gate is not None or decoder.weights.expert_up is not None:
+                raise AssertionError("packed-both expert setup allocated unreachable separate gate/up tensors")
+        decoder.packed_mlp_gate_up = None
+        if tp_size == 4 or residual_shard_cores == 0:
+            decoder.packed_mlp_gate_up = ttnn.concat(
+                [weights.mlp_gate, weights.mlp_up], dim=-1, memory_config=ttnn.DRAM_MEMORY_CONFIG
+            )
         decoder.decode_dram_weights = {}
         decoder.decode_dram_configs = {}
         decoder.decode_dram_batch32_configs = {}
@@ -669,6 +757,12 @@ class MultichipDecoder(OptimizedDecoder):
         decoder.decode_dram_input_configs = {}
         decoder.decode_dram_output_configs = {}
         decoder.decode_routing_zero_base = None
+        decoder.indexed_expert_decode = _multichip_bool_from_env(
+            "GEMMA4_MULTICHIP_INDEXED_EXPERT_DECODE",
+            packed_expert_decode and graph_fusion_policy["folded_expert_scale"],
+        )
+        decoder.decode_route_indices = None
+        decoder.decode_compact_route_scores = None
         if decoder.routing_row_major:
             decoder.decode_routing_zero_base = ttnn.zeros(
                 (1, 1, 1, NUM_EXPERTS),
@@ -679,14 +773,29 @@ class MultichipDecoder(OptimizedDecoder):
             )
         decoder.decode_weight_sources = {}
         decoder.multichip_execution_phase = "idle"
+        r22_dram_sharded = _multichip_bool_from_env("GEMMA4_MULTICHIP_R22_DRAM_SHARDED", False)
+        if r22_dram_sharded and residual_shard_cores != 22:
+            raise ValueError("GEMMA4_MULTICHIP_R22_DRAM_SHARDED requires GEMMA4_MULTICHIP_RESIDUAL_SHARD_CORES=22")
+        if r22_dram_sharded and kind is not FULL_KIND:
+            raise ValueError("GEMMA4_MULTICHIP_R22_DRAM_SHARDED is validated only for full-attention layers")
         # Keep asynchronously produced dtype-conversion tensors alive until
         # their DRAM-sharded descendants and queued transfers are complete.
         decoder.decode_weight_intermediates = []
-        default_dram_roles = "o_proj,packed_mlp_gate_up,mlp_down" if tp_size == 4 else ""
+        if tp_size == 4:
+            default_dram_roles = "o_proj,packed_mlp_gate_up,mlp_down"
+            if kind is not FULL_KIND:
+                default_dram_roles = f"qkv,{default_dram_roles}"
+        elif tp_size == 2 and kind is FULL_KIND:
+            default_dram_roles = "o_proj"
+        else:
+            default_dram_roles = ""
+        roles_env = "GEMMA4_MULTICHIP_DRAM_SHARDED_ROLES"
+        if r22_dram_sharded and roles_env not in os.environ:
+            raise ValueError(
+                "GEMMA4_MULTICHIP_R22_DRAM_SHARDED requires explicit " "GEMMA4_MULTICHIP_DRAM_SHARDED_ROLES"
+            )
         candidate_roles = tuple(
-            role.strip()
-            for role in os.getenv("GEMMA4_MULTICHIP_DRAM_SHARDED_ROLES", default_dram_roles).split(",")
-            if role.strip()
+            role.strip() for role in os.getenv(roles_env, default_dram_roles).split(",") if role.strip()
         )
         valid_roles = {"qkv", "o_proj", "mlp_gate", "mlp_up", "packed_mlp_gate_up", "mlp_down"}
         invalid_roles = set(candidate_roles) - valid_roles
@@ -694,6 +803,23 @@ class MultichipDecoder(OptimizedDecoder):
             raise ValueError(
                 f"invalid multichip DRAM-sharded roles {sorted(invalid_roles)}; " f"choose from {sorted(valid_roles)}"
             )
+        if r22_dram_sharded:
+            if not candidate_roles:
+                raise ValueError(
+                    "GEMMA4_MULTICHIP_R22_DRAM_SHARDED requires explicit " "GEMMA4_MULTICHIP_DRAM_SHARDED_ROLES"
+                )
+            unsupported_r22_roles = set(candidate_roles) - {"qkv", "mlp_gate", "mlp_up", "mlp_down"}
+            if unsupported_r22_roles:
+                raise ValueError(
+                    "GEMMA4_MULTICHIP_R22_DRAM_SHARDED supports only qkv/mlp_gate/mlp_up/mlp_down; "
+                    f"got {sorted(unsupported_r22_roles)}"
+                )
+            validated_roles = {1: {"qkv", "mlp_gate", "mlp_up", "mlp_down"}, 2: {"mlp_down"}}
+            unvalidated_roles = set(candidate_roles) - validated_roles.get(tp_size, set())
+            if unvalidated_roles:
+                raise ValueError(
+                    f"TP{tp_size} R22 DRAM roles {sorted(unvalidated_roles)} are outside the profiled advice matrix"
+                )
         dram_candidates = {
             "qkv": weights.qkv,
             "o_proj": weights.o_proj,
@@ -712,15 +838,18 @@ class MultichipDecoder(OptimizedDecoder):
         }
         decode_weight_dtypes = decode_weight_dtypes or {}
         for role in candidate_roles:
-            default_block_w = {
-                "qkv": "11",
-                # Sliding B1 needs the two-tile accumulation group to avoid a
-                # real-weight HF oracle miss.  B32 retains the four-tile
-                # program below; both reuse this same DRAM-sharded weight.
-                "o_proj": "2" if tp_size == 4 and kind.name == "sliding_attention" else "4",
-                "packed_mlp_gate_up": "11",
-                "mlp_down": str({1: 33, 2: 11, 4: 17}[tp_size]),
-            }.get(role)
+            if r22_dram_sharded:
+                default_block_w = {"qkv": "4", "mlp_gate": "4", "mlp_up": "4", "mlp_down": "3"}[role]
+            else:
+                default_block_w = {
+                    "qkv": "11",
+                    # Sliding B1 needs the two-tile accumulation group to avoid a
+                    # real-weight HF oracle miss.  B32 retains the four-tile
+                    # program below; both reuse this same DRAM-sharded weight.
+                    "o_proj": "2" if tp_size == 4 and kind.name == "sliding_attention" else "4",
+                    "packed_mlp_gate_up": "11",
+                    "mlp_down": str({1: 33, 2: 11, 4: 17}[tp_size]),
+                }.get(role)
             role_block_w_env = f"GEMMA4_MULTICHIP_DRAM_BLOCK_W_{role.upper()}"
             role_block_w = os.getenv(role_block_w_env, default_block_w)
             candidate_weight = dram_candidates[role]
@@ -760,6 +889,24 @@ class MultichipDecoder(OptimizedDecoder):
             else:
                 decoder.decode_weight_sources[role] = "prefill_weight"
             workers_per_bank = _multichip_dram_workers_per_bank(role, tp_size=tp_size)
+            if r22_dram_sharded:
+                input_cores_default = 11 if role == "mlp_down" and tp_size == 2 else 22
+                input_cores = int(
+                    os.getenv(f"GEMMA4_MULTICHIP_DRAM_INPUT_CORES_{role.upper()}", str(input_cores_default))
+                )
+                sharded_weight, config, input_config, output_config, runtime = _r22_dram_weight_and_config(
+                    candidate_weight,
+                    device=mesh_device,
+                    input_cores=input_cores,
+                    readers=workers_per_bank,
+                    block_w=int(role_block_w),
+                )
+                decoder.decode_dram_weights[role] = sharded_weight
+                decoder.decode_dram_configs[role] = config
+                decoder.decode_dram_input_configs[role] = input_config
+                decoder.decode_dram_output_configs[role] = output_config
+                decoder.r22_projection_runtime[role] = runtime
+                continue
             if workers_per_bank > 1 and decoder.decode_weight_sources[role] == "prefill_weight":
                 candidate_weight = ttnn.clone(
                     candidate_weight,
@@ -805,6 +952,32 @@ class MultichipDecoder(OptimizedDecoder):
             if logical_output_width is not None:
                 decoder.decode_dram_logical_output_widths[role] = logical_output_width
         decoder.multichip_dram_sharded_roles = frozenset(candidate_roles)
+        decoder.r22_dram_sharded = r22_dram_sharded
+        decoder.r22_packed_dense_gate_up = False
+        decoder.dram_sharded_roles = frozenset(candidate_roles) if r22_dram_sharded else frozenset()
+        decoder.router_input_l1 = _multichip_bool_from_env("GEMMA4_MULTICHIP_ROUTER_INPUT_L1", False)
+        decoder.optimized_path_counters["router_input_l1"] = 0
+        decoder.coherent_r22_dense = _multichip_bool_from_env(
+            "GEMMA4_MULTICHIP_COHERENT_R22_DENSE",
+            tp_size <= 2,
+        )
+        if decoder.coherent_r22_dense and tp_size == 4 and residual_shard_cores:
+            # TP4's rank-local dense intermediate is 17 tiles wide.  The
+            # inherited whole-model R22 down-projection config uses a
+            # three-tile accumulation block, which cannot divide that local K.
+            # A one-tile block preserves the R22 output contract without
+            # padding the public activation or restoring it through DRAM.
+            decoder.residual_dense_program_configs["mlp_down"] = ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
+                compute_with_storage_grid_size=ttnn.CoreCoord(11, 2),
+                in0_block_w=1,
+                out_subblock_h=1,
+                out_subblock_w=4,
+                per_core_M=1,
+                per_core_N=4,
+                fuse_batch=True,
+                fused_activation=None,
+                mcast_in0=True,
+            )
         if os.getenv("GEMMA4_MULTICHIP_PACKED_DENSE_GATE_UP", "1") == "0":
             decoder.packed_dense_gate_up = False
         decoder.persistent_all_reduce_buffers = []
@@ -820,6 +993,11 @@ class MultichipDecoder(OptimizedDecoder):
             tp_size > 1 and os.getenv("GEMMA4_MULTICHIP_PERSISTENT_ALL_REDUCE", persistent_default) == "1"
         )
         if persistent_enabled and persistent_all_reduce_resources is not None:
+            resource_dtype = persistent_all_reduce_resources.get(
+                "dtype", persistent_all_reduce_resources["buffers"][0].dtype
+            )
+            if resource_dtype != ccl_dtype:
+                raise ValueError("persistent all-reduce resources and payload must use the same CCL dtype")
             decoder.persistent_all_reduce_buffers = persistent_all_reduce_resources["buffers"]
             decoder.persistent_all_reduce_semaphores = persistent_all_reduce_resources["semaphores"]
             decoder.persistent_all_reduce_memory_config = persistent_all_reduce_resources["memory_config"]
@@ -856,6 +1034,7 @@ class MultichipDecoder(OptimizedDecoder):
                 "semaphores": decoder.persistent_all_reduce_semaphores,
                 "memory_config": decoder.persistent_all_reduce_memory_config,
                 "index": 0,
+                "dtype": ccl_dtype,
             }
         obsolete_weights = {}
         if graph_fusion_policy["folded_router_projection"]:
@@ -875,27 +1054,40 @@ class MultichipDecoder(OptimizedDecoder):
             obsolete_weights["layer_scalar"] = None
         if obsolete_weights:
             decoder.weights = replace(decoder.weights, **obsolete_weights)
-        decoder.multichip_path_counters = {"all_reduce": 0, "attention_tp": 0, "dense_tp": 0, "expert_tp": 0}
+        decoder.multichip_path_counters = {
+            "all_reduce": 0,
+            "attention_tp": 0,
+            "dense_tp": 0,
+            "expert_tp": 0,
+            "collective_output_to_residual": 0,
+            "coherent_r22_dense": 0,
+        }
         return decoder
 
+    def _decode_residual_output(self, tensor: ttnn.Tensor) -> ttnn.Tensor:
+        """Return decode reductions directly in the next residual consumer's layout."""
+
+        if self.multichip_execution_phase != "decode" or not self.residual_shard_cores:
+            return tensor
+        if tensor.memory_config() == self.residual_memory_config:
+            return tensor
+        self.multichip_path_counters["collective_output_to_residual"] += 1
+        return ttnn.to_memory_config(tensor, self.residual_memory_config, dtype=tensor.dtype)
+
     def _all_reduce_hidden(self, partial: ttnn.Tensor) -> ttnn.Tensor:
+        residual_dtype = self._activation_dtype_for("residual_norm")
         if self.tp_size == 1:
-            return partial
+            if partial.dtype != residual_dtype:
+                partial = ttnn.typecast(partial, residual_dtype, memory_config=partial.memory_config())
+            return self._decode_residual_output(partial)
         self.multichip_path_counters["all_reduce"] += 1
         # A two-rank line has one usable neighbour link.  Requesting the TP4
         # ring's two-link policy on the QB2 1x2 submesh can leave the CCL
         # waiting for a second peer route that is not part of the submesh.
         default_num_links = 1 if self.tp_size == 2 else 2
         num_links = int(os.getenv("GEMMA4_MULTICHIP_ALL_REDUCE_NUM_LINKS", str(default_num_links)))
-        ccl_dtype_name = os.getenv("GEMMA4_MULTICHIP_CCL_DTYPE")
-        ccl_dtypes = {"bf16": ttnn.bfloat16, "bfp8": ttnn.bfloat8_b}
         ccl_dtype = self.ccl_dtype
-        if ccl_dtype_name is not None:
-            if ccl_dtype_name.lower() not in ccl_dtypes:
-                raise ValueError(f"GEMMA4_MULTICHIP_CCL_DTYPE={ccl_dtype_name!r}; choose from {sorted(ccl_dtypes)}")
-            ccl_dtype = ccl_dtypes[ccl_dtype_name.lower()]
-        original_dtype = partial.dtype
-        if ccl_dtype != original_dtype:
+        if ccl_dtype != partial.dtype:
             partial = ttnn.typecast(partial, ccl_dtype, memory_config=partial.memory_config())
         if self.persistent_all_reduce_buffers and _matrix_rows(partial) <= TILE_SIZE:
             if self.persistent_all_reduce_resources is not None:
@@ -919,8 +1111,15 @@ class MultichipDecoder(OptimizedDecoder):
                 topology=self.topology,
                 memory_config=self.persistent_all_reduce_memory_config,
             )
-            reduced = ttnn.to_memory_config(reduced, ttnn.DRAM_MEMORY_CONFIG, dtype=reduced.dtype)
-            return ttnn.typecast(reduced, original_dtype) if reduced.dtype != original_dtype else reduced
+            if self.multichip_execution_phase == "decode" and self.residual_shard_cores:
+                reduced = self._decode_residual_output(reduced)
+            else:
+                reduced = ttnn.to_memory_config(reduced, ttnn.DRAM_MEMORY_CONFIG, dtype=reduced.dtype)
+            return (
+                ttnn.typecast(reduced, residual_dtype, memory_config=reduced.memory_config())
+                if reduced.dtype != residual_dtype
+                else reduced
+            )
         reduced = ttnn.all_reduce(
             partial,
             cluster_axis=self.cluster_axis,
@@ -928,7 +1127,12 @@ class MultichipDecoder(OptimizedDecoder):
             topology=self.topology,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
-        return ttnn.typecast(reduced, original_dtype) if reduced.dtype != original_dtype else reduced
+        reduced = self._decode_residual_output(reduced)
+        return (
+            ttnn.typecast(reduced, residual_dtype, memory_config=reduced.memory_config())
+            if reduced.dtype != residual_dtype
+            else reduced
+        )
 
     def _linear(
         self,
@@ -957,7 +1161,7 @@ class MultichipDecoder(OptimizedDecoder):
         result = ttnn.linear(
             x,
             weight,
-            dtype=self.activation_dtype,
+            dtype=self._activation_dtype_for("attention" if weight_name in {"qkv", "o_proj"} else "dense_mlp"),
             memory_config=kwargs.pop("memory_config", ttnn.DRAM_MEMORY_CONFIG),
             compute_kernel_config=compute_kernel_config,
             **kwargs,
@@ -983,13 +1187,39 @@ class MultichipDecoder(OptimizedDecoder):
         # Shape alone is ambiguous: a valid prefill can contain exactly one
         # tile (S=32), and batch-32 decode has the same matrix row count.  The
         # public forward entrypoint is the authoritative phase boundary.
-        if weight_name == "qkv" and self.layer_kind.name == "full_attention":
+        if (
+            weight_name == "qkv"
+            and self.layer_kind.name == "full_attention"
+            and not getattr(self, "r22_dram_sharded", False)
+        ):
+            return False
+        if getattr(self, "r22_dram_sharded", False) and getattr(self, "_decode_logical_batch", x.shape[-2]) != 1:
             return False
         return (
             self.multichip_execution_phase == "decode"
             and weight_name in self.decode_dram_weights
             and _matrix_rows(x) <= TILE_SIZE
         )
+
+    def _router_input_memory_config(self, tokens: int) -> ttnn.MemoryConfig:
+        """Select the decode-only router-input L1 advice candidate."""
+
+        if (
+            getattr(self, "router_input_l1", False)
+            and self.multichip_execution_phase == "decode"
+            and tokens <= TILE_SIZE
+        ):
+            contract = _router_output_subblock_contract()
+            if contract["max_legal_output_subblock_area"] != 1:
+                raise AssertionError("the profiled four-core router no longer has the recorded 1x1 subblock limit")
+            self.optimized_path_counters["router_input_l1"] += 1
+            self.routing_runtime.update(
+                router_input_candidate="L1",
+                router_input_logical_tokens=tokens,
+                router_output_subblock_contract=contract,
+            )
+            return ttnn.L1_MEMORY_CONFIG
+        return super()._router_input_memory_config(tokens)
 
     def prefill_forward(self, hidden_states: ttnn.Tensor, **kwargs: Any) -> ttnn.Tensor:
         logical_seq_len = hidden_states.shape[-2]
@@ -1189,7 +1419,7 @@ class MultichipDecoder(OptimizedDecoder):
             ttnn.linear(
                 attn_out,
                 self.weights.o_proj,
-                dtype=self.activation_dtype,
+                dtype=self._activation_dtype_for("attention"),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
                 compute_kernel_config=self.prefill_attention_compute_config,
             )
@@ -1286,13 +1516,21 @@ class MultichipDecoder(OptimizedDecoder):
         kind = self.layer_kind
         batch = x.shape[-2]
         local_kv_heads = self.local_full_kv_heads if kind.name == "full_attention" else self.local_sliding_kv_heads
-        if x.is_sharded():
+        r22_qkv = self._use_r22_dram_weight(x, "qkv")
+        if x.is_sharded() and not r22_qkv:
             x = self._tracked_sharded_to_interleaved(
                 x,
                 ttnn.DRAM_MEMORY_CONFIG,
                 "attention_qkv_input",
             )
-        xqkv = self._linear(x, "qkv", compute_kernel_config=self.decode_attention_compute_config)
+        if r22_qkv:
+            self.optimized_path_counters["attention_qkv_input"] += 1
+            xqkv = self._r22_dram_linear(x, "qkv", compute_kernel_config=self.decode_attention_compute_config)
+            sharded_xqkv = xqkv
+            xqkv = ttnn.sharded_to_interleaved(sharded_xqkv, ttnn.L1_MEMORY_CONFIG)
+            sharded_xqkv.deallocate(True)
+        else:
+            xqkv = self._linear(x, "qkv", compute_kernel_config=self.decode_attention_compute_config)
         if xqkv.dtype == ttnn.bfloat8_b:
             bf16_xqkv = ttnn.typecast(xqkv, ttnn.bfloat16)
             xqkv.deallocate(True)
@@ -1378,6 +1616,10 @@ class MultichipDecoder(OptimizedDecoder):
     def _dense_mlp(self, x: ttnn.Tensor) -> ttnn.Tensor:
         self.multichip_path_counters["dense_tp"] += 1
         sharded_input = x.is_sharded()
+        if sharded_input and self.coherent_r22_dense:
+            self.multichip_path_counters["coherent_r22_dense"] += 1
+            local = self._dense_mlp_residual_sharded(x)
+            return self._all_reduce_hidden(local)
         if sharded_input:
             x = ttnn.sharded_to_interleaved(x, ttnn.DRAM_MEMORY_CONFIG)
         result = super()._dense_mlp(x)
@@ -1390,7 +1632,12 @@ class MultichipDecoder(OptimizedDecoder):
         if self.packed_expert_decode_gate_up:
             batch = hidden_states.shape[2]
             if batch == 1:
-                local = self._moe_decode_single_user(hidden_states, routing_weights)
+                local = self._moe_decode_single_user(
+                    hidden_states,
+                    routing_weights,
+                    route_indices=self.decode_route_indices,
+                    compact_route_scores=self.decode_compact_route_scores,
+                )
             else:
                 outputs = []
                 for batch_index in range(batch):
@@ -1406,7 +1653,30 @@ class MultichipDecoder(OptimizedDecoder):
                         [1, 1, batch_index + 1, NUM_EXPERTS],
                         memory_config=ttnn.L1_MEMORY_CONFIG,
                     )
-                    outputs.append(self._moe_decode_single_user(hidden_row, routing_row, use_batch32_policy=True))
+                    route_indices = None
+                    compact_route_scores = None
+                    if self.indexed_expert_decode:
+                        route_indices = ttnn.slice(
+                            self.decode_route_indices,
+                            [0, 0, batch_index, 0],
+                            [1, 1, batch_index + 1, TOP_K_EXPERTS],
+                            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                        )
+                        compact_route_scores = ttnn.slice(
+                            self.decode_compact_route_scores,
+                            [0, 0, batch_index, 0],
+                            [1, 1, batch_index + 1, TOP_K_EXPERTS],
+                            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                        )
+                    outputs.append(
+                        self._moe_decode_single_user(
+                            hidden_row,
+                            routing_row,
+                            use_batch32_policy=True,
+                            route_indices=route_indices,
+                            compact_route_scores=compact_route_scores,
+                        )
+                    )
                 local = ttnn.concat(outputs, dim=2, memory_config=ttnn.L1_MEMORY_CONFIG)
             return self._all_reduce_hidden(local)
         return self._all_reduce_hidden(super()._moe_decode(hidden_states, routing_weights))
@@ -1417,6 +1687,8 @@ class MultichipDecoder(OptimizedDecoder):
         routing_weights: ttnn.Tensor,
         *,
         use_batch32_policy: bool = False,
+        route_indices: ttnn.Tensor | None = None,
+        compact_route_scores: ttnn.Tensor | None = None,
     ) -> ttnn.Tensor:
         """Run the packed optimized expert path with a TP-local packed width."""
 
@@ -1460,11 +1732,13 @@ class MultichipDecoder(OptimizedDecoder):
         )
         common = {
             "sparsity": sparsity,
-            "nnz": TOP_K_EXPERTS,
             "memory_config": ttnn.L1_MEMORY_CONFIG,
             "output_tile": output_tile,
-            "dtype": self.activation_dtype,
+            "dtype": self._activation_dtype_for("moe"),
         }
+        indexed = self.indexed_expert_decode and route_indices is not None and compact_route_scores is not None
+        if indexed:
+            common.update(indices=route_indices, is_input_b_sparse=True)
         packed_weight = (
             self.decode_packed_expert_gate_up_batch32 if use_batch32_policy else self.decode_packed_expert_gate_up
         )
@@ -1475,6 +1749,23 @@ class MultichipDecoder(OptimizedDecoder):
             compute_kernel_config=self.expert_compute_config,
             **common,
         )
+        if indexed:
+            gate_up = ttnn.reshape(gate_up, (1, TOP_K_EXPERTS, 1, packed_width))
+            down_input = self._packed_expert_activation(gate_up)
+            down = ttnn.sparse_matmul(
+                down_input,
+                self.weights.expert_down,
+                program_config=down_config,
+                is_input_a_sparse=True,
+                compute_kernel_config=self.expert_compute_config,
+                **common,
+            )
+            down = ttnn.reshape(down, (1, TOP_K_EXPERTS, 1, HIDDEN_SIZE))
+            compact_scores = ttnn.permute(compact_route_scores, (0, 3, 2, 1))
+            next_states = ttnn.mul(down, compact_scores)
+            next_states = ttnn.sum(next_states, dim=1)
+            next_states = ttnn.unsqueeze_to_4D(next_states)
+            return ttnn.reshape(next_states, (1, 1, 1, HIDDEN_SIZE), (1, 1, TILE_SIZE, HIDDEN_SIZE))
         gate_up = ttnn.reshape(gate_up, (batch, NUM_EXPERTS, 1, packed_width))
         gate_up = ttnn.transpose(gate_up, 1, 2)
         gate_up = ttnn.reshape(gate_up, (batch, NUM_EXPERTS, packed_width))

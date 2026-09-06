@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="12" time="149.479" timestamp="2026-09-06T01:36:54.397303+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_batch32_trace_and_optimized_pcc[blackhole-sliding_attention-mesh_device0-device_params0]" time="13.329"><properties><property name="start_timestamp" value="2026-09-06T01:36:55" /><property name="end_timestamp" value="2026-09-06T01:37:08" /></properties></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_p150x2_batch32_trace_and_optimized_pcc[blackhole-sliding_attention-mesh_device0-device_params0]" time="10.976"><properties><property name="start_timestamp" value="2026-09-06T01:37:08" /><property name="end_timestamp" value="2026-09-06T01:37:19" /></properties></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_real_weights_prefill_decode[blackhole-sliding_attention-mesh_device0-device_params0]" time="9.748"><properties><property name="start_timestamp" value="2026-09-06T01:37:19" /><property name="end_timestamp" value="2026-09-06T01:37:29" /></properties></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_p150x2_proxy_real_weights_prefill_decode[blackhole-sliding_attention-mesh_device0-device_params0]" time="8.577"><properties><property name="start_timestamp" value="2026-09-06T01:37:29" /><property name="end_timestamp" value="2026-09-06T01:37:37" /></properties></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_non_aligned_prefill_and_decode_trace[blackhole-sliding_attention-mesh_device0-device_params0]" time="9.637"><properties><property name="start_timestamp" value="2026-09-06T01:37:37" /><property name="end_timestamp" value="2026-09-06T01:37:47" /></properties></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_tp2_stacked_mixed_attention_shared_persistent_ccl_trace[blackhole-mesh_device0-device_params0]" time="30.085"><properties><property name="start_timestamp" value="2026-09-06T01:37:47" /><property name="end_timestamp" value="2026-09-06T01:38:17" /></properties></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_tp4_stacked_mixed_attention_shared_persistent_ccl_trace[blackhole-mesh_device0-device_params0]" time="19.091"><properties><property name="start_timestamp" value="2026-09-06T01:38:17" /><property name="end_timestamp" value="2026-09-06T01:38:36" /></properties></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_batch32_trace_and_optimized_pcc[blackhole-full_attention-mesh_device0-device_params0]" time="11.095"><properties><property name="start_timestamp" value="2026-09-06T01:38:36" /><property name="end_timestamp" value="2026-09-06T01:38:47" /></properties><failure message="AssertionError: TP4 batch-32 layer 5 PCC=0.9949888362747912&#10;assert False">mesh_device = MeshDevice(1x4 grid, 4 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D_RING, 'trace_region_size': 67108864}
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x781cb67629f0&gt;
+layer_idx = 5
+
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING, "trace_region_size": 64 * 1024 * 1024}],
+        indirect=True,
+    )
+    @pytest.mark.parametrize("mesh_device", [(1, 4)], indirect=True)
+    @pytest.mark.parametrize("layer_idx", [0, 5], ids=["sliding_attention", "full_attention"])
+    def test_multichip_batch32_trace_and_optimized_pcc(mesh_device, device_params, monkeypatch, layer_idx):
+        import torch
+
+        monkeypatch.setenv("GEMMA4_RANGE_DOWNLOAD", "1")
+        cfg = functional_tests._load_text_config()
+        state = functional_tests._load_layer_state(layer_idx)
+        output, latency_ms, cache_shape = _run_traced_batch32(
+            MultichipDecoder, mesh_device, cfg, state, layer_idx, local_cache=True
+        )
+        reference_dir = Path(
+            os.getenv(
+                "GEMMA4_MULTICHIP_REFERENCE_DIR",
+                "models/autoports/google_gemma_4_26b_a4b_it/doc/multichip_decoder/artifacts",
+            )
+        )
+        reference = torch.load(reference_dir / f"optimized_batch32_layer{layer_idx}.pt", weights_only=True)
+        pcc_ok, pcc = functional_tests.comp_pcc(reference, output, 0.995)
+&gt;       assert pcc_ok, f"TP4 batch-32 layer {layer_idx} PCC={pcc}"
+E       AssertionError: TP4 batch-32 layer 5 PCC=0.9949888362747912
+E       assert False
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_multichip_decoder.py:2832: AssertionError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_p150x2_batch32_trace_and_optimized_pcc[blackhole-full_attention-mesh_device0-device_params0]" time="11.834"><properties><property name="start_timestamp" value="2026-09-06T01:38:47" /><property name="end_timestamp" value="2026-09-06T01:38:59" /></properties></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_real_weights_prefill_decode[blackhole-full_attention-mesh_device0-device_params0]" time="7.636"><properties><property name="start_timestamp" value="2026-09-06T01:38:59" /><property name="end_timestamp" value="2026-09-06T01:39:07" /></properties></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_p150x2_proxy_real_weights_prefill_decode[blackhole-full_attention-mesh_device0-device_params0]" time="8.385"><properties><property name="start_timestamp" value="2026-09-06T01:39:07" /><property name="end_timestamp" value="2026-09-06T01:39:15" /></properties></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_multichip_decoder" name="test_multichip_non_aligned_prefill_and_decode_trace[blackhole-full_attention-mesh_device0-device_params0]" time="8.156"><properties><property name="start_timestamp" value="2026-09-06T01:39:15" /><property name="end_timestamp" value="2026-09-06T01:39:23" /></properties></testcase></testsuite></testsuites>

@@ -1,0 +1,177 @@
+{
+  "model_id": "google/gemma-4-26B-A4B-it",
+  "baseline_git_sha": "537f844d043a202f921053d465a20f52f3021431",
+  "measurement": {
+    "sequence_length": 1024,
+    "batch": 1,
+    "weights": "real checkpoint tensors",
+    "final_latency_regime": "one untimed prefill warmup before one timed prefill; five requested decode warmups plus one trace-validation replay before 30 traced decode replays; these are the published before/after host numbers",
+    "profiler_regime": "2 requested warmups plus the trace-validation replay and 3 signposted traced decode replays",
+    "fallback_policy": "TTNN throw_exception_on_fallback=true",
+    "final_decoder_sha256": "9c6735c56ff48309215845e3f73aa640c54fdb7e5ca0a5ff3b36155b409473ba",
+    "final_multichip_test_sha256": "54a87ce28b179efc740bd5ea1078340348a2fd7dee92f01379e3c814916f8071",
+    "same_run_accounting": "each profiler entry's host, signposted device-op, and modeled DRAM values come from the same retained Tracy capture",
+    "roofline_basis": "tt-perf-report modeled matmul DRAM bytes with exact decode nnz=8; mesh bytes are per-device modeled bytes multiplied by TP size and aggregate bandwidth is 512 GB/s per P150 proxy",
+    "roofline_limitation": "modeled bytes exclude non-matmul traffic and CCL link bytes; device and host latency include those operations. Prefill union-of-routes can exceed nnz=8, so only decode roofline values are published."
+  },
+  "profiles": {
+    "P150": {
+      "tp_size": 1,
+      "hardware_device_ids": [1],
+      "sliding_attention": {
+        "baseline_prefill_ms": 96.431136,
+        "final_prefill_ms": 80.051155,
+        "prefill_speedup": 1.204619,
+        "baseline_decode_ms": 0.964689,
+        "final_decode_ms": 0.759652,
+        "decode_speedup": 1.269909,
+        "profiler_same_run": {
+          "prefill_host_ms": 80.424366,
+          "prefill_device_op_ms": 79.46331,
+          "prefill_host_minus_device_ms": 0.961056,
+          "decode_host_ms_per_replay": 0.820695,
+          "decode_device_op_ms_per_replay": 0.71702,
+          "decode_host_minus_device_ms": 0.103676,
+          "modeled_dram_bytes_per_device_per_replay": 137592832,
+          "modeled_dram_bytes_mesh_per_replay": 137592832,
+          "aggregate_theoretical_dram_bandwidth_gbps": 512,
+          "modeled_dram_roofline_ms_per_replay": 0.268736,
+          "modeled_dram_bandwidth_per_device_gbps": 191.895478,
+          "decode_dram_roofline_percent": 37.479586,
+          "device_imbalance_max_over_min": 1.0
+        }
+      },
+      "full_attention": {
+        "baseline_prefill_ms": 107.013618,
+        "final_prefill_ms": 78.798871,
+        "prefill_speedup": 1.35806,
+        "baseline_decode_ms": 1.080224,
+        "final_decode_ms": 0.885008,
+        "decode_speedup": 1.220581,
+        "profiler_same_run": {
+          "prefill_host_ms": 79.122958,
+          "prefill_device_op_ms": 78.245857,
+          "prefill_host_minus_device_ms": 0.877101,
+          "decode_host_ms_per_replay": 0.942104,
+          "decode_device_op_ms_per_replay": 0.845685,
+          "decode_host_minus_device_ms": 0.09642,
+          "modeled_dram_bytes_per_device_per_replay": 122667008,
+          "modeled_dram_bytes_mesh_per_replay": 122667008,
+          "aggregate_theoretical_dram_bandwidth_gbps": 512,
+          "modeled_dram_roofline_ms_per_replay": 0.239584,
+          "modeled_dram_bandwidth_per_device_gbps": 145.050529,
+          "decode_dram_roofline_percent": 28.330181,
+          "device_imbalance_max_over_min": 1.0
+        }
+      }
+    },
+    "P150x2": {
+      "tp_size": 2,
+      "hardware_device_ids": [1, 0],
+      "sliding_attention": {
+        "baseline_prefill_ms": 70.733865,
+        "final_prefill_ms": 52.653659,
+        "prefill_speedup": 1.34338,
+        "baseline_decode_ms": 0.845147,
+        "final_decode_ms": 0.646949,
+        "decode_speedup": 1.306357,
+        "profiler_same_run": {
+          "prefill_host_ms": 53.819733,
+          "prefill_device_op_ms": 52.454041,
+          "prefill_host_minus_device_ms": 1.365692,
+          "decode_host_ms_per_replay": 0.712114,
+          "decode_device_op_ms_per_replay": 0.608808,
+          "decode_host_minus_device_ms": 0.103306,
+          "modeled_dram_bytes_per_device_per_replay": 69885952,
+          "modeled_dram_bytes_mesh_per_replay": 139771904,
+          "aggregate_theoretical_dram_bandwidth_gbps": 1024,
+          "modeled_dram_roofline_ms_per_replay": 0.136496,
+          "modeled_dram_bandwidth_per_device_gbps": 114.791385,
+          "decode_dram_roofline_percent": 22.420192,
+          "device_imbalance_max_over_min": 1.001554
+        }
+      },
+      "full_attention": {
+        "baseline_prefill_ms": 77.815577,
+        "final_prefill_ms": 57.376768,
+        "prefill_speedup": 1.356221,
+        "baseline_decode_ms": 0.943894,
+        "final_decode_ms": 0.722745,
+        "decode_speedup": 1.305986,
+        "profiler_same_run": {
+          "prefill_host_ms": 58.088986,
+          "prefill_device_op_ms": 57.28224,
+          "prefill_host_minus_device_ms": 0.806746,
+          "decode_host_ms_per_replay": 0.78982,
+          "decode_device_op_ms_per_replay": 0.687962,
+          "decode_host_minus_device_ms": 0.101858,
+          "modeled_dram_bytes_per_device_per_replay": 69910528,
+          "modeled_dram_bytes_mesh_per_replay": 139821056,
+          "aggregate_theoretical_dram_bandwidth_gbps": 1024,
+          "modeled_dram_roofline_ms_per_replay": 0.136544,
+          "modeled_dram_bandwidth_per_device_gbps": 101.619801,
+          "decode_dram_roofline_percent": 19.847617,
+          "device_imbalance_max_over_min": 1.000882
+        }
+      }
+    },
+    "P150x4": {
+      "tp_size": 4,
+      "hardware_device_ids": [1, 0, 3, 2],
+      "sliding_attention": {
+        "baseline_prefill_ms": 78.695409,
+        "final_prefill_ms": 63.521466,
+        "prefill_speedup": 1.238879,
+        "baseline_decode_ms": 0.677389,
+        "final_decode_ms": 0.585234,
+        "decode_speedup": 1.157466,
+        "profiler_same_run": {
+          "prefill_host_ms": 64.872214,
+          "prefill_device_op_ms": 62.489705,
+          "prefill_host_minus_device_ms": 2.382509,
+          "decode_host_ms_per_replay": 0.673551,
+          "decode_device_op_ms_per_replay": 0.549745,
+          "decode_host_minus_device_ms": 0.123807,
+          "modeled_dram_bytes_per_device_per_replay": 36691968,
+          "modeled_dram_bytes_mesh_per_replay": 146767872,
+          "aggregate_theoretical_dram_bandwidth_gbps": 2048,
+          "modeled_dram_roofline_ms_per_replay": 0.071664,
+          "modeled_dram_bandwidth_per_device_gbps": 66.743654,
+          "decode_dram_roofline_percent": 13.03587,
+          "device_imbalance_max_over_min": 1.006101
+        }
+      },
+      "full_attention": {
+        "baseline_prefill_ms": 87.299281,
+        "final_prefill_ms": 70.092498,
+        "prefill_speedup": 1.245487,
+        "baseline_decode_ms": 0.984365,
+        "final_decode_ms": 0.914335,
+        "decode_speedup": 1.076591,
+        "profiler_same_run": {
+          "prefill_host_ms": 71.363484,
+          "prefill_device_op_ms": 69.706649,
+          "prefill_host_minus_device_ms": 1.656836,
+          "decode_host_ms_per_replay": 1.00904,
+          "decode_device_op_ms_per_replay": 0.883933,
+          "decode_host_minus_device_ms": 0.125107,
+          "modeled_dram_bytes_per_device_per_replay": 35717120,
+          "modeled_dram_bytes_mesh_per_replay": 142868480,
+          "aggregate_theoretical_dram_bandwidth_gbps": 2048,
+          "modeled_dram_roofline_ms_per_replay": 0.06976,
+          "modeled_dram_bandwidth_per_device_gbps": 40.407044,
+          "decode_dram_roofline_percent": 7.892001,
+          "device_imbalance_max_over_min": 1.004628
+        }
+      }
+    }
+  },
+  "artifacts": {
+    "baseline": "baseline/<profile>/*_host_timings.json and baseline/provenance.json",
+    "final": "final/<profile>/*_host_timings.json",
+    "profiler": "profiler/<profile>_<layer-kind>/{raw_ops.csv.xz,*_host_timings.json,prefill_ops.csv,decode_ops.csv,decode_per_device.csv,prefill_report.txt,decode_report.txt,capture_same_run.log}",
+    "profiler_provenance": "profiler/provenance.json",
+    "watcher": "final/{watcher_eth,watcher_current}/",
+    "tt_perf_advice": "profiler/<profile>_<layer-kind>/{prefill,decode}_ops.csv:Advice"
+  }
+}
