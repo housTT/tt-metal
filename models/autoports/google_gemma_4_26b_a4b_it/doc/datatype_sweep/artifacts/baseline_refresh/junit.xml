@@ -1,0 +1,271 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="3" time="169.414" timestamp="2026-09-06T11:03:50.217575+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_full_model_contract" name="test_reduced_real_weight_full_model_probe[blackhole-p150]" time="52.297"><properties><property name="start_timestamp" value="2026-09-06T11:03:50" /><property name="end_timestamp" value="2026-09-06T11:04:43" /></properties><failure message="AttributeError: 'NoneType' object has no attribute 'dtype'">mesh_device = MeshDevice(1x1 grid, 1 devices), profile_tp_size = 1
+expect_error = &lt;function expect_error.&lt;locals&gt;.expect_error_ at 0x74fc01a70900&gt;
+
+    @pytest.mark.parametrize(
+        "mesh_device,device_params,profile_tp_size",
+        [
+            ((1, 1), {"trace_region_size": 67_108_864}, 1),
+            ((2, 2), {"fabric_config": ttnn.FabricConfig.FABRIC_2D, "trace_region_size": 67_108_864}, 2),
+            # B32 decode records a 125.3 MiB full-stack model trace.  Reserve
+            # 128 MiB so the same profile covers both the B1 latency target and
+            # the fixed-slot B32 capability gate.
+            ((1, 4), {"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING, "trace_region_size": 134_217_728}, 4),
+        ],
+        ids=["p150", "p150x2", "p150x4"],
+        indirect=["mesh_device", "device_params"],
+    )
+    def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expect_error):
+        if os.environ.get("GEMMA4_FULL_MODEL_PROBE") != "1":
+            pytest.skip("set GEMMA4_FULL_MODEL_PROBE=1 for the serialized full-model hardware probe")
+        full_stack = os.environ.get("GEMMA4_FULL_STACK_PROBE") == "1"
+        batch32 = os.environ.get("GEMMA4_BATCH32_PROBE") == "1"
+        long_context = os.environ.get("GEMMA4_LONG_CONTEXT_PROBE") == "1"
+        capacity_only = os.environ.get("GEMMA4_CAPACITY_ONLY") == "1"
+        state = _load_probe_state(full_stack=full_stack)
+        tp_size = profile_tp_size
+        target_mesh = (
+            mesh_device
+            if mesh_device.get_num_devices() == tp_size
+            else mesh_device.create_submesh(ttnn.MeshShape((1, tp_size)), offset=ttnn.MeshCoordinate(0, 0))
+        )
+        probe_context_limit = int(os.environ.get("GEMMA4_CONTEXT_LIMIT_OVERRIDE", PROFILE_CONTEXT_LIMITS[tp_size]))
+        if probe_context_limit &gt; PROFILE_CONTEXT_LIMITS[tp_size]:
+            raise ValueError(
+                f"probe context override {probe_context_limit} exceeds profile limit {PROFILE_CONTEXT_LIMITS[tp_size]}"
+            )
+        prompt_len = probe_context_limit - 1 if long_context else int(os.environ.get("GEMMA4_PROBE_PROMPT_LEN", "32"))
+        model = Gemma4FullModel(
+            mesh_device=target_mesh,
+            hf_config=_config(),
+            state_dict=state,
+            max_seq_len=(
+                probe_context_limit
+                if (long_context or capacity_only)
+                else (
+                    2_048
+                    if batch32
+                    else (
+                        512
+                        if os.environ.get("GEMMA4_NO_HOST_TOKEN_OUT_BENCH") == "1"
+                        or os.environ.get("GEMMA4_PREFILL_BENCH") == "1"
+                        or os.environ.get("GEMMA4_GENERATE_BENCH") == "1"
+                        else 128
+                    )
+                )
+            ),
+            max_batch_size=32 if batch32 else 1,
+            layer_indices=None if full_stack else [0, 5],
+            tensor_cache_path=("/tmp/gemma4_full_model_cache" if full_stack else "/tmp/gemma4_full_model_probe_cache"),
+            embedding_storage=os.environ.get("GEMMA4_EMBEDDING_STORAGE", "profile"),
+        )
+        if os.environ.get("GEMMA4_PRINT_PRECISION_SUMMARY") == "1":
+&gt;           print("PRECISION_SUMMARY=" + json.dumps(model.precision_summary(), sort_keys=True))
+                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_full_model_contract.py:317:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.model.Gemma4FullModel object at 0x74fc033f6c00&gt;
+
+    def precision_summary(self) -&gt; dict[str, Any]:
+        layers = []
+        for layer_idx, layer in zip(self.layer_indices, self.layers):
+            layers.append(
+                {
+                    "layer": layer_idx,
+                    "attention_weight": dtype_name(layer.weights.qkv.dtype),
+                    "dense_gate_up_weight": dtype_name(layer.weights.mlp_gate.dtype),
+                    "dense_down_weight": dtype_name(layer.weights.mlp_down.dtype),
+&gt;                   "expert_weight": dtype_name(layer.weights.expert_gate.dtype),
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                    "router_weight": dtype_name(layer.weights.router_proj.dtype),
+                    "activation": dtype_name(layer.activation_dtype),
+                    "attention_fidelity": fidelity_name(layer.attention_compute_config.math_fidelity),
+                    "dense_mlp_fidelity": fidelity_name(layer.mlp_compute_config.math_fidelity),
+                    "expert_gate_fidelity": fidelity_name(layer.expert_gate_compute_config.math_fidelity),
+                    "expert_down_fidelity": fidelity_name(layer.expert_compute_config.math_fidelity),
+                }
+            )
+E           AttributeError: 'NoneType' object has no attribute 'dtype'
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/model.py:476: AttributeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_full_model_contract" name="test_reduced_real_weight_full_model_probe[blackhole-p150x2]" time="52.033"><properties><property name="start_timestamp" value="2026-09-06T11:04:43" /><property name="end_timestamp" value="2026-09-06T11:05:35" /></properties><failure message="AttributeError: 'NoneType' object has no attribute 'dtype'">mesh_device = MeshDevice(2x2 grid, 4 devices), profile_tp_size = 2
+expect_error = &lt;function expect_error.&lt;locals&gt;.expect_error_ at 0x74fbf40f2480&gt;
+
+    @pytest.mark.parametrize(
+        "mesh_device,device_params,profile_tp_size",
+        [
+            ((1, 1), {"trace_region_size": 67_108_864}, 1),
+            ((2, 2), {"fabric_config": ttnn.FabricConfig.FABRIC_2D, "trace_region_size": 67_108_864}, 2),
+            # B32 decode records a 125.3 MiB full-stack model trace.  Reserve
+            # 128 MiB so the same profile covers both the B1 latency target and
+            # the fixed-slot B32 capability gate.
+            ((1, 4), {"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING, "trace_region_size": 134_217_728}, 4),
+        ],
+        ids=["p150", "p150x2", "p150x4"],
+        indirect=["mesh_device", "device_params"],
+    )
+    def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expect_error):
+        if os.environ.get("GEMMA4_FULL_MODEL_PROBE") != "1":
+            pytest.skip("set GEMMA4_FULL_MODEL_PROBE=1 for the serialized full-model hardware probe")
+        full_stack = os.environ.get("GEMMA4_FULL_STACK_PROBE") == "1"
+        batch32 = os.environ.get("GEMMA4_BATCH32_PROBE") == "1"
+        long_context = os.environ.get("GEMMA4_LONG_CONTEXT_PROBE") == "1"
+        capacity_only = os.environ.get("GEMMA4_CAPACITY_ONLY") == "1"
+        state = _load_probe_state(full_stack=full_stack)
+        tp_size = profile_tp_size
+        target_mesh = (
+            mesh_device
+            if mesh_device.get_num_devices() == tp_size
+            else mesh_device.create_submesh(ttnn.MeshShape((1, tp_size)), offset=ttnn.MeshCoordinate(0, 0))
+        )
+        probe_context_limit = int(os.environ.get("GEMMA4_CONTEXT_LIMIT_OVERRIDE", PROFILE_CONTEXT_LIMITS[tp_size]))
+        if probe_context_limit &gt; PROFILE_CONTEXT_LIMITS[tp_size]:
+            raise ValueError(
+                f"probe context override {probe_context_limit} exceeds profile limit {PROFILE_CONTEXT_LIMITS[tp_size]}"
+            )
+        prompt_len = probe_context_limit - 1 if long_context else int(os.environ.get("GEMMA4_PROBE_PROMPT_LEN", "32"))
+        model = Gemma4FullModel(
+            mesh_device=target_mesh,
+            hf_config=_config(),
+            state_dict=state,
+            max_seq_len=(
+                probe_context_limit
+                if (long_context or capacity_only)
+                else (
+                    2_048
+                    if batch32
+                    else (
+                        512
+                        if os.environ.get("GEMMA4_NO_HOST_TOKEN_OUT_BENCH") == "1"
+                        or os.environ.get("GEMMA4_PREFILL_BENCH") == "1"
+                        or os.environ.get("GEMMA4_GENERATE_BENCH") == "1"
+                        else 128
+                    )
+                )
+            ),
+            max_batch_size=32 if batch32 else 1,
+            layer_indices=None if full_stack else [0, 5],
+            tensor_cache_path=("/tmp/gemma4_full_model_cache" if full_stack else "/tmp/gemma4_full_model_probe_cache"),
+            embedding_storage=os.environ.get("GEMMA4_EMBEDDING_STORAGE", "profile"),
+        )
+        if os.environ.get("GEMMA4_PRINT_PRECISION_SUMMARY") == "1":
+&gt;           print("PRECISION_SUMMARY=" + json.dumps(model.precision_summary(), sort_keys=True))
+                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_full_model_contract.py:317:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.model.Gemma4FullModel object at 0x74da8c0ce120&gt;
+
+    def precision_summary(self) -&gt; dict[str, Any]:
+        layers = []
+        for layer_idx, layer in zip(self.layer_indices, self.layers):
+            layers.append(
+                {
+                    "layer": layer_idx,
+                    "attention_weight": dtype_name(layer.weights.qkv.dtype),
+                    "dense_gate_up_weight": dtype_name(layer.weights.mlp_gate.dtype),
+                    "dense_down_weight": dtype_name(layer.weights.mlp_down.dtype),
+&gt;                   "expert_weight": dtype_name(layer.weights.expert_gate.dtype),
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                    "router_weight": dtype_name(layer.weights.router_proj.dtype),
+                    "activation": dtype_name(layer.activation_dtype),
+                    "attention_fidelity": fidelity_name(layer.attention_compute_config.math_fidelity),
+                    "dense_mlp_fidelity": fidelity_name(layer.mlp_compute_config.math_fidelity),
+                    "expert_gate_fidelity": fidelity_name(layer.expert_gate_compute_config.math_fidelity),
+                    "expert_down_fidelity": fidelity_name(layer.expert_compute_config.math_fidelity),
+                }
+            )
+E           AttributeError: 'NoneType' object has no attribute 'dtype'
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/model.py:476: AttributeError</failure></testcase><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_full_model_contract" name="test_reduced_real_weight_full_model_probe[blackhole-p150x4]" time="64.405"><properties><property name="start_timestamp" value="2026-09-06T11:05:35" /><property name="end_timestamp" value="2026-09-06T11:06:39" /></properties><failure message="AttributeError: 'NoneType' object has no attribute 'dtype'">mesh_device = MeshDevice(1x4 grid, 4 devices), profile_tp_size = 4
+expect_error = &lt;function expect_error.&lt;locals&gt;.expect_error_ at 0x74fc01903100&gt;
+
+    @pytest.mark.parametrize(
+        "mesh_device,device_params,profile_tp_size",
+        [
+            ((1, 1), {"trace_region_size": 67_108_864}, 1),
+            ((2, 2), {"fabric_config": ttnn.FabricConfig.FABRIC_2D, "trace_region_size": 67_108_864}, 2),
+            # B32 decode records a 125.3 MiB full-stack model trace.  Reserve
+            # 128 MiB so the same profile covers both the B1 latency target and
+            # the fixed-slot B32 capability gate.
+            ((1, 4), {"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING, "trace_region_size": 134_217_728}, 4),
+        ],
+        ids=["p150", "p150x2", "p150x4"],
+        indirect=["mesh_device", "device_params"],
+    )
+    def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expect_error):
+        if os.environ.get("GEMMA4_FULL_MODEL_PROBE") != "1":
+            pytest.skip("set GEMMA4_FULL_MODEL_PROBE=1 for the serialized full-model hardware probe")
+        full_stack = os.environ.get("GEMMA4_FULL_STACK_PROBE") == "1"
+        batch32 = os.environ.get("GEMMA4_BATCH32_PROBE") == "1"
+        long_context = os.environ.get("GEMMA4_LONG_CONTEXT_PROBE") == "1"
+        capacity_only = os.environ.get("GEMMA4_CAPACITY_ONLY") == "1"
+        state = _load_probe_state(full_stack=full_stack)
+        tp_size = profile_tp_size
+        target_mesh = (
+            mesh_device
+            if mesh_device.get_num_devices() == tp_size
+            else mesh_device.create_submesh(ttnn.MeshShape((1, tp_size)), offset=ttnn.MeshCoordinate(0, 0))
+        )
+        probe_context_limit = int(os.environ.get("GEMMA4_CONTEXT_LIMIT_OVERRIDE", PROFILE_CONTEXT_LIMITS[tp_size]))
+        if probe_context_limit &gt; PROFILE_CONTEXT_LIMITS[tp_size]:
+            raise ValueError(
+                f"probe context override {probe_context_limit} exceeds profile limit {PROFILE_CONTEXT_LIMITS[tp_size]}"
+            )
+        prompt_len = probe_context_limit - 1 if long_context else int(os.environ.get("GEMMA4_PROBE_PROMPT_LEN", "32"))
+        model = Gemma4FullModel(
+            mesh_device=target_mesh,
+            hf_config=_config(),
+            state_dict=state,
+            max_seq_len=(
+                probe_context_limit
+                if (long_context or capacity_only)
+                else (
+                    2_048
+                    if batch32
+                    else (
+                        512
+                        if os.environ.get("GEMMA4_NO_HOST_TOKEN_OUT_BENCH") == "1"
+                        or os.environ.get("GEMMA4_PREFILL_BENCH") == "1"
+                        or os.environ.get("GEMMA4_GENERATE_BENCH") == "1"
+                        else 128
+                    )
+                )
+            ),
+            max_batch_size=32 if batch32 else 1,
+            layer_indices=None if full_stack else [0, 5],
+            tensor_cache_path=("/tmp/gemma4_full_model_cache" if full_stack else "/tmp/gemma4_full_model_probe_cache"),
+            embedding_storage=os.environ.get("GEMMA4_EMBEDDING_STORAGE", "profile"),
+        )
+        if os.environ.get("GEMMA4_PRINT_PRECISION_SUMMARY") == "1":
+&gt;           print("PRECISION_SUMMARY=" + json.dumps(model.precision_summary(), sort_keys=True))
+                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_full_model_contract.py:317:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = &lt;models.autoports.google_gemma_4_26b_a4b_it.tt.model.Gemma4FullModel object at 0x74fc02160680&gt;
+
+    def precision_summary(self) -&gt; dict[str, Any]:
+        layers = []
+        for layer_idx, layer in zip(self.layer_indices, self.layers):
+            layers.append(
+                {
+                    "layer": layer_idx,
+                    "attention_weight": dtype_name(layer.weights.qkv.dtype),
+                    "dense_gate_up_weight": dtype_name(layer.weights.mlp_gate.dtype),
+                    "dense_down_weight": dtype_name(layer.weights.mlp_down.dtype),
+&gt;                   "expert_weight": dtype_name(layer.weights.expert_gate.dtype),
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                    "router_weight": dtype_name(layer.weights.router_proj.dtype),
+                    "activation": dtype_name(layer.activation_dtype),
+                    "attention_fidelity": fidelity_name(layer.attention_compute_config.math_fidelity),
+                    "dense_mlp_fidelity": fidelity_name(layer.mlp_compute_config.math_fidelity),
+                    "expert_gate_fidelity": fidelity_name(layer.expert_gate_compute_config.math_fidelity),
+                    "expert_down_fidelity": fidelity_name(layer.expert_compute_config.math_fidelity),
+                }
+            )
+E           AttributeError: 'NoneType' object has no attribute 'dtype'
+
+models/autoports/google_gemma_4_26b_a4b_it/tt/model.py:476: AttributeError</failure></testcase></testsuite></testsuites>

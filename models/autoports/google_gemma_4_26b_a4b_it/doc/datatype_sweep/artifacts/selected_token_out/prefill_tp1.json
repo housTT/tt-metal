@@ -1,0 +1,9 @@
+{
+  "profile": "P150",
+  "boundary": "full model prefill through last-token sampler-ready logits",
+  "full_stack": true,
+  "prompt_len": 128,
+  "initial_ttft_ms": 207.36459805630147,
+  "warmed_ttft_ms": 148.12681206967682,
+  "command": "cd /home/hous/dev/tt-metal && env HF_HOME=/home/hous/.cache/huggingface HF_HUB_OFFLINE=1 TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\":true}' GEMMA4_FULL_MODEL_PROBE=1 GEMMA4_FULL_STACK_PROBE=1 GEMMA4_PREFILL_BENCH=1 GEMMA4_NO_HOST_TOKEN_OUT_BENCH=1 GEMMA4_NO_HOST_WARMUPS=5 GEMMA4_NO_HOST_ITERATIONS=128 GEMMA4_PROBE_PROMPT_LEN=128 GEMMA4_FULL_MODEL_PROBE_OUTPUT_DIR=models/autoports/google_gemma_4_26b_a4b_it/doc/datatype_sweep/artifacts/selected_token_out python_env/bin/pytest -q -s models/autoports/google_gemma_4_26b_a4b_it/tests/test_full_model_contract.py::test_reduced_real_weight_full_model_probe --junitxml=models/autoports/google_gemma_4_26b_a4b_it/doc/datatype_sweep/artifacts/selected_token_out/junit.xml"
+}

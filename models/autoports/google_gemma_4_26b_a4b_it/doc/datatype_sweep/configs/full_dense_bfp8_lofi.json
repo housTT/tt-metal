@@ -1,0 +1,20 @@
+{
+  "schema_version": 2,
+  "config_id": "full_dense_bfp8_lofi",
+  "extends": "canonical_baseline.json",
+  "overrides": {
+    "layer_exceptions": [
+      {
+        "layers": [5, 11, 17, 23, 29],
+        "overrides": {
+          "weight_groups": {
+            "attention_qkv_o": "BFP8_B",
+            "dense_gate_up": "BFP8_B",
+            "dense_down": "BFP8_B"
+          }
+        }
+      }
+    ],
+    "compute_fidelities": {"dense_mlp": "LOFI"}
+  }
+}

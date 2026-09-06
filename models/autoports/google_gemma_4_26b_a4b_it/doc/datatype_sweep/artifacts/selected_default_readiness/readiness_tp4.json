@@ -1,0 +1,876 @@
+{
+  "verdict": "pass",
+  "config_id": "selected_canonical_profile_policy",
+  "profile": "P150x4",
+  "hardware": "P300C Blackhole",
+  "mesh_shape": [
+    1,
+    4
+  ],
+  "reference": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/full_model/artifacts/gemma4_aime24_chat.refpt",
+  "reference_sha256": "a7cad8aabafa0bff94a8b38f430d3468de9ca1d292b56cc15a7f4f19b844b5f8",
+  "prompt_tokens": 161,
+  "generated_tokens": 100,
+  "thresholds": {
+    "top1": 0.9,
+    "top5": 0.98,
+    "top100": 1.0
+  },
+  "prefill_accuracy": {
+    "top1": 0.949999988079071,
+    "top5": 1.0,
+    "top100": 1.0,
+    "total": 100
+  },
+  "teacher_forcing_accuracy": {
+    "top1": 0.949999988079071,
+    "top5": 1.0,
+    "top100": 1.0,
+    "total": 100
+  },
+  "teacher_forcing_performance": {
+    "ttft_ms": 254.92198299616575,
+    "elapsed_s": 2.425361819099635,
+    "e2e_t/s/u": 41.230961587876784,
+    "decode_tokens": 99.0,
+    "decode_elapsed_s": 2.170439836103469,
+    "decode_t/s/u": 45.612874567272954,
+    "warmed_decode_tokens": 94.0,
+    "warmed_decode_elapsed_s": 1.821179726277478,
+    "warmed_decode_t/s/u": 51.6148948089476,
+    "trace_replays": 99.0,
+    "token_refreshes": 99.0,
+    "device_feedback_reuses": 0.0,
+    "device_feedback_restores": 0.0,
+    "position_refreshes": 1.0,
+    "rope_refreshes": 1.0,
+    "page_table_refreshes": 0.0,
+    "synchronizations": 1.0,
+    "token_readbacks": 100.0
+  },
+  "measurement_regime": "AIME24 chat-template reference; 100 tokens; traced teacher forcing; B1; generator wall-clock including required host teacher-token feedback",
+  "trace_verified": true,
+  "command": "cd /home/hous/dev/tt-metal && env HF_HOME=/home/hous/.cache/huggingface HF_HUB_OFFLINE=1 TTNN_CONFIG_OVERRIDES='{\"throw_exception_on_fallback\":true}' GEMMA4_FULL_MODEL_PROBE=1 GEMMA4_FULL_STACK_PROBE=1 GEMMA4_READINESS_REFERENCE=models/autoports/google_gemma_4_26b_a4b_it/doc/full_model/artifacts/gemma4_aime24_chat.refpt GEMMA4_FULL_MODEL_PROBE_OUTPUT_DIR=models/autoports/google_gemma_4_26b_a4b_it/doc/datatype_sweep/artifacts/selected_default_readiness python_env/bin/pytest -q -s models/autoports/google_gemma_4_26b_a4b_it/tests/test_full_model_contract.py::test_reduced_real_weight_full_model_probe --junitxml=models/autoports/google_gemma_4_26b_a4b_it/doc/datatype_sweep/artifacts/selected_default_readiness/junit.xml",
+  "precision_summary": {
+    "config_id": "selected_canonical_profile_policy",
+    "profile": "P150x4",
+    "precision_config_path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/datatype_sweep/selected_precision_config.json",
+    "activation_dtype": "BF16",
+    "residual_dtype": "BF16",
+    "kv_cache_dtype": "BF16",
+    "ccl_dtype": "BF16",
+    "logits_dtype": "BF16",
+    "embedding_storage": "bf16_row_major",
+    "embedding_weight_dtype": "BF16",
+    "lm_head_weight_dtype": "BFP8_B",
+    "kv_decode_update_dtype": "BF16",
+    "sampling": {
+      "logits_dtype": "BF16",
+      "sampling_parameter_dtype": "BF16",
+      "token_dtype": "UINT32",
+      "greedy": "chunked_local_topk32_then_semantic_k1_on_sharded_logits"
+    },
+    "layers": [
+      {
+        "layer": 0,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 1,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 2,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 3,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 4,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 5,
+        "attention_weight": "BFP8_B",
+        "dense_gate_up_weight": "BF16",
+        "dense_down_weight": "BF16",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI2",
+        "decode_attention_fidelity": "HIFI2",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "o_proj": "BFP8_B",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BF16"
+        },
+        "decode_weight_sources": {
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 6,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 7,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 8,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 9,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 10,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 11,
+        "attention_weight": "BFP8_B",
+        "dense_gate_up_weight": "BF16",
+        "dense_down_weight": "BF16",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI2",
+        "decode_attention_fidelity": "HIFI2",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "o_proj": "BFP8_B",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BF16"
+        },
+        "decode_weight_sources": {
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 12,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 13,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 14,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 15,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 16,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 17,
+        "attention_weight": "BFP8_B",
+        "dense_gate_up_weight": "BF16",
+        "dense_down_weight": "BF16",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI2",
+        "decode_attention_fidelity": "HIFI2",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "o_proj": "BFP8_B",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BF16"
+        },
+        "decode_weight_sources": {
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 18,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 19,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 20,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 21,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 22,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 23,
+        "attention_weight": "BFP8_B",
+        "dense_gate_up_weight": "BF16",
+        "dense_down_weight": "BF16",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI2",
+        "decode_attention_fidelity": "HIFI2",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "o_proj": "BFP8_B",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BF16"
+        },
+        "decode_weight_sources": {
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 24,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 25,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 26,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 27,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 28,
+        "attention_weight": "BF16",
+        "dense_gate_up_weight": "BFP8_B",
+        "dense_down_weight": "BFP8_B",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI4",
+        "decode_attention_fidelity": "HIFI4",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "qkv": "BF16",
+          "o_proj": "BF16",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BFP8_B"
+        },
+        "decode_weight_sources": {
+          "qkv": "prefill_weight",
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      },
+      {
+        "layer": 29,
+        "attention_weight": "BFP8_B",
+        "dense_gate_up_weight": "BF16",
+        "dense_down_weight": "BF16",
+        "expert_gate_up_weight": "BFP4_B",
+        "expert_down_weight": "BFP4_B",
+        "router_weight": "FP32",
+        "activation": "BF16",
+        "prefill_attention_fidelity": "HIFI2",
+        "decode_attention_fidelity": "HIFI2",
+        "dense_mlp_fidelity": "LOFI",
+        "expert_gate_fidelity": "LOFI",
+        "expert_down_fidelity": "LOFI",
+        "decode_weight_dtypes": {
+          "o_proj": "BFP8_B",
+          "packed_mlp_gate_up": "BFP8_B",
+          "mlp_down": "BF16"
+        },
+        "decode_weight_sources": {
+          "o_proj": "prefill_weight",
+          "packed_mlp_gate_up": "independent_host_upload",
+          "mlp_down": "prefill_weight"
+        }
+      }
+    ]
+  }
+}

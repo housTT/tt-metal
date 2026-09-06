@@ -384,7 +384,7 @@ class MultichipDecoder(OptimizedDecoder):
         mesh_device: Any,
         weight_dtype: ttnn.DataType = ttnn.bfloat16,
         attention_weight_dtype: ttnn.DataType | None = None,
-        mlp_weight_dtype: ttnn.DataType = ttnn.bfloat8_b,
+        mlp_weight_dtype: ttnn.DataType | None = None,
         mlp_down_weight_dtype: ttnn.DataType | None = None,
         prefill_expert_weight_dtype: ttnn.DataType = ttnn.bfloat8_b,
         expert_weight_dtype: ttnn.DataType = ttnn.bfloat8_b,
@@ -523,11 +523,11 @@ class MultichipDecoder(OptimizedDecoder):
         )
         # Prompt-derived layer-5 activations expose a full-attention prefill
         # error that random inputs hide: BFP8 dense gate/up reaches only
-        # 0.9927 PCC while BF16 reaches 0.9998.  Keep decode's separate DRAM
-        # candidates independently tunable, but make the shared full-layer
-        # gate/up source precise enough for the accepted 0.995 contract.
-        if kind.name == "full_attention" and "GEMMA4_MULTICHIP_MLP_WEIGHT_DTYPE" not in os.environ:
-            mlp_weight_dtype = ttnn.bfloat16
+        # 0.9927 PCC while BF16 reaches 0.9998.  This is the fallback only:
+        # explicit policy and environment values must take precedence so
+        # datatype candidates reach the uploaded tensors they describe.
+        if mlp_weight_dtype is None:
+            mlp_weight_dtype = ttnn.bfloat16 if kind.name == "full_attention" else ttnn.bfloat8_b
         mlp_down_weight_dtype = mlp_down_weight_dtype or mlp_weight_dtype
         capacity_expert_dtype = _capacity_expert_gate_up_dtype(tp_size, kind)
         expert_gate_weight_dtype = expert_gate_weight_dtype or capacity_expert_dtype
@@ -1752,7 +1752,7 @@ class MultichipDecoder(OptimizedDecoder):
             hidden_states,
             packed_weight,
             program_config=gate_up_config,
-            compute_kernel_config=self.expert_compute_config,
+            compute_kernel_config=self.expert_gate_compute_config,
             **common,
         )
         if indexed:

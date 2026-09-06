@@ -1,0 +1,92 @@
+{
+  "schema_version": 2,
+  "config_id": "selected_canonical_profile_policy",
+  "weight_groups": {
+    "norms": "BF16",
+    "attention_qkv_o": "BF16",
+    "dense_gate_up": "BFP8_B",
+    "dense_down": "BFP8_B",
+    "experts_gate_up": "BFP8_B",
+    "experts_down": "BFP8_B",
+    "router_and_routing": "FP32",
+    "lm_head": "BFP8_B"
+  },
+  "embedding": {
+    "storage": "bf16_row_major",
+    "weight_dtype": "BF16"
+  },
+  "compute_fidelities": {
+    "sliding_attention": "HIFI4",
+    "full_attention_prefill": "HIFI2",
+    "full_attention_decode": "HIFI2",
+    "dense_mlp": "LOFI",
+    "expert_gate_up": "LOFI",
+    "expert_down": "LOFI"
+  },
+  "activation_residual": {
+    "activation_dtype": "BF16",
+    "residual_dtype": "BF16"
+  },
+  "ccl": {
+    "dtype": "BF16"
+  },
+  "kv_cache": {
+    "dtype": "BF16",
+    "decode_update_dtype": "BF16"
+  },
+  "logits_sampling": {
+    "logits_dtype": "BF16",
+    "sampling_parameter_dtype": "BF16",
+    "token_dtype": "UINT32",
+    "greedy": "chunked_local_topk32_then_semantic_k1_on_sharded_logits"
+  },
+  "layer_exceptions": [
+    {
+      "layers": [5, 11, 17, 23, 29],
+      "overrides": {
+        "weight_groups": {
+          "attention_qkv_o": "BFP8_B",
+          "dense_gate_up": "BF16",
+          "dense_down": "BF16"
+        }
+      }
+    }
+  ],
+  "profile_overrides": {
+    "P150": {
+      "layer_exceptions": [
+        {
+          "layers": [5, 11, 17, 23, 29],
+          "overrides": {
+            "weight_groups": {
+              "attention_qkv_o": "BFP8_B",
+              "dense_gate_up": "BF16",
+              "dense_down": "BF16",
+              "experts_gate_up": "BFP4_B"
+            }
+          }
+        }
+      ]
+    },
+    "P150x2": {},
+    "P150x4": {
+      "weight_groups": {
+        "experts_gate_up": "BFP4_B",
+        "experts_down": "BFP4_B"
+      },
+      "decode_weight_groups": {
+        "packed_mlp_gate_up": "BFP8_B"
+      }
+    }
+  },
+  "selection": {
+    "accuracy_gates": {"top1": 0.90, "top5": 0.98, "top100": 1.0},
+    "ranking_metric": "trace-verified teacher-forcing decode_t/s/u",
+    "reference_tokens": 100,
+    "per_profile_winners": {
+      "P150": "mixed BFP8 experts with BFP4 gate/up on full-attention layers",
+      "P150x2": "BFP8 experts",
+      "P150x4": "all-expert BFP4_B plus LoFi"
+    }
+  }
+}

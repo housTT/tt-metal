@@ -1,0 +1,54 @@
+{
+  "verdict": "pass",
+  "scope": "selected datatype-policy shared six-prompt suite with pinned Gemma chat template and matching HF controls",
+  "selected_config_id": "selected_canonical_profile_policy",
+  "evaluated_profile": "P150x4",
+  "consumed_precision_summary": {
+    "expert_gate_up_weight_dtype": "bfloat4_b",
+    "expert_down_weight_dtype": "bfloat4_b",
+    "expert_gate_up_math_fidelity": "LoFi",
+    "expert_down_math_fidelity": "LoFi",
+    "kv_cache_dtype": "bfloat16",
+    "ccl_dtype": "bfloat16"
+  },
+  "criteria": [
+    "task alignment",
+    "coherence",
+    "mechanical repetition",
+    "wrong-language drift",
+    "prompt or control-token leakage",
+    "early collapse relative to HF control"
+  ],
+  "cases": {
+    "machine_learning_haiku": {
+      "verdict": "pass",
+      "assessment": "Produces a coherent three-line haiku beginning 'Data feeds the code' and terminates normally."
+    },
+    "supervised_unsupervised": {
+      "verdict": "pass",
+      "assessment": "Uses the requested simple fruit/teacher analogy and stays on the supervised-learning explanation."
+    },
+    "inventor_story": {
+      "verdict": "pass",
+      "assessment": "Follows the faraway-kingdom inventor prompt with coherent English narrative and no looping."
+    },
+    "thermodynamics_laws": {
+      "verdict": "pass",
+      "assessment": "Correctly frames the conventional zeroth-through-third law naming and starts an organized explanation."
+    },
+    "french_translation": {
+      "verdict": "pass",
+      "assessment": "Provides correct formal and informal French translations with a relevant English explanation."
+    },
+    "fibonacci_function": {
+      "verdict": "pass",
+      "assessment": "Stays on Python Fibonacci implementation and begins a structured iterative solution."
+    }
+  },
+  "mechanical_checker": {
+    "artifact": "degeneracy_check.json",
+    "exit_code": 0,
+    "findings": 0
+  },
+  "overall": "All six selected-policy completions are task-aligned and coherent. No mechanical repetition, wrong-language drift, prompt echo, cross-request leakage, or suspicious precision-induced collapse was observed."
+}

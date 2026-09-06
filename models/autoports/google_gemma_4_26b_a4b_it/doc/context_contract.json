@@ -421,5 +421,49 @@
       "Complete 30-layer P150 prefill initially exposed avoidable DRAM fragmentation at 50623 tokens: the full-attention chunk path retained q_heads while allocating an identically shaped concat result. Releasing q_heads after all chunks dispatch and before concat preserves the 50624-token limit; final-source nonaligned prefill 50623, traced position 50624, and safe following-position rejection pass across all 30 layers.",
       "P150x2 and P150x4 preserve their 262144-token limits. Every selected profile passed a one-token-below-limit nonaligned public prefill, its final legal traced decode, and safe rejection of the next position. No sequence alignment restriction was introduced."
     ]
+  },
+  "datatype_sweep": {
+    "selected_config_id": "selected_canonical_profile_policy",
+    "selected_precision_artifact": "datatype_sweep/selected_precision_config.json",
+    "selected_precision_sha256": "58125b7d377e77ab0f0edad5b81d5bb2b1252df3ceff962158624b53925df2ca",
+    "capacity_recomputed": true,
+    "selected_kv_cache_dtype": "BF16",
+    "selected_kv_decode_update_dtype": "BF16",
+    "cache_layout_changed": false,
+    "trace_buffer_layout_changed": false,
+    "prefill_chunking_changed": false,
+    "profiles": {
+      "P150": {
+        "supported_context_tokens": 50624,
+        "largest_tested_nonaligned_public_prefill": 50623,
+        "limiting_reason": "hard physical DRAM limit from the conservative full-stack construction/prefill projection",
+        "selected_policy_capacity_change": 0,
+        "boundary_artifact": "optimized_full_model/final/full_stack_context_tp1/lifetime_fix_50624/long_context_probe_tp1.json"
+      },
+      "P150x2": {
+        "supported_context_tokens": 262144,
+        "largest_tested_nonaligned_public_prefill": 262143,
+        "limiting_reason": null,
+        "selected_policy_capacity_change": 0,
+        "boundary_artifact": "optimized_full_model/final/nonaligned/long_context_probe_tp2.json"
+      },
+      "P150x4": {
+        "supported_context_tokens": 262144,
+        "largest_tested_nonaligned_public_prefill": 262143,
+        "limiting_reason": null,
+        "selected_policy_capacity_change": 0,
+        "boundary_artifact": "optimized_full_model/final/nonaligned/long_context_probe_tp4.json"
+      }
+    },
+    "rejected_kv_candidate": {
+      "config_id": "kv_cache_bfp8",
+      "profile": "P150x4",
+      "accuracy": {"top1": 0.93, "top5": 1.0, "top100": 1.0},
+      "teacher_forcing_decode_t_s_u": 22.316739348614618,
+      "reason": "passes accuracy but is 48.6% slower than the selected BF16 cache and therefore is not a selected capacity candidate",
+      "artifact": "datatype_sweep/artifacts/kv_cache_bfp8/readiness_tp4.json"
+    },
+    "nonaligned_revalidation_decision": "The selected BF16 KV dtype, cache layout, trace buffers, and prefill chunking are byte-for-byte the optimized-full-model policy, so the current-head one-token-below-limit artifacts remain applicable. No selected cache-affecting change triggered a rerun.",
+    "capability_reduction_from_optimized_full_model": null
   }
 }

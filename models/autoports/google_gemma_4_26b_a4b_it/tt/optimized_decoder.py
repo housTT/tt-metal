@@ -3058,7 +3058,6 @@ class OptimizedDecoder(FunctionalDecoder):
                 "memory_config": ttnn.DRAM_MEMORY_CONFIG,
                 "output_tile": output_tile,
                 "dtype": self._activation_dtype_for("moe"),
-                "compute_kernel_config": self.expert_compute_config,
             }
             gate_up_config = _optimized_sparse_prefill_config(
                 self.mesh_device,
@@ -3084,6 +3083,7 @@ class OptimizedDecoder(FunctionalDecoder):
                     hidden_grouped,
                     self.prefill_packed_expert_gate_up,
                     program_config=gate_up_config,
+                    compute_kernel_config=self.expert_gate_compute_config,
                     **common,
                 )
                 gate_up = ttnn.transpose(gate_up, 1, 3)
@@ -3094,6 +3094,7 @@ class OptimizedDecoder(FunctionalDecoder):
                     hidden_grouped,
                     self.expert_weights.gate_proj,
                     program_config=gate_up_config,
+                    compute_kernel_config=self.expert_gate_compute_config,
                     **common,
                 )
                 sparse_intermediate = gate.shape[-1]
@@ -3103,6 +3104,7 @@ class OptimizedDecoder(FunctionalDecoder):
                     hidden_grouped,
                     self.expert_weights.up_proj,
                     program_config=gate_up_config,
+                    compute_kernel_config=self.expert_gate_compute_config,
                     **common,
                 )
                 up = ttnn.transpose(up, 1, 3)
@@ -3207,7 +3209,7 @@ class OptimizedDecoder(FunctionalDecoder):
                 hidden_states,
                 gate_up_weight,
                 program_config=gate_up_config,
-                compute_kernel_config=self.expert_compute_config,
+                compute_kernel_config=self.expert_gate_compute_config,
                 **common,
             )
             gate_up = ttnn.reshape(gate_up, (batch, NUM_EXPERTS, 1, _PACKED_EXPERT_WIDTH))
@@ -3232,7 +3234,7 @@ class OptimizedDecoder(FunctionalDecoder):
                 hidden_states,
                 expert_up,
                 program_config=gate_up_config,
-                compute_kernel_config=self.expert_compute_config,
+                compute_kernel_config=self.expert_gate_compute_config,
                 **common,
             )
             up = ttnn.reshape(up, (batch, NUM_EXPERTS, 1, sparse_intermediate))

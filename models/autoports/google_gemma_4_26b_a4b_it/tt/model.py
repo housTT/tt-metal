@@ -39,6 +39,7 @@ from models.autoports.google_gemma_4_26b_a4b_it.tt.precision_policy import (
     dtype_name,
     fidelity_name,
     load_precision_policy,
+    profile_policy,
     weight_dtype_from_policy,
 )
 from models.demos.gemma4.config import MeshConfig, ModeConfig
@@ -162,6 +163,7 @@ class Gemma4FullModel:
         self.final_logit_softcapping = text_config.final_logit_softcapping
         self.tensor_cache_path = Path(tensor_cache_path) if tensor_cache_path is not None else None
         self.precision_policy, self.precision_config_path = load_precision_policy(precision_config_path)
+        self.precision_policy = profile_policy(self.precision_policy, tp_size)
         self.activation_dtype = dtype_from_policy(
             self.precision_policy, "activation_residual", "activation_dtype", ttnn.bfloat16
         )
@@ -178,16 +180,26 @@ class Gemma4FullModel:
         # the maximum-capacity allocation and non-aligned boundary probes are
         # part of the optimized-full-model evidence.
         self.terminal_weight_dtype = weight_dtype_from_policy(
-            self.precision_policy, "embedding_lm_head", ttnn.bfloat8_b
+            self.precision_policy,
+            "lm_head",
+            weight_dtype_from_policy(self.precision_policy, "embedding_lm_head", ttnn.bfloat8_b),
         )
+        policy_embedding = self.precision_policy.get("embedding", {})
+        if embedding_storage == "profile" and policy_embedding.get("storage") is not None:
+            embedding_storage = policy_embedding["storage"]
         if embedding_storage not in ("profile", "bfp8_tile", "bf16_row_major"):
             raise ValueError("embedding_storage must be 'profile', 'bfp8_tile', or 'bf16_row_major'")
         self.embedding_storage = (
             PROFILE_EMBEDDING_STORAGE[tp_size] if embedding_storage == "profile" else embedding_storage
         )
-        self.embedding_weight_dtype = (
+        default_embedding_dtype = (
             ttnn.bfloat16 if self.embedding_storage == "bf16_row_major" else self.terminal_weight_dtype
         )
+        self.embedding_weight_dtype = dtype_from_policy(
+            self.precision_policy, "embedding", "weight_dtype", default_embedding_dtype
+        )
+        if self.embedding_storage == "bf16_row_major" and self.embedding_weight_dtype != ttnn.bfloat16:
+            raise ValueError("Gemma-4 row-major embedding storage requires BF16 weights")
         self.embedding_layout = (
             ttnn.ROW_MAJOR_LAYOUT if self.embedding_storage == "bf16_row_major" else ttnn.TILE_LAYOUT
         )
@@ -204,8 +216,8 @@ class Gemma4FullModel:
             if sampling_policy.get(field, expected) != expected:
                 raise ValueError(f"unsupported Gemma-4 {field}: {sampling_policy[field]!r}")
         update_dtype = self.precision_policy.get("kv_cache", {}).get("decode_update_dtype", "BF16")
-        if update_dtype not in ("BF16", "FP32"):
-            raise ValueError("Gemma-4 paged cache decode updates require BF16 or FP32")
+        if update_dtype != "BF16":
+            raise ValueError("Gemma-4 paged cache decode updates currently require BF16")
         self.mesh_config = MeshConfig((1, tp_size), decode=ModeConfig(tp=tp_size))
         self._replicate = ttnn.ReplicateTensorToMesh(mesh_device)
 
@@ -467,27 +479,39 @@ class Gemma4FullModel:
     def precision_summary(self) -> dict[str, Any]:
         layers = []
         for layer_idx, layer in zip(self.layer_indices, self.layers):
+            packed_expert_gate_up = layer.decode_packed_expert_gate_up
+            if packed_expert_gate_up is None:
+                packed_expert_gate_up = layer.prefill_packed_expert_gate_up
+            expert_gate_up = packed_expert_gate_up if packed_expert_gate_up is not None else layer.weights.expert_gate
             layers.append(
                 {
                     "layer": layer_idx,
                     "attention_weight": dtype_name(layer.weights.qkv.dtype),
                     "dense_gate_up_weight": dtype_name(layer.weights.mlp_gate.dtype),
                     "dense_down_weight": dtype_name(layer.weights.mlp_down.dtype),
-                    "expert_weight": dtype_name(layer.weights.expert_gate.dtype),
+                    "expert_gate_up_weight": dtype_name(expert_gate_up.dtype),
+                    "expert_down_weight": dtype_name(layer.weights.expert_down.dtype),
                     "router_weight": dtype_name(layer.weights.router_proj.dtype),
                     "activation": dtype_name(layer.activation_dtype),
-                    "attention_fidelity": fidelity_name(layer.attention_compute_config.math_fidelity),
+                    "prefill_attention_fidelity": fidelity_name(layer.prefill_attention_compute_config.math_fidelity),
+                    "decode_attention_fidelity": fidelity_name(layer.decode_attention_compute_config.math_fidelity),
                     "dense_mlp_fidelity": fidelity_name(layer.mlp_compute_config.math_fidelity),
                     "expert_gate_fidelity": fidelity_name(layer.expert_gate_compute_config.math_fidelity),
                     "expert_down_fidelity": fidelity_name(layer.expert_compute_config.math_fidelity),
+                    "decode_weight_dtypes": {
+                        role: dtype_name(weight.dtype) for role, weight in layer.decode_dram_weights.items()
+                    },
+                    "decode_weight_sources": dict(layer.decode_weight_sources),
                 }
             )
         return {
+            "config_id": self.precision_policy.get("config_id", "compiled_default"),
+            "profile": self.precision_policy["resolved_profile"],
             "precision_config_path": str(self.precision_config_path) if self.precision_config_path else None,
             "activation_dtype": dtype_name(self.activation_dtype),
             "residual_dtype": dtype_name(self.residual_dtype),
             "kv_cache_dtype": dtype_name(self.kv_cache_dtype),
-            "ccl_dtype": self.precision_policy.get("ccl", {}).get("dtype", "BF16"),
+            "ccl_dtype": dtype_name(self.ccl_dtype),
             "logits_dtype": dtype_name(self.logits_dtype),
             "embedding_storage": self.embedding_storage,
             "embedding_weight_dtype": dtype_name(self.embedding_weight.dtype),

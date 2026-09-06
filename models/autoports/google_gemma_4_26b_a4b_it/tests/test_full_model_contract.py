@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import inspect
 import json
 import os
@@ -29,6 +30,13 @@ from models.autoports.google_gemma_4_26b_a4b_it.tt.model import (
     FullModelState,
     Gemma4FullModel,
     PagedCacheSpec,
+)
+from models.autoports.google_gemma_4_26b_a4b_it.tt.multichip_decoder import MultichipDecoder
+from models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder import OptimizedDecoder
+from models.autoports.google_gemma_4_26b_a4b_it.tt.precision_policy import (
+    decoder_kwargs,
+    load_precision_policy,
+    profile_policy,
 )
 
 
@@ -78,6 +86,55 @@ def test_full_model_profile_context_and_cache_geometry(tp_size, expected_context
 
 def test_profile_embedding_storage_avoids_decode_time_full_table_untilize():
     assert PROFILE_EMBEDDING_STORAGE == {1: "bf16_row_major", 2: "bf16_row_major", 4: "bf16_row_major"}
+
+
+def test_selected_precision_policy_resolves_every_profile_and_packed_expert_dtype():
+    policy, path = load_precision_policy()
+    assert path is not None
+    assert policy["config_id"] == "selected_canonical_profile_policy"
+    assert set(policy["profile_overrides"]) == {"P150", "P150x2", "P150x4"}
+
+    p150_full = decoder_kwargs(profile_policy(policy, 1), 5)
+    assert p150_full["expert_gate_weight_dtype"] == ttnn.bfloat4_b
+    assert p150_full["expert_up_weight_dtype"] == ttnn.bfloat4_b
+    assert p150_full["expert_down_weight_dtype"] == ttnn.bfloat8_b
+
+    p150x4_sliding = decoder_kwargs(profile_policy(policy, 4), 0)
+    assert p150x4_sliding["decode_weight_dtypes"]["packed_mlp_gate_up"] == ttnn.bfloat8_b
+    assert p150x4_sliding["expert_gate_weight_dtype"] == ttnn.bfloat4_b
+    assert p150x4_sliding["expert_down_weight_dtype"] == ttnn.bfloat4_b
+    assert p150x4_sliding["attention_math_fidelity"] == ttnn.MathFidelity.HiFi4
+
+
+def test_precision_policy_expert_common_and_specific_groups_are_fully_consumed():
+    selected = decoder_kwargs(
+        {
+            "weight_groups": {
+                "experts_gate_up_down": "BFP8_B",
+                "experts_gate_up": "BFP4_B",
+            }
+        },
+        0,
+    )
+    assert selected["expert_gate_weight_dtype"] == ttnn.bfloat4_b
+    assert selected["expert_up_weight_dtype"] == ttnn.bfloat4_b
+    assert selected["expert_down_weight_dtype"] == ttnn.bfloat8_b
+
+
+def test_explicit_dense_dtype_precedes_full_attention_fallback():
+    source = inspect.getsource(MultichipDecoder.from_state_dict)
+    assert "mlp_weight_dtype: ttnn.DataType | None = None" in source
+    assert "if mlp_weight_dtype is None:" in source
+    assert '"GEMMA4_MULTICHIP_MLP_WEIGHT_DTYPE" not in os.environ' not in source
+
+
+def test_packed_expert_gate_up_fidelity_reaches_prefill_and_decode_consumers():
+    prefill_source = inspect.getsource(OptimizedDecoder._moe_prefill_chunk)
+    decode_source = inspect.getsource(OptimizedDecoder._moe_decode_single_user)
+    multichip_decode_source = inspect.getsource(MultichipDecoder._moe_decode_single_user)
+    assert prefill_source.count("compute_kernel_config=self.expert_gate_compute_config") == 3
+    assert decode_source.count("compute_kernel_config=self.expert_gate_compute_config") == 3
+    assert "compute_kernel_config=self.expert_gate_compute_config" in multichip_decode_source
 
 
 def test_generator_implements_readiness_contract_with_explicit_trace_keyword():
@@ -304,6 +361,7 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
                     if os.environ.get("GEMMA4_NO_HOST_TOKEN_OUT_BENCH") == "1"
                     or os.environ.get("GEMMA4_PREFILL_BENCH") == "1"
                     or os.environ.get("GEMMA4_GENERATE_BENCH") == "1"
+                    or os.environ.get("GEMMA4_READINESS_REFERENCE")
                     else 128
                 )
             )
@@ -366,6 +424,86 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
     batch32_oracle_logits = None
     batch32_decode_logits = None
     batch32_prompt_groups = None
+    readiness_reference = os.environ.get("GEMMA4_READINESS_REFERENCE")
+    if readiness_reference:
+        assert full_stack, "datatype readiness evidence must use the complete 30-layer model"
+        reference_path = Path(readiness_reference).resolve()
+        payload = torch.load(reference_path, weights_only=True)
+        assert payload["format_version"] == "readiness_v1"
+        assert len(payload["entries"]) == 1
+        entry = payload["entries"][0]
+        prompt = entry["prompt_tokens"][0].to(torch.long).tolist()
+        generated = entry["generated_tokens"][0].to(torch.long).tolist()
+        reference_topk = entry["topk_tokens"].to(torch.long)
+        assert len(generated) == reference_topk.shape[0] == 100
+
+        full_sequence = prompt + generated
+        prefill_logits = generator.prefill_logits(full_sequence)
+        prediction_logits = prefill_logits[0, len(prompt) - 1 : len(prompt) + len(generated) - 1]
+        prefill_predictions = prediction_logits.argmax(dim=-1).cpu()
+
+        generator.reset()
+        teacher_predictions = []
+
+        def next_input(step, predicted):
+            teacher_predictions.append(int(predicted))
+            return generated[step]
+
+        generator.generate(
+            prompt,
+            len(generated),
+            next_input=next_input,
+            enable_trace=True,
+            sampling_mode="teacher",
+            stop_on_eos=False,
+        )
+        assert len(teacher_predictions) == len(generated)
+        assert generator.last_perf["trace_replays"] == len(generated) - 1
+
+        def accuracy(predictions):
+            predictions = torch.as_tensor(predictions, dtype=torch.long)
+            return {
+                "top1": float((predictions == reference_topk[:, 0]).float().mean()),
+                "top5": float((predictions[:, None] == reference_topk[:, :5]).any(dim=1).float().mean()),
+                "top100": float((predictions[:, None] == reference_topk).any(dim=1).float().mean()),
+                "total": int(predictions.numel()),
+            }
+
+        teacher_accuracy = accuracy(teacher_predictions)
+        report = {
+            "verdict": (
+                "pass"
+                if teacher_accuracy["top1"] >= 0.90
+                and teacher_accuracy["top5"] >= 0.98
+                and teacher_accuracy["top100"] == 1.0
+                else "fail"
+            ),
+            "config_id": model.precision_policy.get("config_id", "compiled_default"),
+            "profile": model.precision_policy["resolved_profile"],
+            "hardware": "P300C Blackhole",
+            "mesh_shape": list(target_mesh.shape),
+            "reference": str(reference_path),
+            "reference_sha256": hashlib.sha256(reference_path.read_bytes()).hexdigest(),
+            "prompt_tokens": len(prompt),
+            "generated_tokens": len(generated),
+            "thresholds": {"top1": 0.90, "top5": 0.98, "top100": 1.0},
+            "prefill_accuracy": accuracy(prefill_predictions),
+            "teacher_forcing_accuracy": teacher_accuracy,
+            "teacher_forcing_performance": generator.last_perf,
+            "measurement_regime": (
+                "AIME24 chat-template reference; 100 tokens; traced teacher forcing; "
+                "B1; generator wall-clock including required host teacher-token feedback"
+            ),
+            "trace_verified": True,
+            "command": os.environ.get("GEMMA4_SWEEP_COMMAND", "see work_log.md"),
+            "precision_summary": model.precision_summary(),
+        }
+        output_dir = Path(os.environ.get("GEMMA4_FULL_MODEL_PROBE_OUTPUT_DIR", "/tmp/gemma4_full_model_evidence"))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        result_path = output_dir / f"readiness_tp{tp_size}.json"
+        result_path.write_text(json.dumps(report, indent=2) + "\n")
+        print("GEMMA4_READINESS_RESULT=" + json.dumps(report, sort_keys=True))
+        return
     if capacity_only:
         assert full_stack, "capacity evidence must construct the complete 30-layer stack"
         assert model.max_seq_len == PROFILE_CONTEXT_LIMITS[tp_size]
@@ -522,6 +660,7 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
                 "prompt_len": prompt_len,
                 "initial_ttft_ms": initial_s * 1000.0,
                 "warmed_ttft_ms": warmed_s * 1000.0,
+                "command": os.environ.get("GEMMA4_SWEEP_COMMAND", "see work_log.md"),
             }
             output_dir = Path(os.environ.get("GEMMA4_FULL_MODEL_PROBE_OUTPUT_DIR", "/tmp/gemma4_full_model_evidence"))
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -780,6 +919,15 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
             "page_table_refreshes": generator.trace_counters.page_table_refreshes,
             "token_readbacks": generator.trace_counters.token_readbacks,
             "synchronizations": generator.trace_counters.synchronizations,
+            "precision_summary": model.precision_summary(),
+            "measurement_regime": (
+                "B1 prompt-128; five warmups; 128 timed tokens; retained trace; "
+                "on-device sampling and feedback; no timed token readback"
+            ),
+            "command": os.environ.get("GEMMA4_SWEEP_COMMAND", "see work_log.md"),
+            "hardware": "P300C Blackhole",
+            "mesh_shape": list(target_mesh.shape),
+            "trace_allocation_tracking": os.environ.get("TT_METAL_TRACE_ALLOC_TRACKING") == "1",
         }
         output_dir = Path(os.environ.get("GEMMA4_FULL_MODEL_PROBE_OUTPUT_DIR", "/tmp/gemma4_full_model_evidence"))
         output_dir.mkdir(parents=True, exist_ok=True)

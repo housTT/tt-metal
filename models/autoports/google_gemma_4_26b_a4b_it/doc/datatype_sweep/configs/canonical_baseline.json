@@ -1,0 +1,73 @@
+{
+  "schema_version": 2,
+  "config_id": "canonical_baseline",
+  "weight_groups": {
+    "norms": "BF16",
+    "attention_qkv_o": "BF16",
+    "dense_gate_up": "BFP8_B",
+    "dense_down": "BFP8_B",
+    "experts_gate_up": "BFP8_B",
+    "experts_down": "BFP8_B",
+    "router_and_routing": "FP32",
+    "embedding_lm_head": "BFP8_B"
+  },
+  "decode_weight_groups": {
+    "packed_mlp_gate_up": "BFP8_B"
+  },
+  "compute_fidelities": {
+    "sliding_attention": "HIFI4",
+    "full_attention_prefill": "HIFI2",
+    "full_attention_decode": "HIFI2",
+    "dense_mlp": "LOFI",
+    "expert_gate_up": "LOFI",
+    "expert_down": "LOFI"
+  },
+  "activation_residual": {
+    "activation_dtype": "BF16",
+    "residual_dtype": "BF16"
+  },
+  "ccl": {
+    "dtype": "BF16"
+  },
+  "kv_cache": {
+    "dtype": "BF16",
+    "decode_update_dtype": "BF16"
+  },
+  "logits_sampling": {
+    "logits_dtype": "BF16",
+    "sampling_parameter_dtype": "BF16",
+    "token_dtype": "UINT32",
+    "greedy": "chunked_local_topk32_then_semantic_k1_on_sharded_logits"
+  },
+  "layer_exceptions": [
+    {
+      "layers": [5, 11, 17, 23, 29],
+      "overrides": {
+        "weight_groups": {
+          "attention_qkv_o": "BFP8_B",
+          "dense_gate_up": "BF16",
+          "dense_down": "BF16"
+        }
+      }
+    }
+  ],
+  "profile_overrides": {
+    "P150": {
+      "layer_exceptions": [
+        {
+          "layers": [5, 11, 17, 23, 29],
+          "overrides": {
+            "weight_groups": {
+              "attention_qkv_o": "BFP8_B",
+              "dense_gate_up": "BF16",
+              "dense_down": "BF16",
+              "experts_gate_up": "BFP4_B"
+            }
+          }
+        }
+      ]
+    },
+    "P150x2": {},
+    "P150x4": {}
+  }
+}

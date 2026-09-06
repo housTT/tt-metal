@@ -75,6 +75,19 @@ def layer_policy(policy: dict[str, Any], layer_idx: int) -> dict[str, Any]:
     return resolved
 
 
+def profile_policy(policy: dict[str, Any], tp_size: int) -> dict[str, Any]:
+    """Resolve the selected policy for the requested published mesh profile."""
+
+    profile = {1: "P150", 2: "P150x2", 4: "P150x4"}.get(tp_size)
+    if profile is None:
+        raise ValueError(f"unsupported Gemma-4 tensor-parallel size {tp_size}")
+    resolved = deepcopy(policy)
+    overrides = resolved.pop("profile_overrides", {}).get(profile, {})
+    resolved = _deep_merge(resolved, overrides)
+    resolved["resolved_profile"] = profile
+    return resolved
+
+
 def decoder_kwargs(policy: dict[str, Any], layer_idx: int) -> dict[str, Any]:
     selected = layer_policy(policy, layer_idx)
     weights = selected.get("weight_groups", {})
@@ -84,14 +97,11 @@ def decoder_kwargs(policy: dict[str, Any], layer_idx: int) -> dict[str, Any]:
         "attention_qkv_o": "attention_weight_dtype",
         "dense_gate_up": "mlp_weight_dtype",
         "dense_down": "mlp_down_weight_dtype",
-        "experts_gate_up_down": "expert_weight_dtype",
-        "prefill_experts": "prefill_expert_weight_dtype",
         "norms": "weight_dtype",
         "router_and_routing": "router_weight_dtype",
     }
     fidelity_mapping = {
         "sliding_attention": "attention_math_fidelity",
-        "full_attention": "full_attention_math_fidelity",
         "dense_mlp": "mlp_math_fidelity",
         "expert_gate_up": "expert_gate_math_fidelity",
         "expert_down": "expert_math_fidelity",
@@ -99,9 +109,43 @@ def decoder_kwargs(policy: dict[str, Any], layer_idx: int) -> dict[str, Any]:
     for field, kwarg in weight_mapping.items():
         if field in weights:
             result[kwarg] = _dtype(weights[field])
+    # The optimized packed-expert path has distinct gate/up and down upload
+    # dtypes.  Populate every consumed kwarg so a policy cannot appear active
+    # while the capacity defaults silently win.
+    if "experts_gate_up_down" in weights:
+        expert_dtype = _dtype(weights["experts_gate_up_down"])
+        result.update(
+            expert_weight_dtype=expert_dtype,
+            expert_gate_weight_dtype=expert_dtype,
+            expert_up_weight_dtype=expert_dtype,
+            expert_down_weight_dtype=expert_dtype,
+        )
+    if "experts_gate_up" in weights:
+        expert_gate_up_dtype = _dtype(weights["experts_gate_up"])
+        result["expert_gate_weight_dtype"] = expert_gate_up_dtype
+        result["expert_up_weight_dtype"] = expert_gate_up_dtype
+    if "experts_down" in weights:
+        result["expert_down_weight_dtype"] = _dtype(weights["experts_down"])
     for field, kwarg in fidelity_mapping.items():
         if field in fidelity:
             result[kwarg] = _fidelity(fidelity[field])
+    if "full_attention" in fidelity:
+        full_attention_fidelity = _fidelity(fidelity["full_attention"])
+        result.update(
+            prefill_full_attention_math_fidelity=full_attention_fidelity,
+            full_attention_math_fidelity=full_attention_fidelity,
+            residual_full_attention_math_fidelity=full_attention_fidelity,
+        )
+    for field, kwargs in {
+        "full_attention_prefill": ("prefill_full_attention_math_fidelity",),
+        "full_attention_decode": (
+            "full_attention_math_fidelity",
+            "residual_full_attention_math_fidelity",
+        ),
+    }.items():
+        if field in fidelity:
+            for kwarg in kwargs:
+                result[kwarg] = _fidelity(fidelity[field])
     activation = selected.get("activation_residual", {})
     if "activation_dtype" in activation:
         result["activation_dtype"] = _dtype(activation["activation_dtype"])
