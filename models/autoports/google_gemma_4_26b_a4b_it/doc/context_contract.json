@@ -243,5 +243,111 @@
     "Full-attention dense gate, up, and down are BF16 for recorded-activation correctness. Coherent R22 TP1/TP2 no longer allocate an unused packed dense tensor, offsetting most of that precision repair's persistent cost.",
     "The final-source P150 50624 physical boundary was rerun after changing packed-expert construction to avoid all separate gate/up device allocations; both meaningful layer kinds pass."
     ]
+  },
+  "full_model": {
+    "hardware": "one P300C QB2: distinct 1x1, 1x2, and 1x4 meshes as P150/P150x2/P150x4 proxies",
+    "checkpoint_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+    "hf_advertised_context": 262144,
+    "profile_dependent_context": true,
+    "selected_decoder": "the complete 30-layer optimized multichip decoder stack",
+    "inter_layer_residual_contract": "replicated BF16 TILE DRAM [1,1,logical_M,2816], unchanged from optimized_multichip_decoder",
+    "paged_cache_contract": {
+      "dtype": "BF16",
+      "sliding_attention": {
+        "layers": 25,
+        "block_size": 64,
+        "tokens_per_slot": 1024
+      },
+      "full_attention": {
+        "layers": 5,
+        "block_size": 128,
+        "tokens_per_slot": "profile supported context"
+      },
+      "rejected_alternative": "BFP8 cache remains rejected by the optimized-decoder cache-consuming PCC ledger; the full model does not reopen or weaken that decision"
+    },
+    "capacity_accounting": {
+      "device_dram_bytes": 34111622144,
+      "scope": "complete real-weight 30-layer model, BFP8_B hidden/vocabulary-sharded tied embedding and LM head, final norm, all BF16 paged KV caches, page tables, preloaded sampler buffers, and three persistent BF16 CCL buffer/semaphore sets on TP2/TP4",
+      "trace_region_bytes": {
+        "P150": 67108864,
+        "P150x2": 67108864,
+        "P150x4": 134217728
+      },
+      "notes": [
+        "observed_non_kv_long_lived_bytes is the allocator total minus the exact physical BF16 KV bytes; it intentionally includes weights and every other live allocation rather than claiming they are weights alone",
+        "device_dram_bytes is the TT allocator's 34111622144-byte usable-page total after platform reservations; observed allocated/free fields use that basis",
+        "conservative projection headroom uses the nominal 32 GiB physical basis (34359738368 bytes) and explicitly charges construction/prefill source-live peaks, trace reserve, and operational reserve; it is intentionally not derived from the post-construction allocator snapshot",
+        "the retained profile limits follow that earlier conservative source-live full-stack projection, whose headroom is smaller than the post-construction allocator snapshot because it also accounts for construction/prefill peak and operational reserve"
+      ]
+    },
+    "profiles": {
+      "P150": {
+        "tp_size": 1,
+        "supported_context_tokens": 50624,
+        "advertised_context_supported": false,
+        "full_model_load_prefill_decode": "pass",
+        "capacity_construction": "pass",
+        "exact_physical_bf16_kv_bytes_per_device": 1247805440,
+        "observed_total_allocated_bytes_per_device": 28699084288,
+        "observed_non_kv_long_lived_bytes_per_device": 27451278848,
+        "observed_free_bytes_per_device": 5412537856,
+        "conservative_full_stack_projection_bytes_per_device": 34091067904,
+        "conservative_headroom_bytes_per_device": 268670464,
+        "largest_tested_nonaligned_public_prefill": 50623,
+        "artifacts": [
+          "full_model/artifacts/full_stack_probe_tp1.json",
+          "full_model/artifacts/capacity_tp1.json",
+          "full_model/artifacts/long_context_probe_tp1.json"
+        ]
+      },
+      "P150x2": {
+        "tp_size": 2,
+        "supported_context_tokens": 262144,
+        "advertised_context_supported": true,
+        "full_model_load_prefill_decode": "pass",
+        "capacity_construction": "pass",
+        "exact_physical_bf16_kv_bytes_per_device": 2789212160,
+        "observed_total_allocated_bytes_per_device": 17975282688,
+        "observed_non_kv_long_lived_bytes_per_device": 15186070528,
+        "observed_free_bytes_per_device": 16136339456,
+        "conservative_full_stack_projection_bytes_per_device": 33498448896,
+        "conservative_headroom_bytes_per_device": 861289472,
+        "largest_tested_nonaligned_public_prefill": 262143,
+        "persistent_all_reduce_resource_sets": 3,
+        "artifacts": [
+          "full_model/artifacts/full_stack_probe_tp2.json",
+          "full_model/artifacts/capacity_tp2.json",
+          "full_model/artifacts/long_context_probe_tp2.json"
+        ]
+      },
+      "P150x4": {
+        "tp_size": 4,
+        "supported_context_tokens": 262144,
+        "advertised_context_supported": true,
+        "full_model_load_prefill_decode": "pass",
+        "capacity_construction": "pass",
+        "exact_physical_bf16_kv_bytes_per_device": 2736783360,
+        "observed_total_allocated_bytes_per_device": 12052469248,
+        "observed_non_kv_long_lived_bytes_per_device": 9315685888,
+        "observed_free_bytes_per_device": 22059152896,
+        "conservative_full_stack_projection_bytes_per_device": 29333556224,
+        "conservative_headroom_bytes_per_device": 5026182144,
+        "largest_tested_nonaligned_public_prefill": 262143,
+        "persistent_all_reduce_resource_sets": 3,
+        "largest_tested_batch": 32,
+        "artifacts": [
+          "full_model/artifacts/full_stack_probe_tp4.json",
+          "full_model/artifacts/capacity_tp4.json",
+          "full_model/artifacts/long_context_probe_tp4.json",
+          "full_model/artifacts/batch32_probe_tp4.json"
+        ]
+      }
+    },
+    "notes": [
+      "No profile uses a single-chip, replicated, host-compute, or less-optimized decoder fallback.",
+      "The P150 limit remains 50624 because the conservative full-stack construction/prefill projection leaves only 268670464 bytes; P150x2 and P150x4 preserve the full advertised 262144-token context.",
+      "Long nonaligned public-generator prefill at one token below each profile limit is followed by the one remaining legal traced cache-consuming decode replay; the subsequent position is rejected by the host capacity guard.",
+      "The TP4 batch-32 gate uses the same full 30-layer model, explicit fixed slots, BF16 paged caches, device token feedback, and a 128 MiB trace region; every sampled row is checked against its global-max logit and B1/B32 logits have minimum cosine 0.9929."
+    ]
   }
 }

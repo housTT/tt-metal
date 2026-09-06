@@ -1,0 +1,39 @@
+{
+  "verdict": "pass",
+  "scope": "shared six-prompt vLLM readiness suite, rendered with the pinned Gemma chat template",
+  "max_new_tokens": 64,
+  "criteria": [
+    "task alignment",
+    "coherence",
+    "repetition",
+    "wrong-language drift",
+    "early divergence from the HF control"
+  ],
+  "cases": {
+    "machine_learning_haiku": {
+      "verdict": "pass",
+      "assessment": "Both outputs are coherent three-line English haiku about machine learning; TT has no repetition or drift."
+    },
+    "supervised_unsupervised": {
+      "verdict": "pass",
+      "assessment": "TT follows the requested explanatory format, shares the HF opening and fruit-teacher analogy, and remains coherent after lexical divergence."
+    },
+    "inventor_story": {
+      "verdict": "pass",
+      "assessment": "TT supplies the requested faraway-kingdom inventor opening and continues coherent English narrative without phrase looping."
+    },
+    "thermodynamics_laws": {
+      "verdict": "pass",
+      "assessment": "TT correctly frames the conventional zeroth-through-third law naming and begins an organized explanation; no language or topic drift."
+    },
+    "french_translation": {
+      "verdict": "pass",
+      "assessment": "TT provides correct formal and informal French translations with English explanation, matching the HF answer structure."
+    },
+    "fibonacci_function": {
+      "verdict": "pass",
+      "assessment": "TT stays on the requested Python/Fibonacci task and begins a structured iterative solution comparable to HF."
+    }
+  },
+  "overall": "All six TT completions are task-aligned and coherent. No mechanical repetition, wrong-language drift, prompt echo, cross-request leakage, or suspicious early collapse was observed. Differences from greedy HF controls are ordinary free-running divergence. Several prose answers end mid-sentence only because the retained comparison is capped at 64 tokens."
+}

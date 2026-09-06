@@ -1,0 +1,35 @@
+{
+  "verdict": "pass",
+  "hf_model_id": "google/gemma-4-26B-A4B-it",
+  "checkpoint_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+  "prompt_format": "chat via tokenizer.apply_chat_template(add_generation_prompt=True)",
+  "refreshed_after_trace_state_fix": true,
+  "main_cases": {
+    "supervised_vs_unsupervised": {
+      "generated_tokens": 64,
+      "matching_token_positions": 46,
+      "first_divergence_index": 44,
+      "assessment": "coherent English explanation; same opening and structure as HF; no mechanical repetition"
+    },
+    "bicycle_checklist": {
+      "generated_tokens": 64,
+      "matching_token_positions": 2,
+      "first_divergence_index": 2,
+      "assessment": "coherent safety checklist on task; zero adjacent word duplication; no repeated trigram"
+    },
+    "rainbow_explanation": {
+      "generated_tokens": 64,
+      "matching_token_positions": 11,
+      "first_divergence_index": 10,
+      "assessment": "coherent age-appropriate explanation on task; zero adjacent word duplication; no repeated trigram"
+    }
+  },
+  "cross_request_reset": "bicycle and rainbow cases used one TT model instance with an in-place cache reset and retained decode trace between requests; strict fallback and TT_METAL_TRACE_ALLOC_TRACKING both passed, and no cross-request leakage was observed",
+  "raw_completion_stress": "not a quality verdict; HF and TT both repeat phrases under greedy raw completion",
+  "shared_degeneracy_checker": {
+    "chat_exit_code": 0,
+    "raw_completion_exit_code": 0,
+    "critical_findings": 0,
+    "advisory_findings": 0
+  }
+}

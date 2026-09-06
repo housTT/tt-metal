@@ -1,0 +1,371 @@
+{
+  "verdict": "pass",
+  "profile": "P150x4 proxy",
+  "mesh_shape": [
+    1,
+    4
+  ],
+  "checkpoint_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+  "reduced_real_shape_layers": [
+    0,
+    5
+  ],
+  "iterations": 10,
+  "embedding": {
+    "baseline": {
+      "median_ms": 1.4296340523287654,
+      "samples_ms": [
+        1.4232720714062452,
+        1.4245049096643925,
+        1.4275299618020654,
+        1.4283519703894854,
+        1.4289430109784007,
+        1.4296340523287654,
+        1.4296449953690171,
+        1.4305759686976671,
+        1.4315579319372773,
+        1.432589953765273
+      ]
+    },
+    "baseline_weight_dtype": "DataType.BFLOAT8_B",
+    "baseline_weight_layout": "Layout.TILE",
+    "full_table_local_shape": [
+      1,
+      1,
+      262144,
+      704
+    ],
+    "persistent_bf16_row_major": {
+      "median_ms": 0.13584992848336697,
+      "samples_ms": [
+        0.13503804802894592,
+        0.1352289691567421,
+        0.13526796828955412,
+        0.13535900507122278,
+        0.13539905194193125,
+        0.13584992848336697,
+        0.13589905574917793,
+        0.13873493298888206,
+        0.14050910249352455,
+        0.2413520123809576
+      ]
+    },
+    "candidate_weight_dtype": "DataType.BFLOAT16",
+    "candidate_weight_layout": "Layout.ROW_MAJOR",
+    "candidate_cosine": 0.9999905824661255,
+    "candidate_max_abs": 0.0,
+    "dram_view_before": "<ttnn._ttnn.device.MemoryView object at 0x776667453030>",
+    "dram_view_after": "<ttnn._ttnn.device.MemoryView object at 0x776667452a90>",
+    "estimated_incremental_bytes_per_device": 173015040,
+    "decision": "reject",
+    "reason": "The persistent BF16 row-major copy violates the capacity-required BFP8 terminal storage policy and adds 173,015,040 bytes/device on TP4; the same change adds 692,060,160 bytes/device on TP1, exceeding its 268,670,464-byte conservative full-context headroom.",
+    "tile_bfp8_gather": {
+      "candidate": "TILE BFP8 ttnn.gather with repeated tiled UINT32 indices",
+      "persistent_weight_dtype": "DataType.BFLOAT8_B",
+      "persistent_weight_layout": "Layout.TILE",
+      "persistent_capacity_delta_bytes": 0,
+      "cosine": null,
+      "max_abs": null,
+      "nonfinite_output": true,
+      "incumbent": {
+        "median_ms": 1.4316790038719773,
+        "samples_ms": [
+          1.4275299618020654,
+          1.4279310125857592,
+          1.4281109906733036,
+          1.4298839960247278,
+          1.430646050721407,
+          1.4316790038719773,
+          1.433440949767828,
+          1.434272970072925,
+          1.4344329247251153,
+          1.4364171074703336
+        ]
+      },
+      "candidate_timing": {
+        "median_ms": 76.05021307244897,
+        "samples_ms": [
+          76.02654804941267,
+          76.02850208058953,
+          76.03132701478899,
+          76.03709807153791,
+          76.04444201570004,
+          76.05021307244897,
+          76.07671397272497,
+          76.0789979249239,
+          76.10889605712146,
+          76.13940397277474
+        ]
+      },
+      "trace_capture_replay": "not_run_after_eager_numerical_failure",
+      "decision": "reject",
+      "reason": "The generic gather kernel addresses BFP8 tiles as scalar bytes and does not account for block-float exponent headers; the real table failed numerical equivalence."
+    }
+  },
+  "lm_head": {
+    "baseline": {
+      "median_ms": 0.5904490826651454,
+      "samples_ms": [
+        0.5869419546797872,
+        0.5880650132894516,
+        0.5891169421374798,
+        0.5892070475965738,
+        0.5898779490962625,
+        0.5904490826651454,
+        0.5922329146414995,
+        0.5965710151940584,
+        0.597213045693934,
+        0.5987350596114993
+      ]
+    },
+    "local_shape": [
+      1,
+      1,
+      32,
+      65536
+    ],
+    "explicit_1d_mcast_tp4": {
+      "candidate": "mature Gemma4 interleaved 1D multicast program config",
+      "persistent_capacity_delta_bytes": 0,
+      "incumbent": {
+        "median_ms": 0.5882949335500598,
+        "samples_ms": [
+          0.5851390305906534,
+          0.5859900265932083,
+          0.5868020234629512,
+          0.5869830492883921,
+          0.587944989092648,
+          0.5879650125280023,
+          0.5880140233784914,
+          0.5880440585315228,
+          0.5882550030946732,
+          0.5882650148123503,
+          0.5882949335500598,
+          0.5884160054847598,
+          0.588766997680068,
+          0.589436967857182,
+          0.5898990202695131,
+          0.5900689866393805,
+          0.590959913097322,
+          0.5952189676463604,
+          0.5969019839540124,
+          0.6009689532220364
+        ]
+      },
+      "candidate_timing": {
+        "median_ms": 0.5857399664819241,
+        "samples_ms": [
+          0.5838660290464759,
+          0.5839170189574361,
+          0.5839669611304998,
+          0.5841770907863975,
+          0.584346940740943,
+          0.5845179548487067,
+          0.5848678993061185,
+          0.5850289016962051,
+          0.5850689485669136,
+          0.5853589391335845,
+          0.5857399664819241,
+          0.5858909571543336,
+          0.5859910743311048,
+          0.5861710524186492,
+          0.5862310063093901,
+          0.5862420657649636,
+          0.5865520797669888,
+          0.5868930602446198,
+          0.5873830523341894,
+          0.5884749116376042
+        ]
+      },
+      "cosine": 0.999805212020874,
+      "max_abs": 64.0,
+      "program_config": {
+        "grid": [
+          11,
+          10
+        ],
+        "in0_block_w": 8,
+        "out_subblock_h": 1,
+        "out_subblock_w": 1,
+        "per_core_M": 1,
+        "per_core_N": 19,
+        "fuse_batch": true,
+        "mcast_in0": true
+      },
+      "scope": "TP4 decode/last-token only; helper rejects TP1/TP2 local vocabulary widths over 65536",
+      "decision": "reject",
+      "reason": "The 0.43% median change (0.5883 to 0.5857 ms) is below a meaningful retention threshold, is TP4-only, and changes logits (0.999805 cosine; max absolute difference 64)."
+    },
+    "dram_sharded_monolithic": {
+      "decision": "reject",
+      "failure": "L1 circular-buffer clash",
+      "failure_detail": "TP4 real-shape [32,2816]x[2816,65536], 8 input/output cores, in0_block_w=1, per_core_M=1, per_core_N=256 failed before execution: L1 buffer at 993280 overlapped static circular buffers ending at 1475584.",
+      "interpretation": "The one-linear TP4 lower bound does not fit L1. The mature split recipe requires 8/16/32 sequential 8192-column linears plus reshard/concat on TP4/2/1; that is not a credible improvement over the measured 0.590 ms incumbent and would enlarge trace/program state, so it is rejected."
+    },
+    "prescaled_weight_fused_tanh_tp4": {
+      "candidate": "BFP8 LM weight pre-scaled by 1/30, TANH fused into linear, final x30 retained",
+      "persistent_capacity_delta_bytes": 0,
+      "incumbent": {
+        "median_ms": 0.6714139599353075,
+        "samples_ms": [
+          0.6636590696871281,
+          0.6651319563388824,
+          0.666143954731524,
+          0.6664850516244769,
+          0.6686380365863442,
+          0.6698709912598133,
+          0.6699309451505542,
+          0.6700409576296806,
+          0.6708130240440369,
+          0.6711839232593775,
+          0.6714139599353075,
+          0.6719849770888686,
+          0.672425958327949,
+          0.6728270091116428,
+          0.6728980224579573,
+          0.6733579793944955,
+          0.6739090895280242,
+          0.6754520582035184,
+          0.6764329737052321,
+          0.703596044331789
+        ]
+      },
+      "candidate_timing": {
+        "median_ms": 0.6465769838541746,
+        "samples_ms": [
+          0.6366479210555553,
+          0.6400150014087558,
+          0.6408350309357047,
+          0.6413169903680682,
+          0.644562067463994,
+          0.6450440268963575,
+          0.6451740628108382,
+          0.6452440284192562,
+          0.6459259893745184,
+          0.6460660370066762,
+          0.6465769838541746,
+          0.646676984615624,
+          0.6469970103353262,
+          0.6471480010077357,
+          0.6472480017691851,
+          0.6473279790952802,
+          0.6478889845311642,
+          0.6483099423348904,
+          0.6494219414889812,
+          0.6508650258183479
+        ]
+      },
+      "min_row_cosine": 0.9996811151504517,
+      "max_abs": 10.375,
+      "greedy_tokens_equal": true,
+      "greedy_rows_equal": 32,
+      "min_top100_set_overlap": 0.9800000190734863,
+      "decision": "reject"
+    },
+    "prescaled_weight_standalone_tanh_tp4": {
+      "candidate": "BFP8 LM weight pre-scaled by 1/30, standalone TANH and final x30 retained",
+      "persistent_capacity_delta_bytes": 0,
+      "incumbent": {
+        "median_ms": 0.6714139599353075,
+        "samples_ms": [
+          0.6636590696871281,
+          0.6651319563388824,
+          0.666143954731524,
+          0.6664850516244769,
+          0.6686380365863442,
+          0.6698709912598133,
+          0.6699309451505542,
+          0.6700409576296806,
+          0.6708130240440369,
+          0.6711839232593775,
+          0.6714139599353075,
+          0.6719849770888686,
+          0.672425958327949,
+          0.6728270091116428,
+          0.6728980224579573,
+          0.6733579793944955,
+          0.6739090895280242,
+          0.6754520582035184,
+          0.6764329737052321,
+          0.703596044331789
+        ]
+      },
+      "candidate_timing": {
+        "median_ms": 0.6405349122360349,
+        "samples_ms": [
+          0.6352750351652503,
+          0.6374990334734321,
+          0.6375899538397789,
+          0.6377199897542596,
+          0.6385919405147433,
+          0.639021978713572,
+          0.6394030060619116,
+          0.6394729716703296,
+          0.6396740209311247,
+          0.6399439880624413,
+          0.6405349122360349,
+          0.6405450403690338,
+          0.6406550528481603,
+          0.6407159380614758,
+          0.6417270051315427,
+          0.6421280559152365,
+          0.6432009395211935,
+          0.6436500698328018,
+          0.6436709081754088,
+          0.6484000477939844
+        ]
+      },
+      "min_row_cosine": 0.9996811151504517,
+      "max_abs": 10.375,
+      "greedy_tokens_equal": true,
+      "greedy_rows_equal": 32,
+      "min_top100_set_overlap": 0.9800000190734863,
+      "decision": "reject"
+    },
+    "dram_sharded_8192_split_tp4": {
+      "candidate": "mature DRAM-sharded 8192-column split, one of 8 required TP4 splits",
+      "one_split_timing": {
+        "median_ms": 0.12312596663832664,
+        "samples_ms": [
+          0.12191303540021181,
+          0.12211303692311049,
+          0.12217299081385136,
+          0.12221303768455982,
+          0.12239394709467888,
+          0.1223940635100007,
+          0.12260396033525467,
+          0.12269394937902689,
+          0.12306496500968933,
+          0.12308603618294,
+          0.12312596663832664,
+          0.1231849892064929,
+          0.12366706505417824,
+          0.12368697207421064,
+          0.12380699627101421,
+          0.12396695092320442,
+          0.12538896407932043,
+          0.12545997742563486,
+          0.12582098133862019,
+          0.13325491454452276
+        ]
+      },
+      "eight_split_linear_lower_bound_ms": 0.9850077331066132,
+      "incumbent_monolithic_ms": 0.5904490826651454,
+      "excluded_from_lower_bound": [
+        "seven additional dispatches already represented by multiplication",
+        "concat",
+        "input reshard amortized once",
+        "softcap"
+      ],
+      "cosine_to_incumbent_first_slice": 0.9998594522476196,
+      "max_abs": 96.0,
+      "program_config": {
+        "in0_block_w": 1,
+        "per_core_M": 1,
+        "per_core_N": 32
+      },
+      "decision": "reject",
+      "reason": "The measured eight-linear lower bound is compared with the incumbent before concat and trace-state costs."
+    }
+  }
+}

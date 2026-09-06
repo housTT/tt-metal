@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Full TP=4 TTNN autoregressive model for google/gemma-4-26B-A4B-it.
+"""Full TP=1/2/4 TTNN autoregressive model for google/gemma-4-26B-A4B-it.
 
 This wrapper intentionally stacks :class:`MultichipDecoder` without changing
 its replicated-BF16 inter-layer residual contract.  Embedding weights are
@@ -11,6 +11,7 @@ is vocabulary sharded and leaves its logits sharded for split sampling.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -27,7 +28,11 @@ from models.autoports.google_gemma_4_26b_a4b_it.tt.functional_decoder import (
     _text_config,
     _validate_text_config,
 )
-from models.autoports.google_gemma_4_26b_a4b_it.tt.multichip_decoder import TP_SIZE, MultichipDecoder
+from models.autoports.google_gemma_4_26b_a4b_it.tt.multichip_decoder import (
+    SUPPORTED_TP_SIZES,
+    TP_SIZE,
+    MultichipDecoder,
+)
 from models.autoports.google_gemma_4_26b_a4b_it.tt.precision_policy import (
     decoder_kwargs,
     dtype_from_policy,
@@ -37,18 +42,22 @@ from models.autoports.google_gemma_4_26b_a4b_it.tt.precision_policy import (
     weight_dtype_from_policy,
 )
 from models.demos.gemma4.config import MeshConfig, ModeConfig
-from models.demos.gemma4.tt.ccl import CCLManager, ccl_allgather
 
 MODEL_ID = "google/gemma-4-26B-A4B-it"
 DEFAULT_MAX_CONTEXT = 262_144
 SLIDING_CACHE_TOKENS = 1_024
 DECODE_SLOT_COUNT = 32
+PROFILE_CONTEXT_LIMITS = {1: 50_624, 2: DEFAULT_MAX_CONTEXT, 4: DEFAULT_MAX_CONTEXT}
 
 
-def _require_tp4(mesh_device: Any) -> None:
-    if not isinstance(mesh_device, ttnn.MeshDevice) or tuple(mesh_device.shape) != (1, TP_SIZE):
-        shape = tuple(mesh_device.shape) if hasattr(mesh_device, "shape") else None
-        raise ValueError(f"Gemma4FullModel requires the optimized 1x{TP_SIZE} mesh, got {shape}")
+def _require_supported_mesh(mesh_device: Any) -> int:
+    shape = tuple(mesh_device.shape) if hasattr(mesh_device, "shape") else None
+    if not isinstance(mesh_device, ttnn.MeshDevice) or shape is None or len(shape) != 2 or shape[0] != 1:
+        raise ValueError(f"Gemma4FullModel requires an optimized 1xN mesh, got {shape}")
+    tp_size = int(shape[1])
+    if tp_size not in SUPPORTED_TP_SIZES:
+        raise ValueError(f"Gemma4FullModel supports TP sizes {SUPPORTED_TP_SIZES}, got {tp_size}")
+    return tp_size
 
 
 def _find_key(state_dict: dict[str, torch.Tensor], *keys: str) -> str:
@@ -104,7 +113,7 @@ class Gemma4FullModel:
         mesh_device: ttnn.MeshDevice,
         hf_config: Any,
         state_dict: dict[str, torch.Tensor],
-        max_seq_len: int = DEFAULT_MAX_CONTEXT,
+        max_seq_len: int | None = None,
         max_batch_size: int = 1,
         num_layers: int | None = None,
         layer_indices: Sequence[int] | None = None,
@@ -112,7 +121,7 @@ class Gemma4FullModel:
         create_kv_cache: bool = True,
         precision_config_path: str | Path | None = None,
     ) -> None:
-        _require_tp4(mesh_device)
+        tp_size = _require_supported_mesh(mesh_device)
         generation_eos = getattr(hf_config, "eos_token_id", None)
         self.eos_token_ids = tuple(
             int(token_id)
@@ -121,12 +130,20 @@ class Gemma4FullModel:
         )
         text_config = _text_config(hf_config)
         _validate_text_config(text_config)
+        profile_context_limit = PROFILE_CONTEXT_LIMITS[tp_size]
+        max_seq_len = profile_context_limit if max_seq_len is None else int(max_seq_len)
         if max_seq_len < 1 or max_seq_len > text_config.max_position_embeddings:
             raise ValueError(f"max_seq_len must be in [1, {text_config.max_position_embeddings}], got {max_seq_len}")
+        if max_seq_len > profile_context_limit:
+            raise ValueError(
+                f"TP{tp_size} full-stack capacity supports at most {profile_context_limit} tokens, got {max_seq_len}"
+            )
         if max_batch_size < 1 or max_batch_size > 32:
             raise ValueError(f"max_batch_size must be in [1, 32], got {max_batch_size}")
 
         self.mesh_device = mesh_device
+        self.tp_size = tp_size
+        self.profile_context_limit = profile_context_limit
         self.hf_config = text_config
         self.max_seq_len = max_seq_len
         self.max_batch_size = max_batch_size
@@ -151,7 +168,12 @@ class Gemma4FullModel:
         )
         self.kv_cache_dtype = dtype_from_policy(self.precision_policy, "kv_cache", "dtype", ttnn.bfloat16)
         self.logits_dtype = dtype_from_policy(self.precision_policy, "logits_sampling", "logits_dtype", ttnn.bfloat16)
-        self.terminal_weight_dtype = weight_dtype_from_policy(self.precision_policy, "embedding_lm_head", ttnn.bfloat16)
+        # The completed multichip capacity proof requires physical BFP8_B
+        # embedding/LM-head storage on TP1; use one terminal policy on every
+        # profile so correctness and performance evidence stay comparable.
+        self.terminal_weight_dtype = weight_dtype_from_policy(
+            self.precision_policy, "embedding_lm_head", ttnn.bfloat8_b
+        )
         self.ccl_dtype = dtype_from_policy(self.precision_policy, "ccl", "dtype", ttnn.bfloat16)
         if self.activation_dtype != self.residual_dtype:
             raise ValueError("Gemma-4 currently requires activation_dtype == residual_dtype at layer boundaries")
@@ -167,8 +189,7 @@ class Gemma4FullModel:
         update_dtype = self.precision_policy.get("kv_cache", {}).get("decode_update_dtype", "BF16")
         if update_dtype not in ("BF16", "FP32"):
             raise ValueError("Gemma-4 paged cache decode updates require BF16 or FP32")
-        self.mesh_config = MeshConfig((1, TP_SIZE), decode=ModeConfig(tp=TP_SIZE))
-        self.ccl_manager = CCLManager(mesh_device, num_links=2, topology=ttnn.Topology.Ring)
+        self.mesh_config = MeshConfig((1, tp_size), decode=ModeConfig(tp=tp_size))
         self._replicate = ttnn.ReplicateTensorToMesh(mesh_device)
 
         embed_key = _find_key(
@@ -189,14 +210,21 @@ class Gemma4FullModel:
 
         cache_root = self.tensor_cache_path / "full_model" if self.tensor_cache_path is not None else None
         common = dict(device=mesh_device, memory_config=ttnn.DRAM_MEMORY_CONFIG)
-        embed_cache = str(cache_root / "embedding") if cache_root is not None else None
-        lm_cache = str(cache_root / "lm_head") if cache_root is not None else None
+        terminal_shard = ttnn.ShardTensor2dMesh(mesh_device, dims=(None, -1), mesh_shape=tuple(mesh_device.shape))
+        # Mesh mappers are not encoded in a tensorbin header.  Keep terminal
+        # caches topology-specific so a replicated TP1 artifact can never be
+        # reloaded as a hidden/vocab-sharded TP2 or TP4 tensor.
+        embed_cache = str(cache_root / f"embedding_tp{tp_size}") if cache_root is not None else None
+        lm_cache = str(cache_root / f"lm_head_tp{tp_size}") if cache_root is not None else None
         norm_cache = str(cache_root / "final_norm") if cache_root is not None else None
         self.embedding_weight = ttnn.as_tensor(
             embed_weight.unsqueeze(0).unsqueeze(0),
             dtype=self.terminal_weight_dtype,
-            layout=ttnn.ROW_MAJOR_LAYOUT,
-            mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=-1),
+            # BFP8_B has a tile-only physical representation.  Embedding
+            # accepts tiled tables and returns the replicated BF16 residual
+            # required by the first optimized decoder layer.
+            layout=ttnn.TILE_LAYOUT,
+            mesh_mapper=terminal_shard,
             cache_file_name=embed_cache,
             **common,
         )
@@ -204,7 +232,7 @@ class Gemma4FullModel:
             embed_weight.transpose(0, 1).contiguous().unsqueeze(0).unsqueeze(0),
             dtype=self.terminal_weight_dtype,
             layout=ttnn.TILE_LAYOUT,
-            mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=-1),
+            mesh_mapper=terminal_shard,
             cache_file_name=lm_cache,
             **common,
         )
@@ -218,21 +246,76 @@ class Gemma4FullModel:
         )
 
         self.layers = []
-        persistent_all_reduce_resources = None
-        for layer_idx in self.layer_indices:
-            layer = MultichipDecoder.from_state_dict(
-                state_dict,
-                hf_config=text_config,
-                layer_idx=layer_idx,
-                mesh_device=mesh_device,
-                tensor_cache_path=self.tensor_cache_path,
-                persistent_all_reduce_resources=persistent_all_reduce_resources,
-                ccl_dtype=self.ccl_dtype,
-                **decoder_kwargs(self.precision_policy, layer_idx),
+        persistent_requested = tp_size > 1 and os.getenv("GEMMA4_MULTICHIP_PERSISTENT_ALL_REDUCE", "1") == "1"
+        previous_persistent_setting = os.environ.get("GEMMA4_MULTICHIP_PERSISTENT_ALL_REDUCE")
+        if persistent_requested:
+            # Weight setup uses transient L1 for DRAM-to-sharded conversion.
+            # Loading the complete stack after layer 0 has already pinned its
+            # persistent collective buffers can collide with that conversion
+            # region on TP4.  Defer only the allocation; the runtime resource
+            # shape and ownership are restored below for every layer.
+            os.environ["GEMMA4_MULTICHIP_PERSISTENT_ALL_REDUCE"] = "0"
+        try:
+            for layer_idx in self.layer_indices:
+                self.layers.append(
+                    MultichipDecoder.from_state_dict(
+                        state_dict,
+                        hf_config=text_config,
+                        layer_idx=layer_idx,
+                        mesh_device=mesh_device,
+                        tensor_cache_path=self.tensor_cache_path,
+                        ccl_dtype=self.ccl_dtype,
+                        **decoder_kwargs(self.precision_policy, layer_idx),
+                    )
+                )
+        finally:
+            if persistent_requested:
+                if previous_persistent_setting is None:
+                    os.environ.pop("GEMMA4_MULTICHIP_PERSISTENT_ALL_REDUCE", None)
+                else:
+                    os.environ["GEMMA4_MULTICHIP_PERSISTENT_ALL_REDUCE"] = previous_persistent_setting
+        if persistent_requested:
+            persistent_memory_config = ttnn.create_sharded_memory_config(
+                (32, HIDDEN_SIZE // (11 * 8)),
+                ttnn.CoreGrid(x=11, y=8),
+                ttnn.ShardStrategy.WIDTH,
+                ttnn.ShardOrientation.ROW_MAJOR,
+                use_height_and_width_as_shard_shape=True,
             )
-            self.layers.append(layer)
-            if layer.persistent_all_reduce_resources is not None:
-                persistent_all_reduce_resources = layer.persistent_all_reduce_resources
+            persistent_buffer_memory_config = ttnn.create_sharded_memory_config(
+                (32, HIDDEN_SIZE * tp_size // (11 * 8)),
+                ttnn.CoreGrid(x=11, y=8),
+                ttnn.ShardStrategy.WIDTH,
+                ttnn.ShardOrientation.ROW_MAJOR,
+                use_height_and_width_as_shard_shape=True,
+            )
+            ccl_grid = mesh_device.compute_with_storage_grid_size()
+            ccl_cores = ttnn.num_cores_to_corerangeset(ccl_grid.x * ccl_grid.y, ccl_grid, row_wise=True)
+            buffers = [
+                ttnn.from_torch(
+                    torch.zeros((1, 1, 32, HIDDEN_SIZE * tp_size), dtype=torch.bfloat16),
+                    dtype=self.ccl_dtype,
+                    layout=ttnn.TILE_LAYOUT,
+                    device=mesh_device,
+                    memory_config=persistent_buffer_memory_config,
+                    mesh_mapper=self._replicate,
+                )
+                for _ in range(3)
+            ]
+            semaphores = [ttnn.create_global_semaphore(mesh_device, ccl_cores, 0) for _ in range(3)]
+            ttnn.synchronize_device(mesh_device)
+            resources = {
+                "buffers": buffers,
+                "semaphores": semaphores,
+                "memory_config": persistent_memory_config,
+                "index": 0,
+                "dtype": self.ccl_dtype,
+            }
+            for layer in self.layers:
+                layer.persistent_all_reduce_buffers = buffers
+                layer.persistent_all_reduce_semaphores = semaphores
+                layer.persistent_all_reduce_memory_config = persistent_memory_config
+                layer.persistent_all_reduce_resources = resources
         self.rope_caches = self._create_rope_caches(text_config, max_seq_len)
         self.cache_specs = self._make_cache_specs()
         self.state = self.allocate_state(max_batch_size=max_batch_size) if create_kv_cache else None
@@ -243,7 +326,7 @@ class Gemma4FullModel:
         rope = Gemma4TextRotaryEmbedding(config)
         positions = torch.arange(max_seq_len).unsqueeze(0)
         # RotaryEmbedding only uses shape/device metadata from x.
-        dummy = torch.empty(1, max_seq_len, config.hidden_size)
+        dummy = torch.empty(1, 1, config.hidden_size)
         caches = {}
         for layer_type in sorted({config.layer_types[i] for i in self.layer_indices}):
             cos, sin = rope(dummy, positions, layer_type=layer_type)
@@ -270,7 +353,7 @@ class Gemma4FullModel:
                     layer_idx=layer_idx,
                     layer_type=layer_type,
                     block_size=kind.block_size,
-                    local_kv_heads=1 if kind is FULL_KIND else 2,
+                    local_kv_heads=max(1, 2 // self.tp_size) if kind is FULL_KIND else 8 // self.tp_size,
                     head_dim=kind.head_dim,
                     capacity_tokens_per_slot=self.max_seq_len if kind is FULL_KIND else SLIDING_CACHE_TOKENS,
                     cache_dtype=getattr(self, "kv_cache_dtype", ttnn.bfloat16),
@@ -351,7 +434,18 @@ class Gemma4FullModel:
         hidden = ttnn.embedding(tokens, self.embedding_weight, dtype=self.residual_dtype, layout=ttnn.TILE_LAYOUT)
         hidden = ttnn.mul(hidden, self.embed_scale)
         hidden = ttnn.unsqueeze_to_4D(hidden) if len(hidden.shape) == 3 else hidden
-        hidden = ccl_allgather(hidden, self.mesh_config, self.ccl_manager, dim=3)
+        if self.tp_size > 1:
+            # The synchronous gather derives Linear/Ring routing and link
+            # count from the profile's fabric configuration.  Do not create a
+            # second CCLManager here: its global semaphores duplicate the
+            # optimized decoder's persistent all-reduce resources and exhaust
+            # TP4 L1 before the full layer stack is loaded.
+            hidden = ttnn.all_gather(
+                hidden,
+                dim=3,
+                cluster_axis=self.mesh_config.tp_axis,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
         return hidden if hidden.layout == ttnn.TILE_LAYOUT else ttnn.to_layout(hidden, ttnn.TILE_LAYOUT)
 
     def precision_summary(self) -> dict[str, Any]:
@@ -411,7 +505,7 @@ class Gemma4FullModel:
             rows.append(value)
         return tuple(rows)
 
-    def _terminal(self, hidden: ttnn.Tensor) -> ttnn.Tensor:
+    def _terminal(self, hidden: ttnn.Tensor, *, sampler_ready: bool = False) -> ttnn.Tensor:
         hidden = ttnn.rms_norm(
             hidden,
             weight=self.final_norm_weight,
@@ -425,6 +519,16 @@ class Gemma4FullModel:
             logits = ttnn.mul(logits, 1.0 / self.final_logit_softcapping)
             logits = ttnn.tanh(logits)
             logits = ttnn.mul(logits, self.final_logit_softcapping)
+        if sampler_ready and logits.shape[-2] != DECODE_SLOT_COUNT:
+            # Sampling1D consumes a fixed 32-row terminal tile.  Put this pad
+            # in the model trace so the sampling trace reads a stable model
+            # output instead of allocating a transient tensor while the model
+            # trace has allocator addresses pinned.
+            logits = ttnn.pad(
+                logits,
+                padding=[(0, 0), (0, 0), (0, DECODE_SLOT_COUNT - logits.shape[-2]), (0, 0)],
+                value=0.0,
+            )
         return logits
 
     def prefill_forward(
@@ -443,7 +547,30 @@ class Gemma4FullModel:
         ``tokens`` and ``position_ids`` are already padded physical tensors;
         ``prompt_lens`` remains the logical contract and selects final rows.
         """
+        if len(prompt_lens) != 1:
+            raise ValueError("Gemma4FullModel prefill consumes one logical user at a time")
+        logical_seq_len = int(prompt_lens[0])
+        if logical_seq_len < 1 or logical_seq_len > tokens.shape[-1]:
+            raise ValueError(f"logical prompt length must be in [1, {tokens.shape[-1]}], got {logical_seq_len}")
         hidden = self.embed_tokens(tokens)
+        if hidden.shape[-2] != logical_seq_len:
+            # The optimized decoder owns physical tile padding because its
+            # cache-fill path needs the true logical tail.  Passing the
+            # generator's physical prompt shape here would make a 1025-token
+            # prompt look aligned at 1056 and overwrite live sliding history.
+            hidden = ttnn.slice(
+                hidden,
+                starts=[0, 0, 0, 0],
+                ends=[hidden.shape[0], hidden.shape[1], logical_seq_len, hidden.shape[3]],
+                steps=[1, 1, 1, 1],
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            position_ids = ttnn.slice(
+                position_ids,
+                [0, 0],
+                [position_ids.shape[0], logical_seq_len],
+                [1, 1],
+            )
         for state_idx, (layer_idx, layer) in enumerate(zip(self.layer_indices, self.layers)):
             layer_type = self.hf_config.layer_types[layer_idx]
             cos, sin = self._rope_rows(layer_type, position_ids)
@@ -460,7 +587,7 @@ class Gemma4FullModel:
         if not return_all_logits:
             if len(set(prompt_lens)) != 1:
                 raise NotImplementedError("mixed-length terminal prefill slicing is owned by the generator")
-            last = int(prompt_lens[0]) - 1
+            last = logical_seq_len - 1
             hidden = ttnn.slice(hidden, (0, 0, last, 0), (hidden.shape[0], 1, last + 1, HIDDEN_SIZE))
         return self._terminal(hidden)
 
@@ -500,18 +627,17 @@ class Gemma4FullModel:
                 kv_cache=state.kv_cache[state_idx],
                 cache_position_modulo=(SLIDING_CACHE_TOKENS if _layer_kind(layer_type) is SLIDING_KIND else None),
             )
-        return self._terminal(hidden)
+        return self._terminal(hidden, sampler_ready=True)
 
-    @staticmethod
-    def sampling_args(mesh_device: ttnn.MeshDevice, *, max_batch_size: int) -> Any:
+    def sampling_args(self, *, max_batch_size: int) -> Any:
         """Minimal TTTv1 sampler args retained for the sampler comparison harness."""
         return SimpleNamespace(
-            mesh_device=mesh_device,
+            mesh_device=self.mesh_device,
             max_batch_size=max_batch_size,
             max_top_k=32,
             vocab_size=262_144,
             padded_vocab_size=262_144,
-            num_devices=TP_SIZE,
+            num_devices=self.tp_size,
             sub_core_grids=None,
             sampling_core_grid=None,
             users_row_sharded=False,

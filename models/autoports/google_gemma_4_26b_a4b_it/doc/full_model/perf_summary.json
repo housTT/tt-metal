@@ -1,0 +1,68 @@
+{
+  "model": "google/gemma-4-26B-A4B-it",
+  "checkpoint_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+  "hardware": {
+    "physical_system": "4-chip Blackhole P300C QB2",
+    "reported_profile": "P150x4 proxy",
+    "mesh_shape": [1, 4]
+  },
+  "primary_public_generate": {
+    "batch": 1,
+    "prompt_tokens": 128,
+    "generated_tokens": 128,
+    "boundary": "public generate(), including first-token device sampling, caller-visible Python token list, and 128 minimal token readbacks",
+    "ttft_ms": 139.029,
+    "end_to_end_tokens_per_second_per_user": 44.433,
+    "cold_request_decode_tokens_per_second_per_user": 46.322,
+    "warmed_decode_tokens_per_second_per_user": 46.327,
+    "artifact": "artifacts/generator_generate_tp4.json"
+  },
+  "component_measurements": {
+    "prefill": {
+      "batch": 1,
+      "prompt_tokens": 128,
+      "initial_ms": 205.931,
+      "warmed_ms": 106.118,
+      "boundary": "through last-token sampler-ready logits",
+      "artifact": "artifacts/prefill_tp4.json"
+    },
+    "model_logits_trace": {
+      "configured_initial_position": 32,
+      "latency_ms_per_token": 20.9238,
+      "tokens_per_second": 47.7925,
+      "artifact": "artifacts/logits_only_trace_tp4.json"
+    },
+    "device_token_out_trace": {
+      "prefill_prompt_length": 32,
+      "measured_decode_position_start": 38,
+      "measured_decode_position_end_exclusive": 166,
+      "latency_ms_per_token": 21.373,
+      "tokens_per_second_per_user": 46.788,
+      "host_readbacks_in_measured_loop": 0,
+      "host_synchronizations_in_measured_loop": 0,
+      "artifact": "artifacts/token_out_trace_tp4.json"
+    }
+  },
+  "reduced_profiler": {
+    "layers": [0, 5],
+    "real_weights_and_terminal": true,
+    "summed_device_operation_time_ms": 3.967,
+    "modeled_dram_roofline_percent": 12.9,
+    "artifact_directory": "artifacts/profiler"
+  },
+  "terminal_trials": {
+    "artifact": "artifacts/terminal_trials.json",
+    "result": "all alternatives rejected",
+    "incumbent_embedding_ms": 1.4317,
+    "incumbent_lm_head_ms": 0.5904,
+    "dram_sharded_eight_linear_lower_bound_ms": 0.985,
+    "notes": "Persistent BF16 row-major embedding exceeds TP1 capacity; generic BFP8 gather is numerically invalid; DRAM-sharded LM-head splits lose before concat; program-config and softcap candidates are negligible or perturb top-100 ranks."
+  },
+  "limitations": [
+    "P150/P150x2/P150x4 results are proxy profiles on a P300C QB2 and are hardware-specific.",
+    "Teacher-forcing throughput is correctness evidence because host feedback and allocation tracking perturb its latency.",
+    "The logits-only and token-out component traces were captured separately, so their difference is not a matched sampler-overhead measurement.",
+    "The reduced profiler contains two representative decoder layers and must not be presented as all-layer latency.",
+    "The public compatibility sampling mode reads logits on the host by explicit request; it is not the optimized measured path."
+  ]
+}
