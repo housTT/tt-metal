@@ -310,3 +310,92 @@ commit records follow below.
   `769a0c593b56e55f36b477bb19321d6bde9bb831`.
 - No commit was pushed. The documentation-only commit that records this SHA is
   reported in the final handoff.
+
+## Runner-side gate repair (2026-09-06)
+
+The post-completion runner check
+`.agents/prompts/model_bringup_multigoal/06-full-model.check.sh` failed with
+exit 2 before inspecting any model artifact:
+
+```text
+python: can't open file '/home/hous/dev/tt-metal/models/common/readiness_check/check_degenerate_output.py': [Errno 2] No such file or directory
+```
+
+Root cause: the stage had run the degeneracy check from a temporary historical
+checkout (`/tmp/gemma4-readiness.T6WBn5`) because the shared readiness package
+was removed from the current source tree. The completion evidence therefore
+did not validate the runner's actual in-tree entry point, even though the
+runner script still invoked it. This was a gate-packaging defect, not a TT
+generation or device-runtime failure.
+
+The repair restores the standalone, standard-library-only
+`models/common/readiness_check/check_degenerate_output.py` entry point and adds
+focused tests for clean output, doubled-token critical failure, model-scoped
+autoregressive artifact discovery, empty TT payload rejection,
+text-plus-token-ID collapse detection, malformed JSON-schema rejection, and
+advisory/critical missing-artifact policy. It does not change the model,
+generator, precision, multichip, trace, sampling, or capacity paths.
+
+Verification from the repository root:
+
+```bash
+python_env/bin/pre-commit run --files \
+  models/common/readiness_check/check_degenerate_output.py \
+  models/common/readiness_check/test_check_degenerate_output.py
+
+python_env/bin/pytest -q \
+  models/common/readiness_check/test_check_degenerate_output.py
+
+python_env/bin/pytest -q \
+  models/autoports/google_gemma_4_26b_a4b_it/tests/test_full_model_contract.py
+
+env MODEL_DIR=models/autoports/google_gemma_4_26b_a4b_it \
+  HF_MODEL=google/gemma-4-26B-A4B-it \
+  bash .agents/prompts/model_bringup_multigoal/06-full-model.check.sh
+
+git diff --check
+```
+
+All pre-commit hooks passed, the focused suite reported `11 passed`, and the
+exact runner gate exited 0. It measured both retained 64-token free-running
+artifacts: the chat completion has adjacent duplication 0.0000 and trigram-loop
+fraction 0.0612 by words and 0.0469 by token IDs; the raw continuation stress
+artifact has adjacent duplication 0.0000 and trigram-loop fraction 0.2941 by
+words and 0.2344 by token IDs. The context subcheck independently reported
+target/support 262,144 (`full HF context`).
+
+The first fresh independent rereview returned `more-work-needed` because the
+historical checker semantics allowed an empty TT payload to count as evidence
+and skipped token-ID checks whenever nonblank text existed. Both findings were
+reproduced and fixed: the configured missing-artifact severity now applies to
+empty payloads, and decoded words plus token IDs are both checked when both are
+available. The two new regression tests prove that an empty payload and a
+64-token single-token collapse hidden behind fused nonblank text each return
+exit 2. The first review and exact reproductions are preserved in
+`stage_review_runner_recheck.md`; a clean rereview is required after this
+remediation.
+
+The next rereview probe exposed one further false-pass family: syntactically
+valid but schema-invalid metadata (`null`, string or object `token_ids`, and
+`[null]`) could be treated as an inspectable artifact. The loader now
+distinguishes parse failure from JSON `null`, requires object-shaped
+autoregressive/TT metadata, and accepts TT token IDs only as a list of
+non-negative JSON integers. Each reproduced payload has a regression test that
+returns exit 2. Equivalent basic list/item/completion-string validation was
+added for the checker's shared vLLM artifact path, without changing the stage-6
+`autoregressive` scope.
+
+The fresh post-remediation independent review returned `clean-pass` with no
+required work. It independently reran all 11 focused cases and the exact
+stage-6 runner, checked the final checker/test hashes, inspected the retained
+Gemma chat/story and shared-suite outputs, and revalidated source provenance.
+The final report is `stage_review_runner_rereview.md`; the earlier
+`more-work-needed` report remains beside it as the remediation audit trail.
+
+No TT device command was needed to diagnose or verify the checker itself. A
+subsequent unfiltered host-contract pytest invocation reported
+`13 passed, 5 skipped`; its standard fixtures briefly opened and cleanly closed
+the available four-device mesh before each environment-gated hardware case
+skipped, but no real-weight model probe ran. The existing serialized all-profile
+and watcher/allocation evidence therefore remains the applicable model-hardware
+record.
