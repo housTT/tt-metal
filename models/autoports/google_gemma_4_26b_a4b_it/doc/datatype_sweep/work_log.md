@@ -159,5 +159,7 @@ The full handoff verdict is in `stage_review.md`.
 
 Base SHA: `ca7ee6b88f1503f24f36195e1e4ade36b8144852`.
 
-The local implementation checkpoint SHA is appended after commit. No push is
-performed.
+Local implementation checkpoint SHA:
+`160b93a2fffdec32a862f27220a7a6581e7dd8fa`. The aggregate provenance was
+regenerated at that checkpoint and sealed in a follow-up local metadata
+commit. No push was performed.
