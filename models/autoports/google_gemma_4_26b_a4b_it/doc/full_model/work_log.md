@@ -399,3 +399,12 @@ the available four-device mesh before each environment-gated hardware case
 skipped, but no real-weight model probe ran. The existing serialized all-profile
 and watcher/allocation evidence therefore remains the applicable model-hardware
 record.
+
+### Runner-gate repair checkpoint
+
+- Repository: `/home/hous/dev/tt-metal`
+- Branch: `hous/gemma-4-26b-a4b-it`
+- Repair, regressions, and independent review commit:
+  `50ddb4d999a2bca24bf951dd89083730b58860bb`
+- No commit was pushed. This documentation-only follow-up records the repair
+  checkpoint and is reported in the final handoff.
