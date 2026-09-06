@@ -24,6 +24,7 @@ from models.autoports.google_gemma_4_26b_a4b_it.tt.model import (
     DEFAULT_MAX_CONTEXT,
     FULL_KIND,
     PROFILE_CONTEXT_LIMITS,
+    PROFILE_EMBEDDING_STORAGE,
     SLIDING_CACHE_TOKENS,
     FullModelState,
     Gemma4FullModel,
@@ -73,6 +74,10 @@ def test_full_model_profile_context_and_cache_geometry(tp_size, expected_context
     assert PROFILE_CONTEXT_LIMITS[tp_size] == expected_context
     assert {spec.local_kv_heads for spec in specs if spec.layer_type == "sliding_attention"} == {sliding_heads}
     assert {spec.local_kv_heads for spec in specs if spec.layer_type == "full_attention"} == {full_heads}
+
+
+def test_profile_embedding_storage_avoids_decode_time_full_table_untilize():
+    assert PROFILE_EMBEDDING_STORAGE == {1: "bf16_row_major", 2: "bf16_row_major", 4: "bf16_row_major"}
 
 
 def test_generator_implements_readiness_contract_with_explicit_trace_keyword():
@@ -278,15 +283,18 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
         if mesh_device.get_num_devices() == tp_size
         else mesh_device.create_submesh(ttnn.MeshShape((1, tp_size)), offset=ttnn.MeshCoordinate(0, 0))
     )
-    prompt_len = (
-        PROFILE_CONTEXT_LIMITS[tp_size] - 1 if long_context else int(os.environ.get("GEMMA4_PROBE_PROMPT_LEN", "32"))
-    )
+    probe_context_limit = int(os.environ.get("GEMMA4_CONTEXT_LIMIT_OVERRIDE", PROFILE_CONTEXT_LIMITS[tp_size]))
+    if probe_context_limit > PROFILE_CONTEXT_LIMITS[tp_size]:
+        raise ValueError(
+            f"probe context override {probe_context_limit} exceeds profile limit {PROFILE_CONTEXT_LIMITS[tp_size]}"
+        )
+    prompt_len = probe_context_limit - 1 if long_context else int(os.environ.get("GEMMA4_PROBE_PROMPT_LEN", "32"))
     model = Gemma4FullModel(
         mesh_device=target_mesh,
         hf_config=_config(),
         state_dict=state,
         max_seq_len=(
-            PROFILE_CONTEXT_LIMITS[tp_size]
+            probe_context_limit
             if (long_context or capacity_only)
             else (
                 2_048
@@ -303,6 +311,7 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
         max_batch_size=32 if batch32 else 1,
         layer_indices=None if full_stack else [0, 5],
         tensor_cache_path=("/tmp/gemma4_full_model_cache" if full_stack else "/tmp/gemma4_full_model_probe_cache"),
+        embedding_storage=os.environ.get("GEMMA4_EMBEDDING_STORAGE", "profile"),
     )
     if os.environ.get("GEMMA4_PRINT_PRECISION_SUMMARY") == "1":
         print("PRECISION_SUMMARY=" + json.dumps(model.precision_summary(), sort_keys=True))
@@ -387,6 +396,8 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
             "max_batch_size": model.max_batch_size,
             "kv_cache_dtype": str(model.kv_cache_dtype),
             "terminal_weight_dtype": str(model.terminal_weight_dtype),
+            "embedding_storage": model.embedding_storage,
+            "embedding_weight_dtype": str(model.embedding_weight_dtype),
             "local_full_kv_heads": full_specs[0].local_kv_heads,
             "local_sliding_kv_heads": sliding_specs[0].local_kv_heads,
             "full_cache_shape": list(model.state.kv_cache[5][0].shape),
@@ -408,7 +419,7 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
         print("GEMMA4_CAPACITY_RESULT=" + json.dumps(report, sort_keys=True, default=list))
         return
     if os.environ.get("GEMMA4_GENERATE_BENCH") == "1":
-        assert full_stack and tp_size == 4
+        assert full_stack
         prompt = [1 + (index % 255) for index in range(128)]
         generator.generate(prompt, 8, enable_trace=True, stop_on_eos=False)
         generator.reset()
@@ -416,7 +427,7 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
         assert len(output) == 128
         report = {
             "verdict": "pass",
-            "profile": "P150x4",
+            "profile": {1: "P150", 2: "P150x2", 4: "P150x4"}[tp_size],
             "boundary": "public Gemma4Generator.generate with host-visible token list",
             "full_stack": True,
             "prompt_len": 128,
@@ -426,7 +437,7 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
         }
         output_dir = Path(os.environ.get("GEMMA4_FULL_MODEL_PROBE_OUTPUT_DIR", "/tmp/gemma4_full_model_evidence"))
         output_dir.mkdir(parents=True, exist_ok=True)
-        (output_dir / "generator_generate_tp4.json").write_text(json.dumps(report, indent=2) + "\n")
+        (output_dir / f"generator_generate_tp{tp_size}.json").write_text(json.dumps(report, indent=2) + "\n")
         print("GEMMA4_GENERATE_RESULT=" + json.dumps(report, sort_keys=True))
         return
     if long_context:
@@ -494,10 +505,16 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
             logits = model.prefill_forward(tokens, state=model.state, prompt_lens=[prompt_len], position_ids=positions)
             ttnn.synchronize_device(target_mesh)
             initial_s = time.perf_counter() - start_s
+            if os.environ.get("GEMMA4_FULL_MODEL_DEVICE_PROFILE") == "1":
+                from tracy import signpost
+
+                signpost("FULL_MODEL_REDUCED_PREFILL")
             start_s = time.perf_counter()
             logits = model.prefill_forward(tokens, state=model.state, prompt_lens=[prompt_len], position_ids=positions)
             ttnn.synchronize_device(target_mesh)
             warmed_s = time.perf_counter() - start_s
+            if os.environ.get("GEMMA4_FULL_MODEL_DEVICE_PROFILE") == "1":
+                signpost("FULL_MODEL_REDUCED_PREFILL_END")
             report = {
                 "profile": {1: "P150", 2: "P150x2", 4: "P150x4"}[tp_size],
                 "boundary": "full model prefill through last-token sampler-ready logits",
@@ -605,7 +622,12 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
             "rejection_reason": (
                 "different active-row token on identical TP4 vocab-sharded logits; timing rejected as inequivalent"
                 if not semantically_equivalent
-                else "slower semantically equivalent path"
+                else (
+                    "single-chip latency difference is below the 3% selection threshold; preserve the unified "
+                    "split top-k/top-p-capable sampling contract"
+                    if argmax_s < topk_s and (topk_s - argmax_s) / topk_s < 0.03
+                    else "slower semantically equivalent path"
+                )
             ),
             "selected_token": topk_token,
             "rejected_token": argmax_token,
@@ -626,9 +648,12 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
         return
 
     if os.environ.get("GEMMA4_MODEL_TRACE_ONLY") == "1":
+        trace_initial_position = int(os.environ.get("GEMMA4_TRACE_INITIAL_POSITION", "32"))
         decode_token = generator._host_tokens_to_device(torch.ones((1, 1), dtype=torch.long), rank4=True)
-        current_pos = generator._positions_to_device(torch.tensor([32], dtype=torch.int32))
-        position_ids = generator._positions_to_device(torch.tensor([32], dtype=torch.int32), dtype=ttnn.uint32)
+        current_pos = generator._positions_to_device(torch.tensor([trace_initial_position], dtype=torch.int32))
+        position_ids = generator._positions_to_device(
+            torch.tensor([trace_initial_position], dtype=torch.int32), dtype=ttnn.uint32
+        )
         model.decode_forward(
             decode_token, state=model.state, current_pos=current_pos, position_ids=position_ids, batch_size=1
         )
@@ -665,7 +690,10 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
                 "profile": {1: "P150", 2: "P150x2", 4: "P150x4"}[tp_size],
                 "boundary": "model decode through sampler-ready logits; sampling excluded",
                 "full_stack": full_stack,
-                "configured_initial_position": 32,
+                "configured_initial_position": trace_initial_position,
+                "measurement_start_position": trace_initial_position + 1 + warmups,
+                "measurement_end_position_exclusive": trace_initial_position + 1 + warmups + iterations,
+                "device_side_position_advance": os.environ.get("GEMMA4_TRACE_PLUS_ONE") == "1",
                 "warmups": warmups,
                 "iterations": iterations,
                 "elapsed_s": elapsed_s,
@@ -792,13 +820,22 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
                 kv_cache=model.state,
                 enable_trace=True,
             )
-        expected_final_position = PROFILE_CONTEXT_LIMITS[tp_size]
+        expected_final_position = model.max_seq_len
     else:
         # A steady-state replay consumes device token feedback and ignores the
         # deliberately stale host token/position without another refresh.
         if os.environ.get("GEMMA4_FULL_MODEL_DEVICE_PROFILE") == "1":
             from tracy import signpost
 
+            # A reduced full-model replay exceeds one core's accumulated
+            # profiler buffer after trace capture and its first execution.
+            # Flush that setup data so the signposted steady replay retains
+            # every model, sampler, feedback, and position-update operation.
+            if (
+                os.environ.get("TT_METAL_DEVICE_PROFILER") == "1"
+                and os.environ.get("TT_METAL_PROFILER_MID_RUN_DUMP") == "1"
+            ):
+                ttnn.ReadDeviceProfiler(target_mesh)
             signpost("FULL_MODEL_REDUCED_DECODE")
         generator.decode_forward(
             torch.zeros((probe_batch, 1), dtype=torch.long),
@@ -839,6 +876,15 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
             "trace_counters": vars(generator.trace_counters),
             "final_position": int(ttnn.to_torch(ttnn.get_device_tensors(trace.current_pos)[0]).reshape(-1)[0]),
         }
+        if long_context:
+            dram = ttnn.get_memory_view(target_mesh, ttnn.BufferType.DRAM)
+            report["dram_after_boundary"] = {
+                "num_banks": dram.num_banks,
+                "total_bytes": dram.total_bytes_per_bank * dram.num_banks,
+                "allocated_bytes": dram.total_bytes_allocated_per_bank * dram.num_banks,
+                "free_bytes": dram.total_bytes_free_per_bank * dram.num_banks,
+                "largest_contiguous_free_bytes_per_bank": dram.largest_contiguous_bytes_free_per_bank,
+            }
         if batch32:
             report["batch_correctness"] = {
                 "prompt_group_by_row": batch32_prompt_groups.tolist(),

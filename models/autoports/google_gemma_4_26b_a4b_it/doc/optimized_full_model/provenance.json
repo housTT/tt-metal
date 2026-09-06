@@ -1,0 +1,69 @@
+{
+  "model": "google/gemma-4-26B-A4B-it",
+  "checkpoint_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+  "stage_start_git_sha": "6740ab49d22",
+  "hardware": {
+    "board": "four-chip Blackhole P300C QB2",
+    "profiles": {
+      "P150": "1x1",
+      "P150x2": "1x2 submesh of 2x2 FABRIC_2D parent",
+      "P150x4": "1x4 FABRIC_1D_RING"
+    },
+    "firmware_bundle": "19.13.1",
+    "kmd": "2.8.0"
+  },
+  "source_sha256": {
+    "tt/model.py": "ffe1815c68bd79249a0f98ae260583d44fa7a14d555202db531625d986b0d40d",
+    "tests/test_full_model_contract.py": "3785bbe10738e9323506851f673984b2cdf51aa19cb7b7dd5799e609494652b2",
+    "tt/generator.py": "1a455b060403a353e285614b59818b3d86eea8d1e832fb7460245ec0e5fd8791",
+    "tt/multichip_decoder.py": "3f7f9d8f3d17b464730985dd017816d7c0563ea5f47637797e70f35d247382da",
+    "tt/optimized_decoder.py": "f6a095438c10306640eefbfd6c5de9b2de9d08ccc59f400dd52044229201ce2b",
+    "tt/precision_policy.py": "87f6bd1b1e0ec4a4ac23359a53dbae4aa8c1355a96e31a804eb8a05a02e27882",
+    "models/common/modules/sampling/sampling_1d.py": "451cb3381fb81a7564b43c5a7bf3fbe1b31299404d7e0a473047cf60b53c3c57",
+    "all_gather/multicast_common.hpp": "c3e41e9d927627cd739e5546b7bd42010955d5aec20c89474697391b6f4b9783",
+    "all_gather/unicast_common.hpp": "59953f62de8f19a24f431ce0f757d9f4e4cb9bf8477022d41256a978bf53942b"
+  },
+  "evidence_sha256": {
+    "AIME24_reference": "a7cad8aabafa0bff94a8b38f430d3468de9ca1d292b56cc15a7f4f19b844b5f8",
+    "raw_profiler_csv_xz": "6a0c420653dbeb6567f3cfc5d70bfbdf87ad593ec0a8bbb6b24444ef962b1fe3",
+    "final_profiles_junit": "05c9fcdc2d97dce42ad4b25ec46086662a04a7f63b51b41133418c54d73d49d2",
+    "full_stack_watcher_junit": "6b2395b070909988e6175e6de2fe6f7c30a0fccd635795a34671f409668c5f2f",
+    "optimized_multichip_decoder_perf_summary": "fe9464b5e7a483e103f455ef10343aa185b4f5579f8439bf1b951249b9b77b9a",
+    "matched_logits_junit": "0009a19236763b32193dbd5657db80c48164f2c25c0c01572dd161e61b893d54",
+    "P150_full_stack_context_junit": "ed8448530a2693536fd94eb9b40e1fde4871a452038a4d244d7a0138a42fd285",
+    "P150_full_stack_context_json": "3bd1f428eb6e12f2c2eb6dcb87727380d615bde6dc4cc29dcc28371cdecc1a67",
+    "host_unit_junit": "85003ec96e4d038582819b4c532e7a748e04e1d59a08b0268b8e8dc63011f329",
+    "shared_qualitative_metadata": "4662797cd34ab9cd23856309c2f74b70ea81ee1b4edaa8c008b61b69668bd02b"
+  },
+  "measurement_policy": {
+    "fallback": "TTNN throw_exception_on_fallback=true",
+    "performance": "watcher and allocation tracking disabled; one serialized hardware process",
+    "watcher": "separate watcher-only run; idle Ethernet checks disabled for this fabric binary",
+    "profiler": "separate Tracy run; no watcher; mid-run profiler dump and 20000-program support count retain complete repeated model and sampler traces",
+    "decode": "five warmups plus 128 nonblocking split-trace replays, one terminal synchronize",
+    "prefill_to_logits": "second full prompt-128 prefill through sampler-ready logits",
+    "public_generator_ttft": "first token from public generate(); controlled BFP8-tile versus BF16-row-major embedding storage",
+    "profiler_tool": "python_env/bin/tt-perf-report 1.2.9"
+  },
+  "primary_artifacts": {
+    "baseline": "baseline/{p150,p150x2,p150x4}",
+    "final_performance": "final/profiles_refresh",
+    "accuracy": "final/accuracy",
+    "public_generator": "final/public_generator",
+    "public_generator_bfp8_control": "final/public_generator_bfp8_control",
+    "capacity": "final/capacity plus final full-stack boundary",
+    "P150_full_stack_context": "final/full_stack_context_tp1/lifetime_fix_50624",
+    "nonaligned": "final/nonaligned",
+    "batch32": "final/batch32",
+    "sampler": "final/sampler",
+    "matched_logits_only": "final/logits_only_matched",
+    "profiler": "final/profiler_final",
+    "watcher": "final/watcher/full_stack_fixed",
+    "qualitative": "final/qualitative/{aime24_autoregressive,shared_readiness_suite}"
+  },
+  "build": {
+    "command": ".github/scripts/copilot-build.sh",
+    "result": "unverified: wrapper exited immediately because this user cannot access the Docker daemon socket; docker info reports permission denied for /var/run/docker.sock",
+    "device_jit": "affected all-gather kernels rebuilt and passed watcher-enabled TP2/TP4 and complete all-profile model gates"
+  }
+}

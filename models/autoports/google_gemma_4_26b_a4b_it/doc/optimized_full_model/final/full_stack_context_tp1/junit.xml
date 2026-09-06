@@ -1,0 +1,308 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="62.934" timestamp="2026-09-06T09:47:47.762145+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_full_model_contract" name="test_reduced_real_weight_full_model_probe[blackhole-p150]" time="58.254"><properties><property name="start_timestamp" value="2026-09-06T09:47:48" /><property name="end_timestamp" value="2026-09-06T09:48:50" /></properties><failure message="RuntimeError: TT_FATAL @ /home/hous/dev/tt-metal/tt_metal/impl/allocator/bank_manager.cpp:462: false&#10;info:&#10;Out of Memory: Not enough space to allocate 829423616 B DRAM buffer across 8 banks, where each bank needs to store 103677952 B, but bank size is 4263952768 B (allocated: 4122768064 B, free: 141184704 B, largest free block: 92444160 B)&#10;backtrace:&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x6c66f1) [0x74c4e00c66f1]&#10; --- tt::tt_metal::BankManager::allocate_buffer(unsigned long, unsigned long, bool, tt::tt_metal::CoreRangeSet const&amp;, std::optional&lt;unsigned int&gt;, ttsl::StrongType&lt;unsigned int, tt::tt_metal::AllocatorIDTag&gt;, std::vector&lt;std::pair&lt;unsigned long, unsigned long&gt;, std::allocator&lt;std::pair&lt;unsigned long, unsigned long&gt; &gt; &gt; const&amp;)&#10; --- tt::tt_metal::AllocatorImpl::allocate_buffer(tt::tt_metal::Buffer*)&#10; --- tt::tt_metal::Buffer::allocate_impl()&#10; --- tt::tt_metal::Buffer::create(tt::tt_metal::IDevice*, unsigned long, unsigned long, tt::tt_metal::BufferType, tt::tt_metal::BufferShardingArgs const&amp;, std::optional&lt;bool&gt;, std::optional&lt;ttsl::StrongType&lt;unsigned char, tt::tt_metal::SubDeviceIdTag&gt; &gt;)&#10; --- tt::tt_metal::distributed::MeshBuffer::create(std::variant&lt;tt::tt_metal::distributed::ReplicatedBufferConfig, tt::tt_metal::distributed::ShardedBufferConfig&gt; const&amp;, tt::tt_metal::distributed::DeviceLocalBufferConfig const&amp;, tt::tt_metal::distributed::MeshDevice*, std::optional&lt;unsigned long&gt;)&#10; --- tt::tt_metal::tensor_impl::allocate_device_buffer(tt::tt_metal::distributed::MeshDevice*, tt::tt_metal::TensorSpec const&amp;)&#10; --- tt::tt_metal::allocate_mesh_tensor_on_device_with_topology(tt::tt_metal::distributed::MeshDevice&amp;, tt::tt_metal::TensorSpec, tt::tt_metal::TensorTopology)&#10; --- ttnn::create_device_tensor(tt::tt_metal::TensorSpec const&amp;, tt::tt_metal::distributed::MeshDevice*, std::optional&lt;tt::tt_metal::TensorTopology&gt;)&#10; --- ttnn::prim::ConcatDeviceOperation::create_output_tensors(ttnn::prim::ConcatParams const&amp;, ttnn::prim::ConcatInputs const&amp;)&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim21ConcatDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x2bb) [0x74c4e19f3bfb]&#10; --- ttnn::prim::concat(std::vector&lt;ttnn::Tensor, std::allocator&lt;ttnn::Tensor&gt; &gt; const&amp;, long, unsigned int, tt::tt_metal::MemoryConfig const&amp;, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)&#10; --- ttnn::operations::data_movement::concat_impl(std::vector&lt;ttnn::Tensor, std::allocator&lt;ttnn::Tensor&gt; &gt; const&amp;, long, unsigned int, tt::tt_metal::MemoryConfig const&amp;, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x9f017b) [0x74c4e19f017b]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x9f38b0) [0x74c4e19f38b0]&#10; --- ttnn::concat(std::vector&lt;ttnn::Tensor, std::allocator&lt;ttnn::Tensor&gt; &gt; const&amp;, int, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, std::optional&lt;ttnn::Tensor&gt; const&amp;, unsigned int, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x588dce) [0x74c4e3f88dce]&#10; --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x74c4e4067a44]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18122ac]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xcb8e) [0x182090e]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18122ac]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xcb8e) [0x182090e]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xde) [0x18b1d32]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18b1891]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1a2e751]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x106) [0x19a8c06]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x4a) [0x19a898a]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x19a8910]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x19a881d]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ad6823]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x19846df]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x19844ec]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x74c52ac2a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x74c52ac2a28b]&#10; --- /home/hous/dev/tt-metal/python_env/bin/python3(_start+0x29) [0x19a66a9]">mesh_device = MeshDevice(1x1 grid, 1 devices), profile_tp_size = 1
+expect_error = &lt;function expect_error.&lt;locals&gt;.expect_error_ at 0x74c48a840900&gt;
+
+    @pytest.mark.parametrize(
+        "mesh_device,device_params,profile_tp_size",
+        [
+            ((1, 1), {"trace_region_size": 67_108_864}, 1),
+            ((2, 2), {"fabric_config": ttnn.FabricConfig.FABRIC_2D, "trace_region_size": 67_108_864}, 2),
+            # B32 decode records a 125.3 MiB full-stack model trace.  Reserve
+            # 128 MiB so the same profile covers both the B1 latency target and
+            # the fixed-slot B32 capability gate.
+            ((1, 4), {"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING, "trace_region_size": 134_217_728}, 4),
+        ],
+        ids=["p150", "p150x2", "p150x4"],
+        indirect=["mesh_device", "device_params"],
+    )
+    def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expect_error):
+        if os.environ.get("GEMMA4_FULL_MODEL_PROBE") != "1":
+            pytest.skip("set GEMMA4_FULL_MODEL_PROBE=1 for the serialized full-model hardware probe")
+        full_stack = os.environ.get("GEMMA4_FULL_STACK_PROBE") == "1"
+        batch32 = os.environ.get("GEMMA4_BATCH32_PROBE") == "1"
+        long_context = os.environ.get("GEMMA4_LONG_CONTEXT_PROBE") == "1"
+        capacity_only = os.environ.get("GEMMA4_CAPACITY_ONLY") == "1"
+        state = _load_probe_state(full_stack=full_stack)
+        tp_size = profile_tp_size
+        target_mesh = (
+            mesh_device
+            if mesh_device.get_num_devices() == tp_size
+            else mesh_device.create_submesh(ttnn.MeshShape((1, tp_size)), offset=ttnn.MeshCoordinate(0, 0))
+        )
+        prompt_len = (
+            PROFILE_CONTEXT_LIMITS[tp_size] - 1 if long_context else int(os.environ.get("GEMMA4_PROBE_PROMPT_LEN", "32"))
+        )
+        model = Gemma4FullModel(
+            mesh_device=target_mesh,
+            hf_config=_config(),
+            state_dict=state,
+            max_seq_len=(
+                PROFILE_CONTEXT_LIMITS[tp_size]
+                if (long_context or capacity_only)
+                else (
+                    2_048
+                    if batch32
+                    else (
+                        512
+                        if os.environ.get("GEMMA4_NO_HOST_TOKEN_OUT_BENCH") == "1"
+                        or os.environ.get("GEMMA4_PREFILL_BENCH") == "1"
+                        or os.environ.get("GEMMA4_GENERATE_BENCH") == "1"
+                        else 128
+                    )
+                )
+            ),
+            max_batch_size=32 if batch32 else 1,
+            layer_indices=None if full_stack else [0, 5],
+            tensor_cache_path=("/tmp/gemma4_full_model_cache" if full_stack else "/tmp/gemma4_full_model_probe_cache"),
+            embedding_storage=os.environ.get("GEMMA4_EMBEDDING_STORAGE", "profile"),
+        )
+        if os.environ.get("GEMMA4_PRINT_PRECISION_SUMMARY") == "1":
+            print("PRECISION_SUMMARY=" + json.dumps(model.precision_summary(), sort_keys=True))
+        probe_batch = 32 if batch32 else 1
+        # Prefill is intentionally scheduled one slot at a time; the public
+        # generator owns mixed-prompt iteration.  Decode then exercises all 32
+        # fixed slots together against the same fully allocated state.
+        tokens = ttnn.from_torch(
+            torch.ones((1, prompt_len), dtype=torch.int32),
+            dtype=ttnn.uint32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            device=target_mesh,
+            mesh_mapper=ttnn.ReplicateTensorToMesh(target_mesh),
+        )
+        positions = ttnn.from_torch(
+            torch.arange(prompt_len, dtype=torch.int32).reshape(1, prompt_len),
+            dtype=ttnn.uint32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            device=target_mesh,
+            mesh_mapper=ttnn.ReplicateTensorToMesh(target_mesh),
+        )
+        if os.environ.get("GEMMA4_EMBED_TRACE_ONLY") == "1":
+            decode_token = ttnn.from_torch(
+                torch.ones((1, 1), dtype=torch.int32),
+                dtype=ttnn.uint32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+                device=target_mesh,
+                mesh_mapper=ttnn.ReplicateTensorToMesh(target_mesh),
+            )
+            model.embed_tokens(decode_token)
+            ttnn.synchronize_device(target_mesh)
+            trace_id = ttnn.begin_trace_capture(target_mesh, cq_id=0)
+            model.embed_tokens(decode_token)
+            ttnn.end_trace_capture(target_mesh, trace_id, cq_id=0)
+            ttnn.release_trace(target_mesh, trace_id)
+            return
+        generator = Gemma4Generator(model, tokenizer=None, sampling_mode="device")
+        original_page_tables = None
+        replacement_page_tables = None
+        second_replacement_page_tables = None
+        if os.environ.get("GEMMA4_SAMPLED_TRACE_PROBE") == "1":
+            # Allocate identity-distinct but value-identical tables before traces
+            # pin allocator addresses. The sampled probe later uses them to prove
+            # identity-only page-table adoption preserves token and RNG feedback.
+            original_page_tables = list(model.state.page_tables)
+            host_page_tables = [
+                ttnn.to_torch(ttnn.get_device_tensors(table)[0]).to(torch.int32) for table in model.state.page_tables
+            ]
+            replacement_page_tables = [generator._positions_to_device(table) for table in host_page_tables]
+            second_replacement_page_tables = [generator._positions_to_device(table) for table in host_page_tables]
+        batch32_oracle_tokens = None
+        batch32_oracle_logits = None
+        batch32_decode_logits = None
+        batch32_prompt_groups = None
+        if capacity_only:
+            assert full_stack, "capacity evidence must construct the complete 30-layer stack"
+            assert model.max_seq_len == PROFILE_CONTEXT_LIMITS[tp_size]
+            assert len(model.layers) == len(model.cache_specs) == 30
+            if tp_size &gt; 1:
+                resources = model.layers[0].persistent_all_reduce_resources
+                assert resources is not None
+                assert all(layer.persistent_all_reduce_resources is resources for layer in model.layers)
+                assert len(resources["buffers"]) == len(resources["semaphores"]) == 3
+            full_specs = [spec for spec in model.cache_specs if spec.layer_type == "full_attention"]
+            sliding_specs = [spec for spec in model.cache_specs if spec.layer_type == "sliding_attention"]
+            assert len(full_specs) == 5 and len(sliding_specs) == 25
+            assert all(spec.capacity_tokens_per_slot == PROFILE_CONTEXT_LIMITS[tp_size] for spec in full_specs)
+            assert all(spec.capacity_tokens_per_slot == 1_024 for spec in sliding_specs)
+            ttnn.synchronize_device(target_mesh)
+            dram = ttnn.get_memory_view(target_mesh, ttnn.BufferType.DRAM)
+            output_dir = Path(os.environ.get("GEMMA4_FULL_MODEL_PROBE_OUTPUT_DIR", "/tmp/gemma4_full_model_evidence"))
+            output_dir.mkdir(parents=True, exist_ok=True)
+            report = {
+                "verdict": "pass",
+                "profile": {1: "P150", 2: "P150x2", 4: "P150x4"}[tp_size],
+                "tp_size": tp_size,
+                "mesh_shape": list(target_mesh.shape),
+                "checkpoint_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+                "real_weights": True,
+                "num_layers": len(model.layers),
+                "max_seq_len": model.max_seq_len,
+                "max_batch_size": model.max_batch_size,
+                "kv_cache_dtype": str(model.kv_cache_dtype),
+                "terminal_weight_dtype": str(model.terminal_weight_dtype),
+                "embedding_storage": model.embedding_storage,
+                "embedding_weight_dtype": str(model.embedding_weight_dtype),
+                "local_full_kv_heads": full_specs[0].local_kv_heads,
+                "local_sliding_kv_heads": sliding_specs[0].local_kv_heads,
+                "full_cache_shape": list(model.state.kv_cache[5][0].shape),
+                "sliding_cache_shape": list(model.state.kv_cache[0][0].shape),
+                "page_table_shapes": sorted({tuple(table.shape) for table in model.state.page_tables}),
+                "persistent_all_reduce_buffers": (
+                    0 if tp_size == 1 else len(model.layers[0].persistent_all_reduce_resources["buffers"])
+                ),
+                "sampler_buffers_preloaded": generator.sampler._device_buffers_loaded,
+                "dram": {
+                    "num_banks": dram.num_banks,
+                    "total_bytes": dram.total_bytes_per_bank * dram.num_banks,
+                    "allocated_bytes": dram.total_bytes_allocated_per_bank * dram.num_banks,
+                    "free_bytes": dram.total_bytes_free_per_bank * dram.num_banks,
+                    "largest_contiguous_free_bytes_per_bank": dram.largest_contiguous_bytes_free_per_bank,
+                },
+            }
+            (output_dir / f"capacity_tp{tp_size}.json").write_text(json.dumps(report, indent=2, default=list) + "\n")
+            print("GEMMA4_CAPACITY_RESULT=" + json.dumps(report, sort_keys=True, default=list))
+            return
+        if os.environ.get("GEMMA4_GENERATE_BENCH") == "1":
+            assert full_stack
+            prompt = [1 + (index % 255) for index in range(128)]
+            generator.generate(prompt, 8, enable_trace=True, stop_on_eos=False)
+            generator.reset()
+            output = generator.generate(prompt, 128, enable_trace=True, stop_on_eos=False)
+            assert len(output) == 128
+            report = {
+                "verdict": "pass",
+                "profile": {1: "P150", 2: "P150x2", 4: "P150x4"}[tp_size],
+                "boundary": "public Gemma4Generator.generate with host-visible token list",
+                "full_stack": True,
+                "prompt_len": 128,
+                "generated_tokens": len(output),
+                "stop_on_eos": False,
+                **generator.last_perf,
+            }
+            output_dir = Path(os.environ.get("GEMMA4_FULL_MODEL_PROBE_OUTPUT_DIR", "/tmp/gemma4_full_model_evidence"))
+            output_dir.mkdir(parents=True, exist_ok=True)
+            (output_dir / f"generator_generate_tp{tp_size}.json").write_text(json.dumps(report, indent=2) + "\n")
+            print("GEMMA4_GENERATE_RESULT=" + json.dumps(report, sort_keys=True))
+            return
+        if long_context:
+&gt;           logits = generator.prefill_forward(
+                torch.ones((1, prompt_len), dtype=torch.long),
+                page_table=model.state.page_tables,
+                kv_cache=model.state,
+                prompt_lens=[prompt_len],
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_full_model_contract.py:441:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+models/autoports/google_gemma_4_26b_a4b_it/tt/generator.py:555: in prefill_forward
+    logits = run_model_prefill(
+models/autoports/google_gemma_4_26b_a4b_it/tt/generator.py:506: in run_model_prefill
+    return self.model.prefill_forward(*args, **model_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/model.py:594: in prefill_forward
+    hidden = layer.prefill_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:1234: in prefill_forward
+    return super().prefill_forward(hidden_states, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2135: in prefill_forward
+    return super().prefill_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tt/functional_decoder.py:363: in prefill_forward
+    return self._prefill_forward_single_user(
+models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py:2172: in _prefill_forward_single_user
+    attn_out = self._attention_prefill(
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:1403: in _attention_prefill
+    attn_out = self._full_chunked_prefill_attention(
+models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py:1461: in _full_chunked_prefill_attention
+    result = ttnn.concat(outputs, dim=2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ttnn/ttnn/decorators.py:794: in _tracked_fast_operation_call
+    return _untracked_fast_operation_call(self, *function_args, **function_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = FastOperation(python_fully_qualified_name='ttnn.concat', function=&lt;ttnn._ttnn.operations.data_movement.concat_t object...&lt;function default_postprocess_golden_function_outputs at 0x74c491687d80&gt;, is_cpp_operation=True, is_experimental=False)
+function_args = ([ttnn.Tensor([[[[ 1.6211e-01,  1.2891e-01,  ...,  5.6250e-01,  3.1250e-01],
+               [ 1.6504e-01,  1.2158e-01,...,  6.8750e-01, -7.8516e-01]]]], shape=Shape([1, 16, 8192, 512]), dtype=DataType::BFLOAT16, layout=Layout::TILE), ...],)
+function_kwargs = {'dim': 2, 'memory_config': MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)}
+cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+
+        try:
+            if cq_id is None:
+&gt;               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_FATAL @ /home/hous/dev/tt-metal/tt_metal/impl/allocator/bank_manager.cpp:462: false
+E               info:
+E               Out of Memory: Not enough space to allocate 829423616 B DRAM buffer across 8 banks, where each bank needs to store 103677952 B, but bank size is 4263952768 B (allocated: 4122768064 B, free: 141184704 B, largest free block: 92444160 B)
+E               backtrace:
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x6c66f1) [0x74c4e00c66f1]
+E                --- tt::tt_metal::BankManager::allocate_buffer(unsigned long, unsigned long, bool, tt::tt_metal::CoreRangeSet const&amp;, std::optional&lt;unsigned int&gt;, ttsl::StrongType&lt;unsigned int, tt::tt_metal::AllocatorIDTag&gt;, std::vector&lt;std::pair&lt;unsigned long, unsigned long&gt;, std::allocator&lt;std::pair&lt;unsigned long, unsigned long&gt; &gt; &gt; const&amp;)
+E                --- tt::tt_metal::AllocatorImpl::allocate_buffer(tt::tt_metal::Buffer*)
+E                --- tt::tt_metal::Buffer::allocate_impl()
+E                --- tt::tt_metal::Buffer::create(tt::tt_metal::IDevice*, unsigned long, unsigned long, tt::tt_metal::BufferType, tt::tt_metal::BufferShardingArgs const&amp;, std::optional&lt;bool&gt;, std::optional&lt;ttsl::StrongType&lt;unsigned char, tt::tt_metal::SubDeviceIdTag&gt; &gt;)
+E                --- tt::tt_metal::distributed::MeshBuffer::create(std::variant&lt;tt::tt_metal::distributed::ReplicatedBufferConfig, tt::tt_metal::distributed::ShardedBufferConfig&gt; const&amp;, tt::tt_metal::distributed::DeviceLocalBufferConfig const&amp;, tt::tt_metal::distributed::MeshDevice*, std::optional&lt;unsigned long&gt;)
+E                --- tt::tt_metal::tensor_impl::allocate_device_buffer(tt::tt_metal::distributed::MeshDevice*, tt::tt_metal::TensorSpec const&amp;)
+E                --- tt::tt_metal::allocate_mesh_tensor_on_device_with_topology(tt::tt_metal::distributed::MeshDevice&amp;, tt::tt_metal::TensorSpec, tt::tt_metal::TensorTopology)
+E                --- ttnn::create_device_tensor(tt::tt_metal::TensorSpec const&amp;, tt::tt_metal::distributed::MeshDevice*, std::optional&lt;tt::tt_metal::TensorTopology&gt;)
+E                --- ttnn::prim::ConcatDeviceOperation::create_output_tensors(ttnn::prim::ConcatParams const&amp;, ttnn::prim::ConcatInputs const&amp;)
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim21ConcatDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x2bb) [0x74c4e19f3bfb]
+E                --- ttnn::prim::concat(std::vector&lt;ttnn::Tensor, std::allocator&lt;ttnn::Tensor&gt; &gt; const&amp;, long, unsigned int, tt::tt_metal::MemoryConfig const&amp;, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)
+E                --- ttnn::operations::data_movement::concat_impl(std::vector&lt;ttnn::Tensor, std::allocator&lt;ttnn::Tensor&gt; &gt; const&amp;, long, unsigned int, tt::tt_metal::MemoryConfig const&amp;, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x9f017b) [0x74c4e19f017b]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(+0x9f38b0) [0x74c4e19f38b0]
+E                --- ttnn::concat(std::vector&lt;ttnn::Tensor, std::allocator&lt;ttnn::Tensor&gt; &gt; const&amp;, int, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, std::optional&lt;ttnn::Tensor&gt; const&amp;, unsigned int, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x588dce) [0x74c4e3f88dce]
+E                --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x74c4e4067a44]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18122ac]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xcb8e) [0x182090e]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18122ac]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xcb8e) [0x182090e]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xde) [0x18b1d32]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18b1891]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1a2e751]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x106) [0x19a8c06]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x4a) [0x19a898a]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x19a8910]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x19a881d]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ad6823]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x19846df]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x19844ec]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x74c52ac2a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x74c52ac2a28b]
+E                --- /home/hous/dev/tt-metal/python_env/bin/python3(_start+0x29) [0x19a66a9]
+
+ttnn/ttnn/decorators.py:728: RuntimeError</failure></testcase></testsuite></testsuites>

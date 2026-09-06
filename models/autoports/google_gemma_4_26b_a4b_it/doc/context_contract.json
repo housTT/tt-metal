@@ -200,7 +200,7 @@
       "At 262144 tokens the conservative TP1 full-stack projection is 56398546944 bytes, so the shared 32 GiB device cannot honor the advertised prefill context with the correctness-proven precision policy. The per-profile hard limit is 50624; 50623 is the tighter nonaligned boundary and 50625 is rejected before device allocation.",
       "TP2 and TP4 preserve the advertised 262144-token contract with conservative headroom of 788749312 and 939828224 bytes per device.",
       "P150 real-weight representative-layer probes pass at both the 50623-token nonaligned boundary and aligned 50624-token limit; 50625 is rejected safely before device allocation.",
-      "The earlier P150 53343/53344 real-weight probes also passed but are superseded/non-boundary evidence after correcting MoE concat lifetime to include both accumulated chunks and the newly allocated concat output."
+      "The earlier P150 53343/53344 real-weight probes also passed but are superseded/non-boundary evidence after conservatively accounting for both accumulated chunks and a newly allocated concat output."
     ]
   },
   "optimized_multichip_decoder": {
@@ -348,6 +348,78 @@
       "The P150 limit remains 50624 because the conservative full-stack construction/prefill projection leaves only 268670464 bytes; P150x2 and P150x4 preserve the full advertised 262144-token context.",
       "Long nonaligned public-generator prefill at one token below each profile limit is followed by the one remaining legal traced cache-consuming decode replay; the subsequent position is rejected by the host capacity guard.",
       "The TP4 batch-32 gate uses the same full 30-layer model, explicit fixed slots, BF16 paged caches, device token feedback, and a 128 MiB trace region; every sampled row is checked against its global-max logit and B1/B32 logits have minimum cosine 0.9929."
+    ]
+  },
+  "optimized_full_model": {
+    "hardware": "one four-chip Blackhole P300C QB2: distinct 1x1, 1x2, and 1x4 meshes as P150/P150x2/P150x4 proxies",
+    "checkpoint_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+    "profile_dependent_context": true,
+    "capability_reduction_from_full_model": null,
+    "decoder_policy_changed": false,
+    "inter_layer_residual_contract": "replicated BF16 TILE DRAM [1,1,logical_M,2816], unchanged from optimized_multichip_decoder and full_model",
+    "paged_cache_contract": "unchanged caller-owned BF16 cache, page geometry, stable page tables, changed-only refresh, fixed slots, and device-side position/RoPE advance",
+    "terminal_policy": {
+      "embedding": "hidden-dimension-sharded BF16 ROW_MAJOR; selected to remove decode-time full-table untilize",
+      "lm_head": "unchanged vocabulary-sharded BFP8_B TILE; logits remain sharded for split sampling",
+      "sampling": "split traced local top-32 plus semantic k=1 greedy by default, retaining top-k/top-p support and tt_out_tok feedback"
+    },
+    "profiles": {
+      "P150": {
+        "tp_size": 1,
+        "supported_context_tokens": 50624,
+        "advertised_context_supported": false,
+        "maximum_context_construction": "pass; complete 30-layer public prefill and traced boundary decode also pass",
+        "largest_tested_nonaligned_public_prefill": 50623,
+        "observed_total_allocated_bytes_per_device": 29391144448,
+        "observed_free_bytes_per_device": 4720477696,
+        "largest_contiguous_free_bytes_per_bank": 589914368,
+        "post_boundary_allocated_bytes_per_device": 29437724160,
+        "post_boundary_free_bytes_per_device": 4673897984,
+        "post_boundary_largest_contiguous_free_bytes_per_bank": 579556608,
+        "embedding_increment_over_full_model_bytes_per_device": 692060160,
+        "artifacts": [
+          "optimized_full_model/final/full_stack_context_tp1/lifetime_fix_50624/long_context_probe_tp1.json",
+          "optimized_full_model/final/full_stack_context_tp1/lifetime_fix_50624/junit.xml",
+          "optimized_full_model/final/capacity/capacity_tp1.json"
+        ]
+      },
+      "P150x2": {
+        "tp_size": 2,
+        "supported_context_tokens": 262144,
+        "advertised_context_supported": true,
+        "maximum_context_construction": "pass",
+        "largest_tested_nonaligned_public_prefill": 262143,
+        "observed_total_allocated_bytes_per_device": 18321312768,
+        "observed_free_bytes_per_device": 15790309376,
+        "largest_contiguous_free_bytes_per_bank": 1970199360,
+        "embedding_increment_over_full_model_bytes_per_device": 346030080,
+        "artifacts": [
+          "optimized_full_model/final/capacity/capacity_tp2.json",
+          "optimized_full_model/final/nonaligned/long_context_probe_tp2.json"
+        ]
+      },
+      "P150x4": {
+        "tp_size": 4,
+        "supported_context_tokens": 262144,
+        "advertised_context_supported": true,
+        "maximum_context_construction": "pass",
+        "largest_tested_nonaligned_public_prefill": 262143,
+        "largest_tested_batch": 32,
+        "observed_total_allocated_bytes_per_device": 12225484288,
+        "observed_free_bytes_per_device": 21819028992,
+        "largest_contiguous_free_bytes_per_bank": 2717107136,
+        "embedding_increment_over_full_model_bytes_per_device": 173015040,
+        "artifacts": [
+          "optimized_full_model/final/capacity/capacity_tp4.json",
+          "optimized_full_model/final/nonaligned/long_context_probe_tp4.json",
+          "optimized_full_model/final/batch32/batch32_probe_tp4.json"
+        ]
+      }
+    },
+    "notes": [
+      "No profile uses a replicated-stream, host-compute, lower-precision-cache, or rejected decoder fallback.",
+      "Complete 30-layer P150 prefill initially exposed avoidable DRAM fragmentation at 50623 tokens: the full-attention chunk path retained q_heads while allocating an identically shaped concat result. Releasing q_heads after all chunks dispatch and before concat preserves the 50624-token limit; final-source nonaligned prefill 50623, traced position 50624, and safe following-position rejection pass across all 30 layers.",
+      "P150x2 and P150x4 preserve their 262144-token limits. Every selected profile passed a one-token-below-limit nonaligned public prefill, its final legal traced decode, and safe rejection of the next position. No sequence alignment restriction was introduced."
     ]
   }
 }

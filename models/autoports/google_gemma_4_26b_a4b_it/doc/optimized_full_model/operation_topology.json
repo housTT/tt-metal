@@ -1,0 +1,31 @@
+{
+  "stage": "optimized-full-model",
+  "model": "google/gemma-4-26B-A4B-it",
+  "profiles": {
+    "P150": "1x1 identity reduction",
+    "P150x2": "1x2 tensor parallel, persistent one-link Linear BF16 all-reduce",
+    "P150x4": "1x4 tensor parallel, persistent two-link Ring BF16 all-reduce"
+  },
+  "full_path": [
+    "hidden-sharded BF16 row-major embedding",
+    "30 optimized multichip decoder layers",
+    "replicated BF16 TILE DRAM inter-layer residual",
+    "BF16 final norm",
+    "vocabulary-sharded BFP8_B LM head",
+    "sampler-ready sharded logits",
+    "split traced local-top32 Sampling1D",
+    "tt_out_tok alias feedback plus device position/RoPE advance",
+    "caller-owned BF16 paged KV cache and changed-only page tables"
+  ],
+  "steady_state_host_boundaries": [],
+  "request_boundaries": [
+    "initial tokens, positions, RoPE state, active mask, and page-table adoption",
+    "public generate token readback only when a host-visible token list is requested"
+  ],
+  "sharding": {
+    "embedding": "hidden dimension",
+    "decoder": "preserved selected tensor-parallel policy",
+    "lm_head_logits": "vocabulary dimension",
+    "sampling": "local candidates followed by small candidate collective; no full-vocabulary gather"
+  }
+}

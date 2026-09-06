@@ -48,6 +48,7 @@ DEFAULT_MAX_CONTEXT = 262_144
 SLIDING_CACHE_TOKENS = 1_024
 DECODE_SLOT_COUNT = 32
 PROFILE_CONTEXT_LIMITS = {1: 50_624, 2: DEFAULT_MAX_CONTEXT, 4: DEFAULT_MAX_CONTEXT}
+PROFILE_EMBEDDING_STORAGE = {tp_size: "bf16_row_major" for tp_size in SUPPORTED_TP_SIZES}
 
 
 def _require_supported_mesh(mesh_device: Any) -> int:
@@ -120,6 +121,7 @@ class Gemma4FullModel:
         tensor_cache_path: str | Path | None = None,
         create_kv_cache: bool = True,
         precision_config_path: str | Path | None = None,
+        embedding_storage: str = "profile",
     ) -> None:
         tp_size = _require_supported_mesh(mesh_device)
         generation_eos = getattr(hf_config, "eos_token_id", None)
@@ -168,11 +170,26 @@ class Gemma4FullModel:
         )
         self.kv_cache_dtype = dtype_from_policy(self.precision_policy, "kv_cache", "dtype", ttnn.bfloat16)
         self.logits_dtype = dtype_from_policy(self.precision_policy, "logits_sampling", "logits_dtype", ttnn.bfloat16)
-        # The completed multichip capacity proof requires physical BFP8_B
-        # embedding/LM-head storage on TP1; use one terminal policy on every
-        # profile so correctness and performance evidence stay comparable.
+        # The LM head remains in the completed full-model BFP8_B policy on all
+        # profiles. A tiled BFP8 embedding forces ``ttnn.embedding`` to
+        # untilize the complete vocabulary table on every decode replay. The
+        # profile default therefore uses the row-major BF16 representation
+        # that the op consumes directly. TP1 retains its 50,624-token limit;
+        # the maximum-capacity allocation and non-aligned boundary probes are
+        # part of the optimized-full-model evidence.
         self.terminal_weight_dtype = weight_dtype_from_policy(
             self.precision_policy, "embedding_lm_head", ttnn.bfloat8_b
+        )
+        if embedding_storage not in ("profile", "bfp8_tile", "bf16_row_major"):
+            raise ValueError("embedding_storage must be 'profile', 'bfp8_tile', or 'bf16_row_major'")
+        self.embedding_storage = (
+            PROFILE_EMBEDDING_STORAGE[tp_size] if embedding_storage == "profile" else embedding_storage
+        )
+        self.embedding_weight_dtype = (
+            ttnn.bfloat16 if self.embedding_storage == "bf16_row_major" else self.terminal_weight_dtype
+        )
+        self.embedding_layout = (
+            ttnn.ROW_MAJOR_LAYOUT if self.embedding_storage == "bf16_row_major" else ttnn.TILE_LAYOUT
         )
         self.ccl_dtype = dtype_from_policy(self.precision_policy, "ccl", "dtype", ttnn.bfloat16)
         if self.activation_dtype != self.residual_dtype:
@@ -214,16 +231,15 @@ class Gemma4FullModel:
         # Mesh mappers are not encoded in a tensorbin header.  Keep terminal
         # caches topology-specific so a replicated TP1 artifact can never be
         # reloaded as a hidden/vocab-sharded TP2 or TP4 tensor.
-        embed_cache = str(cache_root / f"embedding_tp{tp_size}") if cache_root is not None else None
+        embed_cache = (
+            str(cache_root / f"embedding_tp{tp_size}_{self.embedding_storage}") if cache_root is not None else None
+        )
         lm_cache = str(cache_root / f"lm_head_tp{tp_size}") if cache_root is not None else None
         norm_cache = str(cache_root / "final_norm") if cache_root is not None else None
         self.embedding_weight = ttnn.as_tensor(
             embed_weight.unsqueeze(0).unsqueeze(0),
-            dtype=self.terminal_weight_dtype,
-            # BFP8_B has a tile-only physical representation.  Embedding
-            # accepts tiled tables and returns the replicated BF16 residual
-            # required by the first optimized decoder layer.
-            layout=ttnn.TILE_LAYOUT,
+            dtype=self.embedding_weight_dtype,
+            layout=self.embedding_layout,
             mesh_mapper=terminal_shard,
             cache_file_name=embed_cache,
             **common,
@@ -473,6 +489,7 @@ class Gemma4FullModel:
             "kv_cache_dtype": dtype_name(self.kv_cache_dtype),
             "ccl_dtype": self.precision_policy.get("ccl", {}).get("dtype", "BF16"),
             "logits_dtype": dtype_name(self.logits_dtype),
+            "embedding_storage": self.embedding_storage,
             "embedding_weight_dtype": dtype_name(self.embedding_weight.dtype),
             "lm_head_weight_dtype": dtype_name(self.lm_head_weight.dtype),
             "kv_decode_update_dtype": self.precision_policy.get("kv_cache", {}).get("decode_update_dtype", "BF16"),

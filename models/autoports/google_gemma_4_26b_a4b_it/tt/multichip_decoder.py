@@ -1458,6 +1458,12 @@ class MultichipDecoder(OptimizedDecoder):
             user_page_table.deallocate(True)
         if len(outputs) == 1:
             return outputs[0]
+        # The complete Q tensor is dead once every chunk has been dispatched,
+        # and it has exactly the shape/dtype required by the concatenated
+        # result. Release that contiguous allocation before concat so the
+        # allocator can reuse it instead of requiring two full-sequence
+        # attention buffers to coexist at the long-context boundary.
+        q_heads.deallocate(True)
         result = ttnn.concat(outputs, dim=2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
         for output in outputs:
             output.deallocate(True)
