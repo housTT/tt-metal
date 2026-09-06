@@ -402,7 +402,13 @@ generated profiler roots were moved to
 `/tmp/gemma4-profiler-generated.8IZXa5` after the complete raw CSV and
 processed reports were retained in `final/profiler_final/`.
 
-The independent stage-review result is appended after its fresh-context run.
+Independent stage review returned `clean-pass`; all initial findings and final
+reconciliation checks are recorded in `stage_review.md`.
 
-Stage commit SHAs are appended after the local commits are created. Nothing is
-pushed.
+Local stage checkpoints:
+
+- `bddb1661fe2`: implementation, complete evidence package, and clean review.
+- `de3fbfafa5f8`: remove superseded profiler copies and normalize the retained
+  canonical CSVs so the stage diff is whitespace-clean.
+
+Nothing was pushed.
