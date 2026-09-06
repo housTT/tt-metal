@@ -302,3 +302,11 @@ build.
 The fresh independent `$stage-review` returned `clean-pass` with no required
 work or missing hard gate. Its retained report is `stage_review.md`. Local
 commit records follow below.
+
+## Local commit record
+
+- Starting commit: `e9ac7fc33287019b2808b741830fa9b595671743`.
+- Full-model implementation, tests, evidence, and clean review:
+  `769a0c593b56e55f36b477bb19321d6bde9bb831`.
+- No commit was pushed. The documentation-only commit that records this SHA is
+  reported in the final handoff.
