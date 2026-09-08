@@ -280,3 +280,11 @@ the profile-local B1 oracle/JUnit pairs and the TP4 B1/B32 full-vocabulary
 localization. P150x4 also retains
 `server_failed_heartbeat_20260908.log.gz`, the classified pre-model startup
 failure recovered by board reset.
+
+## Local implementation commits
+
+- tt-metal: `40569292be814f72c62ef30fd06c8b8245957517`
+- vLLM TT plugin: `2f81f493b969da7ce3cd64c0f6bc1895b8f229cb`
+
+Both commits are local only. No branch was pushed and no pull request was
+opened against `main`.
