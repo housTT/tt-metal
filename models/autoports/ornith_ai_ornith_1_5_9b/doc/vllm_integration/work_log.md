@@ -697,3 +697,19 @@ independently read all outputs, reconciled numerical controls and metrics,
 checked source provenance and cleanup, and verified all208 raw archive members.
 The following local checkpoints contain stage-owned changes only; the two
 user-owned AGENTS.md edits remain excluded. No push is authorized or performed.
+
+## Local checkpoint receipts
+
+- Repository `/home/hous/dev/ornith-1.5-9b/tt-metal`, branch `hous/ornith-1.5-9b`:
+  `68e3006409c4682ea817f1ee017a77a82e5e3a93`.
+- Repository `/home/hous/dev/ornith-1.5-9b/vllm`, branch `hous/ornith-1.5-9b-vllm`:
+  `e0d01006121f319e94e3978a00ffabb967eebb11`.
+
+Both stage-owned checkpoints were created after independent clean-pass.
+The tt-metal commit ran all applicable installed hooks successfully. The vLLM
+checkout initially lacked a commit identity; its local config now uses the
+already-configured tt-metal identity, and the retry succeeded. Plugin hooks
+had already passed on the identical staged contents. No global configuration
+was changed and nothing was pushed. `local_commit_receipts.json` and
+`serving_source_pins.json` record these source checkpoints. This receipt-only
+follow-up is recorded externally with its own SHA after commit.
