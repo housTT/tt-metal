@@ -324,9 +324,13 @@ qualitative completions, and reran the 21 tt-metal plus 118 plugin host tests.
 The full verdict, anomaly ledger, evidence boundaries, and residual risks are
 retained in `doc/vllm_integration/STAGE_REVIEW.md`.
 
-## Local implementation commits
+## Local stage commits
 
-- tt-metal: `40569292be814f72c62ef30fd06c8b8245957517`
+- tt-metal implementation: `40569292be814f72c62ef30fd06c8b8245957517`
+- tt-metal initial stage documentation:
+  `c718255087bc62907ac2882fdfe3fc7eda613c42`
+- tt-metal evidence closure after clean stage review:
+  `cedc5ce7a858738b18ad7216943df2fab4c7edc7`
 - vLLM TT plugin: `2f81f493b969da7ce3cd64c0f6bc1895b8f229cb`
 
 Both commits are local only. No branch was pushed and no pull request was
