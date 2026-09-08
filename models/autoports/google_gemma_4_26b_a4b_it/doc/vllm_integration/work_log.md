@@ -40,6 +40,9 @@
 9. Added OpenAI feature checks, async overlap checks, parent-mesh tests,
    sampling eligibility tests, and Gemma 4 reasoning-parser coverage. Updated
    the streaming tool-parser test for typed `DeltaFunctionCall` results.
+10. Fixed the shared qualitative runner's no-chat-template path so it selects
+    raw completions before attempting local template rendering; a host test
+    verifies the endpoint and retained prompt metadata.
 
 ## Final server commands
 
@@ -54,7 +57,7 @@ env HF_HOME=/home/hous/.cache/huggingface HF_HUB_OFFLINE=1 \
   --stages serve \
   --model-dir models/autoports/google_gemma_4_26b_a4b_it \
   --hf-model google/gemma-4-26B-A4B-it \
-  --max-num-seqs 32 \
+  --max-num-seqs 32 --block-size 64 \
   --additional-server-args \
     '--async-scheduling --enable-auto-tool-choice --tool-call-parser gemma4 --reasoning-parser gemma4'
 ```
@@ -97,11 +100,11 @@ python_env/bin/python -m models.common.readiness_check.run_vllm_server \
 ```
 
 - P150 full: 72 passed, one expected all-vocabulary chat-logprobs skip, in
-  577.19 seconds.
+  592.78 seconds.
 - P150x2 full: 72 passed, one expected all-vocabulary chat-logprobs skip, in
-  629.87 seconds.
+  626.31 seconds.
 - P150x4 full: 72 passed, one expected all-vocabulary chat-logprobs skip, in
-  701.04 seconds.
+  693.68 seconds.
 
 Qualitative:
 
@@ -196,6 +199,10 @@ cd /home/hous/dev/vllm
   plugins/vllm-tt-plugin/tests \
   --ignore=plugins/vllm-tt-plugin/tests/tt
 # 118 passed
+
+python_env/bin/pytest -q \
+  models/common/readiness_check/test_run_vllm_server.py
+# 1 passed
 ```
 
 The plugin's `tests/tt` directory requires a live server URL/model name; its
@@ -228,7 +235,7 @@ python_env/bin/python -m models.common.readiness_check.run_vllm_server \
 ```
 
 The primary workload is greedy 128/128/1, concurrency one. P150/P150x2/P150x4
-reported TTFT P50 235.8/200.3/194.7 ms and decode 36.2/44.0/48.6 t/s/u. Full
+reported TTFT P50 235.1/235.5/203.3 ms and decode 36.2/44.0/48.5 t/s/u. Full
 TTFT/TPOT/ITL P50/P99 and throughput are at the top of `README.md` and in each
 `vllm_benchmark.json`; raw output is `vllm_result.json`.
 
@@ -245,10 +252,14 @@ benchmark log. Burst TPOT is not used as headline decode performance.
   smoke succeeded; the shared worker implementation and unit tests now encode
   that lifecycle.
 - A mesh-topology transition can leave an active-Ethernet core requiring a
-  board reset. The fresh P150x4 determinism launch retained one such heartbeat
+  board reset. The earlier P150x4 determinism launch retained one such heartbeat
   failure in `server_failed_heartbeat_20260908.log.gz`; it failed during device
   open before model construction. A bounded `tt-smi -r` restored firmware
   19.13.1 and the immediate identical launch and determinism run passed.
+- The pre-unified-rerun 2x2 mesh smoke encountered the same class of heartbeat
+  timeout before any vLLM server launch. With no owner processes, a bounded
+  reset/list and repeated exact 2x2 mesh open/close succeeded. The recovery is
+  recorded in `readiness_vllm/hardware_recovery_20260908.json`.
 - Split trace capture is protected by `corruptible_allocation_scope`.
   Correctness evidence is the explicit release/recapture lifetime, stable
   buffer-address checks, page-table refresh counters, and stale-feedback
@@ -256,15 +267,21 @@ benchmark log. Burst TPOT is not used as headline decode performance.
 - Final `pgrep` found zero API-server/EngineCore/readiness-server processes.
   `tt-smi -ls --local` listed all four P300C devices. See
   `readiness_vllm/runtime_cleanup_audit.json`.
+- P150x4 emitted one recovered vLLM DecodeStream invalid-prefix warning at
+  18:33:59 UTC during full sampling for request
+  `cmpl-b675f7e6ff20f971-0-84e2e2dc`. The framework reset that request's
+  tokenizer stream and retried the same token. Sampling still passed 72/72
+  runnable tests with one expected skip, with no HTTP 500 or fatal marker. The
+  stress request text was not retained or manually inspected; the runtime
+  audit records the narrow recovery classification rather than claiming a
+  qualitative verdict for it.
 
 ## Artifacts
 
 Primary files under `readiness_vllm/<profile>/`:
 
-- `server.log.gz` (losslessly compressed to satisfy the repository artifact
+- `server.log.xz` (losslessly compressed to satisfy the repository artifact
   size gate)
-- `server_logit_determinism_final_20260908.log.gz` for the fresh final
-  determinism lifetime
 - `openai_feature_checks.json`
 - `sampling_tests.log`
 - `vllm_qualitative_outputs.json` and `qualitative_verdict.json`
@@ -280,6 +297,32 @@ the profile-local B1 oracle/JUnit pairs and the TP4 B1/B32 full-vocabulary
 localization. P150x4 also retains
 `server_failed_heartbeat_20260908.log.gz`, the classified pre-model startup
 failure recovered by board reset.
+
+The three final server lifetimes ran all gates sequentially against one API
+PID per profile, then shut down cleanly:
+
+| Profile | UTC lifetime on 2026-09-08 | API PID | POSTs | HTTP 200 / expected 400 / 500 |
+| --- | --- | ---: | ---: | ---: |
+| P150 | 17:49:09–18:04:15 | 1696137 | 1,581 | 1,580 / 1 / 0 |
+| P150x2 | 18:06:03–18:21:27 | 1699866 | 1,581 | 1,580 / 1 / 0 |
+| P150x4 | 18:23:11–18:39:39 | 1703317 | 1,581 | 1,580 / 1 / 0 |
+
+`readiness_vllm/unified_gate_manifest.json` records the common flags, exact
+gate order, configurations, lifetimes, request/status counts, cleanup audit,
+and SHA256 for every primary artifact. The three sampling logs and six
+benchmark logs are force-added despite the repository-wide `*.log` ignore
+rule. `doc/vllm_integration/AUTODEBUG.md` and `AUTOFIX.md` retain the evidence
+provenance diagnosis and its completed repair.
+
+## Independent stage review
+
+The required fresh xhigh review returned **`clean-pass`** with no unresolved
+blocking or non-blocking findings. The reviewer independently matched all 39
+manifest hashes, decompressed and audited the three complete server lifetimes,
+recomputed raw benchmark metrics and deterministic controls, read all 36 final
+qualitative completions, and reran the 21 tt-metal plus 118 plugin host tests.
+The full verdict, anomaly ledger, evidence boundaries, and residual risks are
+retained in `doc/vllm_integration/STAGE_REVIEW.md`.
 
 ## Local implementation commits
 

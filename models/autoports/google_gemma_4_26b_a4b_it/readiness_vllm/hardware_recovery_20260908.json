@@ -1,0 +1,23 @@
+{
+  "verdict": "recovered",
+  "failure_timestamp_utc": "2026-09-08T17:47:07Z",
+  "failure_scope": "pre-server 2x2 mesh open smoke",
+  "failure_signature": "Device 0 active Ethernet core 29-25 heartbeat did not change; open_mesh_device timed out before model construction",
+  "owner_process_audit_before_reset": {
+    "vllm_api_server_processes": 0,
+    "engine_core_processes": 0,
+    "run_vllm_server_processes": 0
+  },
+  "recovery_commands": [
+    "timeout 180 tt-smi -r",
+    "timeout 60 tt-smi -ls --local",
+    "python_env/bin/python: open_mesh_device(MeshShape(2, 2), trace_region_size=0); close_mesh_device(mesh)"
+  ],
+  "recovery_results": {
+    "reset_exit_code": 0,
+    "visible_local_p300c_devices": 4,
+    "firmware": "19.13.1",
+    "mesh_smoke": "MESH_SMOKE_OK shape=2x2"
+  },
+  "resumed_evidence": "P150, P150x2, and P150x4 unified full-gate server lifetimes all subsequently passed and closed cleanly"
+}

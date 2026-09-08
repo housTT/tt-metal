@@ -11,9 +11,9 @@ single-user `128 input / 128 output / 1 request / concurrency 1` run. Decode
 
 | Profile | TTFT P50 / P99 | TPOT mean / P99 | ITL P50 / P99 | Output throughput | Decode t/s/u | Full-model teacher-forcing lower bound |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| P150 (1 chip) | 235.8 / 235.8 ms | 27.7 / 27.7 ms | 26.8 / 27.1 ms | 34.1 tok/s | **36.2** | 34.5 t/s/u |
-| P150x2 (2 chips) | 200.3 / 200.3 ms | 22.7 / 22.7 ms | 21.5 / 25.3 ms | 41.5 tok/s | **44.0** | 42.1 t/s/u |
-| P150x4 (4 chips) | 194.7 / 194.7 ms | 20.6 / 20.6 ms | 19.1 / 21.6 ms | 45.6 tok/s | **48.6** | 45.0 t/s/u |
+| P150 (1 chip) | 235.121 / 235.121 ms | 27.620 / 27.620 ms | 26.840 / 27.147 ms | 34.197 tok/s | **36.206** | 34.5 t/s/u |
+| P150x2 (2 chips) | 235.547 / 235.547 ms | 22.749 / 22.749 ms | 21.497 / 25.136 ms | 40.960 tok/s | **43.958** | 42.1 t/s/u |
+| P150x4 (4 chips) | 203.296 / 203.296 ms | 20.614 / 20.614 ms | 19.157 / 24.020 ms | 45.366 tok/s | **48.512** | 45.0 t/s/u |
 
 The teacher-forcing values are lower bounds from the completed datatype sweep,
 not apples-to-apples serving benchmarks. The primary vLLM results leave no
@@ -29,9 +29,9 @@ unbounded client concurrency, matching the nightly serving-burst shape.
 
 | Profile | Completed | TTFT P50 / P99 | TPOT mean / P99 | ITL P50 / P99 | Output throughput |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| P150 | 32/32 | 4331.5 / 6494.3 ms | 271.7 / 306.5 ms | 245.3 / 607.1 ms | 100.5 tok/s |
-| P150x2 | 32/32 | 3446.4 / 5143.3 ms | 224.8 / 252.3 ms | 199.5 / 628.1 ms | 122.2 tok/s |
-| P150x4 | 32/32 | 2989.5 / 4487.9 ms | 215.2 / 239.1 ms | 186.5 / 769.2 ms | 129.5 tok/s |
+| P150 | 32/32 | 4327.570 / 6490.492 ms | 271.527 / 306.323 ms | 245.138 / 602.642 ms | 100.548 tok/s |
+| P150x2 | 32/32 | 3432.526 / 5127.234 ms | 224.954 / 252.418 ms | 199.456 / 633.269 ms | 122.205 tok/s |
+| P150x4 | 32/32 | 3005.065 / 4503.106 ms | 214.941 / 238.846 ms | 186.476 / 763.943 ms | 129.489 tok/s |
 
 The corresponding files are `vllm_ci_serving_result.json` and
 `vllm_ci_serving_benchmark.json`. The burst profile is secondary capacity/CI
@@ -66,7 +66,7 @@ python_env/bin/python -m models.common.readiness_check.run_vllm_server \
   --model-dir models/autoports/google_gemma_4_26b_a4b_it \
   --hf-model google/gemma-4-26B-A4B-it \
   --mesh-device <N150|N300|P300x2> \
-  --max-num-seqs 32 --max-model-len <50624|262144> \
+  --max-num-seqs 32 --block-size 64 --max-model-len <50624|262144> \
   --output-subdir <P150|P150x2|P150x4> \
   --tt-config '<profile JSON>' \
   --additional-server-args \
@@ -115,7 +115,8 @@ crossed a 64-token page boundary while another request completed and vacated a
 slot, with no request contamination or degeneracy.
 
 The final sampling profile is the full shared plugin suite on every profile:
-each reported `72 passed, 1 skipped`. The single expected skip is the
+each reported `72 passed, 1 skipped` (P150/P150x2/P150x4 in
+592.78/626.31/693.68 seconds). The single expected skip is the
 all-vocabulary chat-logprobs case. The suite covers seeded and unseeded
 sampling, mixed-request parameters, `top_k` through 32, penalties, structured
 output, request isolation, and logprobs.
@@ -179,23 +180,37 @@ remain the model-visible correctness controls.
 - The Python runtime reports nanobind object/type/function diagnostics at
   interpreter shutdown. Device close still completes and the final audit finds
   no API server or EngineCore process holding hardware.
+- The P150x4 full-sampling window contains one recovered vLLM DecodeStream
+  invalid-prefix warning at 18:33:59 UTC for request
+  `cmpl-b675f7e6ff20f971-0-84e2e2dc`. vLLM reset that request's tokenizer
+  stream and retried the same token; the suite passed with no HTTP 500 or fatal
+  marker. The affected stress request's text was not retained or manually
+  inspected, so this is classified only as successful framework recovery, not
+  as a qualitative assessment of that request.
 
 `readiness_vllm/runtime_cleanup_audit.json` records the final process/device
 audit. All four P300C devices were visible after cleanup on firmware 19.13.1.
+A pre-run 2x2 mesh smoke encountered an active-Ethernet heartbeat timeout
+before any server launch; the bounded reset and successful repeated mesh
+open/close are retained in `hardware_recovery_20260908.json`.
 
 ## Artifact index
 
 Each `readiness_vllm/P150*` directory contains the losslessly compressed
-`server.log.gz`,
+`server.log.xz`,
 `openai_feature_checks.json`, `sampling_tests.log`,
 `vllm_qualitative_outputs.json`, `qualitative_verdict.json`,
 `qualitative_degeneracy_check.json`, `async_overlap_state_test.json`,
 `logit_determinism.json`, the primary raw/summary/log triplet, and the CI burst
-raw/summary/log triplet. P150x2 additionally retains
-`server_full_sampling_20260908.log.xz` because its final sampling suite and
-remaining evidence used two clean server lifetimes. P150x4 additionally contains
-`mutable_decode_state.json` and the classified pre-model heartbeat failure log.
-Each profile retains its fresh determinism server lifetime as
-`server_logit_determinism_final_20260908.log.gz`. The profile-local standalone
-B1 oracles/JUnit files and the TP4 full-vocabulary B1/B32 localization are under
-`readiness_vllm/standalone_baselines/`.
+raw/summary/log triplet. Each `server.log.xz` is the single final lifetime for
+all gates listed above: P150 ran 17:49:09–18:04:15 UTC, P150x2
+18:06:03–18:21:27 UTC, and P150x4 18:23:11–18:39:39 UTC on 2026-09-08. Each
+contains 1,581 POST requests, 1,580 HTTP 200 responses, the one expected HTTP
+400 used by the all-vocabulary logprobs skip, zero HTTP 500 responses, and the
+clean device-close record. `unified_gate_manifest.json` maps every result to
+that lifetime and records artifact hashes. `runtime_cleanup_audit.json` and
+`hardware_recovery_20260908.json` retain process/device and recovery evidence.
+P150x4 additionally contains `mutable_decode_state.json`. Historical logs are
+retained for diagnosis but are not the final gate provenance. The profile-local
+standalone B1 oracles/JUnit files and TP4 full-vocabulary B1/B32 localization
+are under `readiness_vllm/standalone_baselines/`.

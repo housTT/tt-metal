@@ -1,19 +1,41 @@
 {
   "verdict": "pass",
-  "audit_timestamp_utc": "2026-09-08T17:27:46Z",
+  "audit_timestamp_utc": "2026-09-08T18:44:06Z",
   "profiles": {
     "P150": {
       "server_terminated_cleanly": true,
-      "device_close_recorded": true
+      "device_close_recorded": true,
+      "unified_main_gate_log": "P150/server.log.xz",
+      "logged_post_requests": 1581,
+      "runtime_fallback_exceptions": 0,
+      "fatal_markers": 0
     },
     "P150x2": {
       "server_terminated_cleanly": true,
-      "submesh_and_parent_close_recorded": true,
-      "device_close_recorded": true
+      "parent_submesh_lifecycle_implemented_in_worker_finally": true,
+      "device_close_recorded": true,
+      "unified_main_gate_log": "P150x2/server.log.xz",
+      "logged_post_requests": 1581,
+      "runtime_fallback_exceptions": 0,
+      "fatal_markers": 0
     },
     "P150x4": {
       "server_terminated_cleanly": true,
-      "device_close_recorded": true
+      "device_close_recorded": true,
+      "unified_main_gate_log": "P150x4/server.log.xz",
+      "logged_post_requests": 1581,
+      "runtime_fallback_exceptions": 0,
+      "fatal_markers": 0,
+      "recovered_framework_warnings": [
+        {
+          "timestamp_utc": "2026-09-08T18:33:59Z",
+          "request_id": "cmpl-b675f7e6ff20f971-0-84e2e2dc",
+          "count": 1,
+          "classification": "vLLM DecodeStream invalid-prefix recovery for a non-monotonic or invalid-UTF-8 tokenizer prefix; the per-request stream was reset and the same token retried",
+          "scope": "full sampling suite",
+          "outcome": "suite passed; no HTTP 500 or fatal marker; the affected stress request text was not retained or manually inspected"
+        }
+      ]
     }
   },
   "final_process_audit": {
@@ -26,12 +48,21 @@
     "devices_held_by_leftover_server": false,
     "firmware": "19.13.1"
   },
-  "recovery_event": {
-    "profile": "P150x4",
-    "failure_scope": "device open before model construction",
-    "failure": "active Ethernet core heartbeat timeout after mesh-topology transition",
-    "retained_log": "P150x4/server_failed_heartbeat_20260908.log.gz",
-    "recovery": "bounded tt-smi board reset followed by identical successful launch and passing determinism run"
-  },
+  "recovery_events": [
+    {
+      "profile": "P150x4",
+      "failure_scope": "device open before model construction",
+      "failure": "active Ethernet core heartbeat timeout after mesh-topology transition",
+      "retained_log": "P150x4/server_failed_heartbeat_20260908.log.gz",
+      "recovery": "bounded tt-smi board reset followed by identical successful launch and passing determinism run"
+    },
+    {
+      "profile": "pre-unified-rerun 2x2 mesh smoke",
+      "failure_scope": "device open before any vLLM server launch",
+      "failure": "active Ethernet core 29-25 heartbeat timeout",
+      "evidence": "hardware_recovery_20260908.json",
+      "recovery": "no owner processes; bounded tt-smi reset/list followed by successful 2x2 mesh open/close, then all three unified serving lifetimes passed"
+    }
+  ],
   "trace_allocation_note": "Split model/sampling trace capture uses corruptible_allocation_scope. Correctness is established by explicit release/recapture lifetimes, stable-address checks, page-table refresh counters, and stale-feedback assertions; allocator-warning counts are diagnostic only."
 }

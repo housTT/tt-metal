@@ -412,50 +412,54 @@ def _run_qualitative_prompts(
     results: List[dict[str, Any]] = []
     for i, prompt in enumerate(prompts, 1):
         print(f"\n  Prompt {i}/{len(prompts)}: {prompt[:60]}...")
-        prompt_format = "openai_chat_user_message"
         messages = [{"role": "user", "content": prompt}]
-        rendered_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        prompt_token_ids = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
-        # Recent Transformers releases may return BatchEncoding here instead
-        # of the historical plain list.  Keep the retained readiness artifact
-        # stable and JSON-serializable across both API shapes.
-        if hasattr(prompt_token_ids, "get"):
-            prompt_token_ids = prompt_token_ids["input_ids"]
-        if hasattr(prompt_token_ids, "tolist"):
-            prompt_token_ids = prompt_token_ids.tolist()
-        if prompt_token_ids and isinstance(prompt_token_ids[0], list):
-            prompt_token_ids = prompt_token_ids[0]
-        prompt_token_ids = [int(token_id) for token_id in prompt_token_ids]
-        try:
-            greedy_text = (
-                client.chat.completions.create(
-                    model=hf_model,
-                    messages=messages,
-                    max_tokens=256,
-                    temperature=0.0,
-                    extra_body={"top_k": 1},
+        use_chat_api = bool(getattr(tokenizer, "chat_template", None))
+        if use_chat_api:
+            prompt_format = "openai_chat_user_message"
+            rendered_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            prompt_token_ids = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
+            # Recent Transformers releases may return BatchEncoding here
+            # instead of the historical plain list. Keep the retained artifact
+            # stable and JSON-serializable across both API shapes.
+            if hasattr(prompt_token_ids, "get"):
+                prompt_token_ids = prompt_token_ids["input_ids"]
+            if hasattr(prompt_token_ids, "tolist"):
+                prompt_token_ids = prompt_token_ids.tolist()
+            if prompt_token_ids and isinstance(prompt_token_ids[0], list):
+                prompt_token_ids = prompt_token_ids[0]
+            prompt_token_ids = [int(token_id) for token_id in prompt_token_ids]
+            try:
+                greedy_text = (
+                    client.chat.completions.create(
+                        model=hf_model,
+                        messages=messages,
+                        max_tokens=256,
+                        temperature=0.0,
+                        extra_body={"top_k": 1},
+                    )
+                    .choices[0]
+                    .message.content
                 )
-                .choices[0]
-                .message.content
-            )
-            sampled_text = (
-                client.chat.completions.create(
-                    model=hf_model,
-                    messages=messages,
-                    max_tokens=256,
-                    temperature=0.7,
-                    top_p=0.9,
-                    # Keep the readiness sample on the TT device-sampling path.
-                    # The Gemma 4 adapter deliberately sends larger top-k values
-                    # through the explicit compatibility-only host fallback.
-                    extra_body={"top_k": 32},
+                sampled_text = (
+                    client.chat.completions.create(
+                        model=hf_model,
+                        messages=messages,
+                        max_tokens=256,
+                        temperature=0.7,
+                        top_p=0.9,
+                        # Keep the readiness sample on the TT device path.
+                        # Larger top-k values use explicit host compatibility.
+                        extra_body={"top_k": 32},
+                    )
+                    .choices[0]
+                    .message.content
                 )
-                .choices[0]
-                .message.content
-            )
-        except openai.BadRequestError as exc:
-            if "chat template" not in str(exc).lower():
-                raise
+            except openai.BadRequestError as exc:
+                if "chat template" not in str(exc).lower():
+                    raise
+                use_chat_api = False
+
+        if not use_chat_api:
             prompt_format = "raw_completion_no_chat_template"
             rendered_prompt = prompt
             prompt_token_ids = tokenizer.encode(prompt, add_special_tokens=False)
