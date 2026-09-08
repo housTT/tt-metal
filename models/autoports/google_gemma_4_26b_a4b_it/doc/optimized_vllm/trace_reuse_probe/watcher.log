@@ -1,0 +1,403 @@
+2026-09-08 20:05:29.037 | DEBUG    | ttnn:<module>:45 - Initial ttnn.CONFIG:
+Config{cache_path=/home/hous/.cache/ttnn,model_cache_path=/home/hous/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=true,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.14, pytest-9.0.3, pluggy-1.6.0 -- /home/hous/dev/tt-metal/python_env/bin/python3
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/hous/dev/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.15.0, dash-2.15.0, repeat-0.9.4, benchmark-5.2.3, timeout-2.4.0, github-actions-annotate-failures-0.3.0, split-0.11.0, cov-7.0.0
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 3 items
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_vllm_trace_reuse.py::test_adapter_request_trace_reuse[blackhole-p150] 2026-09-08 20:05:30.785 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:224)
+2026-09-08 20:05:30.785 | info     |             UMD | Cluster constructor started. (cluster.cpp:406)
+2026-09-08 20:05:30.785 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
+2026-09-08 20:05:30.785 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
+2026-09-08 20:05:30.797 | info     |             UMD | Established firmware bundle version: 19.13.1 (topology_discovery.cpp:576)
+2026-09-08 20:05:30.798 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
+2026-09-08 20:05:30.875 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:173)
+2026-09-08 20:05:30.875 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
+2026-09-08 20:05:30.875 | info     |             UMD | KMD version: 2.8.0 (cluster.cpp:150)
+2026-09-08 20:05:30.875 | info     |             UMD | Cluster constructor completed. (cluster.cpp:665)
+2026-09-08 20:05:30.877 | info     |             UMD | Starting devices in cluster (cluster.cpp:1205)
+2026-09-08 20:05:31.066 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1213)
+2026-09-08 20:05:31.156 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:422)
+2026-09-08 20:05:31.156 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:484)
+2026-09-08 20:05:31.156 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-09-08 20:05:31.156 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:3368)
+2026-09-08 20:05:31.156 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:3376)
+2026-09-08 20:05:31.156 | INFO     | conftest:mesh_device:638 - Keeping trace_region_size=67108864 from device_params (already set)
+2026-09-08 20:05:31.238 | info     |       LLRuntime | Watcher log file: /home/hous/dev/tt-metal/generated/watcher/watcher.log (watcher_server.cpp:296)
+2026-09-08 20:05:31.239 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using distributed::MeshDevice::create_unit_meshes(). (device_manager.cpp:264)
+2026-09-08 20:05:31.239 | info     |       LLRuntime | Watcher server initialized, disabled features: None (watcher_server.cpp:568)
+2026-09-08 20:05:31.239 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+2026-09-08 20:05:31.245 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:410)
+2026-09-08 20:05:31.252 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:410)
+2026-09-08 20:05:31.258 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:410)
+2026-09-08 20:05:31.910 | DEBUG    | conftest:mesh_device:668 - multidevice with 1 devices is created
+2026-09-08 20:05:32.224 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/full_model/embedding_tp1_bf16_row_major_dtype_BFLOAT16_layout_ROW_MAJOR.tensorbin of shape Shape([1, 1, 262144, 2816])
+2026-09-08 20:05:33.322 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/full_model/lm_head_tp1_dtype_BFLOAT8_B_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 262144])
+2026-09-08 20:05:33.373 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/full_model/final_norm_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 20:05:34.957 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/packed_expert_gate_up_tp1_dtype_BFLOAT8_B_layout_TILE.tensorbin of shape Shape([1, 128, 2816, 1408])
+2026-09-08 20:05:35.004 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/layer_scalar_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 1])
+2026-09-08 20:05:35.004 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/input_ln_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 20:05:35.005 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/post_attn_ln_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 20:05:35.005 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/pre_ff_ln_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 20:05:35.005 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/post_ff_ln_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 20:05:35.005 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/post_ff_ln_1_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 20:05:35.005 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/post_ff_ln_2_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 20:05:35.005 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/pre_ff_ln_2_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 20:05:35.005 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/q_norm_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 256])
+2026-09-08 20:05:35.005 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/k_norm_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 256])
+2026-09-08 20:05:35.010 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/qkv_tp1_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 8192])
+2026-09-08 20:05:35.020 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/o_proj_tp1_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 4096, 2816])
+2026-09-08 20:05:35.025 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/mlp_gate_tp1_dtype_BFLOAT8_B_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 2112])
+2026-09-08 20:05:35.031 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/mlp_up_tp1_dtype_BFLOAT8_B_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 2112])
+2026-09-08 20:05:35.037 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/mlp_down_tp1_dtype_BFLOAT8_B_layout_TILE.tensorbin of shape Shape([1, 1, 2112, 2816])
+2026-09-08 20:05:35.037 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/router_scale_dtype_FLOAT32_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 20:05:35.038 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/router_proj_dtype_FLOAT32_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 128])
+2026-09-08 20:05:35.038 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/router_per_expert_scale_dtype_FLOAT32_layout_TILE.tensorbin of shape Shape([1, 128])
+2026-09-08 20:05:35.243 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/expert_down_tp1_dtype_BFLOAT8_B_layout_TILE.tensorbin of shape Shape([1, 128, 704, 2816])
+2026-09-08 20:05:35.243 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/expert_prefill_sparsity_dtype_BFLOAT16_layout_ROW_MAJOR.tensorbin of shape Shape([1, 1, 1, 128])
+2026-09-08 20:05:36.879 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/packed_expert_gate_up_tp1_dtype_BFLOAT4_B_layout_TILE.tensorbin of shape Shape([1, 128, 2816, 1408])
+2026-09-08 20:05:36.922 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/layer_scalar_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 1])
+2026-09-08 20:05:36.922 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/input_ln_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 20:05:36.922 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/post_attn_ln_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 20:05:36.923 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/pre_ff_ln_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 20:05:36.923 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/post_ff_ln_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 20:05:36.923 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/post_ff_ln_1_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 20:05:36.923 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/post_ff_ln_2_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 20:05:36.923 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/pre_ff_ln_2_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 20:05:36.923 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/q_norm_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 512])
+2026-09-08 20:05:36.923 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/k_norm_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 512])
+2026-09-08 20:05:36.933 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/qkv_tp1_dtype_BFLOAT8_B_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 10240])
+2026-09-08 20:05:36.974 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/o_proj_tp1_dtype_BFLOAT8_B_layout_TILE.tensorbin of shape Shape([1, 1, 8192, 2816])
+2026-09-08 20:05:36.993 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/mlp_gate_tp1_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 2112])
+2026-09-08 20:05:37.013 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/mlp_up_tp1_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 2112])
+2026-09-08 20:05:37.033 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/mlp_down_tp1_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 2112, 2816])
+2026-09-08 20:05:37.034 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/router_scale_dtype_FLOAT32_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 20:05:37.036 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/router_proj_dtype_FLOAT32_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 128])
+2026-09-08 20:05:37.037 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/router_per_expert_scale_dtype_FLOAT32_layout_TILE.tensorbin of shape Shape([1, 128])
+2026-09-08 20:05:37.335 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/expert_down_tp1_dtype_BFLOAT8_B_layout_TILE.tensorbin of shape Shape([1, 128, 704, 2816])
+2026-09-08 20:05:37.336 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_5/expert_prefill_sparsity_dtype_BFLOAT16_layout_ROW_MAJOR.tensorbin of shape Shape([1, 1, 1, 128])
+2026-09-08 20:05:41.271 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+2026-09-08 20:05:41.277 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:410)
+2026-09-08 20:05:41.284 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:410)
+2026-09-08 20:05:41.291 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:410)
+Building trisc0, compile step:
+/home/hous/dev/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/hous/dev/tt-metal/ -I/home/hous/dev/tt-metal/ttnn -I/home/hous/dev/tt-metal/ttnn/cpp -I/home/hous/dev/tt-metal/tt_metal -I/home/hous/dev/tt-metal/tt_metal/hw/inc -I/home/hous/dev/tt-metal/tt_metal/tt-llk/common -I/home/hous/dev/tt-metal/tt_metal/hostdevcommon/api -I/home/hous/dev/tt-metal/tt_metal/api/ -I/home/hous/dev/tt-metal/runtime/sfpi/include -I/home/hous/dev/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/hous/dev/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/hous/dev/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/hous/dev/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/hous/dev/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/hous/dev/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/hous/dev/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/hous/dev/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/hous/dev/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/hous/dev/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/hous/dev/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/hous/dev/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DWATCHER_ENABLED -DPROCESSOR_INDEX=2 -DUCK_CHLKC_UNPACK -DCOMPILE_FOR_TRISC=0 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm/7610756240273146841/" -include named_ct_arg_map_generated.h -c -o /home/hous/.cache/tt-metal-cache/11231292445245388867/kernels/layernorm/7610756240273146841/trisc0/trisck.14427667694711707499_1740681.o /home/hous/dev/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/hous/.cache/tt-metal-cache/11231292445245388867/kernels/layernorm/7610756240273146841/trisc0/trisck.14427667694711707499_1740681.d
+In file included from ../chlkc_unpack.cpp:5,
+                 from /home/hous/dev/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:26,
+                 from /home/hous/dev/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/hous/dev/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp: In function 'void kernel_main()':
+/home/hous/dev/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp:128:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  128 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+Building trisc2, compile step:
+/home/hous/dev/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/hous/dev/tt-metal/ -I/home/hous/dev/tt-metal/ttnn -I/home/hous/dev/tt-metal/ttnn/cpp -I/home/hous/dev/tt-metal/tt_metal -I/home/hous/dev/tt-metal/tt_metal/hw/inc -I/home/hous/dev/tt-metal/tt_metal/tt-llk/common -I/home/hous/dev/tt-metal/tt_metal/hostdevcommon/api -I/home/hous/dev/tt-metal/tt_metal/api/ -I/home/hous/dev/tt-metal/runtime/sfpi/include -I/home/hous/dev/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/hous/dev/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/hous/dev/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/hous/dev/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/hous/dev/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/hous/dev/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/hous/dev/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/hous/dev/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/hous/dev/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/hous/dev/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/hous/dev/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/hous/dev/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DWATCHER_ENABLED -DPROCESSOR_INDEX=4 -DUCK_CHLKC_PACK -DCOMPILE_FOR_TRISC=2 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm/7610756240273146841/" -include named_ct_arg_map_generated.h -c -o /home/hous/.cache/tt-metal-cache/11231292445245388867/kernels/layernorm/7610756240273146841/trisc2/trisck.14427667694711707499_1740681.o /home/hous/dev/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/hous/.cache/tt-metal-cache/11231292445245388867/kernels/layernorm/7610756240273146841/trisc2/trisck.14427667694711707499_1740681.d
+In file included from ../chlkc_pack.cpp:5,
+                 from /home/hous/dev/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:21,
+                 from /home/hous/dev/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/hous/dev/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp: In function 'void kernel_main()':
+/home/hous/dev/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp:128:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  128 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+Building trisc1, compile step:
+/home/hous/dev/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O3 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=auto -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh-tensix -I. -I.. -I/home/hous/dev/tt-metal/ -I/home/hous/dev/tt-metal/ttnn -I/home/hous/dev/tt-metal/ttnn/cpp -I/home/hous/dev/tt-metal/tt_metal -I/home/hous/dev/tt-metal/tt_metal/hw/inc -I/home/hous/dev/tt-metal/tt_metal/tt-llk/common -I/home/hous/dev/tt-metal/tt_metal/hostdevcommon/api -I/home/hous/dev/tt-metal/tt_metal/api/ -I/home/hous/dev/tt-metal/runtime/sfpi/include -I/home/hous/dev/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/hous/dev/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/hous/dev/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/hous/dev/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/hous/dev/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/hous/dev/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/hous/dev/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/hous/dev/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/hous/dev/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api -I/home/hous/dev/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_api/llk_sfpu -I/home/hous/dev/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/hous/dev/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DWATCHER_ENABLED -DPROCESSOR_INDEX=3 -DUCK_CHLKC_MATH -DCOMPILE_FOR_TRISC=1 -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DFULL_KERNEL_NAME="layernorm/7610756240273146841/" -include named_ct_arg_map_generated.h -c -o /home/hous/.cache/tt-metal-cache/11231292445245388867/kernels/layernorm/7610756240273146841/trisc1/trisck.14427667694711707499_1740681.o /home/hous/dev/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc -MF /home/hous/.cache/tt-metal-cache/11231292445245388867/kernels/layernorm/7610756240273146841/trisc1/trisck.14427667694711707499_1740681.d
+In file included from ../chlkc_math.cpp:5,
+                 from /home/hous/dev/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common/chlkc_list.h:16,
+                 from /home/hous/dev/tt-metal/tt_metal/hw/firmware/src/tt-1xx/trisck.cc:13:
+/home/hous/dev/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp: In function 'void kernel_main()':
+/home/hous/dev/tt-metal/ttnn/cpp/ttnn/operations/normalization/layernorm/device/kernels/compute/layernorm.cpp:128:20: warning: variable 'dfb_x_id' set but not used [-Wunused-but-set-variable]
+  128 |     constexpr auto dfb_x_id = dfb_in_id;
+      |                    ^~~~~~~~
+2026-09-08 20:05:51.308 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+2026-09-08 20:05:51.314 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:410)
+2026-09-08 20:05:51.321 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:410)
+2026-09-08 20:05:51.328 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:01.341 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:01.348 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:01.354 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:01.361 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:11.373 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:11.380 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:11.387 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:11.393 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:21.405 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:21.411 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:21.418 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:21.424 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:31.435 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:31.442 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:31.449 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:31.455 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:410)
+PASSED
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_vllm_trace_reuse.py::test_adapter_request_trace_reuse[blackhole-p150x2] 2026-09-08 20:06:40.348 | INFO     | conftest:mesh_device:638 - Keeping trace_region_size=67108864 from device_params (already set)
+2026-09-08 20:06:40.348 | info     |           Metal | Fabric config changed from FabricConfig::DISABLED to FabricConfig::FABRIC_2D, reinitializing control plane (metal_env.cpp:324)
+2026-09-08 20:06:40.348 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:422)
+2026-09-08 20:06:40.348 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:484)
+2026-09-08 20:06:40.348 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:3368)
+2026-09-08 20:06:40.348 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:3376)
+2026-09-08 20:06:40.349 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:616)
+2026-09-08 20:06:40.447 | info     |       LLRuntime | Watcher log file: /home/hous/dev/tt-metal/generated/watcher/watcher.log (watcher_server.cpp:296)
+2026-09-08 20:06:40.447 | info     |       LLRuntime | Watcher server initialized, disabled features: None (watcher_server.cpp:568)
+2026-09-08 20:06:40.447 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:40.450 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:308)
+2026-09-08 20:06:40.457 | info     |           Metal | Watcher checking device 1 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:40.464 | info     |           Metal | Watcher checking device 2 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:40.470 | info     |           Metal | Watcher checking device 3 (watcher_device_reader.cpp:410)
+2026-09-08 20:06:43.451 | critical |          Always | TT_FATAL: Program size (30880) too large for kernel config buffer (26624) on ACTIVE_ETH (assert.hpp:104)
+ERROR
+
+==================================== ERRORS ====================================
+_____ ERROR at setup of test_adapter_request_trace_reuse[blackhole-p150x2] _____
+
+request = <SubRequest 'mesh_device' for <Function test_adapter_request_trace_reuse[blackhole-p150x2]>>
+silicon_arch_name = 'blackhole'
+device_params = {'fabric_config': FabricConfig.FABRIC_2D, 'trace_region_size': 67108864}
+
+    @pytest.fixture(scope="function")
+    def mesh_device(request, silicon_arch_name, device_params):
+        """
+        Pytest fixture to set up a device mesh for tests.
+    
+        If `request.param` is an integer, it specifies the number of devices to use (up to available devices).
+        If `request.param` is a tuple, it defines the 2D grid dimensions (rows, columns) for TG, e.g., (8, 4) creates
+        a devish mesh grid of 8 rows and 4 columns, totaling 32 devices. The total number of devices should not exceed available devices.
+    
+        Args:
+            request: Pytest request object.
+            silicon_arch_name: Name of the silicon architecture.
+            device_params: Additional device configuration parameters.
+    
+        Yields:
+            mesh_device: Initialized device mesh object.
+        """
+        import ttnn
+    
+        request.node.pci_ids = ttnn.get_pcie_device_ids()
+    
+        try:
+            param = request.param
+        except (ValueError, AttributeError):
+            # No explicit parametrization; fall back to the system mesh size resolved below.
+            param = None
+    
+        # The mesh that open_mesh_device can actually allocate is bounded by the system mesh exposed
+        # by the control plane, which may be smaller than the number of physical chips. For example,
+        # fabric auto-discovery can downgrade the mesh (e.g. to 2x2) when ethernet/fabric links are
+        # missing or fail to train, even though get_num_devices() still reports all physical chips.
+        # Comparing only against get_num_devices() would let the test proceed and then crash inside
+        # open_mesh_device with a TT_FATAL; also accounting for the system mesh size lets us skip
+        # gracefully on such machines instead.
+        #
+        # Query the system mesh once. A failure here means control-plane / mesh-graph discovery itself
+        # errored (missing descriptor, untrained eth links, control-plane regression, ...). That is an
+        # infrastructure/software fault, not a capacity mismatch, so we must FAIL fixture setup instead
+        # of skipping: turning discovery errors into skips would let a broken machine report false-green
+        # CI with no device path exercised. The confirmed capacity-mismatch case is handled below via
+        # pytest.skip, once the system mesh size is known.
+        try:
+            system_mesh_size = ttnn._ttnn.multi_device.SystemMeshDescriptor().shape().mesh_size()
+        except Exception as e:
+            raise RuntimeError(
+                f"Could not query the system mesh descriptor (control-plane/mesh discovery failed): {e}"
+            ) from e
+    
+        if param is None:
+            param = system_mesh_size
+    
+        if isinstance(param, tuple):
+            grid_dims = param
+            assert len(grid_dims) == 2, "Device mesh grid shape should have exactly two elements."
+            num_devices_requested = grid_dims[0] * grid_dims[1]
+            available_num_devices = (
+                system_mesh_size if ttnn.using_distributed_env() else min(ttnn.get_num_devices(), system_mesh_size)
+            )
+            if (
+                device_params.get("require_exact_physical_num_devices", False)
+                and num_devices_requested != available_num_devices
+            ):
+                pytest.skip(
+                    f"Test requires exact match of requested num devices ({num_devices_requested}) to available physical num devices ({available_num_devices})."
+                )
+    
+            if num_devices_requested > available_num_devices:
+                pytest.skip(
+                    f"Requested more devices ({num_devices_requested}) than available ({available_num_devices}). Test not applicable for machine"
+                )
+            mesh_shape = ttnn.MeshShape(*grid_dims)
+        else:
+            if not ttnn.using_distributed_env():
+                available_num_devices = min(ttnn.get_num_devices(), system_mesh_size)
+                if param > available_num_devices:
+                    pytest.skip(
+                        f"Requested more devices ({param}) than available ({available_num_devices}). Test not applicable for machine"
+                    )
+            mesh_shape = ttnn.MeshShape(1, param)
+    
+        # Resolve trace_region_size against the SKU of the submesh actually opened.
+        # TRACE_MODEL_KEY_PARAM is resolved here (not at device_params/collection time) so the
+        # logical SKU reflects request.param/data_parallel/MESH_DEVICE, not the physical cluster.
+        trace_model_key = device_params.pop(TRACE_MODEL_KEY_PARAM, None)
+        if "trace_region_size" in device_params:
+            logger.info(
+                f"Keeping trace_region_size={device_params['trace_region_size']!r} from device_params (already set)"
+            )
+        elif trace_model_key is not None:
+            sku = get_logical_sku(request, param)
+            if sku is None:
+                logger.info(f"No SKU for {param!r}; not setting trace_region_size for model {trace_model_key!r}")
+            else:
+                device_params["trace_region_size"] = resolve_trace_region_size(trace_model_key, sku)
+        else:
+            override_trace_region_size = get_supported_trace_region_size(request, param)
+            if override_trace_region_size is None:
+                logger.info(f"No trace region size for {param!r}")
+            else:
+                device_params["trace_region_size"] = override_trace_region_size
+    
+        updated_device_params = get_updated_device_params(device_params)
+        updated_device_params.pop("require_exact_physical_num_devices", False)
+        fabric_config = updated_device_params.pop("fabric_config", None)
+        fabric_tensix_config = updated_device_params.pop("fabric_tensix_config", None)
+        reliability_mode = updated_device_params.pop("reliability_mode", None)
+        fabric_manager = updated_device_params.pop("fabric_manager", None)
+        fabric_router_config = updated_device_params.pop("fabric_router_config", None)
+        set_fabric(fabric_config, reliability_mode, fabric_tensix_config, fabric_manager, fabric_router_config)
+>       mesh_device = ttnn.open_mesh_device(mesh_shape=mesh_shape, **updated_device_params)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+conftest.py:662: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mesh_shape = MeshShape([2, 2]), l1_small_size = 0, trace_region_size = 67108864
+num_command_queues = 1
+dispatch_core_config = <ttnn.device.DispatchCoreConfig object at 0x75e8a0081360>
+offset = None, physical_device_ids = [], worker_l1_size = 0
+
+    def open_mesh_device(
+        mesh_shape: ttnn.MeshShape = None,
+        l1_small_size: int = ttnn._ttnn.device.DEFAULT_L1_SMALL_SIZE,
+        trace_region_size: int = ttnn._ttnn.device.DEFAULT_TRACE_REGION_SIZE,
+        num_command_queues: int = 1,
+        dispatch_core_config: ttnn.DispatchCoreConfig = None,
+        offset: Optional[ttnn.MeshCoordinate] = None,
+        physical_device_ids: List[int] = [],
+        worker_l1_size: int = ttnn._ttnn.device.DEFAULT_WORKER_L1_SIZE,
+    ):
+        """
+        Open a mesh device with the specified configuration.
+    
+        Args:
+            mesh_shape (ttnn.MeshShape, optional): The shape of the mesh device. Defaults to the global shape of the system mesh.
+            l1_small_size (int, optional): Size of the L1 small memory. Defaults to ttnn._ttnn.device.DEFAULT_L1_SMALL_SIZE.
+            trace_region_size (int, optional): Size of the trace region. Defaults to ttnn._ttnn.device.DEFAULT_TRACE_REGION_SIZE.
+            num_command_queues (int, optional): Number of command queues. Defaults to 1.
+            dispatch_core_type (int, optional): Type of dispatch core. Defaults to DispatchCoreType.WORKER.
+            offset (ttnn.MeshCoordinate, optional): Offset in logical mesh coordinates for the mesh device. Defaults to None.
+            physical_device_ids (List[int], optional): List of physical device IDs to use. Defaults to [].
+            worker_l1_size (int, optional): Size of the usable worker L1 memory. Defaults to ttnn._ttnn.device.DEFAULT_WORKER_L1_SIZE.
+    
+        Returns:
+            ttnn._ttnn.multi_device.MeshDevice: The opened mesh device.
+    
+        """
+>       return ttnn._ttnn.multi_device.open_mesh_device(
+            l1_small_size=l1_small_size,
+            trace_region_size=trace_region_size,
+            num_command_queues=num_command_queues,
+            dispatch_core_config=dispatch_core_config or ttnn.DispatchCoreConfig(),
+            mesh_shape=mesh_shape,
+            offset=offset,
+            physical_device_ids=physical_device_ids,
+            worker_l1_size=worker_l1_size,
+        )
+E       RuntimeError: TT_FATAL @ /home/hous/dev/tt-metal/tt_metal/impl/program/program.cpp:2998: state.offset <= max_size
+E       info:
+E       Program size (30880) too large for kernel config buffer (26624) on ACTIVE_ETH
+E       backtrace:
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x6c928a) [0x75e90e0c928a]
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(_ZN2tt8tt_metal6detail11ProgramImpl24finalize_program_offsetsEN4ttsl10StrongTypeIiNS0_12ContextIdTagEEEPNS0_7IDeviceERKSt8functionIFRSt13unordered_mapIjSt10shared_ptrINS0_6KernelEESt4hashIjESt8equal_toIjESaISt4pairIKjSD_EEEjEERKS9_IFRSt6vectorISB_INS0_11KernelGroupEESaISU_EEjEERKS9_IFRKSS_INS0_9SemaphoreESaIS12_EEvEESt4spanIPS2_Lm18446744073709551615EE+0xda3) [0x75e90e0b0043]
+E        --- tt::tt_metal::detail::ProgramImpl::finalize_offsets(tt::tt_metal::IDevice*)
+E        --- tt::tt_metal::Device::configure_fabric()
+E        --- tt::tt_metal::FabricFirmwareInitializer::compile_and_configure_fabric()
+E        --- tt::tt_metal::FabricFirmwareInitializer::init(std::vector<tt::tt_metal::Device*, std::allocator<tt::tt_metal::Device*> > const&, std::unordered_set<tt::tt_metal::InitializerKey, std::hash<tt::tt_metal::InitializerKey>, std::equal_to<tt::tt_metal::InitializerKey>, std::allocator<tt::tt_metal::InitializerKey> > const&)
+E        --- tt::tt_metal::DeviceManager::initialize_fabric_and_dispatch_fw()
+E        --- tt::tt_metal::distributed::MeshDeviceImpl::create(ttsl::StrongType<int, tt::tt_metal::ContextIdTag>, tt::tt_metal::distributed::MeshDeviceConfig const&, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&, std::span<unsigned int const, 18446744073709551615ul>, unsigned long)
+E        --- tt::tt_metal::distributed::MeshDevice::create(tt::tt_metal::distributed::MeshDeviceConfig const&, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&, std::span<unsigned int const, 18446744073709551615ul>, unsigned long)
+E        --- ttnn::distributed::open_mesh_device(unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&, std::optional<tt::tt_metal::distributed::MeshShape> const&, std::optional<tt::tt_metal::distributed::MeshCoordinate> const&, std::vector<int, std::allocator<int> > const&, unsigned long)
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x659691) [0x75e912059691]
+E        --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x75e912067a44]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1813d0b]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x181394d]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xcb1) [0x1814a31]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ab9bae]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18cb66c]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xde) [0x18b1d32]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x18b1891]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1a2e751]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x106) [0x19a8c06]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x4a) [0x19a898a]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x19a8910]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x19a881d]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x1ad6823]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x19846df]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3() [0x19844ec]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x75e958c2a1ca]
+E        --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x75e958c2a28b]
+E        --- /home/hous/dev/tt-metal/python_env/bin/python3(_start+0x29) [0x19a66a9]
+
+ttnn/ttnn/distributed/distributed.py:671: RuntimeError
+=============================== warnings summary ===============================
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+models/tt_transformers/tt/common.py:28
+  /home/hous/dev/tt-metal/models/tt_transformers/tt/common.py:28: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class ImageMedia(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+- generated xml file: /home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_vllm/trace_reuse_probe/watcher.xml -
+============================= slowest 25 durations =============================
+68.20s call     models/autoports/google_gemma_4_26b_a4b_it/tests/test_vllm_trace_reuse.py::test_adapter_request_trace_reuse[blackhole-p150]
+3.32s setup    models/autoports/google_gemma_4_26b_a4b_it/tests/test_vllm_trace_reuse.py::test_adapter_request_trace_reuse[blackhole-p150x2]
+1.32s setup    models/autoports/google_gemma_4_26b_a4b_it/tests/test_vllm_trace_reuse.py::test_adapter_request_trace_reuse[blackhole-p150]
+0.03s teardown models/autoports/google_gemma_4_26b_a4b_it/tests/test_vllm_trace_reuse.py::test_adapter_request_trace_reuse[blackhole-p150]
+
+(1 durations < 0.005s hidden.  Use -vv to show these durations.)
+=========================== short test summary info ============================
+PASSED models/autoports/google_gemma_4_26b_a4b_it/tests/test_vllm_trace_reuse.py::test_adapter_request_trace_reuse[blackhole-p150]
+ERROR models/autoports/google_gemma_4_26b_a4b_it/tests/test_vllm_trace_reuse.py::test_adapter_request_trace_reuse[blackhole-p150x2]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+============== 1 passed, 3 warnings, 1 error in 73.74s (0:01:13) ===============
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+2026-09-08 20:06:45.258 | info     |    BuildKernels | JIT cache stats: 441/790 hits (55.8%) [441 cached, 728 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-09-08 20:06:45.258 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-09-08 20:06:45.260 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:616)
+2026-09-08 20:06:45.274 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:550)
+2026-09-08 20:06:45.274 | info     |             UMD | Closing devices in cluster (cluster.cpp:1218)
+2026-09-08 20:06:45.797 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1227)
+2026-09-08 20:06:45.797 | info     |             UMD | Cluster destructor started. (cluster.cpp:933)
+2026-09-08 20:06:45.797 | info     |             UMD | Cluster destructor completed. (cluster.cpp:936)

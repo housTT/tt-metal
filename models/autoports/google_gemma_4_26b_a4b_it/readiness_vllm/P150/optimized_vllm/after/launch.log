@@ -1,0 +1,43 @@
+Launching vLLM server for google/gemma-4-26B-A4B-it on N150
+  cmd: /home/hous/dev/tt-metal/python_env/bin/python -m vllm.entrypoints.openai.api_server --model google/gemma-4-26B-A4B-it --block_size 64 --max_num_seqs 32 --port 8000 --max_model_len 50624 --additional-config '{"tt": {"sample_on_device_mode": "all", "trace_region_size": 220000000}}' --async-scheduling --enable-auto-tool-choice --tool-call-parser gemma4 --reasoning-parser gemma4
+  log: /home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150/optimized_vllm/after/server.log
+Waiting up to 1200s for server to become ready...
+  Server ready after ~80s
+
+Server ready at http://localhost:8000
+Server is running. Press Ctrl-C (or send SIGTERM) to stop.
+
+Shutting down server (PID 1784292)...
+  Terminated cleanly.
+
+=== Server log tail (/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150/optimized_vllm/after/server.log, last 30 lines) ===
+ - leaked instance 0x7f5421d612e8 of type "ttnn._ttnn.operations.normalization.SoftmaxDefaultProgramConfig"
+ - leaked instance 0x7f5421c39c08 of type "ttnn._ttnn.operations.experimental.IndexerScoreProgramConfig"
+ - leaked instance 0x7f5421e42fc8 of type "ttnn._ttnn.multi_device.MeshCoordinate"
+ - ... skipped remainder
+nanobind: leaked 984 types!
+ - leaked type "SocketEndpoint"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.gt__t"
+ - leaked type "ttnn._ttnn.operations.experimental.attn_res_gather_softmax_t"
+ - leaked type "ttnn._ttnn.d2d_stream_service.D2DStreamServiceSender"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.SliceDeviceOperation"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "ttnn._ttnn.operations.binary.lt__t"
+ - leaked type "ttnn._ttnn.operations.binary_backward.xlogy_bw_t"
+ - leaked type "ttnn._ttnn.operations.experimental.insert_t"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.isclose_t"
+ - ... skipped remainder
+nanobind: leaked 4503 functions!
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "__call__"
+ - leaked function ""
+ - leaked function "__call__"
+ - leaked function "__call__"
+ - leaked function "__call__"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html

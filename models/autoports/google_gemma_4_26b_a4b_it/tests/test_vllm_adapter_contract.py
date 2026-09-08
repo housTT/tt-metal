@@ -6,6 +6,7 @@ import inspect
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 import torch
 
 import ttnn
@@ -99,6 +100,28 @@ def test_unseeded_stochastic_rows_use_distinct_device_streams():
     assert second == (104729, 104730, 104731, 104732)
 
 
+def test_formatted_greedy_requests_have_seed_independent_canonical_trace_key():
+    from models.autoports.google_gemma_4_26b_a4b_it.tt.generator import Gemma4Generator
+
+    generator = Gemma4Generator.__new__(Gemma4Generator)
+    params = SamplingParams(temperature=0.0, top_k=1, top_p=1.0, seed=None)
+    first = Gemma4ForCausalLM._sampling_values(params, 32, unseeded_epoch=1)
+    second = Gemma4ForCausalLM._sampling_values(params, 32, unseeded_epoch=2)
+    assert first["seeds"] != second["seeds"]
+    assert first["temperature"] == second["temperature"] == (0.0,) * 32
+    first_spec = generator._sampling_spec(32, **first)
+    second_spec = generator._sampling_spec(32, **second)
+    assert first_spec.greedy and second_spec.greedy
+    assert first_spec.key == second_spec.key
+
+    mixed = SamplingParams(temperature=[0.0, 0.5], top_k=[1, 8], top_p=[0.0, 0.9])
+    mixed_values = Gemma4ForCausalLM._sampling_values(mixed, 2, unseeded_epoch=2)
+    assert mixed_values["temperature"] == (1.0, 2.0)
+    assert not generator._sampling_spec(2, **mixed_values).greedy
+    positive_temperature = SamplingParams(temperature=1.0, top_k=1, top_p=0.0)
+    assert Gemma4ForCausalLM._sampling_values(positive_temperature, 1)["temperature"] == (1.0,)
+
+
 def test_host_sampling_compatibility_formats_rank2_logits():
     prefill = inspect.getsource(Gemma4ForCausalLM.prefill_forward)
     decode = inspect.getsource(Gemma4ForCausalLM.decode_forward)
@@ -166,7 +189,7 @@ def test_decode_uses_batch_one_fast_path_and_padded_multi_request_width():
     assert "pack active requests before inactive slots" in source
     assert "tokens.reshape(-1)[:execution_batch].reshape(execution_batch, 1)" in source
     assert "active_rows_changed = not torch.equal(state.active_mask, desired_active)" in source
-    assert "active_mask=active if active_rows_changed or reset_batch or remap_changed else None" in source
+    assert "active if active_rows_changed or reset_batch or remap_changed or refresh_decode_inputs else None" in source
 
 
 def test_decode_releases_pinned_traces_before_batch_shape_recapture():
@@ -179,7 +202,7 @@ def test_decode_releases_pinned_traces_before_batch_shape_recapture():
 def test_adapter_steady_decode_ignores_stale_host_feedback_and_refreshes_changed_pages_once(monkeypatch):
     class FakeGenerator:
         def __init__(self, state):
-            self.model = SimpleNamespace(num_layers=1, vocab_size=262_144)
+            self.model = SimpleNamespace(num_layers=1, vocab_size=4)
             self.state = state
             self.calls = []
 
@@ -195,7 +218,10 @@ def test_adapter_steady_decode_ignores_stale_host_feedback_and_refreshes_changed
                     "page_table": kwargs["page_table"],
                 }
             )
-            return object()
+            return torch.zeros((32, 4))
+
+        def _gather_logits_to_torch(self, output):
+            return output
 
     state = SimpleNamespace(
         kv_cache=object(),
@@ -247,13 +273,49 @@ def test_adapter_steady_decode_ignores_stale_host_feedback_and_refreshes_changed
         read_from_device=False,
     )
 
-    assert len(releases) == 1
+    assert not releases
     assert len(refreshes) == 2  # initial bind, then the one changed table
     assert gen.calls[0]["active_mask"].tolist() == [True]
     assert gen.calls[1]["active_mask"] is None
     assert gen.calls[2]["active_mask"] is None
     assert gen.calls[1]["tokens"].item() == 999
     assert gen.calls[1]["positions"].item() == 5
+
+    def decode(**kwargs):
+        return adapter.decode_forward(
+            torch.ones((32, 1), dtype=torch.int64),
+            positions,
+            table_b,
+            state.kv_cache,
+            read_from_device=False,
+            **kwargs,
+        )
+
+    decode(sampling_params=object(), reset_batch=True)
+    assert not releases
+    assert gen.calls[-1]["active_mask"].tolist() == [True]
+    adapter._decode_ready = False  # A prefill boundary refreshes without release.
+    decode(sampling_params=object())
+    assert not releases
+    assert gen.calls[-1]["active_mask"].tolist() == [True]
+    decode(sampling_params=object())
+    assert gen.calls[-1]["active_mask"] is None
+
+    positions[1] = 7  # B1 -> padded execution requires a different trace.
+    decode(sampling_params=object())
+    assert len(releases) == 1
+    remap = torch.arange(32)
+    remap[:2] = torch.tensor([1, 0])
+    decode(sampling_params=object(), slot_remap=remap)
+    assert len(releases) == 2
+    decode(sampling_params=None)
+    assert len(releases) == 3
+    assert not adapter._decode_ready
+    decode(sampling_params=object())
+    assert len(releases) == 3
+    assert gen.calls[-1]["active_mask"] is not None
+    decode(sampling_params=object())
+    assert gen.calls[-1]["active_mask"] is None
 
 
 def test_page_table_refresh_uses_host_staging_and_existing_device_storage(monkeypatch):
@@ -283,6 +345,122 @@ def test_page_table_refresh_uses_host_staging_and_existing_device_storage(monkey
     assert staged.shape == (32, 4)
     assert staged[0, :2].tolist() == [7, 8]
     assert calls[1] == ("copy", "host-staging", target)
+
+
+def test_page_table_groups_copy_selectively_and_preserve_alias_mutation_semantics(monkeypatch):
+    adapter = Gemma4ForCausalLM()
+    adapter.mesh_device = object()
+    targets = [SimpleNamespace(shape=(4, 4), layer=layer) for layer in range(30)]
+    adapter._serving_state = SimpleNamespace(page_tables=targets)
+    groups = [torch.full((2, 4), group, dtype=torch.int32) for group in range(6)]
+    tables = [groups[layer % 6] for layer in range(30)]
+    copies, comparisons = [], []
+    device_contents = {}
+    original_equal = torch.equal
+
+    def equal(current, previous):
+        comparisons.append((id(current), id(previous)))
+        return original_equal(current, previous)
+
+    def from_torch(source, **kwargs):
+        assert "device" not in kwargs
+        return source.clone()
+
+    def copy(source, destination):
+        copies.append(destination.layer)
+        device_contents[destination.layer] = source.clone()
+
+    monkeypatch.setattr(torch, "equal", equal)
+    monkeypatch.setattr(ttnn, "ReplicateTensorToMesh", lambda mesh: mesh)
+    monkeypatch.setattr(ttnn, "from_torch", from_torch)
+    monkeypatch.setattr(ttnn, "copy_host_to_device_tensor", copy)
+
+    def refresh(expected_layers):
+        copies.clear()
+        adapter._refresh_page_tables(tables)
+        assert copies == expected_layers
+        for source, target in zip(tables, targets):
+            expected = torch.zeros(target.shape, dtype=torch.int32)
+            rows, cols = min(source.shape[0], 4), min(source.shape[1], 4)
+            expected[:rows, :cols] = source[:rows, :cols]
+            assert original_equal(device_contents[target.layer], expected)
+
+    refresh(list(range(30)))
+    assert len({id(table) for table in adapter._last_page_tables}) == 6
+    assert all(snapshot is not current for snapshot, current in zip(adapter._last_page_tables, tables))
+    comparisons.clear()
+    assert not adapter._page_tables_changed(tables)
+    assert len(comparisons) == 6
+    refresh([])
+    assert adapter._page_table_refreshes == 1
+
+    groups[0][0, 0] += 10  # One real HMA group owns five distinct device targets.
+    assert adapter._page_tables_changed(tables)
+    refresh([0, 6, 12, 18, 24])
+    assert adapter._page_table_refreshes == 2
+
+    tables[6] = tables[6].clone()  # Split one layer away from its old alias group.
+    tables[6][0, 0] += 7
+    refresh([6])
+    groups[0][0, 0] += 20
+    refresh([0, 12, 18, 24])
+    tables[6] = groups[0]  # One current object now pairs with two old snapshots.
+    assert adapter._page_tables_changed(tables)
+    refresh([6])
+    assert adapter._last_page_tables[0] is adapter._last_page_tables[6]
+
+    tables[12] = tables[12].clone()  # Equal but distinct tables require no upload.
+    assert not adapter._page_tables_changed(tables)
+    refresh([])
+    tables[12][0, 0] += 1
+    refresh([12])
+    tables[12] = torch.tensor([[9]], dtype=torch.int32)
+    refresh([12])  # A shorter table must zero all previously populated trailing cells.
+    assert device_contents[12].sum().item() == 9
+    assert len({id(target) for target in adapter._serving_state.page_tables}) == 30
+
+
+@pytest.mark.parametrize("compile_stage", [None, "prefill", "sampling", "read"])
+@pytest.mark.parametrize("list_logits", [False, True])
+def test_prefill_retires_traces_only_when_program_cache_changes(monkeypatch, compile_stage, list_logits):
+    events = []
+    program_count = [10]
+    state = SimpleNamespace(kv_cache=object(), page_tables=[object()])
+
+    def operation(stage, result):
+        events.append(stage)
+        if compile_stage == stage:
+            program_count[0] += 1
+        return result
+
+    gen = SimpleNamespace(
+        model=SimpleNamespace(num_layers=1),
+        _trace_cache={"retained": object()},
+        prefill_forward=lambda *_args, **_kwargs: operation("prefill", [object()] if list_logits else object()),
+        sample_device_logits=lambda *_args, **_kwargs: operation("sampling", object()),
+        _read_tokens=lambda *_args, **_kwargs: operation("read", torch.tensor([42])),
+    )
+    adapter = Gemma4ForCausalLM()
+    adapter.mesh_device = SimpleNamespace(num_program_cache_entries=lambda: program_count[0])
+    adapter._serving_state = state
+    monkeypatch.setattr(adapter, "_require_generator", lambda: gen)
+    monkeypatch.setattr(adapter, "_page_tables_changed", lambda _tables: False)
+
+    def release():
+        events.append("release")
+        gen._trace_cache.clear()
+
+    monkeypatch.setattr(adapter, "_release_decode_traces", release)
+    result = adapter.prefill_forward(
+        torch.ones((1, 33), dtype=torch.long),
+        page_table=torch.zeros((1, 1), dtype=torch.int32),
+        kv_cache=state.kv_cache,
+        prompt_lens=[33],
+        sampling_params=SamplingParams(temperature=0.0, top_k=1, top_p=0.0),
+    )
+    assert result.tolist() == [42]
+    assert events == ["prefill", "sampling", "read"] + (["release"] if compile_stage is not None else [])
+    assert bool(gen._trace_cache) == (compile_stage is None)
 
 
 def test_state_slot_contract_keeps_external_cache_in_execution_row_order():

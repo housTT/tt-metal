@@ -1,0 +1,51 @@
+{
+  "verdict": "pass",
+  "server_mode": "async scheduling + trace + sample_on_device=all",
+  "prompt_mode": "OpenAI chat completions (Gemma instruct chat template)",
+  "invariants": {
+    "stable_initial_prefix_across_batch_shape_transition": true,
+    "long_request_stays_on_topic": true,
+    "no_cross_request_instruction_contamination": true,
+    "exact_match_diagnostic": false,
+    "decode_crosses_64_token_page_boundary": true,
+    "short_request_reaches_eos_before_long_request": true,
+    "no_repeated_or_doubled_token_degeneracy": true
+  },
+  "state_evidence": "Direct persistent-input, changed/unchanged page-table, and deferred-read counters are recorded separately by test_reduced_mixed_prompt_and_inactive_slot_probe.",
+  "cases": [
+    {
+      "name": "cross_page_boundary",
+      "prompt": "Explain, in a connected short essay of at least 140 words, how a brass telescope helps an astronomer observe the Moon. Discuss its lenses, focusing, mounting, and careful observation.",
+      "max_tokens": 96,
+      "ignore_eos": true,
+      "matches_isolated_control": false,
+      "isolated_sha256": "1efccaaec0906df70abeb33840019c8e29a380e1841b1aebf8924164745759a5",
+      "overlapped_sha256": "60839aee09b6d6e9038bbd0350a83c9716d49308fd7fefd0ff2ca52d7614a214",
+      "isolated_completion_tokens": 96,
+      "overlapped_completion_tokens": 96,
+      "isolated_finish_reason": "length",
+      "overlapped_finish_reason": "length",
+      "isolated_degeneracy_reasons": [],
+      "overlapped_degeneracy_reasons": [],
+      "isolated_completion": "A brass telescope serves as a vital instrument for an astronomer seeking to study the lunar surface, acting as a bridge between the human eye and the celestial body. The process begins with the telescope's lenses, which are crafted from high-quality glass to capture and bend incoming light. As moonlight enters the objective lens, it is refracted toward a focal point, allowing the observer to see details that would otherwise be invisible to the naked eye.\n\nAchieving a clear view requires precise focusing",
+      "completion": "A brass telescope serves as a vital bridge between the human eye and the celestial wonders of the Moon. At its core, the instrument relies on a sophisticated arrangement of glass lenses. As light reflects off the lunar surface, it enters the objective lens, which gathers the faint photons and begins the process of convergence. These light rays travel through the tube toward the eyepiece, where the secondary lens magnifies the image, allowing the astronomer to perceive craters and maria that would otherwise remain invisible.\n\n"
+    },
+    {
+      "name": "early_completion",
+      "prompt": "Reply with exactly these two words and nothing else: Brass telescope",
+      "max_tokens": 32,
+      "ignore_eos": false,
+      "matches_isolated_control": true,
+      "isolated_sha256": "cc7342f922432d9adc3699dc3352b45452a1994c2859c9f787c2dd0f7d1a3025",
+      "overlapped_sha256": "cc7342f922432d9adc3699dc3352b45452a1994c2859c9f787c2dd0f7d1a3025",
+      "isolated_completion_tokens": 3,
+      "overlapped_completion_tokens": 3,
+      "isolated_finish_reason": "stop",
+      "overlapped_finish_reason": "stop",
+      "isolated_degeneracy_reasons": [],
+      "overlapped_degeneracy_reasons": [],
+      "isolated_completion": "Brass telescope",
+      "completion": "Brass telescope"
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "verdict": "pass",
+  "server_mode": "async scheduling + trace + sample_on_device=all",
+  "prompt_mode": "OpenAI chat completions (Gemma instruct chat template)",
+  "invariants": {
+    "stable_initial_prefix_across_batch_shape_transition": true,
+    "long_request_stays_on_topic": true,
+    "no_cross_request_instruction_contamination": true,
+    "exact_match_diagnostic": false,
+    "decode_crosses_64_token_page_boundary": true,
+    "short_request_reaches_eos_before_long_request": true,
+    "no_repeated_or_doubled_token_degeneracy": true
+  },
+  "state_evidence": "Direct persistent-input, changed/unchanged page-table, and deferred-read counters are recorded separately by test_reduced_mixed_prompt_and_inactive_slot_probe.",
+  "cases": [
+    {
+      "name": "cross_page_boundary",
+      "prompt": "Explain, in a connected short essay of at least 140 words, how a brass telescope helps an astronomer observe the Moon. Discuss its lenses, focusing, mounting, and careful observation.",
+      "max_tokens": 96,
+      "ignore_eos": true,
+      "matches_isolated_control": false,
+      "isolated_sha256": "e46f50a858b28ff67d3d8f78e36d78da0d49380a0825f2c95fdf00eb322ae09e",
+      "overlapped_sha256": "e0310137b4e0539ab7b0d5711d689c253d8f03918c72c40565ca6a59af86761c",
+      "isolated_completion_tokens": 96,
+      "overlapped_completion_tokens": 96,
+      "isolated_finish_reason": "length",
+      "overlapped_finish_reason": "length",
+      "isolated_degeneracy_reasons": [],
+      "overlapped_degeneracy_reasons": [],
+      "isolated_completion": "A brass telescope serves as a vital bridge between the human eye and the celestial wonders of the lunar surface. For an astronomer, this instrument is not merely a tool but a sophisticated optical system designed to gather and concentrate light. The process begins with the lenses, typically crafted from high-quality glass, which are housed within the sturdy brass tube. These lenses work in tandem to refract incoming light, bending it to a specific convergence point.\n\nThe art of observation relies heavily on precise focusing",
+      "completion": "A brass telescope serves as a vital bridge between the human eye and the celestial wonders of the lunar surface. For an astronomer, this instrument is not merely a tool but a sophisticated optical system designed to gather and concentrate light. The process begins with the lenses, typically crafted from high-quality glass, which are housed within the sturdy brass tube. These lenses work in tandem to refract incoming light, bending it to a specific convergence point.\n\nThe act of focusing is critical to this observation"
+    },
+    {
+      "name": "early_completion",
+      "prompt": "Reply with exactly these two words and nothing else: Brass telescope",
+      "max_tokens": 32,
+      "ignore_eos": false,
+      "matches_isolated_control": true,
+      "isolated_sha256": "cc7342f922432d9adc3699dc3352b45452a1994c2859c9f787c2dd0f7d1a3025",
+      "overlapped_sha256": "cc7342f922432d9adc3699dc3352b45452a1994c2859c9f787c2dd0f7d1a3025",
+      "isolated_completion_tokens": 3,
+      "overlapped_completion_tokens": 3,
+      "isolated_finish_reason": "stop",
+      "overlapped_finish_reason": "stop",
+      "isolated_degeneracy_reasons": [],
+      "overlapped_degeneracy_reasons": [],
+      "isolated_completion": "Brass telescope",
+      "completion": "Brass telescope"
+    }
+  ]
+}

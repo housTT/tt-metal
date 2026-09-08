@@ -77,6 +77,37 @@ class ProfileManifestTests(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertIn("below 262144", findings[0])
 
+    def test_stage_report_roots_use_explicit_profiles(self):
+        data = {"profiles": {name: {"config": {"max_model_len": limit}} for name, limit in self.limits.items()}}
+        for stage in ("vllm_integration", "optimized_vllm", "tti_release"):
+            with self.subTest(stage=stage):
+                self.assertEqual(self.scan(data, f"doc/{stage}/perf_summary.json"), [])
+
+    def test_stage_report_preserves_other_context_floors(self):
+        findings = self.scan(
+            {
+                "max_model_len": 50624,
+                "profiles": {
+                    "P150": {"max_model_len": 50624},
+                    "P150x2": {"max_model_len": 50624},
+                    "unknown": {"max_model_len": 50624},
+                },
+            },
+            "doc/optimized_vllm/perf_summary.json",
+        )
+        self.assertEqual(len(findings), 3)
+        self.assertTrue(all("below 262144" in item for item in findings))
+
+    def test_stage_report_cannot_reduce_recorded_profile_limit(self):
+        findings = self.scan({"profiles": {"P150": {"max_model_len": 50623}}}, "doc/optimized_vllm/perf_summary.json")
+        self.assertEqual(len(findings), 1)
+        self.assertIn("below 50624", findings[0])
+
+    def test_nested_report_does_not_gain_aggregate_override(self):
+        findings = self.scan({"profiles": {"P150": {"max_model_len": 50624}}}, "doc/optimized_vllm/P150x2/config.json")
+        self.assertEqual(len(findings), 1)
+        self.assertIn("below 262144", findings[0])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -172,6 +172,12 @@ def scan_caps(
 ) -> tuple[list[str], list[str]]:
     critical: list[str] = []
     advisory: list[str] = []
+    aggregate_roots = {
+        Path("readiness_vllm"),
+        Path("doc/vllm_integration"),
+        Path("doc/optimized_vllm"),
+        Path("doc/tti_release"),
+    }
 
     for path in checked_files(model_dir):
         try:
@@ -193,11 +199,11 @@ def scan_caps(
                 continue
             for json_path, value in iter_json_values(data):
                 value_minimum = file_minimum
-                # Aggregate serving manifests store the same profile-scoped
-                # settings as readiness_vllm/<profile>/ artifacts. Resolve only
+                # Aggregate serving manifests and stage reports store the same
+                # profile-scoped settings as readiness_vllm/<profile>/. Resolve only
                 # an explicit top-level profiles mapping against the contract;
                 # sibling/global settings retain the global context floor.
-                if rel.parent == Path("readiness_vllm") and per_profile_context:
+                if rel.parent in aggregate_roots and per_profile_context:
                     parts = json_path.split(".")
                     if len(parts) >= 3 and parts[0] == "profiles":
                         value_minimum = per_profile_context.get(parts[1], file_minimum)

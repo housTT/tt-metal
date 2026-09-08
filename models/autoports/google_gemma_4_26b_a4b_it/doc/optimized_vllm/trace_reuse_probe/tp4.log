@@ -1,0 +1,490 @@
+2026-09-08 19:53:49.509 | DEBUG    | ttnn:<module>:45 - Initial ttnn.CONFIG:
+Config{cache_path=/home/hous/.cache/ttnn,model_cache_path=/home/hous/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=true,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.14, pytest-9.0.3, pluggy-1.6.0 -- /home/hous/dev/tt-metal/python_env/bin/python3
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/hous/dev/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.15.0, dash-2.15.0, repeat-0.9.4, benchmark-5.2.3, timeout-2.4.0, github-actions-annotate-failures-0.3.0, split-0.11.0, cov-7.0.0
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 1 item
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_vllm_trace_reuse.py::test_adapter_request_trace_reuse[blackhole-p150x4] 2026-09-08 19:53:51.243 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:224)
+2026-09-08 19:53:51.243 | info     |             UMD | Cluster constructor started. (cluster.cpp:406)
+2026-09-08 19:53:51.243 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
+2026-09-08 19:53:51.243 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
+2026-09-08 19:53:51.257 | info     |             UMD | Established firmware bundle version: 19.13.1 (topology_discovery.cpp:576)
+2026-09-08 19:53:51.257 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
+2026-09-08 19:53:51.335 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:173)
+2026-09-08 19:53:51.335 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
+2026-09-08 19:53:51.335 | info     |             UMD | KMD version: 2.8.0 (cluster.cpp:150)
+2026-09-08 19:53:51.335 | info     |             UMD | Cluster constructor completed. (cluster.cpp:665)
+2026-09-08 19:53:51.337 | info     |             UMD | Starting devices in cluster (cluster.cpp:1205)
+2026-09-08 19:53:51.582 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1213)
+2026-09-08 19:53:51.675 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:422)
+2026-09-08 19:53:51.675 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:484)
+2026-09-08 19:53:51.675 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-09-08 19:53:51.675 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:3368)
+2026-09-08 19:53:51.675 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:3376)
+2026-09-08 19:53:51.675 | INFO     | conftest:mesh_device:638 - Keeping trace_region_size=134217728 from device_params (already set)
+2026-09-08 19:53:51.676 | info     |           Metal | Fabric config changed from FabricConfig::DISABLED to FabricConfig::FABRIC_1D_RING, reinitializing control plane (metal_env.cpp:324)
+2026-09-08 19:53:51.676 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:422)
+2026-09-08 19:53:51.676 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:484)
+2026-09-08 19:53:51.676 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:3368)
+2026-09-08 19:53:51.676 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:3376)
+2026-09-08 19:53:51.721 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:308)
+2026-09-08 19:53:51.748 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:455)
+2026-09-08 19:53:51.748 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:325)
+2026-09-08 19:53:52.413 | DEBUG    | conftest:mesh_device:668 - multidevice with 4 devices is created
+2026-09-08 19:53:52.530 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/full_model/embedding_tp4_bf16_row_major_dtype_BFLOAT16_layout_ROW_MAJOR.tensorbin of shape Shape([1, 1, 262144, 704])
+2026-09-08 19:53:53.183 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/full_model/lm_head_tp4_dtype_BFLOAT8_B_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 65536])
+2026-09-08 19:53:53.227 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/full_model/final_norm_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 19:53:55.112 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/packed_expert_gate_up_tp4_dtype_BFLOAT4_B_layout_TILE.tensorbin of shape Shape([1, 128, 2816, 384])
+2026-09-08 19:53:55.152 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/layer_scalar_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 1])
+2026-09-08 19:53:55.152 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/input_ln_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 19:53:55.152 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/post_attn_ln_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 19:53:55.152 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/pre_ff_ln_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 19:53:55.152 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/post_ff_ln_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 19:53:55.152 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/post_ff_ln_1_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 19:53:55.153 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/post_ff_ln_2_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 19:53:55.153 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/pre_ff_ln_2_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 19:53:55.153 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/q_norm_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 256])
+2026-09-08 19:53:55.153 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/k_norm_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 256])
+2026-09-08 19:53:55.162 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/qkv_tp4_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 2048])
+2026-09-08 19:53:55.170 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/o_proj_tp4_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1024, 2816])
+2026-09-08 19:53:55.171 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/mlp_gate_tp4_dtype_BFLOAT8_B_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 544])
+2026-09-08 19:53:55.171 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/mlp_up_tp4_dtype_BFLOAT8_B_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 544])
+2026-09-08 19:53:55.172 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/mlp_down_tp4_dtype_BFLOAT8_B_layout_TILE.tensorbin of shape Shape([1, 1, 544, 2816])
+2026-09-08 19:53:55.172 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/router_scale_dtype_FLOAT32_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 19:53:55.173 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/router_proj_dtype_FLOAT32_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 128])
+2026-09-08 19:53:55.173 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/router_per_expert_scale_dtype_FLOAT32_layout_TILE.tensorbin of shape Shape([1, 128])
+2026-09-08 19:53:55.189 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/expert_down_tp4_dtype_BFLOAT4_B_layout_TILE.tensorbin of shape Shape([1, 128, 192, 2816])
+2026-09-08 19:53:55.190 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/expert_prefill_sparsity_dtype_BFLOAT16_layout_ROW_MAJOR.tensorbin of shape Shape([1, 1, 1, 128])
+2026-09-08 19:53:55.207 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router1_sharedffn1_expertscale1/multichip/layer_0/packed_mlp_gate_up_decode_bfp8_tp4_dtype_BFLOAT8_B_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 1088])
+2026-09-08 19:53:56.452 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/packed_expert_gate_up_tp4_dtype_BFLOAT4_B_layout_TILE.tensorbin of shape Shape([1, 128, 2816, 384])
+2026-09-08 19:53:56.492 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/layer_scalar_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 1])
+2026-09-08 19:53:56.492 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/input_ln_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 19:53:56.492 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/post_attn_ln_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 19:53:56.493 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/pre_ff_ln_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 19:53:56.493 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/post_ff_ln_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 19:53:56.493 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/post_ff_ln_1_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 19:53:56.493 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/post_ff_ln_2_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 19:53:56.493 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/pre_ff_ln_2_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 19:53:56.493 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/q_norm_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 512])
+2026-09-08 19:53:56.493 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/k_norm_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 1, 512])
+2026-09-08 19:53:56.502 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/qkv_tp4_dtype_BFLOAT8_B_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 3072])
+2026-09-08 19:53:56.519 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/o_proj_tp4_dtype_BFLOAT8_B_layout_TILE.tensorbin of shape Shape([1, 1, 2048, 2816])
+2026-09-08 19:53:56.521 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/mlp_gate_tp4_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 544])
+2026-09-08 19:53:56.523 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/mlp_up_tp4_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 544])
+2026-09-08 19:53:56.524 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/mlp_down_tp4_dtype_BFLOAT16_layout_TILE.tensorbin of shape Shape([1, 1, 544, 2816])
+2026-09-08 19:53:56.524 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/router_scale_dtype_FLOAT32_layout_TILE.tensorbin of shape Shape([1, 1, 1, 2816])
+2026-09-08 19:53:56.525 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/router_proj_dtype_FLOAT32_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 128])
+2026-09-08 19:53:56.525 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/router_per_expert_scale_dtype_FLOAT32_layout_TILE.tensorbin of shape Shape([1, 128])
+2026-09-08 19:53:56.541 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/expert_down_tp4_dtype_BFLOAT4_B_layout_TILE.tensorbin of shape Shape([1, 128, 192, 2816])
+2026-09-08 19:53:56.542 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/expert_prefill_sparsity_dtype_BFLOAT16_layout_ROW_MAJOR.tensorbin of shape Shape([1, 1, 1, 128])
+2026-09-08 19:53:56.549 | DEBUG    | core:as_tensor:719 - Loaded cache for /tmp/gemma4_full_model_probe_cache/optimized_graph_folds_router0_sharedffn0_expertscale1/multichip/layer_5/packed_mlp_gate_up_decode_bfp8_tp4_dtype_BFLOAT8_B_layout_TILE.tensorbin of shape Shape([1, 1, 2816, 1088])
+2026-09-08 19:53:56.790 | warning  |              Op | Allocating semaphores in L1, which may fragment L1 and reduce headroom for subsequent op allocations. Configure an L1_SMALL region to mitigate this. (all_gather_multicast_factory.cpp:42)
+2026-09-08 19:53:56.791 | warning  |              Op | Fabric packet size 4352 B is suboptimal for transporting 2048 B pages. Configure 8192 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-09-08 19:53:56.791 | warning  |              Op | Fabric packet size 4352 B is suboptimal for transporting 2048 B pages. Configure 8192 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-09-08 19:53:56.791 | warning  |              Op | Fabric packet size 4352 B is suboptimal for transporting 2048 B pages. Configure 8192 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-09-08 19:53:56.791 | warning  |              Op | Fabric packet size 4352 B is suboptimal for transporting 2048 B pages. Configure 8192 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-09-08 19:53:56.889 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:53:56.889 | warning  |              Op | Allocating semaphores in L1, which may fragment L1 and reduce headroom for subsequent op allocations. Configure an L1_SMALL region to mitigate this. (all_gather_multicast_factory.cpp:42)
+2026-09-08 19:53:56.889 | warning  |              Op | Fabric packet size 4352 B is suboptimal for transporting 2048 B pages. Configure 8192 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-09-08 19:53:56.889 | warning  |              Op | Fabric packet size 4352 B is suboptimal for transporting 2048 B pages. Configure 8192 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-09-08 19:53:56.889 | warning  |              Op | Fabric packet size 4352 B is suboptimal for transporting 2048 B pages. Configure 8192 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-09-08 19:53:56.889 | warning  |              Op | Fabric packet size 4352 B is suboptimal for transporting 2048 B pages. Configure 8192 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-09-08 19:53:56.891 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:53:56.891 | warning  |              Op | Allocating semaphores in L1, which may fragment L1 and reduce headroom for subsequent op allocations. Configure an L1_SMALL region to mitigate this. (all_gather_multicast_factory.cpp:42)
+2026-09-08 19:53:56.891 | warning  |              Op | Fabric packet size 4352 B is suboptimal for transporting 4096 B pages. Configure 12288 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-09-08 19:53:56.892 | warning  |              Op | Fabric packet size 4352 B is suboptimal for transporting 4096 B pages. Configure 12288 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-09-08 19:53:56.892 | warning  |              Op | Fabric packet size 4352 B is suboptimal for transporting 4096 B pages. Configure 12288 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-09-08 19:53:56.892 | warning  |              Op | Fabric packet size 4352 B is suboptimal for transporting 4096 B pages. Configure 12288 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-09-08 19:53:56.910 | warning  |              Op | Allocating semaphores in L1, which may fragment L1 and reduce headroom for subsequent op allocations. Configure an L1_SMALL region to mitigate this. (all_gather_multicast_factory.cpp:42)
+2026-09-08 19:53:56.910 | warning  |              Op | Fabric packet size 4352 B is suboptimal for transporting 2048 B pages. Configure 8192 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-09-08 19:53:56.910 | warning  |              Op | Fabric packet size 4352 B is suboptimal for transporting 2048 B pages. Configure 8192 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-09-08 19:53:56.910 | warning  |              Op | Fabric packet size 4352 B is suboptimal for transporting 2048 B pages. Configure 8192 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-09-08 19:53:56.910 | warning  |              Op | Fabric packet size 4352 B is suboptimal for transporting 2048 B pages. Configure 8192 B packet size to maximize throughput. (ccl_common.cpp:70)
+2026-09-08 19:53:56.987 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:53:56.987 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:53:57.003 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:53:57.003 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:53:58.219 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:53:58.219 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:53:59.448 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:53:59.448 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:00.684 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:00.684 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:00.692 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:00.692 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:00.700 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:00.700 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:01.926 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:01.926 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:01.933 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:01.933 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:01.942 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:01.942 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:03.160 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:03.160 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:03.167 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:03.167 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:03.175 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:03.175 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:04.409 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:04.409 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:05.564 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:05.564 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:05.633 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:05.633 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:08.165 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+2026-09-08 19:54:08.165 | warning  |              Op | The following ttnn.all_gather args are deprecated and will be removed in September-2026: num_links, topology, chunks_per_sync, num_workers_per_link, num_buffers_per_channel, use_l1_small_for_semaphores. (all_gather.cpp:148)
+FAILED2026-09-08 19:54:08.441 | INFO     | conftest:pytest_runtest_teardown:1227 - In custom teardown, open device ids: {0, 1, 2, 3}
+
+
+=================================== FAILURES ===================================
+______________ test_adapter_request_trace_reuse[blackhole-p150x4] ______________
+
+mesh_device = MeshDevice(1x4 grid, 4 devices), profile_tp_size = 4
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7ecec8adaae0>
+
+    @pytest.mark.parametrize(
+        "mesh_device,device_params,profile_tp_size",
+        [
+            ((1, 1), {"trace_region_size": 67_108_864}, 1),
+            ((2, 2), {"fabric_config": ttnn.FabricConfig.FABRIC_2D, "trace_region_size": 67_108_864}, 2),
+            ((1, 4), {"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING, "trace_region_size": 134_217_728}, 4),
+        ],
+        ids=["p150", "p150x2", "p150x4"],
+        indirect=["mesh_device", "device_params"],
+    )
+    def test_adapter_request_trace_reuse(mesh_device, profile_tp_size, monkeypatch):
+        if os.environ.get("GEMMA4_VLLM_TRACE_REUSE_PROBE") != "1":
+            pytest.skip("set GEMMA4_VLLM_TRACE_REUSE_PROBE=1 for the serialized hardware probe")
+        assert os.environ.get("TT_METAL_TRACE_ALLOC_TRACKING") == "1", "enable allocator checks before importing TTNN"
+        target_mesh = (
+            mesh_device
+            if mesh_device.get_num_devices() == profile_tp_size
+            else mesh_device.create_submesh(ttnn.MeshShape((1, profile_tp_size)), offset=ttnn.MeshCoordinate(0, 0))
+        )
+        model = Gemma4FullModel(
+            mesh_device=target_mesh,
+            hf_config=_config(),
+            state_dict=_load_probe_state(full_stack=False),
+            max_seq_len=128,
+            max_batch_size=DECODE_SLOT_COUNT,
+            layer_indices=[0, 5],
+            tensor_cache_path="/tmp/gemma4_full_model_probe_cache",
+            create_kv_cache=False,
+            precision_config_path=PRECISION_CONFIG,
+        )
+        gen = Gemma4Generator(model, tokenizer=None, sampling_mode="device")
+        adapter = Gemma4ForCausalLM(generator=gen)
+        cache = adapter.allocate_kv_cache_per_layer(
+            [
+                (
+                    (DECODE_SLOT_COUNT * spec.blocks_per_slot, spec.local_kv_heads, spec.block_size, spec.head_dim),
+                    torch.bfloat16,
+                    i,
+                )
+                for i, spec in enumerate(model.cache_specs)
+            ]
+        )
+        tables = [
+            torch.arange(DECODE_SLOT_COUNT * spec.blocks_per_slot, dtype=torch.int32).reshape(
+                DECODE_SLOT_COUNT, spec.blocks_per_slot
+            )
+            for spec in model.cache_specs
+        ]
+        changed_tables = [table.roll(1, dims=0) for table in tables]
+        greedy = SamplingParams(temperature=0.0, top_k=1, top_p=0.0)
+        refreshed_inputs = {}
+        original_refresh = gen._refresh_device_input
+    
+        def record_refresh(target, values, **kwargs):
+            refreshed_inputs[target.buffer_address()] = values.clone()
+            return original_refresh(target, values, **kwargs)
+    
+        monkeypatch.setattr(gen, "_refresh_device_input", record_refresh)
+        operations = {"captures": 0, "releases": 0}
+        trace_events = []
+    
+        def cached_traces():
+            return [{"key": repr(key), "identity": _identity(trace)} for key, trace in gen._trace_cache.items()]
+    
+        original_get_trace = gen._get_or_capture_decode_trace
+    
+        def record_get_trace(tokens, start_pos, *, state, sampling_mode, sampling_spec, **kwargs):
+            requested_key = (
+                tokens.shape[0],
+                sampling_mode,
+                sampling_spec.key,
+                id(state),
+                tuple(map(id, state.page_tables)),
+            )
+            trace_events.append(
+                {
+                    "operation": "get_trace",
+                    "requested_key": repr(requested_key),
+                    "cache_hit": requested_key in gen._trace_cache,
+                    "cached_keys": [repr(key) for key in gen._trace_cache],
+                    "request_boundary": gen._request_boundary,
+                }
+            )
+            return original_get_trace(
+                tokens, start_pos, state=state, sampling_mode=sampling_mode, sampling_spec=sampling_spec, **kwargs
+            )
+    
+        monkeypatch.setattr(gen, "_get_or_capture_decode_trace", record_get_trace)
+        for name, key in (("begin_trace_capture", "captures"), ("release_trace", "releases")):
+            original = getattr(ttnn, name)
+    
+            def counted(*args, _original=original, _key=key, **kwargs):
+                operations[_key] += 1
+                trace_events.append(
+                    {
+                        "operation": _key,
+                        "callers": [f"{frame.name}:{frame.lineno}" for frame in traceback.extract_stack(limit=4)[:-1]],
+                        "decode_ready": adapter._decode_ready,
+                        "last_execution_batch": adapter._last_execution_batch,
+                    }
+                )
+                return _original(*args, **kwargs)
+    
+            monkeypatch.setattr(ttnn, name, counted)
+    
+        def consume(output):
+            host, events = adapter.read_decode_output(output, async_read=True)
+            assert len(events) == 1
+            for event in events:
+                ttnn.event_synchronize(event)
+            tokens, auxiliary = adapter.process_decode_output_host(host, is_tokens=True)
+            assert auxiliary is None
+            return tokens.clone()
+    
+        def run_request(lengths, token_offset, scheduler_tables, *, reset=False, force_release=False):
+            result = {
+                "lengths": lengths,
+                "reset_batch": reset,
+                "role": "explicit_release_control" if force_release else "candidate",
+                "stage": "before_prefill",
+                "traces_before_prefill": cached_traces(),
+            }
+            report["cases"].append(result)
+            if force_release:
+                adapter._release_decode_traces()
+            before = operations.copy()
+            before_refresh = adapter._page_table_refreshes
+            page_changed = adapter._page_tables_changed(scheduler_tables)
+            prompt = torch.stack(
+                [(torch.arange(max(lengths)) + token_offset + row * 13) % 2000 + 1 for row in range(len(lengths))]
+            )
+            first = adapter.prefill_forward(
+                prompt,
+                page_table=None,
+                page_tables_per_layer=scheduler_tables,
+                kv_cache=cache,
+                prompt_lens=lengths,
+                sampling_params=greedy,
+            )
+            result.update(stage="after_prefill", traces_after_prefill=cached_traces())
+            assert adapter._page_table_refreshes - before_refresh == int(page_changed)
+            counts_before_decode = vars(gen.trace_counters).copy()
+            positions = torch.full((DECODE_SLOT_COUNT,), -1, dtype=torch.int32)
+            positions[: len(lengths)] = torch.tensor(lengths, dtype=torch.int32)
+            token_input = torch.zeros((DECODE_SLOT_COUNT, 1), dtype=torch.long)
+            token_input[: len(lengths), 0] = first.reshape(-1)
+            steps, logits = [first.reshape(-1).tolist()], []
+            identity = None
+            for step in range(3):
+                output = adapter.decode_forward(
+                    token_input,
+                    positions,
+                    page_table=None,
+                    page_tables_per_layer=scheduler_tables,
+                    kv_cache=cache,
+                    sampling_params=greedy,
+                    reset_batch=reset and step == 0,
+                    read_from_device=False,
+                )
+                sampled = consume(output)
+                trace = next(iter(gen._trace_cache.values()))
+                current_identity = _identity(trace)
+                result.update(stage=f"decode_step_{step}", identity=current_identity)
+                assert current_identity["token"] == current_identity["sampled"]
+                if identity is None:
+                    identity = current_identity
+                    assert (
+                        refreshed_inputs[identity["token"]].reshape(-1)[: len(lengths)].tolist()
+                        == first.reshape(-1).tolist()
+                    )
+                    assert refreshed_inputs[identity["position"]].reshape(-1)[: len(lengths)].tolist() == lengths
+                    assert refreshed_inputs[identity["rope"]].reshape(-1)[: len(lengths)].tolist() == lengths
+                else:
+                    assert current_identity == identity
+                expected = [length + step + 1 for length in lengths] + [-1] * (32 - len(lengths))
+                assert _host(trace.current_pos).reshape(-1).tolist() == expected
+                assert _host(trace.position_ids).reshape(-1)[: len(lengths)].tolist() == expected[: len(lengths)]
+                assert _host(trace.token_input).reshape(-1)[: len(lengths)].tolist() == sampled[: len(lengths)].tolist()
+                steps.append(sampled[: len(lengths)].tolist())
+                # Read the actual terminal output, including all vocabulary shards;
+                # keep only host tensors so no extra device allocations survive replay.
+                logits.append(
+                    torch.cat(
+                        [
+                            ttnn.to_torch(shard).reshape(-1, shard.shape[-1])[: len(lengths)].clone()
+                            for shard in ttnn.get_device_tensors(trace.logits)
+                        ],
+                        dim=-1,
+                    )
+                )
+                # Intentionally stale host feedback must be ignored on steady steps.
+                token_input.zero_()
+                positions[: len(lengths)] = 99
+            for key in ("token_refreshes", "position_refreshes", "rope_refreshes"):
+                assert getattr(gen.trace_counters, key) - counts_before_decode[key] == 1
+            assert adapter._page_table_refreshes - before_refresh == int(page_changed)
+            assert gen.trace_counters.page_table_refreshes == 0
+            for actual, supplied in zip(adapter._serving_state.page_tables, scheduler_tables):
+                host_table = _host(actual)
+                assert torch.equal(host_table[: supplied.shape[0], : supplied.shape[1]], supplied)
+            result.update(
+                {
+                    "stage": "request_complete",
+                    "page_changed": page_changed,
+                    "tokens": steps,
+                    "identity": identity,
+                    "captures": operations["captures"] - before["captures"],
+                    "releases": operations["releases"] - before["releases"],
+                    "refreshes": {
+                        key: getattr(gen.trace_counters, key) - counts_before_decode[key]
+                        for key in ("token_refreshes", "position_refreshes", "rope_refreshes")
+                    },
+                }
+            )
+            return result, logits
+    
+        report = {
+            "profile": model.precision_policy["resolved_profile"],
+            "precision_config": model.precision_policy["config_id"],
+            "allocator_tracking": True,
+            "cases": [],
+            "trace_events": trace_events,
+        }
+        try:
+            # B1 headline path, followed by padded execution with two/three active
+            # rows. Both groups exercise changed prompts, unchanged/changed tables,
+            # and an explicit same-shape reset. A physical shape change must release.
+            for requests in (
+                [([33], 10, tables, False), ([47], 90, tables, False), ([33], 10, changed_tables, True)],
+                [([33, 47], 10, tables, False), ([35, 45, 39], 90, tables, True), ([33, 47], 10, changed_tables, True)],
+            ):
+                retained = []
+                for i, (lengths, offset, mapping, reset) in enumerate(requests):
+>                   result, logits = run_request(lengths, offset, mapping, reset=reset)
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_vllm_trace_reuse.py:272: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_vllm_trace_reuse.py:188: in run_request
+    output = adapter.decode_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tt/generator_vllm.py:480: in decode_forward
+    output = gen.decode_forward(
+models/autoports/google_gemma_4_26b_a4b_it/tt/generator.py:713: in decode_forward
+    ttnn.execute_trace(self.mesh_device, trace.model_trace_id, cq_id=0, blocking=False)
+ttnn/ttnn/__init__.py:161: in execute_trace
+    UnsafeAllocationTracker(device).verify_before_replay(trace_id)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <ttnn.unsafe_allocation_tracker.UnsafeAllocationTracker object at 0x7ead5c16cbc0>
+trace_id = MeshTraceId(8)
+
+    def verify_before_replay(self, trace_id) -> None:
+        """
+        Call before execute_trace. Triggers GC, then checks for buffers that
+        are unsafe for this trace and still alive. Raises RuntimeError with
+        details if any are found.
+    
+        Reports allocation context (op name + compile args) and Python-side referrers.
+        """
+        from ttnn._ttnn.operations.trace import drain_retired_traceback_ids, get_unsafe_tracked_ids
+    
+        gc.collect()
+    
+        # get_unsafe_tracked_ids returns dict[int, str] mapping buffer_id -> allocation context
+        live_unsafe_map = get_unsafe_tracked_ids(self.mesh_device, trace_id)
+        if self._diagnostics_enabled:
+            for buf_id in drain_retired_traceback_ids():
+                self._tracebacks.pop(buf_id, None)
+        if not live_unsafe_map:
+            return
+    
+        live_unsafe = set(live_unsafe_map.keys())
+    
+        parts = [
+            f"Found {len(live_unsafe)} device buffer(s) still alive before "
+            f"trace replay. These will be corrupted on replay.\n"
+        ]
+    
+        for buf_id in sorted(live_unsafe):
+            ctx = live_unsafe_map.get(buf_id, "")
+            ctx_str = f" [op: {ctx}]" if ctx else ""
+            parts.append(f"Buffer {buf_id}{ctx_str}\n")
+    
+            if self._diagnostics_enabled:
+                tb = self._tracebacks.get(buf_id)
+                if tb:
+                    parts.append(f"  allocated at:\n{tb}")
+    
+        if self._diagnostics_enabled:
+            parts.append("\n--- Python referrer analysis ---\n")
+            try:
+                parts.append(self._find_python_referrers(live_unsafe))
+            except Exception as e:
+                parts.append(f"(referrer analysis failed: {type(e).__name__}: {e})")
+    
+        parts.append(
+            "\nUse corruptible_allocation_scope() for acknowledged-corruptible "
+            "tensors, or ensure temporary tensors are freed before replay."
+        )
+>       raise RuntimeError("".join(parts))
+E       RuntimeError: Found 3 device buffer(s) still alive before trace replay. These will be corrupted on replay.
+E       Buffer 57180 [op: program_cache: ConcatDeviceOperation dim=2 groups=1 output_mem_config=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0) sub_core_grids=std::nullopt]
+E       Buffer 57195 [op: program_cache: TilizeWithValPaddingDeviceOperation output_padded_shape=Shape([1, 1, 32, 65536]) pad_value=0 output_mem_config=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0) output_dtype=DataType::BFLOAT16 use_multicore=true enough_space_width=true enough_space_height=false sub_core_grids=std::nullopt]
+E       Buffer 57209 [op: program_cache: FillPadDeviceOperation fill_value=0 output_mem_config=MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)]
+E       
+E       Use corruptible_allocation_scope() for acknowledged-corruptible tensors, or ensure temporary tensors are freed before replay.
+
+ttnn/ttnn/unsafe_allocation_tracker.py:115: RuntimeError
+=============================== warnings summary ===============================
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+<frozen importlib._bootstrap>:488
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+models/tt_transformers/tt/common.py:28
+  /home/hous/dev/tt-metal/models/tt_transformers/tt/common.py:28: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.13/migration/
+    class ImageMedia(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_vllm/trace_reuse_probe/tp4.xml -
+============================= slowest 25 durations =============================
+15.96s call     models/autoports/google_gemma_4_26b_a4b_it/tests/test_vllm_trace_reuse.py::test_adapter_request_trace_reuse[blackhole-p150x4]
+1.37s setup    models/autoports/google_gemma_4_26b_a4b_it/tests/test_vllm_trace_reuse.py::test_adapter_request_trace_reuse[blackhole-p150x4]
+0.03s teardown models/autoports/google_gemma_4_26b_a4b_it/tests/test_vllm_trace_reuse.py::test_adapter_request_trace_reuse[blackhole-p150x4]
+=========================== short test summary info ============================
+FAILED models/autoports/google_gemma_4_26b_a4b_it/tests/test_vllm_trace_reuse.py::test_adapter_request_trace_reuse[blackhole-p150x4]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+======================== 1 failed, 3 warnings in 18.25s ========================
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+2026-09-08 19:54:10.193 | info     |    BuildKernels | JIT cache stats: 793/805 hits (98.5%) [793 cached, 865 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-09-08 19:54:10.193 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-09-08 19:54:10.214 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:550)
+2026-09-08 19:54:10.214 | info     |             UMD | Closing devices in cluster (cluster.cpp:1218)
+2026-09-08 19:54:10.806 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1227)
+2026-09-08 19:54:10.806 | info     |             UMD | Cluster destructor started. (cluster.cpp:933)
+2026-09-08 19:54:10.806 | info     |             UMD | Cluster destructor completed. (cluster.cpp:936)

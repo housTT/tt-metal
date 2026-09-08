@@ -246,10 +246,17 @@ class Gemma4ForCausalLM(nn.Module):
         if sampling_params is None:
             return {}
         params = format_sampling_params(sampling_params, DECODE_SLOT_COUNT)
+        # The common formatter encodes greedy rows as k=1,p=0,temp=1.
+        # Restore the generator's all-greedy sentinel so request seeds do not
+        # enter the semantic trace key for deterministic sampling.
+        temperatures = sampling_params.temperature
+        greedy = all(
+            temp == 0.0 for temp in (temperatures[:batch_size] if isinstance(temperatures, list) else [temperatures])
+        )
         return {
             "top_k": tuple(int(v) for v in params.top_k[:batch_size]),
             "top_p": tuple(float(v) for v in params.top_p[:batch_size]),
-            "temperature": tuple(float(v) for v in params.temperature[:batch_size]),
+            "temperature": (0.0,) * batch_size if greedy else tuple(float(v) for v in params.temperature[:batch_size]),
             # Unseeded stochastic requests need independent row streams;
             # explicit seeds retain their exact cross-batch semantics.
             "seeds": tuple(
@@ -266,15 +273,36 @@ class Gemma4ForCausalLM(nn.Module):
         return [torch.as_tensor(table, dtype=torch.int32) for table in tables]
 
     def _page_tables_changed(self, host_tables: Sequence[torch.Tensor]) -> bool:
-        return self._last_page_tables is None or any(
-            not torch.equal(current, previous) for current, previous in zip(host_tables, self._last_page_tables)
-        )
+        return any(self._page_table_changes(host_tables))
+
+    def _page_table_changes(self, host_tables: Sequence[torch.Tensor]) -> list[bool]:
+        if self._last_page_tables is None:
+            return [True] * len(host_tables)
+        # HMA groups share host table objects, while every layer retains its
+        # own device table. Memoize only identical current/snapshot pairs;
+        # alias splits and in-place mutations still compare actual contents.
+        comparisons = {}
+        changed = []
+        for current, previous in zip(host_tables, self._last_page_tables):
+            pair = (id(current), id(previous))
+            if pair not in comparisons:
+                comparisons[pair] = not torch.equal(current, previous)
+            changed.append(comparisons[pair])
+        return changed
 
     def _refresh_page_tables(self, host_tables: Sequence[torch.Tensor]) -> None:
         state = self._serving_state
         if state is None:
             raise RuntimeError("vLLM KV cache has not been allocated")
-        for source, target in zip(host_tables, state.page_tables):
+        changed = self._page_table_changes(host_tables)
+        snapshots = {}
+        next_tables = []
+        for index, (source, target, needs_copy) in enumerate(zip(host_tables, state.page_tables, changed)):
+            if id(source) not in snapshots:
+                snapshots[id(source)] = source.clone() if needs_copy else self._last_page_tables[index]
+            next_tables.append(snapshots[id(source)])
+            if not needs_copy:
+                continue
             full = torch.zeros(tuple(target.shape), dtype=torch.int32)
             rows = min(full.shape[0], source.shape[0])
             cols = min(full.shape[1], source.shape[1])
@@ -286,8 +314,8 @@ class Gemma4ForCausalLM(nn.Module):
                 mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
             )
             ttnn.copy_host_to_device_tensor(host, target)
-        self._last_page_tables = [table.clone() for table in host_tables]
-        self._page_table_refreshes += 1
+        self._last_page_tables = next_tables
+        self._page_table_refreshes += int(any(changed))
 
     def _chunk_page_tables(
         self, host_tables: Sequence[torch.Tensor], start_pos: torch.Tensor, prompt_lens: Sequence[int]
@@ -338,11 +366,14 @@ class Gemma4ForCausalLM(nn.Module):
         if state is None or kv_cache is not state.kv_cache:
             raise ValueError("prefill must pass the vLLM-owned cache returned by this adapter")
         tables = self._normalize_page_tables(page_table, page_tables_per_layer, gen.model.num_layers)
-        if self._page_tables_changed(tables):
-            # Staging tensors must be allocated only after captured addresses
-            # are unpinned; otherwise TT-Metal correctly warns that the new
-            # buffers can overlap the active trace allocation.
+        if sampling_params is None:
+            # Eager host compatibility may allocate buffers that survive until
+            # the next decode; retire the optimized traces before that work.
             self._release_decode_traces()
+        program_cache_entries = self.mesh_device.num_program_cache_entries() if gen._trace_cache else None
+        if self._page_tables_changed(tables):
+            # Host staging copies into the existing device tables. Their
+            # contents can change without changing captured addresses.
             self._refresh_page_tables(tables)
         cumulative_ends = [int(value) for value in prompt_lens]
         self._unseeded_epoch += 1
@@ -380,21 +411,28 @@ class Gemma4ForCausalLM(nn.Module):
         )
         self._decode_ready = False
         if sampling_params is None:
-            return self._host_prefill_logits(logits, len(lengths))
-        if isinstance(logits, list):
+            result = self._host_prefill_logits(logits, len(lengths))
+        elif isinstance(logits, list):
             values = self._sampling_values(sampling_params, len(lengths), unseeded_epoch=self._unseeded_epoch)
             tokens = []
             for row, row_logits in enumerate(logits):
                 row_values = {name: (value[row],) for name, value in values.items()}
                 sampled = gen.sample_device_logits(row_logits, batch_size=1, **row_values)
                 tokens.append(gen._read_tokens(sampled, 1))
-            return torch.cat(tokens)
-        sampled = gen.sample_device_logits(
-            logits,
-            batch_size=len(lengths),
-            **self._sampling_values(sampling_params, len(lengths), unseeded_epoch=self._unseeded_epoch),
-        )
-        return gen._read_tokens(sampled, len(lengths))
+            result = torch.cat(tokens)
+        else:
+            sampled = gen.sample_device_logits(
+                logits,
+                batch_size=len(lengths),
+                **self._sampling_values(sampling_params, len(lengths), unseeded_epoch=self._unseeded_epoch),
+            )
+            result = gen._read_tokens(sampled, len(lengths))
+        if program_cache_entries is not None and self.mesh_device.num_program_cache_entries() != program_cache_entries:
+            # Cold prefill/sampling programs can leave persistent kernel binaries
+            # in the old trace workspace. Retire those traces before replay;
+            # warmed requests keep the same captured buffers and trace IDs.
+            self._release_decode_traces()
+        return result
 
     def decode_forward(
         self,
@@ -458,9 +496,10 @@ class Gemma4ForCausalLM(nn.Module):
         # captured row state. Release all trace allocations before a different
         # shape is captured; TT-Metal forbids allocating that new trace while
         # an older trace still pins the allocator range.
-        if reset_batch or remap_changed or not self._decode_ready or batch_shape_changed:
+        if sampling_params is None or remap_changed or batch_shape_changed:
             self._release_decode_traces()
-            self._decode_ready = True
+        refresh_decode_inputs = not self._decode_ready
+        self._decode_ready = sampling_params is not None
         self._last_execution_batch = execution_batch
         active = flat_positions[:execution_batch] >= 0
         desired_active = torch.zeros(DECODE_SLOT_COUNT, dtype=torch.bool)
@@ -480,7 +519,9 @@ class Gemma4ForCausalLM(nn.Module):
             # during steady decode, so only cross that boundary when row
             # ownership actually changes (or an explicit reset/remap demands
             # it). This preserves the traced split-sampling feedback loop.
-            active_mask=active if active_rows_changed or reset_batch or remap_changed else None,
+            active_mask=(
+                active if active_rows_changed or reset_batch or remap_changed or refresh_decode_inputs else None
+            ),
             **self._sampling_values(sampling_params, execution_batch, unseeded_epoch=self._unseeded_epoch),
         )
         if sampling_params is None:

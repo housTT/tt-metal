@@ -1,0 +1,229 @@
+{
+  "verdict": "pass_no_new_P150x4_serving_quality_regression_with_documented_limits",
+  "scope": "P150x4 only; all 12 shared-suite completions read through their retained ends. Profile-local prior serving controls plus prompt-correct shared HF/TT controls.",
+  "sources": [
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150x4/optimized_vllm/after_warmed/vllm_qualitative_outputs.json",
+      "sha256": "c2f345bd9f92aeab47208a401d38c8516d0c3634c792caad506613e592f94c3a"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150x4/vllm_qualitative_outputs.json",
+      "sha256": "dbf76ccfc2ca5d9614428525f12833714fcd650f96ba3223c2345b70053ea149"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/prompt_format_and_outputs.json",
+      "sha256": "4662797cd34ab9cd23856309c2f74b70ea81ee1b4edaa8c008b61b69668bd02b"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150x4/optimized_vllm/after_warmed/async_overlap_state_test.json",
+      "sha256": "7bd8c74b0617447b0b013b0081b1960cc074ce152aa0c1c57f6fa137069ba782"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150x4/async_overlap_state_test.json",
+      "sha256": "7bd8c74b0617447b0b013b0081b1960cc074ce152aa0c1c57f6fa137069ba782"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150x4/optimized_vllm/after_warmed/logit_determinism.json",
+      "sha256": "db64b746d3cd207248244ec5149fd08c74b5a945df7b8004e77e77304901180a"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150x4/logit_determinism.json",
+      "sha256": "a8da467128628f21750464b014dc7c16048d3ac75904aaf45c74ca3f879a07ac"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150x4/optimized_vllm/after_warmed/openai_feature_checks.json",
+      "sha256": "6c70dba6bd5bb51cbd52114ebd84b754f1cf3a9878080229c1b00a13985576b0"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150x4/optimized_vllm/after_warmed/run_manifest.json",
+      "sha256": "e2a8d497e5d62be352af627157f461aedd8656659019a5e1513fa15b49e3ef19"
+    }
+  ],
+  "prompt_format": {
+    "hf_model_id": "google/gemma-4-26B-A4B-it",
+    "checkpoint_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+    "tokenizer_class": "GemmaTokenizer",
+    "chat_template_present": true,
+    "prompt_mode": "chat",
+    "endpoint": "/v1/chat/completions",
+    "all_rendered_prompts_and_token_ids_match_controls": true
+  },
+  "generation": {
+    "serving_max_tokens": 256,
+    "greedy": {
+      "temperature": 0.0,
+      "top_k": 1
+    },
+    "sampled": {
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "top_k": 32
+    },
+    "HF_TT_control": {
+      "max_new_tokens": 64,
+      "do_sample": false
+    },
+    "limitation": "Shared runner retains text but not per-output finish reasons/usage; cap truncation is consistent with source and prior controls. Answer completeness is not claimed for capped long responses."
+  },
+  "summary": {
+    "outputs_read": 12,
+    "greedy_exact_matches_prior_P150x4": 6,
+    "new_unexplained_serving_degeneracy": false,
+    "sampled_explanatory_limitation": "Targeted original/current TP4 device-sampling continuations from the actual sampled prefix match exactly for all three pairs (247 input / 256 output, temperature 0.7, top_p 0.9, top_k 32). Both reproduce the substantive always-wasted-heat overgeneralization and absolute-zero molecular-motion simplification. This establishes inherited TT conditional behavior, not HF attribution or equality of the original full sampled trajectory. See AUTOFIX_thermodynamics.md and thermodynamics_control/manifest.json."
+  },
+  "per_output_reviews": [
+    {
+      "prompt_id": "machine_learning_haiku",
+      "mode": "greedy",
+      "artifact_index": 0,
+      "field": "greedy_completion",
+      "verdict": "pass_no_material_serving_quality_regression_with_documented_limits",
+      "exact_match_prior_P150x4": true,
+      "output_sha256": "237c38eb8014a2bbf0d8433fd60ea96ec0596901c43ce1842503dfaec682b817",
+      "observation": "Both are complete coherent three-line 5/7/5 machine-learning haiku.",
+      "control": "HF/TT and prior-profile controls also give coherent three-line poems; current greedy exactly matches prior P150x4."
+    },
+    {
+      "prompt_id": "machine_learning_haiku",
+      "mode": "sampled",
+      "artifact_index": 0,
+      "field": "sampled_completion",
+      "verdict": "pass_no_material_serving_quality_regression_with_documented_limits",
+      "exact_match_prior_P150x4": false,
+      "output_sha256": "5bb8350b274cdbf01d7fba9b35a0c982b3813f8543063c3741b312ba7536f071",
+      "observation": "Both are complete coherent three-line 5/7/5 machine-learning haiku.",
+      "control": "HF/TT and prior-profile controls also give coherent three-line poems; current greedy exactly matches prior P150x4."
+    },
+    {
+      "prompt_id": "supervised_unsupervised",
+      "mode": "greedy",
+      "artifact_index": 1,
+      "field": "greedy_completion",
+      "verdict": "pass_no_material_serving_quality_regression_with_documented_limits",
+      "exact_match_prior_P150x4": true,
+      "output_sha256": "f1449a856f181ee55b59e3f1f5d94e9e4de1a5b701ceaf6f1a6769fa9299efa1",
+      "observation": "Both correctly explain labeled supervision but stop at the unsupervised heading under the shared cap; complete two-part coverage is not claimed.",
+      "control": "Greedy exactly matches prior P150x4. Shorter HF/TT controls also truncate during the explanation."
+    },
+    {
+      "prompt_id": "supervised_unsupervised",
+      "mode": "sampled",
+      "artifact_index": 1,
+      "field": "sampled_completion",
+      "verdict": "pass_no_material_serving_quality_regression_with_documented_limits",
+      "exact_match_prior_P150x4": false,
+      "output_sha256": "1e764131e7718a1f863ab8428e33e13fbde1a148518e2be530b345274c641e6b",
+      "observation": "Both correctly explain labeled supervision but stop at the unsupervised heading under the shared cap; complete two-part coverage is not claimed.",
+      "control": "Greedy exactly matches prior P150x4. Shorter HF/TT controls also truncate during the explanation."
+    },
+    {
+      "prompt_id": "inventor_story",
+      "mode": "greedy",
+      "artifact_index": 2,
+      "field": "greedy_completion",
+      "verdict": "pass_no_material_serving_quality_regression_with_documented_limits",
+      "exact_match_prior_P150x4": true,
+      "output_sha256": "6ddc2a4ddf4e44bedf1b1a022ab58e0cee93cd7e9a00b238233e904b965d125c",
+      "observation": "Both develop Elian, the kingdom and celestial clockwork as coherent fantasy openings; both stop before a complete story.",
+      "control": "Greedy exactly matches prior P150x4; same-template HF/TT controls establish a coherent inventor-story opening."
+    },
+    {
+      "prompt_id": "inventor_story",
+      "mode": "sampled",
+      "artifact_index": 2,
+      "field": "sampled_completion",
+      "verdict": "pass_no_material_serving_quality_regression_with_documented_limits",
+      "exact_match_prior_P150x4": false,
+      "output_sha256": "b64b8e1a931baf31a055c15d98ead32927fe6ef75a48449aef06a46324dc040e",
+      "observation": "Both develop Elian, the kingdom and celestial clockwork as coherent fantasy openings; both stop before a complete story.",
+      "control": "Greedy exactly matches prior P150x4; same-template HF/TT controls establish a coherent inventor-story opening."
+    },
+    {
+      "prompt_id": "thermodynamics_laws",
+      "mode": "greedy",
+      "artifact_index": 3,
+      "field": "greedy_completion",
+      "verdict": "pass_no_material_serving_quality_regression_with_documented_limits",
+      "exact_match_prior_P150x4": true,
+      "output_sha256": "23f341d7913c32e3ecc4061727c2ff63c1614c38fb74c67ec80c17478a85a082",
+      "observation": "Both distinguish the zeroth law and correctly state energy conservation and nondecreasing isolated-system entropy, then stop during the second law. Sampled text overgeneralizes practical irreversible conversion as energy transfers never being 100% efficient; this is not a precise universal physics claim. Full factual accuracy of every sampled explanatory sentence is not certified by this serving regression suite.",
+      "control": "Targeted original/current TP4 device-sampling continuations from the actual sampled prefix match exactly for all three pairs (247 input / 256 output, temperature 0.7, top_p 0.9, top_k 32). Both reproduce the substantive always-wasted-heat overgeneralization and absolute-zero molecular-motion simplification. This establishes inherited TT conditional behavior, not HF attribution or equality of the original full sampled trajectory. See AUTOFIX_thermodynamics.md and thermodynamics_control/manifest.json."
+    },
+    {
+      "prompt_id": "thermodynamics_laws",
+      "mode": "sampled",
+      "artifact_index": 3,
+      "field": "sampled_completion",
+      "verdict": "pass_no_material_serving_quality_regression_with_documented_limits",
+      "exact_match_prior_P150x4": false,
+      "output_sha256": "5d0240d5b1372b2a7166a5185e294bd18916ee9981ac1d11a2adbbf427490b5c",
+      "observation": "Both distinguish the zeroth law and correctly state energy conservation and nondecreasing isolated-system entropy, then stop during the second law. Sampled text overgeneralizes practical irreversible conversion as energy transfers never being 100% efficient; this is not a precise universal physics claim. Full factual accuracy of every sampled explanatory sentence is not certified by this serving regression suite.",
+      "control": "Targeted original/current TP4 device-sampling continuations from the actual sampled prefix match exactly for all three pairs (247 input / 256 output, temperature 0.7, top_p 0.9, top_k 32). Both reproduce the substantive always-wasted-heat overgeneralization and absolute-zero molecular-motion simplification. This establishes inherited TT conditional behavior, not HF attribution or equality of the original full sampled trajectory. See AUTOFIX_thermodynamics.md and thermodynamics_control/manifest.json."
+    },
+    {
+      "prompt_id": "french_translation",
+      "mode": "greedy",
+      "artifact_index": 4,
+      "field": "greedy_completion",
+      "verdict": "pass_no_material_serving_quality_regression_with_documented_limits",
+      "exact_match_prior_P150x4": true,
+      "output_sha256": "fea81167e64b1778f628bc26a2906c4ba03b5f02f64328e460daffd802808f70",
+      "observation": "Both provide correct formal, informal and conversational French translations with English framing.",
+      "control": "Same translation task/language as controls; greedy exactly matches prior P150x4."
+    },
+    {
+      "prompt_id": "french_translation",
+      "mode": "sampled",
+      "artifact_index": 4,
+      "field": "sampled_completion",
+      "verdict": "pass_no_material_serving_quality_regression_with_documented_limits",
+      "exact_match_prior_P150x4": false,
+      "output_sha256": "93f1e01b1f1da43f360cd2a1ce169072df6d5c266ae80ba9ba9dc218352c3b90",
+      "observation": "Both provide correct formal, informal and conversational French translations with English framing.",
+      "control": "Same translation task/language as controls; greedy exactly matches prior P150x4."
+    },
+    {
+      "prompt_id": "fibonacci_function",
+      "mode": "greedy",
+      "artifact_index": 5,
+      "field": "greedy_completion",
+      "verdict": "pass_no_material_serving_quality_regression_with_documented_limits",
+      "exact_match_prior_P150x4": true,
+      "output_sha256": "21063b0fbbccc7c63b9a10cb4a389fd3156a494b896d23ce0b5b896154681eda",
+      "observation": "Both provide a complete valid iterative Fibonacci function, edge-case handling and correct example list. Both truncate while introducing another approach; only the first implementation is complete.",
+      "control": "Greedy exactly matches prior P150x4; shared controls contain valid iterative logic."
+    },
+    {
+      "prompt_id": "fibonacci_function",
+      "mode": "sampled",
+      "artifact_index": 5,
+      "field": "sampled_completion",
+      "verdict": "pass_no_material_serving_quality_regression_with_documented_limits",
+      "exact_match_prior_P150x4": false,
+      "output_sha256": "9c2471daa6c1b7b204488e06da76a046c7d31e6f083c20fa1a704dccc8305705",
+      "observation": "Both provide a complete valid iterative Fibonacci function, edge-case handling and correct example list. Both truncate while introducing another approach; only the first implementation is complete.",
+      "control": "Greedy exactly matches prior P150x4; shared controls contain valid iterative logic."
+    }
+  ],
+  "feature_checks": {
+    "verdict": "pass",
+    "nonaligned_prompt_tokens": 29
+  },
+  "logit_control": {
+    "verdict": "pass",
+    "comparison": "Entire current result equals prior P150x4 after normalizing two artifact paths. Both standalone B1 oracle and retained B1/B32 distribution control are profile-local to TP4; graph-shape distribution deltas remain explicitly diagnostic."
+  },
+  "async_control": {
+    "verdict": "pass",
+    "entire_artifact_exactly_matches_prior_P150x4": true,
+    "classification": "The prior isolated/overlap long-response difference remains unchanged, with exact short response and all existing invariants passing. This is not an isolated-versus-batched lexical-equivalence claim."
+  },
+  "targeted_thermodynamics_control": {
+    "verdict": "controlled_inherited_TT_behavior",
+    "report": "AUTOFIX_thermodynamics.md",
+    "manifest": "thermodynamics_control/manifest.json",
+    "exact_pairs": 3,
+    "input_tokens": 247,
+    "output_tokens": 256
+  }
+}

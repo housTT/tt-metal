@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="10.035" timestamp="2026-09-08T19:48:09.387197+00:00" hostname="qb2-120-p11t02"><testcase classname="models.autoports.google_gemma_4_26b_a4b_it.tests.test_vllm_trace_reuse" name="test_adapter_request_trace_reuse[blackhole-p150x4]" time="9.149"><properties><property name="start_timestamp" value="2026-09-08T19:48:10" /><property name="end_timestamp" value="2026-09-08T19:48:19" /></properties><failure message="AssertionError: assert {'cache': [11...95081024, ...} == {'cache': [11...86252224, ...}&#10;  &#10;  Omitting 2 identical items, use -vv to show&#10;  Differing items:&#10;  {'sampling_trace_id': 'MeshTraceId(3)'} != {'sampling_trace_id': 'MeshTraceId(1)'}&#10;  {'model_trace_id': 'MeshTraceId(2)'} != {'model_trace_id': 'MeshTraceId(0)'}&#10;  {'token': 86252864} != {'token': 86251968}&#10;  {'sampled': 86252864} != {'sampled': 86251968}...&#10;  &#10;  ...Full output truncated (40 lines hidden), use '-vv' to show">mesh_device = MeshDevice(1x4 grid, 4 devices), profile_tp_size = 4
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x7a55c8713e60&gt;
+
+    @pytest.mark.parametrize(
+        "mesh_device,device_params,profile_tp_size",
+        [
+            ((1, 1), {"trace_region_size": 67_108_864}, 1),
+            ((2, 2), {"fabric_config": ttnn.FabricConfig.FABRIC_2D, "trace_region_size": 67_108_864}, 2),
+            ((1, 4), {"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING, "trace_region_size": 134_217_728}, 4),
+        ],
+        ids=["p150", "p150x2", "p150x4"],
+        indirect=["mesh_device", "device_params"],
+    )
+    def test_adapter_request_trace_reuse(mesh_device, profile_tp_size, monkeypatch):
+        if os.environ.get("GEMMA4_VLLM_TRACE_REUSE_PROBE") != "1":
+            pytest.skip("set GEMMA4_VLLM_TRACE_REUSE_PROBE=1 for the serialized hardware probe")
+        assert os.environ.get("TT_METAL_TRACE_ALLOC_TRACKING") == "1", "enable allocator checks before importing TTNN"
+        target_mesh = (
+            mesh_device
+            if mesh_device.get_num_devices() == profile_tp_size
+            else mesh_device.create_submesh(ttnn.MeshShape((1, profile_tp_size)), offset=ttnn.MeshCoordinate(0, 0))
+        )
+        model = Gemma4FullModel(
+            mesh_device=target_mesh,
+            hf_config=_config(),
+            state_dict=_load_probe_state(full_stack=False),
+            max_seq_len=128,
+            max_batch_size=DECODE_SLOT_COUNT,
+            layer_indices=[0, 5],
+            tensor_cache_path="/tmp/gemma4_full_model_probe_cache",
+            create_kv_cache=False,
+            precision_config_path=PRECISION_CONFIG,
+        )
+        gen = Gemma4Generator(model, tokenizer=None, sampling_mode="device")
+        adapter = Gemma4ForCausalLM(generator=gen)
+        cache = adapter.allocate_kv_cache_per_layer(
+            [
+                (
+                    (DECODE_SLOT_COUNT * spec.blocks_per_slot, spec.local_kv_heads, spec.block_size, spec.head_dim),
+                    torch.bfloat16,
+                    i,
+                )
+                for i, spec in enumerate(model.cache_specs)
+            ]
+        )
+        tables = [
+            torch.arange(DECODE_SLOT_COUNT * spec.blocks_per_slot, dtype=torch.int32).reshape(
+                DECODE_SLOT_COUNT, spec.blocks_per_slot
+            )
+            for spec in model.cache_specs
+        ]
+        changed_tables = [table.roll(1, dims=0) for table in tables]
+        greedy = SamplingParams(temperature=0.0, top_k=1, top_p=0.0)
+        refreshed_inputs = {}
+        original_refresh = gen._refresh_device_input
+    
+        def record_refresh(target, values, **kwargs):
+            refreshed_inputs[target.buffer_address()] = values.clone()
+            return original_refresh(target, values, **kwargs)
+    
+        monkeypatch.setattr(gen, "_refresh_device_input", record_refresh)
+        operations = {"captures": 0, "releases": 0}
+        for name, key in (("begin_trace_capture", "captures"), ("release_trace", "releases")):
+            original = getattr(ttnn, name)
+    
+            def counted(*args, _original=original, _key=key, **kwargs):
+                operations[_key] += 1
+                return _original(*args, **kwargs)
+    
+            monkeypatch.setattr(ttnn, name, counted)
+    
+        def consume(output):
+            host, events = adapter.read_decode_output(output, async_read=True)
+            assert len(events) == 1
+            for event in events:
+                ttnn.event_synchronize(event)
+            tokens, auxiliary = adapter.process_decode_output_host(host, is_tokens=True)
+            assert auxiliary is None
+            return tokens.clone()
+    
+        def run_request(lengths, token_offset, scheduler_tables, *, reset=False, force_release=False):
+            if force_release:
+                adapter._release_decode_traces()
+            before = operations.copy()
+            before_refresh = adapter._page_table_refreshes
+            page_changed = adapter._page_tables_changed(scheduler_tables)
+            prompt = torch.stack(
+                [(torch.arange(max(lengths)) + token_offset + row * 13) % 2000 + 1 for row in range(len(lengths))]
+            )
+            first = adapter.prefill_forward(
+                prompt,
+                page_table=None,
+                page_tables_per_layer=scheduler_tables,
+                kv_cache=cache,
+                prompt_lens=lengths,
+                sampling_params=greedy,
+            )
+            assert adapter._page_table_refreshes - before_refresh == int(page_changed)
+            counts_before_decode = vars(gen.trace_counters).copy()
+            positions = torch.full((DECODE_SLOT_COUNT,), -1, dtype=torch.int32)
+            positions[: len(lengths)] = torch.tensor(lengths, dtype=torch.int32)
+            token_input = torch.zeros((DECODE_SLOT_COUNT, 1), dtype=torch.long)
+            token_input[: len(lengths), 0] = first.reshape(-1)
+            steps, logits = [first.reshape(-1).tolist()], []
+            identity = None
+            for step in range(3):
+                output = adapter.decode_forward(
+                    token_input,
+                    positions,
+                    page_table=None,
+                    page_tables_per_layer=scheduler_tables,
+                    kv_cache=cache,
+                    sampling_params=greedy,
+                    reset_batch=reset and step == 0,
+                    read_from_device=False,
+                )
+                sampled = consume(output)
+                trace = next(iter(gen._trace_cache.values()))
+                current_identity = _identity(trace)
+                assert current_identity["token"] == current_identity["sampled"]
+                if identity is None:
+                    identity = current_identity
+                    assert (
+                        refreshed_inputs[identity["token"]].reshape(-1)[: len(lengths)].tolist()
+                        == first.reshape(-1).tolist()
+                    )
+                    assert refreshed_inputs[identity["position"]].reshape(-1)[: len(lengths)].tolist() == lengths
+                    assert refreshed_inputs[identity["rope"]].reshape(-1)[: len(lengths)].tolist() == lengths
+                else:
+                    assert current_identity == identity
+                expected = [length + step + 1 for length in lengths] + [-1] * (32 - len(lengths))
+                assert _host(trace.current_pos).reshape(-1).tolist() == expected
+                assert _host(trace.position_ids).reshape(-1)[: len(lengths)].tolist() == expected[: len(lengths)]
+                assert _host(trace.token_input).reshape(-1)[: len(lengths)].tolist() == sampled[: len(lengths)].tolist()
+                steps.append(sampled[: len(lengths)].tolist())
+                # Read the actual terminal output, including all vocabulary shards;
+                # keep only host tensors so no extra device allocations survive replay.
+                logits.append(
+                    torch.cat(
+                        [
+                            ttnn.to_torch(shard).reshape(-1, shard.shape[-1])[: len(lengths)].clone()
+                            for shard in ttnn.get_device_tensors(trace.logits)
+                        ],
+                        dim=-1,
+                    )
+                )
+                # Intentionally stale host feedback must be ignored on steady steps.
+                token_input.zero_()
+                positions[: len(lengths)] = 99
+            for key in ("token_refreshes", "position_refreshes", "rope_refreshes"):
+                assert getattr(gen.trace_counters, key) - counts_before_decode[key] == 1
+            assert adapter._page_table_refreshes - before_refresh == int(page_changed)
+            assert gen.trace_counters.page_table_refreshes == 0
+            for actual, supplied in zip(adapter._serving_state.page_tables, scheduler_tables):
+                host_table = _host(actual)
+                assert torch.equal(host_table[: supplied.shape[0], : supplied.shape[1]], supplied)
+            return {
+                "lengths": lengths,
+                "reset_batch": reset,
+                "page_changed": page_changed,
+                "tokens": steps,
+                "identity": identity,
+                "captures": operations["captures"] - before["captures"],
+                "releases": operations["releases"] - before["releases"],
+                "refreshes": {
+                    key: getattr(gen.trace_counters, key) - counts_before_decode[key]
+                    for key in ("token_refreshes", "position_refreshes", "rope_refreshes")
+                },
+            }, logits
+    
+        report = {
+            "profile": model.precision_policy["resolved_profile"],
+            "precision_config": model.precision_policy["config_id"],
+            "allocator_tracking": True,
+            "cases": [],
+        }
+        try:
+            # B1 headline path, followed by padded execution with two/three active
+            # rows. Both groups exercise changed prompts, unchanged/changed tables,
+            # and an explicit same-shape reset. A physical shape change must release.
+            for requests in (
+                [([33], 10, tables, False), ([47], 90, tables, False), ([33], 10, changed_tables, True)],
+                [([33, 47], 10, tables, False), ([35, 45, 39], 90, tables, True), ([33, 47], 10, changed_tables, True)],
+            ):
+                retained = []
+                for i, (lengths, offset, mapping, reset) in enumerate(requests):
+                    result, logits = run_request(lengths, offset, mapping, reset=reset)
+                    retained.append((result, logits))
+                    if i:
+&gt;                       assert result["identity"] == retained[0][0]["identity"]
+E                       AssertionError: assert {'cache': [11...95081024, ...} == {'cache': [11...86252224, ...}
+E                         
+E                         Omitting 2 identical items, use -vv to show
+E                         Differing items:
+E                         {'sampling_trace_id': 'MeshTraceId(3)'} != {'sampling_trace_id': 'MeshTraceId(1)'}
+E                         {'model_trace_id': 'MeshTraceId(2)'} != {'model_trace_id': 'MeshTraceId(0)'}
+E                         {'token': 86252864} != {'token': 86251968}
+E                         {'sampled': 86252864} != {'sampled': 86251968}...
+E                         
+E                         ...Full output truncated (40 lines hidden), use '-vv' to show
+
+models/autoports/google_gemma_4_26b_a4b_it/tests/test_vllm_trace_reuse.py:224: AssertionError</failure></testcase></testsuite></testsuites>

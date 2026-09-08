@@ -1,0 +1,49 @@
+Launching vLLM server for google/gemma-4-26B-A4B-it on N150
+  cmd: /home/hous/dev/tt-metal/python_env/bin/python -m vllm.entrypoints.openai.api_server --model google/gemma-4-26B-A4B-it --block_size 64 --max_num_seqs 32 --port 8000 --max_model_len 50624 --additional-config '{"tt": {"sample_on_device_mode": "all", "trace_region_size": 220000000}}' --async-scheduling --enable-auto-tool-choice --tool-call-parser gemma4 --reasoning-parser gemma4
+  log: /home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/optimized_vllm/before/P150/server.log
+Waiting up to 1200s for server to become ready...
+
+Shutting down server (PID 1725224)...
+  Did not exit after SIGTERM; sending SIGKILL.
+
+=== Server log tail (/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/optimized_vllm/before/P150/server.log, last 30 lines) ===
+(EngineCore_DP0 pid=1725365)  --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/libtt_metal.so(+0x986638) [0x78449bb86638]
+(EngineCore_DP0 pid=1725365)  --- tt::llrt::internal_::return_to_base_firmware_and_wait_for_heartbeat(tt::tt_metal::MetalEnvImpl&, int, tt::xy_pair const&, int)
+(EngineCore_DP0 pid=1725365)  --- tt::tt_metal::RiscFirmwareInitializer::assert_active_ethernet_cores_to_reset(int)
+(EngineCore_DP0 pid=1725365)  --- tt::tt_metal::RiscFirmwareInitializer::reset_cores(int)
+(EngineCore_DP0 pid=1725365)  --- tt::tt_metal::RiscFirmwareInitializer::run_launch_phase(std::set<int, std::less<int>, std::allocator<int> > const&)
+(EngineCore_DP0 pid=1725365)  --- tt::tt_metal::MetalContext::initialize(tt::tt_metal::DispatchCoreConfig const&, unsigned char, std::vector<unsigned int, std::allocator<unsigned int> > const&, unsigned long, bool)
+(EngineCore_DP0 pid=1725365)  --- tt::tt_metal::MetalContext::initialize_device_manager(std::vector<int, std::allocator<int> > const&, unsigned char, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&, std::span<unsigned int const, 18446744073709551615ul>, unsigned long, bool, bool)
+(EngineCore_DP0 pid=1725365)  --- tt::tt_metal::distributed::MeshDeviceImpl::ScopedDevices::ScopedDevices(std::vector<tt::tt_metal::distributed::MaybeRemote<int>, std::allocator<tt::tt_metal::distributed::MaybeRemote<int> > > const&, std::vector<tt::tt_metal::distributed::MaybeRemote<int>, std::allocator<tt::tt_metal::distributed::MaybeRemote<int> > > const&, unsigned long, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&, ttsl::StrongType<int, tt::tt_metal::ContextIdTag>)
+(EngineCore_DP0 pid=1725365)  --- tt::tt_metal::distributed::MeshDeviceImpl::create(ttsl::StrongType<int, tt::tt_metal::ContextIdTag>, tt::tt_metal::distributed::MeshDeviceConfig const&, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&, std::span<unsigned int const, 18446744073709551615ul>, unsigned long)
+(EngineCore_DP0 pid=1725365)  --- tt::tt_metal::distributed::MeshDevice::create(tt::tt_metal::distributed::MeshDeviceConfig const&, unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&, std::span<unsigned int const, 18446744073709551615ul>, unsigned long)
+(EngineCore_DP0 pid=1725365)  --- ttnn::distributed::open_mesh_device(unsigned long, unsigned long, unsigned long, tt::tt_metal::DispatchCoreConfig const&, std::optional<tt::tt_metal::distributed::MeshShape> const&, std::optional<tt::tt_metal::distributed::MeshCoordinate> const&, std::vector<int, std::allocator<int> > const&, unsigned long)
+(EngineCore_DP0 pid=1725365)  --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x659691) [0x78449f859691]
+(EngineCore_DP0 pid=1725365)  --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x667a44) [0x78449f867a44]
+(EngineCore_DP0 pid=1725365)  --- VLLM::EngineCore(_PyEval_EvalFrameDefault+0x476d) [0x18184ed]
+(EngineCore_DP0 pid=1725365)  --- VLLM::EngineCore() [0x1854e6a]
+(EngineCore_DP0 pid=1725365)  --- VLLM::EngineCore() [0x18025ad]
+(EngineCore_DP0 pid=1725365)  --- VLLM::EngineCore(_PyEval_EvalFrameDefault+0x4571) [0x18182f1]
+(EngineCore_DP0 pid=1725365)  --- VLLM::EngineCore() [0x1854f79]
+(EngineCore_DP0 pid=1725365)  --- VLLM::EngineCore() [0x18025ad]
+(EngineCore_DP0 pid=1725365)  --- VLLM::EngineCore(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+(EngineCore_DP0 pid=1725365)  --- VLLM::EngineCore(PyEval_EvalCode+0xde) [0x18b1d32]
+(EngineCore_DP0 pid=1725365)  --- VLLM::EngineCore() [0x18b1891]
+(EngineCore_DP0 pid=1725365)  --- VLLM::EngineCore(PyRun_SimpleStringFlags+0xe0) [0x196716e]
+(EngineCore_DP0 pid=1725365)  --- VLLM::EngineCore() [0x1ad68d5]
+(EngineCore_DP0 pid=1725365)  --- VLLM::EngineCore() [0x19846df]
+(EngineCore_DP0 pid=1725365)  --- VLLM::EngineCore() [0x19844ec]
+(EngineCore_DP0 pid=1725365)  --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7844f2e2a1ca]
+(EngineCore_DP0 pid=1725365)  --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7844f2e2a28b]
+(EngineCore_DP0 pid=1725365)  --- VLLM::EngineCore(_start+0x29) [0x19a66a9]
+(EngineCore_DP0 pid=1725365) 
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/hous/dev/tt-metal/models/common/readiness_check/run_vllm_server.py", line 1158, in <module>
+    _main()
+  File "/home/hous/dev/tt-metal/models/common/readiness_check/run_vllm_server.py", line 1057, in _main
+    _wait_for_server(
+  File "/home/hous/dev/tt-metal/models/common/readiness_check/run_vllm_server.py", line 298, in _wait_for_server
+    raise RuntimeError(f"Fatal marker {fatal!r} found in {log_file}. Server cannot start.")
+RuntimeError: Fatal marker 'EngineCore failed to start' found in /home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/optimized_vllm/before/P150/server.log. Server cannot start.

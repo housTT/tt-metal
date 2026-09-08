@@ -1,0 +1,222 @@
+{
+  "verdict": "pass_no_new_P150x2_serving_quality_regression_with_documented_limits",
+  "scope": "P150x2 only; all 12 shared-suite completions read through their retained ends. Profile-local prior serving controls plus prompt-correct shared HF/TT controls.",
+  "sources": [
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150x2/optimized_vllm/after_warmed/vllm_qualitative_outputs.json",
+      "sha256": "1fa81dcb06a4270c5658d39ef4fbb26534c1317a29219748daf508fb06b8c80b"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150x2/vllm_qualitative_outputs.json",
+      "sha256": "bdc6c478532980d05c11c8840d883194fe7d3f8d005cbae59288bd3ee5cbcc90"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/prompt_format_and_outputs.json",
+      "sha256": "4662797cd34ab9cd23856309c2f74b70ea81ee1b4edaa8c008b61b69668bd02b"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150x2/optimized_vllm/after_warmed/async_overlap_state_test.json",
+      "sha256": "d4e7be7b5c99cc4909cd051b6b8378b4f9038fc290287f478e22ea0611cfddeb"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150x2/async_overlap_state_test.json",
+      "sha256": "8aa222c3859f89b0b51023ce6fbffdc1fa077bb30cc2185f3c09e23dafae4e62"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150x2/optimized_vllm/after_warmed/logit_determinism.json",
+      "sha256": "bba9df24a3e6bf64d80e5c781d76fb3feb7519746704234dac87ba8cdc1a941a"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150x2/logit_determinism.json",
+      "sha256": "020e8c5ddad8c560db87cd0bc52e608141ffd7e077707b031b1c8f04834cd903"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150x2/optimized_vllm/after_warmed/openai_feature_checks.json",
+      "sha256": "6bf3b36a39f75be8290e0c97686470b678793066aef16cc0a4208098fc2e5bd0"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150x2/optimized_vllm/after_warmed/run_manifest.json",
+      "sha256": "8ad9bad1cdccfe5045475b54ee8c6e00996f353de7b107c34fa48d855df693d7"
+    }
+  ],
+  "prompt_format": {
+    "hf_model_id": "google/gemma-4-26B-A4B-it",
+    "checkpoint_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+    "tokenizer_class": "GemmaTokenizer",
+    "chat_template_present": true,
+    "prompt_mode": "chat",
+    "endpoint": "/v1/chat/completions",
+    "all_rendered_prompts_and_token_ids_match_controls": true
+  },
+  "generation": {
+    "serving_max_tokens": 256,
+    "greedy": {
+      "temperature": 0.0,
+      "top_k": 1
+    },
+    "sampled": {
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "top_k": 32
+    },
+    "HF_TT_control": {
+      "max_new_tokens": 64,
+      "do_sample": false
+    },
+    "limitation": "Shared runner retains text but not per-output finish reasons/usage; cap truncation is consistent with source and prior controls. Answer completeness is not claimed for capped long responses."
+  },
+  "summary": {
+    "outputs_read": 12,
+    "greedy_exact_matches_prior_P150x2": 6,
+    "new_unexplained_serving_degeneracy": false
+  },
+  "per_output_reviews": [
+    {
+      "prompt_id": "machine_learning_haiku",
+      "mode": "greedy",
+      "artifact_index": 0,
+      "field": "greedy_completion",
+      "verdict": "pass_no_new_serving_regression",
+      "exact_match_prior_P150x2": true,
+      "output_sha256": "237c38eb8014a2bbf0d8433fd60ea96ec0596901c43ce1842503dfaec682b817",
+      "observation": "Both are complete, coherent three-line 5/7/5 machine-learning haiku.",
+      "control": "HF and prior-profile controls also produce coherent three-line poems."
+    },
+    {
+      "prompt_id": "machine_learning_haiku",
+      "mode": "sampled",
+      "artifact_index": 0,
+      "field": "sampled_completion",
+      "verdict": "pass_no_new_serving_regression",
+      "exact_match_prior_P150x2": false,
+      "output_sha256": "93c489ded84967a097e6c19165580ec89d7db11e7985729cbb8b020ca9ffffad",
+      "observation": "Both are complete, coherent three-line 5/7/5 machine-learning haiku.",
+      "control": "HF and prior-profile controls also produce coherent three-line poems."
+    },
+    {
+      "prompt_id": "supervised_unsupervised",
+      "mode": "greedy",
+      "artifact_index": 1,
+      "field": "greedy_completion",
+      "verdict": "pass_no_new_serving_regression",
+      "exact_match_prior_P150x2": true,
+      "output_sha256": "70fe3cbe9b693f3937039b533a74b9adae165ae5c1f7dfbfd93e2943371f6849",
+      "observation": "Both correctly explain labeled supervision; greedy begins the unlabeled contrast, sampled stops at its heading. Coverage remains incomplete at the 256-token cap.",
+      "control": "Greedy is byte-identical to prior P150x2; shorter HF/TT controls also truncate during the explanation."
+    },
+    {
+      "prompt_id": "supervised_unsupervised",
+      "mode": "sampled",
+      "artifact_index": 1,
+      "field": "sampled_completion",
+      "verdict": "pass_no_new_serving_regression",
+      "exact_match_prior_P150x2": false,
+      "output_sha256": "3b99ae768614f7b1efe11c52b5d81d479a838d708f4d425e52c1d099d8651785",
+      "observation": "Both correctly explain labeled supervision; greedy begins the unlabeled contrast, sampled stops at its heading. Coverage remains incomplete at the 256-token cap.",
+      "control": "Greedy is byte-identical to prior P150x2; shorter HF/TT controls also truncate during the explanation."
+    },
+    {
+      "prompt_id": "inventor_story",
+      "mode": "greedy",
+      "artifact_index": 2,
+      "field": "greedy_completion",
+      "verdict": "pass_no_new_serving_regression",
+      "exact_match_prior_P150x2": true,
+      "output_sha256": "33afb6ad4146027a809a1bd5ae23452dcef181952851666674bf4862c91953bc",
+      "observation": "Greedy continues Elian/starlight; sampled develops Elara and a clockwork key. Both are coherent fantasy openings ending mid-story.",
+      "control": "Greedy exactly matches prior P150x2. The prompt-correct controls also establish an inventor-story opening, not a completed story."
+    },
+    {
+      "prompt_id": "inventor_story",
+      "mode": "sampled",
+      "artifact_index": 2,
+      "field": "sampled_completion",
+      "verdict": "pass_no_new_serving_regression",
+      "exact_match_prior_P150x2": false,
+      "output_sha256": "a4517ef14b8926084f9a5c5804284ab334e6fc5319626b1f5fe1a1b17533608e",
+      "observation": "Greedy continues Elian/starlight; sampled develops Elara and a clockwork key. Both are coherent fantasy openings ending mid-story.",
+      "control": "Greedy exactly matches prior P150x2. The prompt-correct controls also establish an inventor-story opening, not a completed story."
+    },
+    {
+      "prompt_id": "thermodynamics_laws",
+      "mode": "greedy",
+      "artifact_index": 3,
+      "field": "greedy_completion",
+      "verdict": "pass_no_new_serving_regression",
+      "exact_match_prior_P150x2": true,
+      "output_sha256": "ec0867e7fdd7fb40fe3149db36d123afb9272026a0d5f42453a50b4b0f169a83",
+      "observation": "Both correctly explain energy conservation and entropy before truncating during the second law; neither establishes complete three-law coverage.",
+      "control": "Greedy exactly matches prior P150x2; the 64-token HF/TT control likewise starts a correct but incomplete exposition."
+    },
+    {
+      "prompt_id": "thermodynamics_laws",
+      "mode": "sampled",
+      "artifact_index": 3,
+      "field": "sampled_completion",
+      "verdict": "pass_no_new_serving_regression",
+      "exact_match_prior_P150x2": false,
+      "output_sha256": "3951377d828e0884dea813ec459c07fea591eb046d0370bddf7e7c9d89a8f25c",
+      "observation": "Both correctly explain energy conservation and entropy before truncating during the second law; neither establishes complete three-law coverage.",
+      "control": "Greedy exactly matches prior P150x2; the 64-token HF/TT control likewise starts a correct but incomplete exposition."
+    },
+    {
+      "prompt_id": "french_translation",
+      "mode": "greedy",
+      "artifact_index": 4,
+      "field": "greedy_completion",
+      "verdict": "pass_no_new_serving_regression",
+      "exact_match_prior_P150x2": true,
+      "output_sha256": "9d59f33163daeab856d10ad6a72bfeb6af5d5868b520bc7d2c382b836d119616",
+      "observation": "Both give correct formal, informal and conversational French translations with English framing.",
+      "control": "Same task/language as the HF/TT controls; greedy exactly matches prior P150x2."
+    },
+    {
+      "prompt_id": "french_translation",
+      "mode": "sampled",
+      "artifact_index": 4,
+      "field": "sampled_completion",
+      "verdict": "pass_no_new_serving_regression",
+      "exact_match_prior_P150x2": false,
+      "output_sha256": "9ff80857138b4cc8578e89b3b93d19d1b7f1ed5879403b8aa2d9ce463d384a13",
+      "observation": "Both give correct formal, informal and conversational French translations with English framing.",
+      "control": "Same task/language as the HF/TT controls; greedy exactly matches prior P150x2."
+    },
+    {
+      "prompt_id": "fibonacci_function",
+      "mode": "greedy",
+      "artifact_index": 5,
+      "field": "greedy_completion",
+      "verdict": "pass_no_new_serving_regression",
+      "exact_match_prior_P150x2": true,
+      "output_sha256": "91db693c1d5550e9071401d35d5fd0d86cad3c4d948d65caae7214894b2fd495",
+      "observation": "Both contain a complete, valid iterative list-returning Fibonacci function with n<=0 and n==1 handling and correct example output. Sampled text truncates at the next approach heading.",
+      "control": "Greedy exactly matches prior P150x2; controls contain valid iterative logic. No claim that the requested three approaches all complete."
+    },
+    {
+      "prompt_id": "fibonacci_function",
+      "mode": "sampled",
+      "artifact_index": 5,
+      "field": "sampled_completion",
+      "verdict": "pass_no_new_serving_regression",
+      "exact_match_prior_P150x2": false,
+      "output_sha256": "2aa7bd6a40286fbae5b4e019fe77f0f2734d1ab7e9de205bd14d526ea571822c",
+      "observation": "Both contain a complete, valid iterative list-returning Fibonacci function with n<=0 and n==1 handling and correct example output. Sampled text truncates at the next approach heading.",
+      "control": "Greedy exactly matches prior P150x2; controls contain valid iterative logic. No claim that the requested three approaches all complete."
+    }
+  ],
+  "feature_checks": {
+    "verdict": "pass",
+    "nonaligned_prompt_tokens": 29
+  },
+  "logit_control": {
+    "verdict": "pass",
+    "comparison": "Entire current result equals prior P150x2 after normalizing two artifact paths to absolute paths. This includes profile-local standalone and run-to-run numeric comparisons. The embedded TP4 B1/B32 distribution control remains explicitly inherited; no P150x2 distribution-equivalence inference is made."
+  },
+  "async_control": {
+    "verdict": "pass",
+    "isolated_outputs_exactly_match_prior_P150x2": true,
+    "early_completion_case_exactly_matches_prior": true,
+    "observation": "Long overlap ends with perceive craters and maria instead of prior resolve craters and mountain ranges. Both remain coherent and on topic; the prior profile already differs between isolated B1 and overlapped output. Every invariant is unchanged.",
+    "classification": "Controlled qualitative variation under the existing asynchronous batch-shape gate, not lexical-equivalence evidence. The source injects the short request after 0.15 wall-clock seconds, so faster execution can change admission position; that is a source-supported possible cause, not a measured scheduler trace. Profile-local numeric controls are unchanged and the dedicated TP2 stale-input regression matches recapture exactly. No new mechanical repetition or cross-request contamination appears."
+  }
+}

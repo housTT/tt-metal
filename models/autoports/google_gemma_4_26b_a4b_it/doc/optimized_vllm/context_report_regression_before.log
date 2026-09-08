@@ -1,0 +1,75 @@
+.........FFFFF.
+======================================================================
+FAIL: test_stage_report_cannot_reduce_recorded_profile_limit (__main__.ProfileManifestTests.test_stage_report_cannot_reduce_recorded_profile_limit)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hous/dev/tt-metal/.agents/tests/test_check_context_contract.py", line 104, in test_stage_report_cannot_reduce_recorded_profile_limit
+    self.assertIn("below 50624", findings[0])
+AssertionError: 'below 50624' not found in 'doc/optimized_vllm/perf_summary.json:profiles.P150.max_model_len sets max_model_len=50623 below 262144'
+
+======================================================================
+FAIL: test_stage_report_preserves_other_context_floors (__main__.ProfileManifestTests.test_stage_report_preserves_other_context_floors)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hous/dev/tt-metal/.agents/tests/test_check_context_contract.py", line 98, in test_stage_report_preserves_other_context_floors
+    self.assertEqual(len(findings), 3)
+AssertionError: 4 != 3
+
+======================================================================
+FAIL: test_stage_report_roots_use_explicit_profiles (__main__.ProfileManifestTests.test_stage_report_roots_use_explicit_profiles) (stage='vllm_integration')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hous/dev/tt-metal/.agents/tests/test_check_context_contract.py", line 84, in test_stage_report_roots_use_explicit_profiles
+    self.assertEqual(self.scan(data, f"doc/{stage}/perf_summary.json"), [])
+AssertionError: Lists differ: ['doc/vllm_integration/perf_summary.json:p[68 chars]144'] != []
+
+First list contains 1 additional elements.
+First extra element 0:
+'doc/vllm_integration/perf_summary.json:profiles.P150.config.max_model_len sets max_model_len=50624 below 262144'
+
++ []
+- ['doc/vllm_integration/perf_summary.json:profiles.P150.config.max_model_len '
+-  'sets max_model_len=50624 below 262144']
+
+======================================================================
+FAIL: test_stage_report_roots_use_explicit_profiles (__main__.ProfileManifestTests.test_stage_report_roots_use_explicit_profiles) (stage='optimized_vllm')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hous/dev/tt-metal/.agents/tests/test_check_context_contract.py", line 84, in test_stage_report_roots_use_explicit_profiles
+    self.assertEqual(self.scan(data, f"doc/{stage}/perf_summary.json"), [])
+AssertionError: Lists differ: ['doc/optimized_vllm/perf_summary.json:pro[181 chars]144'] != []
+
+First list contains 2 additional elements.
+First extra element 0:
+'doc/optimized_vllm/perf_summary.json:profiles.P150.config.max_model_len sets max_model_len=50624 below 262144'
+
++ []
+- ['doc/optimized_vllm/perf_summary.json:profiles.P150.config.max_model_len sets '
+-  'max_model_len=50624 below 262144',
+-  'doc/vllm_integration/perf_summary.json:profiles.P150.config.max_model_len '
+-  'sets max_model_len=50624 below 262144']
+
+======================================================================
+FAIL: test_stage_report_roots_use_explicit_profiles (__main__.ProfileManifestTests.test_stage_report_roots_use_explicit_profiles) (stage='tti_release')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/hous/dev/tt-metal/.agents/tests/test_check_context_contract.py", line 84, in test_stage_report_roots_use_explicit_profiles
+    self.assertEqual(self.scan(data, f"doc/{stage}/perf_summary.json"), [])
+AssertionError: Lists differ: ['doc/optimized_vllm/perf_summary.json:pro[291 chars]144'] != []
+
+First list contains 3 additional elements.
+First extra element 0:
+'doc/optimized_vllm/perf_summary.json:profiles.P150.config.max_model_len sets max_model_len=50624 below 262144'
+
++ []
+- ['doc/optimized_vllm/perf_summary.json:profiles.P150.config.max_model_len sets '
+-  'max_model_len=50624 below 262144',
+-  'doc/tti_release/perf_summary.json:profiles.P150.config.max_model_len sets '
+-  'max_model_len=50624 below 262144',
+-  'doc/vllm_integration/perf_summary.json:profiles.P150.config.max_model_len '
+-  'sets max_model_len=50624 below 262144']
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.004s
+
+FAILED (failures=5)

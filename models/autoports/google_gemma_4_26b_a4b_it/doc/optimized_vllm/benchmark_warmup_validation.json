@@ -1,0 +1,74 @@
+{
+  "method": "stdlib AST extraction of actual warmup block and following main-run marker; fake async request function; no module/device imports",
+  "source_path": "/home/hous/dev/vllm/vllm/benchmarks/serve.py",
+  "source_sha256": "4df3cbab368d59cc45ad3b9c55ccef01e9f103009ffbd1b06806406d541090b8",
+  "baseline_sha256": "8ed87082a2f8ca31d8e00294e8104b7c6969cbad4e7f2be9a6088f6d6a1ecbf6",
+  "baseline_failed_warmup_reaches_main": {
+    "stdout": "Warming up with 1 requests...\nWarmup run completed.\nStarting main benchmark run...\n",
+    "exception": null,
+    "requests": 1,
+    "peak_concurrency": 1,
+    "progress_closed": true
+  },
+  "patched_cases": {
+    "one_success": {
+      "stdout": "Warming up with 1 requests...\nSuccessful warmup requests: 1/1\nWarmup run completed.\nStarting main benchmark run...\n",
+      "exception": null,
+      "requests": 1,
+      "peak_concurrency": 1,
+      "progress_closed": true
+    },
+    "all_success_limited": {
+      "stdout": "Warming up with 4 requests...\nSuccessful warmup requests: 4/4\nWarmup run completed.\nStarting main benchmark run...\n",
+      "exception": null,
+      "requests": 4,
+      "peak_concurrency": 2,
+      "progress_closed": true
+    },
+    "all_success_unlimited": {
+      "stdout": "Warming up with 4 requests...\nSuccessful warmup requests: 4/4\nWarmup run completed.\nStarting main benchmark run...\n",
+      "exception": null,
+      "requests": 4,
+      "peak_concurrency": 4,
+      "progress_closed": true
+    },
+    "mixed_failures": {
+      "stdout": "Warming up with 4 requests...\nSuccessful warmup requests: 2/4\n",
+      "exception": {
+        "type": "ValueError",
+        "message": "Warmup run failed: 2 of 4 requests failed.\nWarmup request 2: synthetic failure 2\nWarmup request 4: synthetic failure 4"
+      },
+      "requests": 4,
+      "peak_concurrency": 2,
+      "progress_closed": true
+    },
+    "all_failed": {
+      "stdout": "Warming up with 2 requests...\nSuccessful warmup requests: 0/2\n",
+      "exception": {
+        "type": "ValueError",
+        "message": "Warmup run failed: 2 of 2 requests failed.\nWarmup request 1: synthetic failure 1\nWarmup request 2: synthetic failure 2"
+      },
+      "requests": 2,
+      "peak_concurrency": 2,
+      "progress_closed": true
+    },
+    "zero_warmups": {
+      "stdout": "Starting main benchmark run...\n",
+      "exception": null,
+      "requests": 0,
+      "peak_concurrency": 0,
+      "progress_closed": true
+    },
+    "raised_exception": {
+      "stdout": "Warming up with 1 requests...\n",
+      "exception": {
+        "type": "RuntimeError",
+        "message": "synthetic transport exception"
+      },
+      "requests": 1,
+      "peak_concurrency": 1,
+      "progress_closed": true
+    }
+  },
+  "status": "passed"
+}

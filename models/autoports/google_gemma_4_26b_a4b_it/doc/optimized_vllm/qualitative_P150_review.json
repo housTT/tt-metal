@@ -1,0 +1,639 @@
+{
+  "verdict": "pass_no_new_P150_serving_quality_regression_with_documented_limits",
+  "scope": "Read-only review of P150 optimized_vllm after: all six prompts in both greedy and sampled modes (12 actual outputs), plus feature/async/logit artifacts. No other-profile suite verdict.",
+  "method": "qualitative-check skill; actual output reading and standard-library artifact equality/hash checks only; no TTNN import, hardware, pytest, generation or profiler.",
+  "sources": [
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150/optimized_vllm/after/vllm_qualitative_outputs.json",
+      "sha256": "8dffda9f0c20bc9595548beee49d2f44e924450d2857f356de445a0c0619d85c"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150/optimized_vllm/after/openai_feature_checks.json",
+      "sha256": "25d6bf7fe3da1eef187c47822d5658e346ba16fa2c83344e4d38af8f052fdeca"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150/optimized_vllm/after/async_overlap_state_test.json",
+      "sha256": "eee88a07fe8f140b8b2f7a71d1c10ae6a4d6b7898f7a51e3ef6191b1ec02ba4d"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150/optimized_vllm/after/logit_determinism.json",
+      "sha256": "5d2dfd0915213110f010cad09b706d9ea76a9446ce1daff2f1a5b117b0b4a471"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150/optimized_vllm/after/qualitative_degeneracy_check.json",
+      "sha256": "ee0ff21615ced19fd659e904a89e0ef96e224d415e5d9b67ab28c9f1289a9100"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150/optimized_vllm/after/run_manifest.json",
+      "sha256": "27b62a016af3bb6d19722c3b951c7a911d1c0a4e061fc7f3dfcbe7ba651bfaaf"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150/vllm_qualitative_outputs.json",
+      "sha256": "25d106e9ac6e5f3612f04226e3d0e69cfd21307d4fc3d45563cbccbc9c87dc98"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150/openai_feature_checks.json",
+      "sha256": "71a5dbd78f6b3db340512f00c9d613ddc3649c4a637c70cd1364e53b27b3b7cd"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150/async_overlap_state_test.json",
+      "sha256": "eee88a07fe8f140b8b2f7a71d1c10ae6a4d6b7898f7a51e3ef6191b1ec02ba4d"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150/logit_determinism.json",
+      "sha256": "845a24cff46ea9e49212885ae72f571e38081511d0117063d24b1efdf2da7e8f"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/prompt_format_and_outputs.json",
+      "sha256": "4662797cd34ab9cd23856309c2f74b70ea81ee1b4edaa8c008b61b69668bd02b"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/vllm_prompts.txt",
+      "sha256": "2ad452c15d8442d3fe641eb968bbd84e3bfe9acb01ddc540f451983c0da3cbbd"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/common/readiness_check/run_vllm_server.py",
+      "sha256": "31fbe6c15d75d1dca7c252d456a43f5309429881af71ffdfbb3da75d3cc47393"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/common/readiness_check/vllm_prompts.txt",
+      "sha256": "2ad452c15d8442d3fe641eb968bbd84e3bfe9acb01ddc540f451983c0da3cbbd"
+    },
+    {
+      "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/tests/run_vllm_feature_checks.py",
+      "sha256": "e2705e8532b9b2fa05935ffc60419bf4f1d49ec7aa4a4d20584ae4156c39a367"
+    },
+    {
+      "path": "/home/hous/.cache/huggingface/hub/models--google--gemma-4-26B-A4B-it/blobs/4741bf6e4132ba23a5537f9d6e74e9a6d613d7cd",
+      "sha256": "ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4"
+    },
+    {
+      "path": "/home/hous/.cache/huggingface/hub/models--google--gemma-4-26B-A4B-it/blobs/6068e357379d36f823c377e30efb101fa2c67fe4",
+      "sha256": "9f4fec4b1dc6ecddf8f4a92e9caea5971c0e67d81309f3f9066a2bee8c362633"
+    }
+  ],
+  "prompt_format": {
+    "hf_model_id": "google/gemma-4-26B-A4B-it",
+    "checkpoint_revision_control_and_local_snapshot": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+    "candidate_revision_caveat": "Qualitative output does not record a revision; local snapshot/control identify this revision and all six rendered prompts/token-ID lists exactly match.",
+    "tokenizer_class": "GemmaTokenizer",
+    "chat_template_present": true,
+    "chat_template_storage": "nonempty chat_template.jinja beside tokenizer_config.json; the JSON does not itself contain chat_template",
+    "prompt_mode": "chat",
+    "endpoint": "/v1/chat/completions",
+    "messages": "one user message per retained prompt; no invented system role",
+    "rendering_method": "tokenizer.apply_chat_template(add_generation_prompt=True)",
+    "all_six_rendered_prompts_and_ids_match_HF_TT_and_prior_P150": true,
+    "prompt_source_sha256_matches_retained_control": true
+  },
+  "generation": {
+    "serving_max_tokens": 256,
+    "cap_source": "models/common/readiness_check/run_vllm_server.py:_run_qualitative_prompts",
+    "greedy": {
+      "temperature": 0.0,
+      "top_k": 1
+    },
+    "sampled": {
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "top_k": 32
+    },
+    "sampled_seed": "not specified; exact sampled equality is not a gate",
+    "hf_and_standalone_tt_control": {
+      "max_new_tokens": 64,
+      "do_sample": false
+    },
+    "artifact_limit": "Candidate qualitative JSON retains completion text but omits finish_reason, usage/completion-token counts, and resolved tokenizer revision. Truncation is consistent with the source cap; exact per-output stop cause is not directly retained."
+  },
+  "summary": {
+    "outputs_read": 12,
+    "greedy_exact_matches_prior_P150": 6,
+    "sampled_exact_matches_prior_P150": 0,
+    "automated_degeneracy_findings": [],
+    "new_unexplained_serving_degeneracy": false
+  },
+  "per_output_reviews": [
+    {
+      "prompt_id": "machine_learning_haiku",
+      "mode": "greedy",
+      "artifact_index": 0,
+      "field": "greedy_completion",
+      "prompt": "Write a haiku about machine learning.",
+      "output_sha256": "cafc38e4c1b9b5f68a92028bdd205dfde303667773f72d1d5de4652ff3c0b1db",
+      "prior_output_sha256": "cafc38e4c1b9b5f68a92028bdd205dfde303667773f72d1d5de4652ff3c0b1db",
+      "exact_match_prior_P150": true,
+      "prompt_format_and_token_ids_match_controls": true,
+      "verdict": "pass_no_new_serving_regression",
+      "observation": "Complete on-topic three-line 5/7/5 haiku; exactly matches prior P150 and HF wording after removing the HF terminal turn marker.",
+      "anomalies_and_limits": [],
+      "opening_excerpt": "Data feeds the code,\nPatterns rise from silent math,\nLearning to decide.",
+      "ending_excerpt": "Data feeds the code,\nPatterns rise from silent math,\nLearning to decide.",
+      "control_assessment": "HF and TT both provide coherent three-line haiku. Their retained <turn|> is a raw decoded terminal token; candidate API output contains no such marker.",
+      "hf_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/machine_learning_haiku/hf_completion.txt",
+        "sha256": "ce6d3b25db0d0f3d4388f67f3d9de73bdc9cac594983fd604e0cb8ad0e288786"
+      },
+      "tt_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/machine_learning_haiku/tt_completion.txt",
+        "sha256": "83d604d03e0170973832cc50d54947568260de433bd4faedb0be46d44bbe04f5"
+      },
+      "no_observed_degeneracy": [
+        "wrong-language drift",
+        "unexplained prompt echo",
+        "mechanical repetition",
+        "doubled subwords",
+        "control-token leakage",
+        "cross-request leakage",
+        "corrupt first token",
+        "gibberish"
+      ]
+    },
+    {
+      "prompt_id": "machine_learning_haiku",
+      "mode": "sampled",
+      "artifact_index": 0,
+      "field": "sampled_completion",
+      "prompt": "Write a haiku about machine learning.",
+      "output_sha256": "bed8f3f81d37733545c983682eb489120976a7ab75126696577478dc60c595fc",
+      "prior_output_sha256": "ea365c0c608b2630ad507fea05b0d3bf92c6ea697fe0cb2afb48afa2042c20c7",
+      "exact_match_prior_P150": false,
+      "prompt_format_and_token_ids_match_controls": true,
+      "verdict": "pass_no_new_serving_regression",
+      "observation": "Complete on-topic three-line 5/7/5 haiku; coherent alternative to prior sampled version.",
+      "anomalies_and_limits": [],
+      "opening_excerpt": "Data flows through nodes,\nPatterns learned from silent code,\nMind built out of math.",
+      "ending_excerpt": "Data flows through nodes,\nPatterns learned from silent code,\nMind built out of math.",
+      "control_assessment": "HF and TT both provide coherent three-line haiku. Their retained <turn|> is a raw decoded terminal token; candidate API output contains no such marker.",
+      "hf_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/machine_learning_haiku/hf_completion.txt",
+        "sha256": "ce6d3b25db0d0f3d4388f67f3d9de73bdc9cac594983fd604e0cb8ad0e288786"
+      },
+      "tt_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/machine_learning_haiku/tt_completion.txt",
+        "sha256": "83d604d03e0170973832cc50d54947568260de433bd4faedb0be46d44bbe04f5"
+      },
+      "no_observed_degeneracy": [
+        "wrong-language drift",
+        "unexplained prompt echo",
+        "mechanical repetition",
+        "doubled subwords",
+        "control-token leakage",
+        "cross-request leakage",
+        "corrupt first token",
+        "gibberish"
+      ]
+    },
+    {
+      "prompt_id": "supervised_unsupervised",
+      "mode": "greedy",
+      "artifact_index": 1,
+      "field": "greedy_completion",
+      "prompt": "Explain the difference between supervised and unsupervised learning in simple terms.",
+      "output_sha256": "12782c12b38e1ebfe2c61e3bbaa2d4ee15ce4ed89980730a6e2c3df4e9582ab2",
+      "prior_output_sha256": "12782c12b38e1ebfe2c61e3bbaa2d4ee15ce4ed89980730a6e2c3df4e9582ab2",
+      "exact_match_prior_P150": true,
+      "prompt_format_and_token_ids_match_controls": true,
+      "verdict": "pass_no_new_serving_regression_with_budget_limit",
+      "observation": "Coherent labeled-data/teacher explanation, but stops at \"label new\" before explaining unsupervised learning. Exact prior P150 greedy output.",
+      "anomalies_and_limits": [
+        "Both outputs are incomplete under the documented 256-token request budget; artifact lacks finish_reason and completion-token counts."
+      ],
+      "opening_excerpt": "To understand the difference, imagine you are teaching a child how to identify different types of fruit.\n\n### 1. Supervised Learning (The Teacher Method)\nIn sup",
+      "ending_excerpt": "been shown millions of emails already marked as \"Spam\" or \"Not Spam.\" It learns the patterns of spam so it can label new",
+      "control_assessment": "Prior P150 greedy is byte-identical; prior sampled also stops at the unsupervised heading. HF and standalone TT controls at 64 tokens stop during the supervised explanation.",
+      "hf_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/supervised_unsupervised/hf_completion.txt",
+        "sha256": "57836e43fd55d1e1fce748cf8cea84523952e09e8dae18dff6f6f938dc9c559f"
+      },
+      "tt_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/supervised_unsupervised/tt_completion.txt",
+        "sha256": "129530915207ca8b3e82b555c6fe6d9b630f8218b6033785538fc92af75e3ebd"
+      },
+      "no_observed_degeneracy": [
+        "wrong-language drift",
+        "unexplained prompt echo",
+        "mechanical repetition",
+        "doubled subwords",
+        "control-token leakage",
+        "cross-request leakage",
+        "corrupt first token",
+        "gibberish"
+      ]
+    },
+    {
+      "prompt_id": "supervised_unsupervised",
+      "mode": "sampled",
+      "artifact_index": 1,
+      "field": "sampled_completion",
+      "prompt": "Explain the difference between supervised and unsupervised learning in simple terms.",
+      "output_sha256": "7e25a2673a7756fc51309c1742ba416462bf629bd66bbbd7e27e9b3d8a64015f",
+      "prior_output_sha256": "06e810d3ea325ce7eb25d2dc6faf598622632195596ef0770be9e6a21cfd1991",
+      "exact_match_prior_P150": false,
+      "prompt_format_and_token_ids_match_controls": true,
+      "verdict": "pass_no_new_serving_regression_with_budget_limit",
+      "observation": "Coherent labeled-data explanation and starts the unsupervised section, then stops at \"there is **no\".",
+      "anomalies_and_limits": [
+        "Both outputs are incomplete under the documented 256-token request budget; artifact lacks finish_reason and completion-token counts."
+      ],
+      "opening_excerpt": "To understand the difference between supervised and unsupervised learning, imagine you are teaching a child how to identify different objects.\n\n### 1. Supervise",
+      "ending_excerpt": "wer for new data.\n\n---\n\n### 2. Unsupervised Learning (The Self-Discovery Method)\nIn unsupervised learning, there is **no",
+      "control_assessment": "Prior P150 greedy is byte-identical; prior sampled also stops at the unsupervised heading. HF and standalone TT controls at 64 tokens stop during the supervised explanation.",
+      "hf_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/supervised_unsupervised/hf_completion.txt",
+        "sha256": "57836e43fd55d1e1fce748cf8cea84523952e09e8dae18dff6f6f938dc9c559f"
+      },
+      "tt_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/supervised_unsupervised/tt_completion.txt",
+        "sha256": "129530915207ca8b3e82b555c6fe6d9b630f8218b6033785538fc92af75e3ebd"
+      },
+      "no_observed_degeneracy": [
+        "wrong-language drift",
+        "unexplained prompt echo",
+        "mechanical repetition",
+        "doubled subwords",
+        "control-token leakage",
+        "cross-request leakage",
+        "corrupt first token",
+        "gibberish"
+      ]
+    },
+    {
+      "prompt_id": "inventor_story",
+      "mode": "greedy",
+      "artifact_index": 2,
+      "field": "greedy_completion",
+      "prompt": "Complete this story: Once upon a time, in a faraway kingdom, there lived a curious young inventor who discovered",
+      "output_sha256": "f5f6a8c63c7a6cbee0f23a39dad8a699604b74929e64e09c40b3d8d634875ff1",
+      "prior_output_sha256": "f5f6a8c63c7a6cbee0f23a39dad8a699604b74929e64e09c40b3d8d634875ff1",
+      "exact_match_prior_P150": true,
+      "prompt_format_and_token_ids_match_controls": true,
+      "verdict": "pass_no_new_serving_regression_with_budget_limit",
+      "observation": "Coherent Elara/brass-key story continuation; stops at \"past\" mid-sentence. Exact prior P150 greedy output.",
+      "anomalies_and_limits": [
+        "Both stories are unfinished under the documented 256-token budget."
+      ],
+      "opening_excerpt": "Once upon a time, in a faraway kingdom, there lived a curious young inventor who discovered a brass key hidden inside the hollowed-out gears of a broken clockwo",
+      "ending_excerpt": "th a soft, golden light.\n\nFollowing the rhythmic tug of the metal, Elara ventured beyond the kingdom\u2019s walled city, past",
+      "control_assessment": "HF and standalone TT 64-token controls are coherent partial inventor stories; prior P150 sampled also uses Elian and star-songs. Repeating the supplied opening is requested continuation, not unexplained prompt echo.",
+      "hf_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/inventor_story/hf_completion.txt",
+        "sha256": "dbbe4825c239b1780e801440b258a1028a6fc6cc4af037590a49e1e8e9f15a8e"
+      },
+      "tt_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/inventor_story/tt_completion.txt",
+        "sha256": "6b30ef5021b03e8d60a4447cfeca56ec8f08d38782730d4b001709052b2b5808"
+      },
+      "no_observed_degeneracy": [
+        "wrong-language drift",
+        "unexplained prompt echo",
+        "mechanical repetition",
+        "doubled subwords",
+        "control-token leakage",
+        "cross-request leakage",
+        "corrupt first token",
+        "gibberish"
+      ]
+    },
+    {
+      "prompt_id": "inventor_story",
+      "mode": "sampled",
+      "artifact_index": 2,
+      "field": "sampled_completion",
+      "prompt": "Complete this story: Once upon a time, in a faraway kingdom, there lived a curious young inventor who discovered",
+      "output_sha256": "a28ec00fd97b43b66f117a50609848bcf605e228647d0d6ba767fd044a26713f",
+      "prior_output_sha256": "9636a93b0e16e6e0b2f02dc76fd555ec50a75c62e20123f3134d2c938d6e0128",
+      "exact_match_prior_P150": false,
+      "prompt_format_and_token_ids_match_controls": true,
+      "verdict": "pass_no_new_serving_regression_with_budget_limit",
+      "observation": "Coherent Elian/starlight-sound story; stops at \"a soft\" mid-sentence.",
+      "anomalies_and_limits": [
+        "Both stories are unfinished under the documented 256-token budget."
+      ],
+      "opening_excerpt": "Once upon a time, in a faraway kingdom, there lived a curious young inventor who discovered a way to capture the sound of starlight.\n\nHis name was Elian, and wh",
+      "ending_excerpt": "ations. He called them \"Star-Songs.\" When a vial was filled with the captured resonance of a star, it glowed with a soft",
+      "control_assessment": "HF and standalone TT 64-token controls are coherent partial inventor stories; prior P150 sampled also uses Elian and star-songs. Repeating the supplied opening is requested continuation, not unexplained prompt echo.",
+      "hf_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/inventor_story/hf_completion.txt",
+        "sha256": "dbbe4825c239b1780e801440b258a1028a6fc6cc4af037590a49e1e8e9f15a8e"
+      },
+      "tt_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/inventor_story/tt_completion.txt",
+        "sha256": "6b30ef5021b03e8d60a4447cfeca56ec8f08d38782730d4b001709052b2b5808"
+      },
+      "no_observed_degeneracy": [
+        "wrong-language drift",
+        "unexplained prompt echo",
+        "mechanical repetition",
+        "doubled subwords",
+        "control-token leakage",
+        "cross-request leakage",
+        "corrupt first token",
+        "gibberish"
+      ]
+    },
+    {
+      "prompt_id": "thermodynamics_laws",
+      "mode": "greedy",
+      "artifact_index": 3,
+      "field": "greedy_completion",
+      "prompt": "What are the three laws of thermodynamics?",
+      "output_sha256": "07101a7355fd3ea3253835697b76095dceac756095a4bc59c1fa09b3c6a5d44a",
+      "prior_output_sha256": "07101a7355fd3ea3253835697b76095dceac756095a4bc59c1fa09b3c6a5d44a",
+      "exact_match_prior_P150": true,
+      "prompt_format_and_token_ids_match_controls": true,
+      "verdict": "pass_no_new_serving_regression_with_budget_limit",
+      "observation": "Correct first-law explanation and conventional second-law/entropy summary; stops before finishing the second law or reaching the third. Exact prior P150 greedy output.",
+      "anomalies_and_limits": [
+        "Neither output completes the requested three-law list under the cap.",
+        "Greedy \"Strictly speaking, there are three laws\" wording is imprecise given the acknowledged zeroth law; entropy-as-disorder is a simplified explanation."
+      ],
+      "opening_excerpt": "Strictly speaking, there are **three laws** of thermodynamics, though scientists often refer to a **\"Zeroth Law\"** as well. \n\nThe laws are numbered based on the",
+      "ending_excerpt": ".\"**\n\nEntropy is a measure of \"disorder\" or randomness in a system. This law dictates the **direction** of processes. It",
+      "control_assessment": "Prior P150 greedy is identical. HF uses three-primary-laws-plus-zeroth framing; standalone TT explicitly says four including zeroth. All 64-token controls are partial; no new serving-specific corruption explains these content limitations.",
+      "hf_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/thermodynamics_laws/hf_completion.txt",
+        "sha256": "81eaf6c7f05f6561d2d0264b1e28017a2cdaf72d682181e3f55f988479bb6b5d"
+      },
+      "tt_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/thermodynamics_laws/tt_completion.txt",
+        "sha256": "298e92cb95fb78399253836a271956f5b85de1309be0aa9e93ced682abf6d250"
+      },
+      "no_observed_degeneracy": [
+        "wrong-language drift",
+        "unexplained prompt echo",
+        "mechanical repetition",
+        "doubled subwords",
+        "control-token leakage",
+        "cross-request leakage",
+        "corrupt first token",
+        "gibberish"
+      ]
+    },
+    {
+      "prompt_id": "thermodynamics_laws",
+      "mode": "sampled",
+      "artifact_index": 3,
+      "field": "sampled_completion",
+      "prompt": "What are the three laws of thermodynamics?",
+      "output_sha256": "0ef0170d66e94bee87e7002e9b6cd815c7eb4e9f8eb1a97dacd192c7bb3d38d3",
+      "prior_output_sha256": "2478c1d8e2e16007c83f48209a0c24c10049463262531dab2094293114ef874e",
+      "exact_match_prior_P150": false,
+      "prompt_format_and_token_ids_match_controls": true,
+      "verdict": "pass_no_new_serving_regression_with_budget_limit",
+      "observation": "Coherent first/second-law explanation; also stops before the third law.",
+      "anomalies_and_limits": [
+        "Neither output completes the requested three-law list under the cap.",
+        "Greedy \"Strictly speaking, there are three laws\" wording is imprecise given the acknowledged zeroth law; entropy-as-disorder is a simplified explanation."
+      ],
+      "opening_excerpt": "In physics, there are actually **three** main laws of thermodynamics (plus a \"Zeroth Law\" that was added later for logical completeness). \n\nThe laws describe ho",
+      "ending_excerpt": " the **direction** of time and energy flow. It states that energy naturally spreads out (dissipates) and systems tend to",
+      "control_assessment": "Prior P150 greedy is identical. HF uses three-primary-laws-plus-zeroth framing; standalone TT explicitly says four including zeroth. All 64-token controls are partial; no new serving-specific corruption explains these content limitations.",
+      "hf_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/thermodynamics_laws/hf_completion.txt",
+        "sha256": "81eaf6c7f05f6561d2d0264b1e28017a2cdaf72d682181e3f55f988479bb6b5d"
+      },
+      "tt_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/thermodynamics_laws/tt_completion.txt",
+        "sha256": "298e92cb95fb78399253836a271956f5b85de1309be0aa9e93ced682abf6d250"
+      },
+      "no_observed_degeneracy": [
+        "wrong-language drift",
+        "unexplained prompt echo",
+        "mechanical repetition",
+        "doubled subwords",
+        "control-token leakage",
+        "cross-request leakage",
+        "corrupt first token",
+        "gibberish"
+      ]
+    },
+    {
+      "prompt_id": "french_translation",
+      "mode": "greedy",
+      "artifact_index": 4,
+      "field": "greedy_completion",
+      "prompt": "Translate the following to French: \"Hello, how are you today?\"",
+      "output_sha256": "2413db6e2c083f43bc7281aa280dd13abb3d248269a0818922a700c2bc8c1f54",
+      "prior_output_sha256": "2413db6e2c083f43bc7281aa280dd13abb3d248269a0818922a700c2bc8c1f54",
+      "exact_match_prior_P150": true,
+      "prompt_format_and_token_ids_match_controls": true,
+      "verdict": "pass_no_new_serving_regression",
+      "observation": "Complete valid formal and informal French translations with English explanatory labels; exact prior P150 greedy output.",
+      "anomalies_and_limits": [],
+      "opening_excerpt": "The most common translation is:\n\n**\"Bonjour, comment allez-vous aujourd'hui ?\"** (Formal/Polite)\n\nIf you are speaking to a friend or someone you know well, you ",
+      "ending_excerpt": "ou are speaking to a friend or someone you know well, you can say:\n\n**\"Salut, comment vas-tu aujourd'hui ?\"** (Informal)",
+      "control_assessment": "HF and TT controls use the same French forms with English framing. Their 64-token outputs truncate during the informal variant; candidate outputs finish it.",
+      "hf_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/french_translation/hf_completion.txt",
+        "sha256": "5f9a62fb516c6597ddcd9e1849ada961cf9051e9634e8af537e45c4816b56158"
+      },
+      "tt_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/french_translation/tt_completion.txt",
+        "sha256": "90ef986bcb48888151eaa8a38759eb7c9f64de243ffb0723686abb2ba4213d6c"
+      },
+      "no_observed_degeneracy": [
+        "wrong-language drift",
+        "unexplained prompt echo",
+        "mechanical repetition",
+        "doubled subwords",
+        "control-token leakage",
+        "cross-request leakage",
+        "corrupt first token",
+        "gibberish"
+      ]
+    },
+    {
+      "prompt_id": "french_translation",
+      "mode": "sampled",
+      "artifact_index": 4,
+      "field": "sampled_completion",
+      "prompt": "Translate the following to French: \"Hello, how are you today?\"",
+      "output_sha256": "264996a72a4648bd0e5b36355cf2e98af7539eb84ed5119fce54de10dc72d4b6",
+      "prior_output_sha256": "2c298077677947a559bbb86beb143ee68c19bd1c8789edf621938796b6287a99",
+      "exact_match_prior_P150": false,
+      "prompt_format_and_token_ids_match_controls": true,
+      "verdict": "pass_no_new_serving_regression",
+      "observation": "Complete valid formal/informal French translations, consistent with prior sampled alternatives.",
+      "anomalies_and_limits": [],
+      "opening_excerpt": "The most common way to translate this is:\n\n**\"Bonjour, comment allez-vous aujourd'hui ?\"** (Formal/Polite)\n\nIf you are speaking to a friend or someone you know ",
+      "ending_excerpt": "friend or someone you know well, you can use the informal version:\n\n**\"Salut, comment vas-tu aujourd'hui ?\"** (Informal)",
+      "control_assessment": "HF and TT controls use the same French forms with English framing. Their 64-token outputs truncate during the informal variant; candidate outputs finish it.",
+      "hf_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/french_translation/hf_completion.txt",
+        "sha256": "5f9a62fb516c6597ddcd9e1849ada961cf9051e9634e8af537e45c4816b56158"
+      },
+      "tt_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/french_translation/tt_completion.txt",
+        "sha256": "90ef986bcb48888151eaa8a38759eb7c9f64de243ffb0723686abb2ba4213d6c"
+      },
+      "no_observed_degeneracy": [
+        "wrong-language drift",
+        "unexplained prompt echo",
+        "mechanical repetition",
+        "doubled subwords",
+        "control-token leakage",
+        "cross-request leakage",
+        "corrupt first token",
+        "gibberish"
+      ]
+    },
+    {
+      "prompt_id": "fibonacci_function",
+      "mode": "greedy",
+      "artifact_index": 5,
+      "field": "greedy_completion",
+      "prompt": "Write a Python function to calculate the Fibonacci sequence.",
+      "output_sha256": "c7131b3ff4c0674aec494175015a2eb81dd34d4d517e630f33ec2b2739265b2e",
+      "prior_output_sha256": "c7131b3ff4c0674aec494175015a2eb81dd34d4d517e630f33ec2b2739265b2e",
+      "exact_match_prior_P150": true,
+      "prompt_format_and_token_ids_match_controls": true,
+      "verdict": "pass_no_new_serving_regression_with_budget_limit",
+      "observation": "Provides a complete correct iterative list function, edge handling for n<=0/n=1, and the correct ten-term example; the later second approach heading is truncated. Exact prior P150 greedy output.",
+      "anomalies_and_limits": [
+        "Greedy stops at \"### 2. Find the\"; sampled has an open code fence at the documented output cap.",
+        "This does not prove complete multi-approach instructions; the requested primary function is present and readable."
+      ],
+      "opening_excerpt": "There are several ways to implement a Fibonacci function depending on whether you want a single number, a list of numbers, or an efficient generator.\n\nHere are ",
+      "ending_excerpt": "# Example usage:\nprint(get_fibonacci_sequence(10))\n# Output: [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]\n```\n\n---\n\n### 2. Find the",
+      "control_assessment": "Prior P150 greedy is identical. Prior sampled supplies an equivalent iterative function and starts another approach before truncation. HF/TT 64-token controls stop in introductory prose, confirming verbose introductions under short caps.",
+      "hf_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/fibonacci_function/hf_completion.txt",
+        "sha256": "659601aadf9d78a3c2c29cfff1b87ddb12e9b0daaffcddefa3927356478385f1"
+      },
+      "tt_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/fibonacci_function/tt_completion.txt",
+        "sha256": "becdcd053a154eb914682829d37d677eeedf94dcaafbeff5db85de8a0d26060c"
+      },
+      "no_observed_degeneracy": [
+        "wrong-language drift",
+        "unexplained prompt echo",
+        "mechanical repetition",
+        "doubled subwords",
+        "control-token leakage",
+        "cross-request leakage",
+        "corrupt first token",
+        "gibberish"
+      ]
+    },
+    {
+      "prompt_id": "fibonacci_function",
+      "mode": "sampled",
+      "artifact_index": 5,
+      "field": "sampled_completion",
+      "prompt": "Write a Python function to calculate the Fibonacci sequence.",
+      "output_sha256": "834d927a876e374ff7001cb32302e94ef13c727651c41adb5413ba12632b1167",
+      "prior_output_sha256": "85efc780673a20ce7be4460ce6c2b9a5bc8dae12089040c8f90d0a1d42036de6",
+      "exact_match_prior_P150": false,
+      "prompt_format_and_token_ids_match_controls": true,
+      "verdict": "pass_no_new_serving_regression_with_budget_limit",
+      "observation": "Provides a complete correct iterative list function and example; the final Markdown code fence is missing.",
+      "anomalies_and_limits": [
+        "Greedy stops at \"### 2. Find the\"; sampled has an open code fence at the documented output cap.",
+        "This does not prove complete multi-approach instructions; the requested primary function is present and readable."
+      ],
+      "opening_excerpt": "There are several ways to calculate the Fibonacci sequence depending on whether you want a single number, a list of numbers, or an efficient way to handle large",
+      "ending_excerpt": "e)\n    return sequence\n\n# Example usage:\nprint(get_fibonacci_sequence(10)) \n# Output: [0, 1, 1, 2, 3, 5, 8, 13, 21, 34]\n",
+      "control_assessment": "Prior P150 greedy is identical. Prior sampled supplies an equivalent iterative function and starts another approach before truncation. HF/TT 64-token controls stop in introductory prose, confirming verbose introductions under short caps.",
+      "hf_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/fibonacci_function/hf_completion.txt",
+        "sha256": "659601aadf9d78a3c2c29cfff1b87ddb12e9b0daaffcddefa3927356478385f1"
+      },
+      "tt_control": {
+        "path": "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/optimized_full_model/final/qualitative/shared_readiness_suite/fibonacci_function/tt_completion.txt",
+        "sha256": "becdcd053a154eb914682829d37d677eeedf94dcaafbeff5db85de8a0d26060c"
+      },
+      "no_observed_degeneracy": [
+        "wrong-language drift",
+        "unexplained prompt echo",
+        "mechanical repetition",
+        "doubled subwords",
+        "control-token leakage",
+        "cross-request leakage",
+        "corrupt first token",
+        "gibberish"
+      ]
+    }
+  ],
+  "feature_review": {
+    "artifact_status": "passed",
+    "nonaligned_prompt_tokens": 29,
+    "text": "Exactly repeats the requested phrase including its explicit padding words; same text as prior P150.",
+    "tool_call": "get_weather with JSON arguments city=Paris; finish_reason tool_calls; same semantic result as prior P150.",
+    "reasoning": "Correct final answer 2 + 3 = 5 and separately populated reasoning field; same final text as prior P150.",
+    "text_and_reasoning_content_match_prior": true,
+    "scope": "text-only; image and video inputs are excluded"
+  },
+  "async_review": {
+    "artifact_verdict": "pass",
+    "entire_artifact_exact_match_prior_P150": true,
+    "long_request": "Isolated and overlapped 96-token continuations differ after a stable initial prefix but stay coherent and on telescope optics. Both finish_reason=length with ignore_eos=true; this exact difference exists in prior P150.",
+    "short_request": "Brass telescope in isolated and overlapped control, 3 completion tokens and finish_reason=stop; no contamination.",
+    "limitation": "No exact long-output equivalence is claimed; the 96-token cap cannot satisfy the requested >=140 words. This is state/overlap stress coverage, not essay-completeness evidence.",
+    "invariants": {
+      "stable_initial_prefix_across_batch_shape_transition": true,
+      "long_request_stays_on_topic": true,
+      "no_cross_request_instruction_contamination": true,
+      "exact_match_diagnostic": false,
+      "decode_crosses_64_token_page_boundary": true,
+      "short_request_reaches_eos_before_long_request": true,
+      "no_repeated_or_doubled_token_degeneracy": true
+    }
+  },
+  "logit_review": {
+    "artifact_verdict": "pass",
+    "scope": "Numeric TT logits exposed through the optional vLLM logprobs diagnostic path; this host-readback check is not the serving performance sampling path.",
+    "chat_response": "Paris.",
+    "chat_run_to_run": {
+      "text_exact_match": true,
+      "selected_tokens_match": true,
+      "selected_token_match_by_position": [
+        true,
+        true,
+        true
+      ],
+      "maximum_selected_logprob_absolute_delta": 0.0,
+      "minimum_top10_token_overlap": 10,
+      "maximum_common_logprob_absolute_delta": 0.0
+    },
+    "direct_run_to_run": {
+      "comparisons": 4,
+      "all_selected_tokens_match": true,
+      "maximum_selected_logprob_absolute_delta": 0.0,
+      "minimum_top10_token_overlap": 10,
+      "maximum_common_logprob_absolute_delta": 0.0
+    },
+    "same_profile_standalone_comparison": {
+      "comparisons": 4,
+      "all_selected_tokens_match": true,
+      "maximum_selected_logprob_absolute_delta": 0.0,
+      "minimum_top10_token_overlap": 10,
+      "maximum_common_logprob_absolute_delta": 0.0
+    },
+    "graph_shape_transition": {
+      "comparisons": 8,
+      "all_selected_tokens_match": true,
+      "maximum_selected_logprob_absolute_delta": 1.4394773244857788,
+      "minimum_top10_token_overlap": 5,
+      "maximum_common_logprob_absolute_delta": 1.4394773244857788
+    },
+    "graph_shape_metrics_exact_match_prior_P150": true,
+    "graph_shape_limit": "B1-to-padded-B32 distribution differences exceed same-graph tolerances (up to 1.439477 selected logprob delta, top10 overlap as low as 5). The artifact explicitly treats these as diagnostics with selected-token equality required; same differences existed before this candidate. No exact distribution equivalence is claimed.",
+    "synthetic_prompt_limit": "Direct control uses synthetic token IDs, not chat prompts; outputs such as wyddwydd are labeled logit-oracle stress cases and not qualitative language verdicts.",
+    "external_control_limit": "The embedded B1/B32 full-model shape control is P150x4; it is supporting inherited context only, not same-profile P150 shape-distribution proof or a new P150x4 serving gate."
+  },
+  "followup": {
+    "blocking_for_this_P150_regression_review": [],
+    "before_claiming_full_answer_completeness": [
+      "Run longer-cap same-format controls for supervised/unsupervised, story, thermodynamics and Markdown-complete Fibonacci output."
+    ],
+    "evidence_improvement": [
+      "Retain finish_reason, usage and resolved tokenizer revision in future qualitative runs."
+    ],
+    "remaining_profile_scope": "Review P150x2 and P150x4 independently when their candidate artifacts exist; this review makes no claim about them."
+  },
+  "profiles": {
+    "P150": {
+      "max_model_len": 50624
+    }
+  }
+}

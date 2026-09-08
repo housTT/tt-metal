@@ -1,0 +1,125 @@
+{
+  "profile": "P150",
+  "serving_run": "readiness_vllm/P150/optimized_vllm/after",
+  "sampling_exit": 0,
+  "sampling_result": "72 passed, 1 expected skip, 2 dependency warnings",
+  "server_shutdown_markers": [
+    "TTWorker mesh shutdown starting",
+    "TTWorker mesh shutdown complete",
+    "Closing devices in cluster completed.",
+    "Application shutdown complete."
+  ],
+  "process_check": {
+    "command": "pgrep -af 'EngineCore|vllm.entrypoints|run_vllm_server|vllm serve'",
+    "exit_code": 1,
+    "output": "",
+    "meaning": "No serving process remained after the driver exited."
+  },
+  "reopen": {
+    "command": "timeout 60 python_env/bin/python (set FABRIC_2D; open 2x2 parent, create 1x2 submesh; close submesh then parent)",
+    "reset_between": false,
+    "exit_code": 0,
+    "artifact": "after_P150_reopen.log",
+    "marker": "REAL_SERVER_SHUTDOWN_REOPEN_WITHOUT_RESET_OK"
+  },
+  "interpreter_shutdown_warning": {
+    "observed": "nanobind instance/type/function/keep_alive leak diagnostics at interpreter exit",
+    "baseline": "readiness_vllm/P150/optimized_vllm/before/server.log",
+    "candidate": "readiness_vllm/P150/optimized_vllm/after/server.log",
+    "comparison": "Identical EngineCore counts: 1493 instances, 48 keep_alive, 986 types, 4507 functions. Identical API process counts: 104 instances, 984 types, 4503 functions. Present before this stage; device close completes and immediate reopen passes.",
+    "resolution": "controlled inherited interpreter binding diagnostic; no retained serving process or device ownership"
+  },
+  "final_all_profile_lifecycle": {
+    "profiles": [
+      {
+        "profile": "P150",
+        "manifest": "readiness_vllm/P150/optimized_vllm/after_warmed/run_manifest.json",
+        "server_runner_exit_code": 0,
+        "worker_shutdown_complete": true,
+        "umd_close_complete": true,
+        "source_hashes": {
+          "model.py": "cf828e78ef370f7edb541253e27c9a1b8f5c2ea7719609f658f1c0718d29d0ff",
+          "generator.py": "1a455b060403a353e285614b59818b3d86eea8d1e832fb7460245ec0e5fd8791",
+          "generator_vllm.py": "649cd5ab17cc97af777881e6be63baac96ba27f964be59e753b61d8abb0f6325"
+        }
+      },
+      {
+        "profile": "P150x2",
+        "manifest": "readiness_vllm/P150x2/optimized_vllm/after_warmed/run_manifest.json",
+        "server_runner_exit_code": 0,
+        "worker_shutdown_complete": true,
+        "umd_close_complete": true,
+        "source_hashes": {
+          "model.py": "cf828e78ef370f7edb541253e27c9a1b8f5c2ea7719609f658f1c0718d29d0ff",
+          "generator.py": "1a455b060403a353e285614b59818b3d86eea8d1e832fb7460245ec0e5fd8791",
+          "generator_vllm.py": "649cd5ab17cc97af777881e6be63baac96ba27f964be59e753b61d8abb0f6325"
+        }
+      },
+      {
+        "profile": "P150x4",
+        "manifest": "readiness_vllm/P150x4/optimized_vllm/after_warmed/run_manifest.json",
+        "server_runner_exit_code": 0,
+        "worker_shutdown_complete": true,
+        "umd_close_complete": true,
+        "source_hashes": {
+          "model.py": "cf828e78ef370f7edb541253e27c9a1b8f5c2ea7719609f658f1c0718d29d0ff",
+          "generator.py": "1a455b060403a353e285614b59818b3d86eea8d1e832fb7460245ec0e5fd8791",
+          "generator_vllm.py": "649cd5ab17cc97af777881e6be63baac96ba27f964be59e753b61d8abb0f6325"
+        }
+      }
+    ],
+    "reset_between_warmed_runs": false,
+    "separate_final_reopen": {
+      "exit_code": 0,
+      "artifact": "final_reopen.log",
+      "marker": "FINAL_SERVING_SHUTDOWN_REOPEN_WITHOUT_RESET_OK",
+      "topology": "2x2 FABRIC_2D parent and 1x2 submesh after final 1x4 ring serving shutdown",
+      "reset_before": false
+    },
+    "final_device_list": {
+      "command": "timeout 60 /home/hous/.tenstorrent-venv/bin/tt-smi -ls --local",
+      "exit_code": 0,
+      "artifact": "final_device_list.log",
+      "visible_chip_ids": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "device_series": "P300C"
+    },
+    "final_process_check": {
+      "command": "pgrep -af 'EngineCore|vllm.entrypoints|run_vllm_server|vllm serve'",
+      "exit_code": 1,
+      "artifact": "final_process_check.log",
+      "output": "",
+      "meaning": "No matching serving process remains."
+    }
+  },
+  "post_review_control_lifecycle": {
+    "manifest": "thermodynamics_control/manifest.json",
+    "adapter_restored": true,
+    "server_runner_exit_codes": [
+      0,
+      0
+    ],
+    "reopen": {
+      "exit_code": 0,
+      "artifact": "thermodynamics_control/reopen.log",
+      "marker": "THERMODYNAMICS_CONTROL_SHUTDOWN_REOPEN_WITHOUT_RESET_OK",
+      "reset_before": false,
+      "topology": "FABRIC_2D 2x2 parent and 1x2 submesh after original/current TP4 ring servers"
+    },
+    "device_list": {
+      "command": "timeout 60 /home/hous/.tenstorrent-venv/bin/tt-smi -ls --local",
+      "exit_code": 0,
+      "artifact": "thermodynamics_control/device_list.log"
+    },
+    "process_check": {
+      "command": "pgrep -af 'EngineCore|vllm.entrypoints|run_vllm_server|vllm serve'",
+      "exit_code": 1,
+      "artifact": "thermodynamics_control/process_check.log",
+      "output": ""
+    }
+  }
+}

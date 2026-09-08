@@ -1,0 +1,116 @@
+INFO 09-08 20:33:18 [__init__.py:44] Available plugins for group vllm.platform_plugins:
+INFO 09-08 20:33:18 [__init__.py:46] - tt -> vllm_tt_plugin.entrypoints:platform_plugin
+INFO 09-08 20:33:18 [__init__.py:49] All plugins in this group will be loaded. Set `VLLM_PLUGINS` to control which plugins to load.
+2026-09-08 20:33:19.861 | DEBUG    | ttnn:<module>:45 - Initial ttnn.CONFIG:
+Config{cache_path=/home/hous/.cache/ttnn,model_cache_path=/home/hous/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=true,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+INFO 09-08 20:33:19 [__init__.py:253] Platform plugin tt is activated
+
+################################################################################
+#                                                                              #
+#        **************************************************************        #
+#                                                                              #
+#                             D E P R E C A T E D                              #
+#                                                                              #
+#        **************************************************************        #
+#                                                                              #
+#          This vLLM fork (tenstorrent/vllm) is no longer maintained.          #
+#         Tenstorrent support now ships as a plugin for UPSTREAM vLLM:         #
+#                                                                              #
+#          >>>   https://github.com/tenstorrent/vllm-tt-plugin   <<<           #
+#                                                                              #
+#      No further fixes, model enablement, or upstream merges land here,       #
+#     and this repository will be archived. Migrate now: install upstream      #
+#        vLLM plus vllm-tt-plugin, following that repository's README.         #
+#                File issues and pull requests there, not here.                #
+#                                                                              #
+################################################################################
+
+INFO 09-08 20:33:22 [importing.py:44] Triton is installed but 0 active driver(s) found (expected 1). Disabling Triton to prevent runtime errors.
+INFO 09-08 20:33:22 [importing.py:68] Triton not installed or not compatible; certain GPU-related functions will not be available.
+Namespace(subparser='bench', bench_type='serve', dispatch_function=<function BenchmarkServingSubcommand.cmd at 0x7d09a8148540>, trust_remote_code=False, seed=0, num_prompts=1, dataset_name='random', no_stream=False, dataset_path=None, no_oversample=False, skip_chat_template=False, enable_multimodal_chat=False, disable_shuffle=False, custom_output_len=256, spec_bench_output_len=256, spec_bench_category=None, sonnet_input_len=550, sonnet_output_len=150, sonnet_prefix_len=200, sharegpt_output_len=None, blazedit_min_distance=0.0, blazedit_max_distance=1.0, asr_max_audio_len_sec=inf, asr_min_audio_len_sec=0.0, random_input_len=128, random_output_len=128, random_range_ratio=0.0, random_prefix_len=0, random_batch_size=1, no_reranker=False, random_mm_base_items_per_request=1, random_mm_num_mm_items_range_ratio=0.0, random_mm_limit_mm_per_prompt={'image': 255, 'video': 1}, random_mm_bucket_config={(256, 256, 1): 0.5, (720, 1280, 1): 0.5, (720, 1280, 16): 0.0}, hf_subset=None, hf_split=None, hf_name=None, hf_output_len=None, prefix_repetition_prefix_len=256, prefix_repetition_suffix_len=256, prefix_repetition_num_prefixes=10, prefix_repetition_output_len=128, label=None, backend='vllm', base_url='http://localhost:8000', host='127.0.0.1', port=8000, endpoint='/v1/completions', header=None, max_concurrency=1, model='google/gemma-4-26B-A4B-it', input_len=None, output_len=None, tokenizer=None, tokenizer_mode='auto', use_beam_search=False, logprobs=None, request_rate=inf, burstiness=1.0, disable_tqdm=False, num_warmups=0, profile=False, save_result=True, save_detailed=False, append_result=False, metadata=None, result_dir=None, result_filename='/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150/optimized_vllm/after/vllm_result.json', ignore_eos=True, percentile_metrics='ttft,tpot,itl,e2el', metric_percentiles='99', goodput=None, request_id_prefix='bench-fba9ab30-', top_p=None, top_k=None, min_p=None, temperature=0.0, frequency_penalty=None, presence_penalty=None, repetition_penalty=None, served_model_name=None, lora_modules=None, ramp_up_strategy=None, ramp_up_start_rps=None, ramp_up_end_rps=None, ready_check_timeout_sec=0, extra_body=None, skip_tokenizer_init=False, insecure=False)
+INFO 09-08 20:33:24 [datasets.py:607] Sampling input_len from [128, 128] and output_len from [128, 128]
+Starting initial single prompt test run...
+Skipping endpoint ready check.
+Starting main benchmark run...
+Traffic request rate: inf
+Burstiness factor: 1.0 (Poisson process)
+Maximum request concurrency: 1
+  0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:03<00:00,  3.89s/it]100%|██████████| 1/1 [00:03<00:00,  3.89s/it]
+tip: install termplotlib and gnuplot to plot the metrics
+============ Serving Benchmark Result ============
+Successful requests:                     1         
+Failed requests:                         0         
+Maximum request concurrency:             1         
+Benchmark duration (s):                  3.89      
+Total input tokens:                      128       
+Total generated tokens:                  128       
+Request throughput (req/s):              0.26      
+Output token throughput (tok/s):         32.86     
+Peak output token throughput (tok/s):    37.00     
+Peak concurrent requests:                1.00      
+Total token throughput (tok/s):          65.73     
+---------------Time to First Token----------------
+Mean TTFT (ms):                          285.08    
+Median TTFT (ms):                        285.08    
+P99 TTFT (ms):                           285.08    
+-----Time per Output Token (excl. 1st token)------
+Mean TPOT (ms):                          28.42     
+Median TPOT (ms):                        28.42     
+P99 TPOT (ms):                           28.42     
+---------------Inter-token Latency----------------
+Mean ITL (ms):                           28.42     
+Median ITL (ms):                         26.83     
+P99 ITL (ms):                            27.19     
+----------------End-to-end Latency----------------
+Mean E2EL (ms):                          3894.70   
+Median E2EL (ms):                        3894.70   
+P99 E2EL (ms):                           3894.70   
+==================================================
+nanobind: leaked 102 instances!
+ - leaked instance 0x7d09b95a0048 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x7d09b960c948 of type "ttnn._ttnn.tensor.CoreCoord"
+ - leaked instance 0x7d09b97ecb88 of type "ttnn._ttnn.multi_device.MeshCoordinate"
+ - leaked instance 0x41c709b0 of type "ttnn._ttnn.operations.unary.hardsigmoid_t"
+ - leaked instance 0x41c62ba0 of type "ttnn._ttnn.operations.unary.digamma_t"
+ - leaked instance 0x418531e0 of type "ttnn._ttnn.operations.unary.exp_t"
+ - leaked instance 0x41c0f310 of type "ttnn._ttnn.operations.unary.deg2rad_t"
+ - leaked instance 0x416c38e0 of type "ttnn._ttnn.operations.unary.square_t"
+ - leaked instance 0x7d0a0d2697b8 of type "ttnn._ttnn.multi_device.MeshCoordinate"
+ - leaked instance 0x7d09b960c438 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x41cb5a80 of type "ttnn._ttnn.operations.unary.lez_t"
+ - leaked instance 0x7d09b96e1988 of type "ttnn._ttnn.operations.normalization.SoftmaxDefaultProgramConfig"
+ - leaked instance 0x7d09b971b618 of type "ttnn._ttnn.tensor.CoreCoord"
+ - leaked instance 0x3f686630 of type "ttnn._ttnn.operations.unary.erfinv_t"
+ - leaked instance 0x41365f50 of type "ttnn._ttnn.operations.unary.swish_t"
+ - leaked instance 0x3f689e30 of type "ttnn._ttnn.operations.unary.eqz_t"
+ - leaked instance 0x3f686f80 of type "ttnn._ttnn.operations.unary.exp2_t"
+ - leaked instance 0x7d09b9449aa8 of type "ttnn._ttnn.operations.sliding_window.Op2DSliceConfig"
+ - leaked instance 0x41c70960 of type "ttnn._ttnn.operations.unary.rad2deg_t"
+ - leaked instance 0x414f9c40 of type "ttnn._ttnn.operations.unary.sqrt_t"
+ - ... skipped remainder
+nanobind: leaked 984 types!
+ - leaked type "SocketEndpoint"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.gt__t"
+ - leaked type "ttnn._ttnn.operations.experimental.attn_res_gather_softmax_t"
+ - leaked type "ttnn._ttnn.d2d_stream_service.D2DStreamServiceSender"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.SliceDeviceOperation"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "ttnn._ttnn.operations.binary.lt__t"
+ - leaked type "ttnn._ttnn.operations.binary_backward.xlogy_bw_t"
+ - leaked type "ttnn._ttnn.operations.experimental.insert_t"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.isclose_t"
+ - ... skipped remainder
+nanobind: leaked 4503 functions!
+ - leaked function "host_buffer"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "__getitem__"
+ - leaked function "__init__"
+ - leaked function "__ne__"
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html

@@ -1,0 +1,55 @@
+{
+  "profile": "P150x4",
+  "phase": "before",
+  "mesh": "P300x2",
+  "max_model_len": 262144,
+  "max_num_seqs": 32,
+  "tt_config": {
+    "trace_region_size": 220000000,
+    "fabric_config": "FABRIC_1D_RING"
+  },
+  "sampling_mode": "all",
+  "async_scheduling": true,
+  "commands": [
+    {
+      "argv": [
+        "/home/hous/dev/tt-metal/python_env/bin/python",
+        "-m",
+        "models.common.readiness_check.run_vllm_server",
+        "--stages",
+        "serve",
+        "--mesh-device",
+        "P300x2",
+        "--port",
+        "8000",
+        "--model-dir",
+        "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it",
+        "--hf-model",
+        "google/gemma-4-26B-A4B-it",
+        "--max-num-seqs",
+        "32",
+        "--block-size",
+        "64",
+        "--max-model-len",
+        "262144",
+        "--output-subdir",
+        "optimized_vllm/before/P150x4",
+        "--tt-config",
+        "{\"trace_region_size\": 220000000, \"fabric_config\": \"FABRIC_1D_RING\"}",
+        "--additional-server-args",
+        "--async-scheduling --enable-auto-tool-choice --tool-call-parser gemma4 --reasoning-parser gemma4"
+      ],
+      "shell": "/home/hous/dev/tt-metal/python_env/bin/python -m models.common.readiness_check.run_vllm_server --stages serve --mesh-device P300x2 --port 8000 --model-dir /home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it --hf-model google/gemma-4-26B-A4B-it --max-num-seqs 32 --block-size 64 --max-model-len 262144 --output-subdir optimized_vllm/before/P150x4 --tt-config '{\"trace_region_size\": 220000000, \"fabric_config\": \"FABRIC_1D_RING\"}' --additional-server-args '--async-scheduling --enable-auto-tool-choice --tool-call-parser gemma4 --reasoning-parser gemma4'",
+      "exit_code": null
+    }
+  ],
+  "started": 1788896015.0909023,
+  "source_sha": "6eb0427423392d7c6a7f87a511be892b8bf677ae",
+  "source_hashes": {
+    "model.py": "cf828e78ef370f7edb541253e27c9a1b8f5c2ea7719609f658f1c0718d29d0ff",
+    "generator.py": "1a455b060403a353e285614b59818b3d86eea8d1e832fb7460245ec0e5fd8791",
+    "generator_vllm.py": "80fcc940cffaccdde91bb480318015ca9fd25bfc2a23320b51a668ddd6a77f46"
+  },
+  "server_runner_exit_code": 1,
+  "finished": 1788896071.1006002
+}

@@ -465,5 +465,37 @@
     },
     "nonaligned_revalidation_decision": "The selected BF16 KV dtype, cache layout, trace buffers, and prefill chunking are byte-for-byte the optimized-full-model policy, so the current-head one-token-below-limit artifacts remain applicable. No selected cache-affecting change triggered a rerun.",
     "capability_reduction_from_optimized_full_model": null
+  },
+  "optimized_vllm": {
+    "profile_max_model_len": {
+      "P150": 50624,
+      "P150x2": 262144,
+      "P150x4": 262144
+    },
+    "max_num_seqs": 32,
+    "adapter": "tt/generator_vllm.py",
+    "precision_config": "doc/datatype_sweep/selected_precision_config.json",
+    "persistent_allocation_change": "No added device tensors or changed tensor shapes. Existing decode traces and their persistent inputs survive warmed prefill requests; cold program-cache growth releases traces before replay. Layer page-table device allocations remain distinct and unchanged; host snapshots may share immutable storage for aliased scheduler groups.",
+    "retained_trace_prefill_memory_audit": "optimized_vllm/context_lifetime_audit.md",
+    "memory_audit_scope": "Independent per-profile source-derived bounds include retained trace tensors, all-row prefill logits, actual HMA KV blocks and the recorded 2048-token scheduler chunk limit. This is not a measured high-water or fragmentation result and does not claim unchanged peak memory.",
+    "cache_context_geometry_change": false,
+    "capability_reduction": false,
+    "benchmark_workloads": {
+      "primary_single_user": {
+        "input_tokens": 128,
+        "output_tokens": 128,
+        "requests": 1,
+        "concurrency": 1
+      },
+      "ci_serving_burst": {
+        "input_tokens": 100,
+        "output_tokens": 100,
+        "requests": 32,
+        "concurrency": null
+      }
+    },
+    "evidence_root": "doc/optimized_vllm",
+    "measurement_root": "readiness_vllm/<profile>/optimized_vllm",
+    "scope": "Preserves inherited profile-specific capacity evidence; reduced two-layer trace regressions are functional inner-loop checks, not reduced served context."
   }
 }
