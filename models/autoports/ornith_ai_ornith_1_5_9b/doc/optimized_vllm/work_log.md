@@ -355,3 +355,19 @@ binding-teardown limitations; it makes no broader release-accuracy claim.
 Final checkpoint changes are Python, tests and evidence/docs only. No C++ build
 is required. The stage-owned file list excludes both user-owned AGENTS.md edits.
 The serving dependency checkout has no stage-owned changes. No push is performed.
+
+### Local checkpoint receipts
+
+| Repository | Branch | Commit | Disposition |
+| --- | --- | --- | --- |
+| tt-metal | hous/ornith-1.5-9b | `ad0afb89d84ff31db39950319a5fff734b21b7a4` | Stage implementation, tests, measurements, archives and independent clean-pass; 138 stage-owned files |
+| ../vllm | hous/ornith-1.5-9b-vllm | `e0d01006121f319e94e3978a00ffabb967eebb11` | Unchanged pinned dependency; clean checkout, no stage commit needed |
+
+The checkpoint was created with `git commit -m "Optimize Ornith vLLM prefill
+traces and persistent device sampling"` after independent clean-pass.
+`python_env/bin/pre-commit run --files <all 138 stage-owned paths>` passed,
+as did the commit hooks and `git diff --check`. Post-commit SHA256 validation
+confirms every measured runtime source still matches perf_summary.json.
+The only remaining unrelated dirty files are the root and model AGENTS.md;
+neither is included. This documentation receipt is committed separately with
+`git commit -m "Record optimized vLLM checkpoint receipts"`. Nothing was pushed.
