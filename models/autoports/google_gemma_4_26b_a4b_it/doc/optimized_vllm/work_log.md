@@ -357,3 +357,10 @@ other applicable commit hooks run. No raw capture is reformatted.
 The implementation checkpoint SHAs below identify the reviewed changes. A
 subsequent tt-metal documentation-only ledger commit records them; its own SHA
 is reported in the final handoff to avoid a self-referential commit hash.
+
+| Repository | Branch | Reviewed implementation checkpoint |
+| --- | --- | --- |
+| `/home/hous/dev/tt-metal` | `hous/gemma-4-26b-a4b-it` | `5cc0391d415f371a69150da91dc74076a179a791` |
+| `/home/hous/dev/vllm` | `dev` | `7b24b0e5904dac2f3859d9ab36577dbdfb5b7d55` |
+
+Both checkpoints were created locally after clean-pass; nothing was pushed. The tt-metal checkpoint hook log is `checkpoint_commit.log`. All applicable hooks passed except the two intentionally skipped raw-capture formatting hooks described above.
