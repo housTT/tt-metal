@@ -335,3 +335,89 @@ retained in `doc/vllm_integration/STAGE_REVIEW.md`.
 
 Both commits are local only. No branch was pushed and no pull request was
 opened against `main`.
+
+## Runner context-gate repair
+
+The resumed stage's independent runner check failed with exit 2 on
+`readiness_vllm/unified_gate_manifest.json:profiles.P150.max_model_len`.
+The degeneracy check passed. Reproduced the complete failure with:
+
+```bash
+MODEL_DIR=models/autoports/google_gemma_4_26b_a4b_it \
+HF_MODEL=google/gemma-4-26B-A4B-it \
+bash .agents/prompts/model_bringup_multigoal/09-vllm.check.sh
+```
+
+The original report is
+`bringup/artifacts/multigoal-runs/gemma4-26b-a4b-p150/09-09-vllm.resume-2.check-1.log`.
+The fresh reproduction and fixed full-check outputs are preserved losslessly
+in `context_gate_repair/reproduced_check.log.xz` and
+`context_gate_repair/fixed_check.log.xz` relative to this work log. Their exit
+statuses are 2 and 0 respectively.
+
+The failure was a checker scoping bug. `profile_context_limits()` already
+resolves P150 to 50,624 and P150x2/x4 to 262,144 from the context contract.
+`scan_caps()` applied those limits to `readiness_vllm/<profile>/` files, but
+used the global 262,144 floor for identical settings in the root aggregate
+manifest's explicit `profiles` mapping. The checker now applies the recorded
+profile limit there too. Unknown profiles, global/sibling settings, and files
+outside root serving manifests keep their existing floors. No model code,
+serving artifact, manifest, precision policy, or context limit changed.
+
+Evidence supporting the existing P150 exception:
+
+- `doc/context_contract.json` records the DRAM projection in
+  `multichip_decoder`: 56,398,546,944 projected bytes at the HF context versus
+  34,359,738,368 physical bytes, with a 50,624 supported boundary and 50,625
+  capacity-guard rejection. Subsequent full-model and selected datatype policy
+  sections retain that limit and link their capacity/boundary evidence.
+- `doc/optimized_full_model/final/full_stack_context_tp1/lifetime_fix_50624/long_context_probe_tp1.json`
+  records all 30 real-weight layers passing a 50,623-token public prefill,
+  traced boundary decode, and final position 50,624, using BF16 KV cache.
+- The final P150 server log records engine context 50,624 and its retained
+  `/v1/models` response reports the same value. P150x2/x4 engine logs and API
+  responses report 262,144. These match the unchanged context contract.
+- Recomputed all 39 primary artifact hashes in the unified manifest;
+  every hash matches. The detailed audit is
+  `context_gate_repair/artifact_hash_audit.json`. Existing full sampling,
+  qualitative, async, determinism, API, and benchmark evidence remains intact.
+
+Validation:
+
+```bash
+python -m unittest discover -s .agents/tests -p test_check_context_contract.py -v
+# 9 tests passed
+pre-commit run --files .agents/scripts/check_context_contract.py \
+  .agents/tests/test_check_context_contract.py
+# passed
+```
+
+Reran the exact full stage check above: **exit 0**, no degenerate output,
+context contract OK. The existing advisory about the P150 command in this
+work log remains: free-text command scanning does not infer hardware profiles.
+It is covered by the explicit contract and raw evidence above, and does not
+affect the normal gate's exit status. Negative regression tests prove that
+P150 below 50,624, P150x2/x4 below 262,144, unknown profiles, and unscoped caps
+still fail. Nested settings/arrays and per-profile directory behavior are
+also covered.
+
+This repair changes Python checker code and documentation only; no C++/CMake
+build is required. No hardware commands, resets, serving jobs, or profiling
+were needed or launched for this checker-only repair. No new serving
+performance measurements are claimed.
+
+The fresh review also identified a wording error in the earlier
+`STAGE_REVIEW.md` context row: P150's selected boundary artifact uses all 30
+layers, but P150x2/x4 boundary artifacts list representative layers `[0, 5]`.
+Corrected the row with an explicit correction notice and clarified the README.
+The evidence supports all-layer serving at the configured maximum context
+and a 29-token non-aligned API request, plus representative-layer TP2/TP4
+boundary prefill/decode. It does not establish all-layer TP2/TP4 serving
+requests at the maximum length. No such fresh measurement is claimed.
+
+Independent review of the repair returned **clean-pass**, with no unresolved
+findings. The reviewer independently reran the complete stage check (exit 0),
+the nine regression tests, seven additional negative scope mutations, all 39
+manifest hash checks, and cached-tokenizer prompt comparisons, and read all
+36 serving completions. See `STAGE_REVIEW_CONTEXT_REPAIR.md` for the report
+and explicit boundary-evidence limitations.

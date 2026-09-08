@@ -192,10 +192,19 @@ def scan_caps(
             except Exception:
                 continue
             for json_path, value in iter_json_values(data):
+                value_minimum = file_minimum
+                # Aggregate serving manifests store the same profile-scoped
+                # settings as readiness_vllm/<profile>/ artifacts. Resolve only
+                # an explicit top-level profiles mapping against the contract;
+                # sibling/global settings retain the global context floor.
+                if rel.parent == Path("readiness_vllm") and per_profile_context:
+                    parts = json_path.split(".")
+                    if len(parts) >= 3 and parts[0] == "profiles":
+                        value_minimum = per_profile_context.get(parts[1], file_minimum)
                 key = json_path.rsplit(".", 1)[-1].split("[", 1)[0].lower()
                 amount = parse_int(value)
-                if key in CONTEXT_KEYS and amount is not None and amount < file_minimum:
-                    critical.append(f"{rel}:{json_path} sets {key}={amount} below {file_minimum}")
+                if key in CONTEXT_KEYS and amount is not None and amount < value_minimum:
+                    critical.append(f"{rel}:{json_path} sets {key}={amount} below {value_minimum}")
             continue
 
         if suffix not in {".md", ".txt", ".log", ".py", ".yaml", ".yml", ".sh", ".toml"}:

@@ -54,8 +54,16 @@ P150 is intentionally capped at 50,624 by the hard physical DRAM evidence in
 `doc/context_contract.json`; P150x2 and P150x4 advertise the full checkpoint
 context of 262,144. Serving checks accepted a valid 29-token prompt, proving
 that public prompt lengths do not need to align to a page, tile, chunk, or trace
-size. The completed context stage separately proves non-aligned boundary
-prefills of 50,623 and 262,143 tokens.
+size. Earlier context probes pass non-aligned boundary prefills of 50,623
+tokens through all 30 P150 layers and 262,143 tokens through representative
+layers 0 and 5 on P150x2/x4. The latter are not all-layer maximum-length
+serving tests.
+
+The resumed runner check exposed a profile-scoping bug in its aggregate JSON
+manifest scan. The checker now uses the same recorded profile limits for
+aggregate manifests and per-profile artifacts; the complete stage check exits
+0. See [the repair evidence](work_log.md#runner-context-gate-repair) for the
+reproduction, unchanged serving-artifact hash audit, and regression tests.
 
 Launches used this common command shape:
 
