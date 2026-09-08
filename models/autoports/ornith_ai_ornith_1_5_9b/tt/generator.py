@@ -139,6 +139,10 @@ class OrnithGenerator(Generator):
         self._previous_prefill_table = None
         self._logits = None
         self._programs = None
+        self._prefill_sampling_logits = None
+        self._prefill_sampling_saved = []
+        self._prefill_sampling_masks = []
+        self._prefill_sampling_rows = None
         self._previous_table = None
         self._inputs = [
             self._device(torch.zeros(1, 1, 1, 32, dtype=torch.int32), ttnn.uint32),
@@ -334,12 +338,14 @@ class OrnithGenerator(Generator):
         ttnn.plus_one(self.sampling.tt_sampling.seeds_tt_tensor)
         return output
 
-    def _sample_first_token(self, logits):
+    def _sample_first_token(self, logits, *, require_trace=False):
         """Use the common sampling trace when prefill populated its bound logits."""
         if logits is self._logits and self._programs == self.mesh_device.num_program_cache_entries():
             ttnn.execute_trace(self.mesh_device, self._sampling_trace, cq_id=0, blocking=False)
             self.counters["sampling_replays"] += 1
             self.counters["prefill_sampling_replays"] += 1
+        elif require_trace:
+            raise RuntimeError("Prefill sampling programs must be warmed before trace replay")
         else:
             self._sample_device(logits)
 
@@ -513,21 +519,34 @@ class OrnithGenerator(Generator):
             self.sampling.reset_output_state(histories[1])
         self._capture()
 
-    def _sample_prefill_device(self, logits, rows):
-        # The common sampler spans 32 lanes even for a partial prefill. Preserve
-        # ongoing slots' feedback, RNG and penalty state entirely on device.
-        targets = [self._inputs[0], self.sampling.tt_sampling.seeds_tt_tensor]
-        targets += self._sampler_history_tensors() if self.sampling._penalties_active else []
-        saved = [ttnn.clone(tensor) for tensor in targets]
-        self._sample_device(logits)
-        keep = torch.zeros(32, dtype=torch.int32)
-        keep[rows] = 1
-        # WHERE selects its LLK by predicate dtype. UINT32 currently selects
-        # the BF16/LO16 implementation; INT32 selects exact 32-bit data moves.
-        # Values and persistent outputs remain UINT32, including full RNG seeds.
-        lane_mask = self.model.upload(keep.reshape(1, 1, 1, 32), dtype=ttnn.int32)
-        row_mask = self.model.upload(keep.reshape(32, 1), dtype=ttnn.int32)
-        for index, (target, backup) in enumerate(zip(targets, saved)):
+    def _prefill_sampling_targets(self):
+        return [self._inputs[0], self.sampling.tt_sampling.seeds_tt_tensor] + self._sampler_history_tensors()
+
+    def _prepare_prefill_sampling(self, logits):
+        # These buffers must predate every trace: request-local clones prevent
+        # replay under the native trace-allocation tracker.
+        targets = self._prefill_sampling_targets()
+        if self._prefill_sampling_logits is None:
+            self._prefill_sampling_logits = ttnn.clone(logits)
+            self._prefill_sampling_saved = [ttnn.clone(tensor) for tensor in targets]
+            keep = torch.ones(32, dtype=torch.int32)
+            self._prefill_sampling_masks = [
+                self.model.upload(keep.reshape(1, 1, 1, 32), dtype=ttnn.int32),
+                self.model.upload(keep.reshape(32, 1), dtype=ttnn.int32),
+            ]
+            self._prefill_sampling_rows = tuple(range(32))
+        # Warm the exact copies and INT32 merge programs, including histories
+        # before penalties are first enabled. No new program may appear between
+        # the safety check and sampler replay.
+        ttnn.copy(logits, self._prefill_sampling_logits)
+        ttnn.copy(self._prefill_sampling_logits, logits)
+        for target, backup in zip(targets, self._prefill_sampling_saved):
+            ttnn.copy(target, backup)
+        self._restore_prefill_sampling(targets)
+
+    def _restore_prefill_sampling(self, targets):
+        lane_mask, row_mask = self._prefill_sampling_masks
+        for index, (target, backup) in enumerate(zip(targets, self._prefill_sampling_saved)):
             if index < 2:
                 value = ttnn.to_layout(ttnn.reshape(target, (1, 1, 1, 32)), ttnn.TILE_LAYOUT)
                 old = ttnn.to_layout(ttnn.reshape(backup, (1, 1, 1, 32)), ttnn.TILE_LAYOUT)
@@ -538,9 +557,37 @@ class OrnithGenerator(Generator):
                     ttnn.deallocate(tensor)
             else:
                 ttnn.where(row_mask, target, backup, output_tensor=target)
-            ttnn.deallocate(backup)
-        ttnn.deallocate(lane_mask)
-        ttnn.deallocate(row_mask)
+
+    def _sample_prefill_device(self, logits, rows):
+        # Eager model prefill produces a transient output. Preserve it (also
+        # when it aliases canonical logits) before recapture replaces _logits,
+        # and retire the transient allocation before replaying any older trace.
+        if logits is not self._logits or self._programs != self.mesh_device.num_program_cache_entries():
+            ttnn.copy(logits, self._prefill_sampling_logits)
+            if logits is not self._logits:
+                ttnn.deallocate(logits)
+            self._ensure_replay_safe()
+            ttnn.copy(self._prefill_sampling_logits, self._logits)
+        admitted = tuple(sorted(rows))
+        if admitted == tuple(range(32)):
+            self._sample_first_token(self._logits, require_trace=True)
+            return
+        if admitted != self._prefill_sampling_rows:
+            keep = torch.zeros(32, dtype=torch.int32)
+            keep[rows] = 1
+            # INT32 predicates select exact 32-bit WHERE moves; UINT32 predicates
+            # select BF16/LO16 and corrupt large token IDs and full UINT32 seeds.
+            for values, target in zip((keep.reshape(1, 1, 1, 32), keep.reshape(32, 1)), self._prefill_sampling_masks):
+                host = self.model.upload(values, dtype=ttnn.int32, device=False)
+                ttnn.copy_host_to_device_tensor(host, target)
+            self._prefill_sampling_rows = admitted
+        targets = self._prefill_sampling_targets()
+        if not self.sampling._penalties_active:
+            targets = targets[:2]
+        for target, backup in zip(targets, self._prefill_sampling_saved):
+            ttnn.copy(target, backup)
+        self._sample_first_token(self._logits, require_trace=True)
+        self._restore_prefill_sampling(targets)
 
     def _prepare_prompt_sampling(self, tokens, prompt_lens, rows, start_pos):
         if self.sampling_mode != "device":
@@ -601,11 +648,10 @@ class OrnithGenerator(Generator):
         self._previous_prefill_table = None
 
     def _prepare_prefill_trace(self, prompt_lens, rows, starts, table, *, return_all_logits=False):
-        """Select one validated shape; live shape misses retain the eager path."""
+        """Select one validated B1 shape; resident external shapes stay bound."""
         if not (
             self.use_prefill_trace
             and self.sampling_mode == "device"
-            and self.owns_cache
             and self.max_batch_size == 1
             and rows == [0]
             and starts == [0]
@@ -616,7 +662,9 @@ class OrnithGenerator(Generator):
         length = int(prompt_lens[0])
         key = (id(self.kv_cache), length, starts[0], rows[0], tuple(table.shape))
         if key != self._prefill_key:
-            if self._live:
+            # A serving pool keeps its startup shape even after reset. Replacing
+            # it would require rebuilding all traces and snapshotting native KV.
+            if self._live or (not self.owns_cache and self._prefill_key is not None):
                 return False
             # Later persistent allocations invalidate every older trace.
             self._release_traces()
@@ -657,6 +705,7 @@ class OrnithGenerator(Generator):
                 layer.reset_state()
             self._prefill_trace_forward(warm)
         if self.sampling_mode == "device":
+            self._prepare_prefill_sampling(warm)
             self._sample_device(warm)
             self._reset_output_history()
             self._append_output_history()
@@ -1072,6 +1121,14 @@ class OrnithGenerator(Generator):
     def teardown(self):
         self._release_traces()
         self._release_prefill_inputs()
+        for tensor in self._prefill_sampling_saved + self._prefill_sampling_masks:
+            ttnn.deallocate(tensor)
+        if self._prefill_sampling_logits is not None:
+            ttnn.deallocate(self._prefill_sampling_logits)
+        self._prefill_sampling_logits = None
+        self._prefill_sampling_saved = []
+        self._prefill_sampling_masks = []
+        self._prefill_sampling_rows = None
 
 
 def build_generator(model_dir, mesh_device, *, use_prefill_trace=True, **kwargs):

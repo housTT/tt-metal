@@ -1,0 +1,53 @@
+{
+  "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/vllm_qualitative_outputs.json",
+  "sha256": "b1e3908e7be87cf0f0b939aa68b5bfc96e01a1eeb3a08d73f313882b5471a204",
+  "server_manifest": "after_b1.command.json",
+  "prompt_format": "qualitative_prompt_format.json",
+  "workload": "shared six chat prompts; maximum256 generated tokens each; greedy0 and sampled0.7/top_p0.9; max-num-seqs1; native262144; TP4; selected precision",
+  "reviewed_texts": 12,
+  "all_six_greedy_texts_equal_previous_stage": true,
+  "sampled_outputs_are_unseeded": true,
+  "verdict": "pass for serving regression/coherence; constrained task accuracy and finished answers are not established",
+  "mechanical_repetition": false,
+  "wrong_language_drift": false,
+  "request_contamination": false,
+  "gibberish": false,
+  "items": [
+    {
+      "prompt_index": 0,
+      "name": "haiku",
+      "assessment": "Greedy exactly repeats controlled selected-generator syllable error; sampled draft lines scan6/9/6 despite claimed5/7/5 and remain inside unfinished thinking. No new meter-accuracy claim.",
+      "control": "../vllm_integration/qualitative_extended_control_report.md; ../vllm_integration/haiku_standalone_serving_exact_comparison.json"
+    },
+    {
+      "prompt_index": 1,
+      "name": "supervised",
+      "assessment": "Both distinguish labels/answers from unlabeled pattern discovery correctly; sampled analogy truncates.",
+      "control": "previous-stage identical greedy and pinned shared HF controls"
+    },
+    {
+      "prompt_index": 2,
+      "name": "story",
+      "assessment": "Both plan a coherent inventor story; token budget expires before narrative. Exact greedy control has the same behavior.",
+      "control": "previous-stage identical greedy"
+    },
+    {
+      "prompt_index": 3,
+      "name": "thermodynamics",
+      "assessment": "Greedy gives energy conservation, entropy and absolute-zero summary; sampled organizes law numbering and begins the first law before truncating.",
+      "control": "previous-stage identical greedy; shared HF controls"
+    },
+    {
+      "prompt_index": 4,
+      "name": "French",
+      "assessment": "Both finish a valid Bonjour, comment allez-vous aujourd'hui? translation, with expected reasoning delimiter.",
+      "control": "previous-stage identical greedy"
+    },
+    {
+      "prompt_index": 5,
+      "name": "Fibonacci",
+      "assessment": "Both discuss appropriate approaches; greedy stops at code fence and sampled begins a function before truncation. No completed-code correctness claim.",
+      "control": "previous-stage identical greedy; shared HF controls"
+    }
+  ]
+}

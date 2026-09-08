@@ -1,0 +1,485 @@
+{
+  "stage": "optimized-vllm",
+  "model": "ornith-ai/Ornith-1.5-9B",
+  "implementation": "tt/generator_vllm.py",
+  "hardware": "four Blackhole chips on two P300c boards",
+  "mesh": [
+    1,
+    4
+  ],
+  "precision": "head4_lofi_last8_c32_k4_r2",
+  "max_model_len": 262144,
+  "primary": {
+    "before": {
+      "workload": {
+        "prompt_len": 128,
+        "output_len": 128,
+        "num_requests": 1,
+        "concurrency": 1,
+        "temperature": 0.0,
+        "generation_config_mode": "explicit",
+        "dataset_name": "random",
+        "ignore_eos": true
+      },
+      "selection": "median TTFT among three warmed repeats; all metrics from that same repeat",
+      "headline": {
+        "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/before_b1_metrics/repeat2/vllm_benchmark.json",
+        "sha256": "f040a148bfdd9fe1abe2c2e0645f4c46009d441325c98d04c131e68c18bb5ea1",
+        "ttft_ms": {
+          "p50": 49.95610401965678,
+          "p99": 49.95610401965678,
+          "mean": 49.95610401965678
+        },
+        "tpot_ms": {
+          "p50": 11.37857271659034,
+          "p99": 11.37857271659034,
+          "mean": 11.37857271659034
+        },
+        "itl_ms": {
+          "p50": 11.360061937011778,
+          "p99": 11.655673619825393,
+          "mean": 11.378573591080238
+        },
+        "output_throughput_tok_per_s": 85.59765169356402,
+        "decode_t_s_u": 87.88448471590523
+      },
+      "repeats": [
+        {
+          "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/before_b1_metrics/repeat1/vllm_benchmark.json",
+          "sha256": "681d4f894bcd0f5507a92b899ab62795627a5df510aca198bebe3060648602c3",
+          "ttft_ms": {
+            "p50": 49.8787040123716,
+            "p99": 49.8787040123716,
+            "mean": 49.8787040123716
+          },
+          "tpot_ms": {
+            "p50": 11.404323385199751,
+            "p99": 11.404323385199751,
+            "mean": 11.404323385199751
+          },
+          "itl_ms": {
+            "p50": 11.36364892590791,
+            "p99": 11.660953515674917,
+            "mean": 11.404324330272168
+          },
+          "output_throughput_tok_per_s": 85.4153041777376,
+          "decode_t_s_u": 87.68604381192621
+        },
+        {
+          "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/before_b1_metrics/repeat2/vllm_benchmark.json",
+          "sha256": "f040a148bfdd9fe1abe2c2e0645f4c46009d441325c98d04c131e68c18bb5ea1",
+          "ttft_ms": {
+            "p50": 49.95610401965678,
+            "p99": 49.95610401965678,
+            "mean": 49.95610401965678
+          },
+          "tpot_ms": {
+            "p50": 11.37857271659034,
+            "p99": 11.37857271659034,
+            "mean": 11.37857271659034
+          },
+          "itl_ms": {
+            "p50": 11.360061937011778,
+            "p99": 11.655673619825393,
+            "mean": 11.378573591080238
+          },
+          "output_throughput_tok_per_s": 85.59765169356402,
+          "decode_t_s_u": 87.88448471590523
+        },
+        {
+          "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/before_b1_metrics/repeat3/vllm_benchmark.json",
+          "sha256": "b3d5748645e27b882f37017ed733fb76086f7ac58d678b2255c5a222bf08580a",
+          "ttft_ms": {
+            "p50": 50.63456192146987,
+            "p99": 50.63456192146987,
+            "mean": 50.63456192146987
+          },
+          "tpot_ms": {
+            "p50": 11.400826677760682,
+            "p99": 11.400826677760682,
+            "mean": 11.400826677760682
+          },
+          "itl_ms": {
+            "p50": 11.359942029230297,
+            "p99": 11.698914847802369,
+            "mean": 11.400827779581286
+          },
+          "output_throughput_tok_per_s": 85.39938902100263,
+          "decode_t_s_u": 87.71293768991997
+        }
+      ],
+      "warmup": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/before_b1_metrics/warmup/vllm_benchmark.json"
+    },
+    "after": {
+      "workload": {
+        "prompt_len": 128,
+        "output_len": 128,
+        "num_requests": 1,
+        "concurrency": 1,
+        "temperature": 0.0,
+        "generation_config_mode": "explicit",
+        "dataset_name": "random",
+        "ignore_eos": true
+      },
+      "selection": "median TTFT among three warmed repeats; all metrics from that same repeat",
+      "headline": {
+        "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/after_b1_metrics/repeat3/vllm_benchmark.json",
+        "sha256": "1235fb3a315ecc8cbd1aee4c949904e3fe6f429202b49c4056496047f95eecba",
+        "ttft_ms": {
+          "p50": 35.248746047727764,
+          "p99": 35.248746047727764,
+          "mean": 35.248746047727764
+        },
+        "tpot_ms": {
+          "p50": 11.402553763225908,
+          "p99": 11.402553763225908,
+          "mean": 11.402553763225908
+        },
+        "itl_ms": {
+          "p50": 11.364589910954237,
+          "p99": 11.659016225021333,
+          "mean": 11.402554708298325
+        },
+        "output_throughput_tok_per_s": 86.2731584975287,
+        "decode_t_s_u": 87.69965226781697
+      },
+      "repeats": [
+        {
+          "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/after_b1_metrics/repeat1/vllm_benchmark.json",
+          "sha256": "13f0162fa02c9d36b14f523e888b64b7b935d1de065f81388df5e8e214f66267",
+          "ttft_ms": {
+            "p50": 35.26853502262384,
+            "p99": 35.26853502262384,
+            "mean": 35.26853502262384
+          },
+          "tpot_ms": {
+            "p50": 11.406623621793889,
+            "p99": 11.406623621793889,
+            "mean": 11.406623621793889
+          },
+          "itl_ms": {
+            "p50": 11.358698946423829,
+            "p99": 11.688536393921822,
+            "mean": 11.406624330369036
+          },
+          "output_throughput_tok_per_s": 86.24171728401569,
+          "decode_t_s_u": 87.66836122210304
+        },
+        {
+          "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/after_b1_metrics/repeat2/vllm_benchmark.json",
+          "sha256": "7067dd6a4a6f900ad1fcad34d3eb33eea5cf2c5219aa058fd6f0a900cb0aa5df",
+          "ttft_ms": {
+            "p50": 35.12952895835042,
+            "p99": 35.12952895835042,
+            "mean": 35.12952895835042
+          },
+          "tpot_ms": {
+            "p50": 11.381587527846316,
+            "p99": 11.381587527846316,
+            "mean": 11.381587527846316
+          },
+          "itl_ms": {
+            "p50": 11.352977948263288,
+            "p99": 11.759085620287806,
+            "mean": 11.381590921307115
+          },
+          "output_throughput_tok_per_s": 86.4337723970057,
+          "decode_t_s_u": 87.8612054384671
+        },
+        {
+          "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/after_b1_metrics/repeat3/vllm_benchmark.json",
+          "sha256": "1235fb3a315ecc8cbd1aee4c949904e3fe6f429202b49c4056496047f95eecba",
+          "ttft_ms": {
+            "p50": 35.248746047727764,
+            "p99": 35.248746047727764,
+            "mean": 35.248746047727764
+          },
+          "tpot_ms": {
+            "p50": 11.402553763225908,
+            "p99": 11.402553763225908,
+            "mean": 11.402553763225908
+          },
+          "itl_ms": {
+            "p50": 11.364589910954237,
+            "p99": 11.659016225021333,
+            "mean": 11.402554708298325
+          },
+          "output_throughput_tok_per_s": 86.2731584975287,
+          "decode_t_s_u": 87.69965226781697
+        }
+      ],
+      "warmup": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/after_b1_metrics/warmup/vllm_benchmark.json"
+    }
+  },
+  "ci_serving_burst_secondary": {
+    "before": {
+      "workload": {
+        "prompt_len": 100,
+        "output_len": 100,
+        "num_requests": 32,
+        "concurrency": null,
+        "temperature": 0.0,
+        "generation_config_mode": "explicit",
+        "dataset_name": "random",
+        "ignore_eos": true
+      },
+      "selection": "median TTFT among three warmed repeats; all metrics from that same repeat",
+      "headline": {
+        "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/before_b32_metrics/repeat2/vllm_ci_serving_benchmark.json",
+        "sha256": "086519a865355e94b959119ed44432e726a2cbfe2424fc53900ee420c8d9f816",
+        "ttft_ms": {
+          "p50": 2038.4015775634907,
+          "p99": 2039.8603389319035,
+          "mean": 1977.4144986295141
+        },
+        "tpot_ms": {
+          "p50": 74.84853837458003,
+          "p99": 88.49762904757608,
+          "mean": 75.46604715426294
+        },
+        "itl_ms": {
+          "p50": 67.64109851792455,
+          "p99": 305.20966272563146,
+          "mean": 75.46604781567692
+        },
+        "output_throughput_tok_per_s": 338.6074842121702,
+        "decode_t_s_u": 13.250992170768704
+      },
+      "repeats": [
+        {
+          "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/before_b32_metrics/repeat1/vllm_ci_serving_benchmark.json",
+          "sha256": "c4158221c9ce8764e63b06c3a46975f3642dba8cdba1cf40966b55934f848129",
+          "ttft_ms": {
+            "p50": 2042.2778240172192,
+            "p99": 2043.4890781529248,
+            "mean": 1981.1340809828835
+          },
+          "tpot_ms": {
+            "p50": 74.73194313640094,
+            "p99": 88.39421570402186,
+            "mean": 75.350617929228
+          },
+          "itl_ms": {
+            "p50": 67.6509480108507,
+            "p99": 302.2644084540156,
+            "mean": 75.35061847723989
+          },
+          "output_throughput_tok_per_s": 338.89259940514756,
+          "decode_t_s_u": 13.271291297693615
+        },
+        {
+          "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/before_b32_metrics/repeat2/vllm_ci_serving_benchmark.json",
+          "sha256": "086519a865355e94b959119ed44432e726a2cbfe2424fc53900ee420c8d9f816",
+          "ttft_ms": {
+            "p50": 2038.4015775634907,
+            "p99": 2039.8603389319035,
+            "mean": 1977.4144986295141
+          },
+          "tpot_ms": {
+            "p50": 74.84853837458003,
+            "p99": 88.49762904757608,
+            "mean": 75.46604715426294
+          },
+          "itl_ms": {
+            "p50": 67.64109851792455,
+            "p99": 305.20966272563146,
+            "mean": 75.46604781567692
+          },
+          "output_throughput_tok_per_s": 338.6074842121702,
+          "decode_t_s_u": 13.250992170768704
+        },
+        {
+          "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/before_b32_metrics/repeat3/vllm_ci_serving_benchmark.json",
+          "sha256": "be028b64183909696d48e47f72f567d3e06b4af4458eeda8fb6b5f344d738f01",
+          "ttft_ms": {
+            "p50": 2021.3862624950707,
+            "p99": 2022.6797584572341,
+            "mean": 1960.8982504651067
+          },
+          "tpot_ms": {
+            "p50": 74.53410578315437,
+            "p99": 88.06529685672648,
+            "mean": 75.1465983800396
+          },
+          "itl_ms": {
+            "p50": 67.63295194832608,
+            "p99": 295.24021666724866,
+            "mean": 75.14659898478928
+          },
+          "output_throughput_tok_per_s": 340.33933960134397,
+          "decode_t_s_u": 13.307322241556305
+        }
+      ],
+      "warmup": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/before_b32_metrics/warmup/vllm_ci_serving_benchmark.json"
+    },
+    "after": {
+      "workload": {
+        "prompt_len": 100,
+        "output_len": 100,
+        "num_requests": 32,
+        "concurrency": null,
+        "temperature": 0.0,
+        "generation_config_mode": "explicit",
+        "dataset_name": "random",
+        "ignore_eos": true
+      },
+      "selection": "median TTFT among three warmed repeats; all metrics from that same repeat",
+      "headline": {
+        "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/after_b32_metrics/repeat1/vllm_ci_serving_benchmark.json",
+        "sha256": "045096a090a011ef138626de153d7a2e6f29e544c6ea81a3d037ed821f3d161d",
+        "ttft_ms": {
+          "p50": 2012.9193435423076,
+          "p99": 2014.1002621769442,
+          "mean": 1952.552565755468
+        },
+        "tpot_ms": {
+          "p50": 74.75628131280908,
+          "p99": 88.2424213984544,
+          "mean": 75.36638377180246
+        },
+        "itl_ms": {
+          "p50": 67.66584102297202,
+          "p99": 302.04291591066414,
+          "mean": 75.36638442961518
+        },
+        "output_throughput_tok_per_s": 339.86332645597537,
+        "decode_t_s_u": 13.26851508529111
+      },
+      "repeats": [
+        {
+          "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/after_b32_metrics/repeat1/vllm_ci_serving_benchmark.json",
+          "sha256": "045096a090a011ef138626de153d7a2e6f29e544c6ea81a3d037ed821f3d161d",
+          "ttft_ms": {
+            "p50": 2012.9193435423076,
+            "p99": 2014.1002621769442,
+            "mean": 1952.552565755468
+          },
+          "tpot_ms": {
+            "p50": 74.75628131280908,
+            "p99": 88.2424213984544,
+            "mean": 75.36638377180246
+          },
+          "itl_ms": {
+            "p50": 67.66584102297202,
+            "p99": 302.04291591066414,
+            "mean": 75.36638442961518
+          },
+          "output_throughput_tok_per_s": 339.86332645597537,
+          "decode_t_s_u": 13.26851508529111
+        },
+        {
+          "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/after_b32_metrics/repeat2/vllm_ci_serving_benchmark.json",
+          "sha256": "ba232c47183d76155203c650dd4927470957854480b912af92a98ba810e52795",
+          "ttft_ms": {
+            "p50": 2022.920620511286,
+            "p99": 2024.213183451211,
+            "mean": 1962.3562940651027
+          },
+          "tpot_ms": {
+            "p50": 74.86009756056123,
+            "p99": 88.39998767514847,
+            "mean": 75.47349376703767
+          },
+          "itl_ms": {
+            "p50": 67.64288700651377,
+            "p99": 304.5499343575858,
+            "mean": 75.47349453920786
+          },
+          "output_throughput_tok_per_s": 339.1269320211884,
+          "decode_t_s_u": 13.249684758024816
+        },
+        {
+          "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/after_b32_metrics/repeat3/vllm_ci_serving_benchmark.json",
+          "sha256": "4436af0e4564102290bcc5178ec4889914542d7cd13a2840a2307085c790d6ac",
+          "ttft_ms": {
+            "p50": 1998.7119969446212,
+            "p99": 2000.0002858100925,
+            "mean": 1938.9695110548928
+          },
+          "tpot_ms": {
+            "p50": 74.93302047974665,
+            "p99": 88.28482621229453,
+            "mean": 75.53753150565134
+          },
+          "itl_ms": {
+            "p50": 67.64705700334162,
+            "p99": 306.7861495166495,
+            "mean": 75.53753257106467
+          },
+          "output_throughput_tok_per_s": 339.7396945121258,
+          "decode_t_s_u": 13.238452198099496
+        }
+      ],
+      "warmup": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/after_b32_metrics/warmup/vllm_ci_serving_benchmark.json"
+    }
+  },
+  "server_manifest_pairs": [
+    [
+      "before_b1.command.json",
+      "after_b1.command.json"
+    ],
+    [
+      "before_b32.command.json",
+      "after_b32.command.json"
+    ]
+  ],
+  "pair_argv_and_environment_exact": true,
+  "full_model_comparison": {
+    "artifact": "final_full_model_tokenout.json",
+    "workload": "128 input/128 output/B1/native262144/TP4/selected datatype/on-device greedy traced sampling",
+    "ttft_ms": 29.013055958785117,
+    "decode_tokens_per_second": 87.95899068860298,
+    "vllm_decode_tokens_per_second": 87.69965226781697,
+    "vllm_decode_fraction_of_full_model": 0.9970515984920276,
+    "note": "Full-model generate loop includes token history collection and final read; exact same selected TTFT run supplies its decode metric. Subsequent all32-only admission shortcut is unreachable in this B1 generate path."
+  },
+  "device_decode_ms": null,
+  "device_profile": null,
+  "roofline_estimate_ms": null,
+  "no_profiler_reason": "User and vLLM-stage skills prohibit profiler collection. Same-harness serving metrics, current standalone token-out comparison and trace/async/stale/sampling checks replace live device-time accounting. Earlier non-serving topology/roofline evidence is inherited only for unchanged model math.",
+  "validation": {
+    "host_tests": "final_host.log:87 passed",
+    "prefill": "h1_external_full32.json:18 exact full-layer comparisons",
+    "sampler": [
+      "h2_sampling_b1.json",
+      "h2_sampling_b32_final.json"
+    ],
+    "async": "after_async_worker_contract_v2.json",
+    "native_capacity": "after_native_capacity_v2.json",
+    "qualitative": "qualitative_review.json",
+    "degeneracy": "qualitative_degenerate_final.log",
+    "nonaligned": [
+      "after_b1_nonaligned.json",
+      "after_b32_nonaligned.json"
+    ],
+    "sampling_full": {
+      "artifact": "final_sampling.log",
+      "passed": 72,
+      "skipped": 1,
+      "skip": "all-vocabulary chat-logprobs API capability",
+      "server": "final_b32_compat.command.json"
+    },
+    "stage_review": {
+      "verdict": "clean-pass",
+      "artifact": "STAGE_REVIEW.md",
+      "independent": true,
+      "required_work": []
+    },
+    "cleanup": "final_process_cleanup.json",
+    "device_health": "final_device_health.log: exit0, four chips",
+    "stage_check": "stage_check_final.log: exit0"
+  },
+  "source_sha256": {
+    "multichip_decoder.py": "ee3fa12786c1e9ca0c0fdec7c667b6c79148d582fcff6e3e0f25dbffcb69a8f5",
+    "rope.py": "339780f27c5abfdc14224d1eed4b4ddb2e93dbfa1731a538a9dbbf6543d6fe70",
+    "generator.py": "f175435cc719bdcbde5125cc31ec2633df54bc9383a29569d9737a7ce9530582",
+    "optimized_decoder.py": "6fc37bfcce6019cbfa9fc31f355b55a93b26935cb249fd545ba0b0724df99f1d",
+    "precision.py": "dcdf313d171236f6c81028db922c06e78f4a420226487bf89f332d5ba15ac72f",
+    "model_config.py": "678890d1334ad27808912dcf9b7cfe55704421d9a4ec6f53a21dcfb8abc21e77",
+    "__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "functional_decoder.py": "bbc44e62d6045a15fb0c56060fffe91e264983874731f96ff1b187cce826bd30",
+    "model.py": "f9da26100bdf48dd1a2e487a3687895e75b2b385f0a32cf21d10c2786907e615",
+    "generator_vllm.py": "6743d2f82e7d3fa91a92019aae2a75eab6837a19559c12e7fb96d250240dd3f6",
+    "fused_decoder.py": "18d59502e7e168e584e58762396b9cc61eae6de304045542d15bbcc070f9b11d"
+  }
+}

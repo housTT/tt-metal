@@ -1,25 +1,18 @@
-# Ornith-1.5-9B TTNN autoport
+# Ornith-1.5-9B TT serving
 
-**Full-model warm TTFT: 47.46 ms. Trace-verified batch-1 token-out decode:
-81.56 tokens/s/user (12.26 ms/token).** Measured with all 32 layers,
-prompt128/generate128 and a native262144-token cache on **four Blackhole chips
-on two P300c boards**, using the optimized TP4 ring. `p150x4` is the software
-profile name.
+**Primary vLLM warm TTFT:35.25ms; decode:87.70 tokens/s/user**, measured with
+128 input/128 output/1 request, concurrency1 and max-num-seqs1 at native
+context262144. All32 layers run through the TT plugin on four Blackhole chips
+on two P300c boards, TP4 mesh1x4 (`P150x4`). The same workload before serving
+optimization measured49.96ms TTFT and87.88t/s/user.
 
-The separate logits-only trace measures85.61 tokens/s; traced AIME teacher
-forcing measures80.85 tokens/s/user and explicitly supplies reference tokens
-from the host. Neither replaces the on-device token-feedback headline above.
-TTFT includes request reset/configuration, prefill and first-token sampling;
-weight loading and initial compilation/capture are outside the warm result.
+[Serving report](doc/optimized_vllm/README.md) records complete before/after
+metrics, secondary CI capacity results, commands, correctness and gate status.
+The current standalone traced128-input/128-output/B1 control is87.96t/s/user;
+serving decode is within0.3%. The selected datatype-sweep policy and native
+context are preserved.
 
-Prefill accuracy is96% top-1,100% top-5 and100% top-100. Teacher-forced decode is
-94%,100% and100%, using the fresh HF chat-template AIME24 reference with100
-continuation tokens. The final six-prompt HF/TT qualitative check passes its
-128-token coherence/regression window; finished-answer quality is not claimed
-for outputs truncated during reasoning.
-
-[Full-model report](doc/full_model/README.md),
-[measurements](doc/full_model/perf_final_v2.json),
-[context contract](doc/context_contract.json), and
-[work log](doc/full_model/work_log.md) contain policies, commands, exact evidence,
-rejection decisions, and the final independent review/checkpoint status.
+[Precision and accuracy evidence](doc/datatype_sweep/README.md),
+[context contract](doc/context_contract.json),
+[serving integration](doc/vllm_integration/README.md), and
+[optimization work log](doc/optimized_vllm/work_log.md).

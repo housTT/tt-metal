@@ -326,7 +326,9 @@ def main():
             "successive_token_vectors_differ"
         ], "Fixture produced identical successive token vectors; deferred-copy token isolation is inconclusive"
         report["status"] = "passed"
-        report["supports_async_decode_promoted"] = False
+        report["advertised_supports_async_decode"] = adapter.model_capabilities["supports_async_decode"]
+        report["probe_exercises_vllm_scheduler"] = False
+        report["async_scope"] = "Adapter deferred-copy correctness; real plugin overlap is evidenced by serving runs"
     except BaseException as exc:
         report.update(status="failed", error=f"{type(exc).__name__}: {exc}", traceback=traceback.format_exc())
         write_report(args.output, report)

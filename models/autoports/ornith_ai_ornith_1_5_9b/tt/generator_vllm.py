@@ -342,11 +342,14 @@ class TTOrnithForCausalLM:
             num_logprobs=[-2] * self.max_batch_size,
         )
         gen._configure_sampling(sampling)
-        gen.ensure_traces(preserve_cache=False)
-        self._sampling(sampling)
         length = min(128, self.max_model_len)
         table = torch.zeros(self.max_batch_size, self.page_table_blocks, dtype=torch.int32)
         table[0] = torch.arange(self.page_table_blocks, dtype=torch.int32)
+        # Bind the B1 prefill inputs before capturing the complete trace family
+        # over this empty pool; later shape misses preserve this resident shape.
+        gen._prepare_prefill_trace([length], [0], [0], table)
+        gen.ensure_traces(preserve_cache=False)
+        self._sampling(sampling)
         first = self.prefill_forward(
             tokens=torch.zeros(1, length, dtype=torch.int32),
             page_table=table,

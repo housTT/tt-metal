@@ -30,6 +30,11 @@ def fixture(batch, mrope):
     gen._live = False
     gen._model_trace = gen._sampling_key = None
     gen._inputs = [torch.zeros(32, dtype=torch.int64), torch.zeros(batch), torch.zeros(batch)]
+    gen.owns_cache = False
+    gen.use_prefill_trace = True
+    gen._prefill_key = gen._prefill_inputs = gen._previous_prefill_table = None
+    gen.model = SimpleNamespace(prefill_chunk=2048)
+    gen._device = lambda value, dtype: value.clone()
     gen._history_rows = 0
     gen.counters = defaultdict(int)
     gen.sampling.reset_sampling_params = lambda params: case.calls.append(("canonical_params", params))
@@ -42,6 +47,7 @@ def fixture(batch, mrope):
 
     def ensure(*, preserve_cache=True):
         if gen._model_trace is None:
+            case.calls.append(("capture", gen._prefill_key))
             gen.counters["cache_snapshots"] += int(preserve_cache)
             gen.counters["captures"] += 1
             gen._model_trace = gen.counters["captures"]
@@ -51,7 +57,11 @@ def fixture(batch, mrope):
     gen.recurrent = torch.zeros(batch, 3)
     gen.seed_state = torch.zeros(32)
 
-    def prefill(tokens, *, slots, **kwargs):
+    def prefill(tokens, *, slots, prompt_lens, page_table, start_pos=None, **kwargs):
+        starts = [0] * len(slots) if start_pos is None else start_pos
+        traced = gen._prepare_prefill_trace(prompt_lens, slots, starts, page_table)
+        gen.ensure_traces()
+        gen.counters["prefill_replays" if traced else "prefill_eager_calls"] += 1
         gen._live = True
         gen.recurrent[slots] += 1
         gen.seed_state[slots] += 1
@@ -97,11 +107,16 @@ def fixture(batch, mrope):
     gen.read_output_async = lambda output, **kwargs: (output.clone(), "event")
     gen.tokens_from = lambda value: value.reshape(-1)[:batch].to(torch.int64)
     namespace = adapter.warmup_model_prefill.__func__.__globals__
-    namespace["ttnn"] = SimpleNamespace(event_synchronize=lambda event: case.calls.append(("wait", event)))
+    namespace["ttnn"] = SimpleNamespace(
+        event_synchronize=lambda event: case.calls.append(("wait", event)),
+        int32=torch.int32,
+        uint32=torch.int32,
+        deallocate=lambda tensor: None,
+    )
     return case
 
 
-@pytest.mark.parametrize("batch", [1, 4])
+@pytest.mark.parametrize("batch", [1, 4, 32])
 @pytest.mark.parametrize("mrope", [False, True])
 def test_startup_admits_and_finishes_dummy_request_then_restores_empty_state(batch, mrope):
     case = fixture(batch, mrope)
@@ -123,6 +138,12 @@ def test_startup_admits_and_finishes_dummy_request_then_restores_empty_state(bat
     assert gen.kv_cache is cache
     assert adapter._sampling_key is not None and gen._sampling_key is not None
     assert gen.counters["cache_snapshots"] == 0
+    captured_keys = [entry[1] for entry in case.calls if isinstance(entry, tuple) and entry[0] == "capture"]
+    assert len(captured_keys) == 1
+    assert (captured_keys[0] is not None) == (batch == 1)
+    if batch == 1:
+        assert captured_keys[0][1] == 128
+        assert gen.counters["prefill_replays"] == 1
     # The actual plugin may supply unrestricted k and an explicit seed; these
     # normalize to the same greedy trace and must not snapshot empty native KV.
     captures = gen.counters["captures"]
@@ -137,3 +158,25 @@ def test_startup_admits_and_finishes_dummy_request_then_restores_empty_state(bat
     )
     assert gen.counters["captures"] == captures
     assert gen.counters["cache_snapshots"] == 0
+
+
+def test_first_nonmatching_request_after_startup_retains_external_trace_without_snapshot():
+    case = fixture(1, False)
+    adapter, gen = case.adapter, case.gen
+    adapter.warmup_model_prefill(gen.kv_cache)
+    assert not gen._live
+    key, inputs, trace = gen._prefill_key, gen._prefill_inputs, gen._model_trace
+    params = case.params(temperature=0.0, top_k=1, top_p=1.0, num_logprobs=-2)
+    for length, traced in ((131, False), (128, True)):
+        before = dict(gen.counters)
+        adapter.prefill_forward(
+            tokens=torch.zeros(1, length, dtype=torch.int32),
+            page_table=torch.zeros(1, 32, dtype=torch.int32),
+            kv_cache=gen.kv_cache,
+            prompt_lens=[length],
+            empty_slots=[0],
+            sampling_params=params,
+        )
+        assert gen.counters["prefill_replays"] - before.get("prefill_replays", 0) == int(traced)
+        assert gen._prefill_key == key and gen._prefill_inputs is inputs and gen._model_trace == trace
+        assert gen.counters["cache_snapshots"] == 0 and gen.counters["captures"] == 1

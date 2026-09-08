@@ -74,6 +74,9 @@ def generator_fixture():
     gen.sampling_mode = "device"
     gen._model_trace = gen._sampling_trace = gen._sampling_history_trace = None
     gen._prefill_trace = gen._prefill_key = gen._prefill_inputs = None
+    gen._prefill_sampling_logits = None
+    gen._prefill_sampling_saved = []
+    gen._prefill_sampling_masks = []
     gen._programs = None
     gen._sampling_key = ()
     gen._forward = lambda: torch.tensor([17.0])

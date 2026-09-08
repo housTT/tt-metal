@@ -98,9 +98,9 @@ def test_shape_eviction_releases_traces_before_replacing_inputs_and_live_miss_fa
     "changes,length,rows,starts,all_logits",
     [
         ({"use_prefill_trace": False}, 128, [0], [0], False),
-        ({"owns_cache": False}, 128, [0], [0], False),
         ({"sampling_mode": "host"}, 128, [0], [0], False),
-        ({"max_batch_size": 32}, 128, [2], [0], False),
+        ({"max_batch_size": 32}, 128, [0], [0], False),
+        ({}, 128, [1], [0], False),
         ({}, 128, [0], [127], False),
         ({}, 2049, [0], [0], False),
         ({}, 128, [0], [0], True),
@@ -116,8 +116,10 @@ def test_unsupported_trace_specs_preserve_eager_fallback(changes, length, rows, 
 
 
 @pytest.mark.parametrize("state_already_reset", [False, True])
-def test_prompt_preparation_recaptures_before_prefill_and_public_output_is_owned(state_already_reset):
+@pytest.mark.parametrize("owns_cache", [False, True])
+def test_prompt_preparation_recaptures_before_prefill_and_public_output_is_owned(state_already_reset, owns_cache):
     gen, runtime, teardown = prefill_fixture()
+    gen.owns_cache = owns_cache
     events = []
     resets = []
     gen.kv_cache.prefill_layers[0].reset_state = lambda: resets.append(True)
@@ -233,3 +235,33 @@ def test_shared_validation_keeps_native_context_and_noncontiguous_mixed_slots():
     )
     assert rows == [31, 2] and starts == [127, 262143]
     assert torch.equal(actual, table)
+
+
+@pytest.mark.parametrize("length", [128, 131])
+@pytest.mark.parametrize("live", [False, True])
+def test_external_cache_selects_exact_fresh_shape_and_keeps_resident_inputs(length, live):
+    gen, runtime, teardown = prefill_fixture()
+    gen.owns_cache = False
+    table = torch.arange(4096).reshape(1, -1)
+    cache = gen.kv_cache
+    assert gen._prepare_prefill_trace([length], [0], [0], table)
+    gen._capture()
+    inputs, traces = gen._prefill_inputs, runtime.live.copy()
+    gen._live = live
+    assert gen._prepare_prefill_trace([length], [0], [0], table.flip(1))
+    assert gen.kv_cache is cache and gen._prefill_key[0] == id(cache)
+    assert gen._prefill_inputs is inputs and runtime.live == traces
+    assert gen._prefill_inputs[0].shape == (1, length)
+    assert not gen._prepare_prefill_trace([131 if length == 128 else 128], [0], [0], table)
+    assert gen._prefill_inputs is inputs and runtime.live == traces
+    assert gen.counters["prefill_trace_misses"] == 1
+    teardown()
+
+
+def test_external_prefill_rejects_different_cache_before_validation_or_capture():
+    gen, runtime, _ = prefill_fixture()
+    gen.owns_cache = False
+    gen.model.validate_prefill = lambda *args, **kwargs: pytest.fail("identity must be checked first")
+    with pytest.raises(ValueError, match="Bind caller-owned cache"):
+        gen.prefill_forward([[100]], page_table=torch.tensor([[0]]), kv_cache=object(), prompt_lens=[1])
+    assert not runtime.created
