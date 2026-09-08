@@ -13,6 +13,7 @@ import time
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import torch
@@ -407,6 +408,198 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
         ttnn.release_trace(target_mesh, trace_id)
         return
     generator = Gemma4Generator(model, tokenizer=None, sampling_mode="device")
+    if os.environ.get("GEMMA4_LOGIT_ORACLE_PROBE") == "1":
+        prompt_groups = []
+        prefill_tokens = []
+        prefill_top10 = []
+        decode_tokens = []
+        decode_top10 = []
+        decode_logits_by_group = []
+        token_columns = torch.arange(prompt_len, dtype=torch.long).reshape(1, -1)
+        for group in range(4):
+            prompt = 1 + (token_columns + 17 * group) % 255
+            prompt_groups.append(prompt[0].tolist())
+            oracle_state = model.allocate_state(max_batch_size=1, slot_context_lengths=[model.max_seq_len])
+            prefill_logits = generator.prefill_forward(
+                prompt,
+                page_table=oracle_state.page_tables,
+                kv_cache=oracle_state,
+                prompt_lens=[prompt_len],
+            )
+            prefill_host = generator._gather_logits_to_torch(prefill_logits).reshape(-1, model.vocab_size)[0].float()
+            prefill_logprobs = torch.log_softmax(prefill_host, dim=-1)
+            prefill_values, prefill_indices = torch.topk(prefill_logprobs, k=10)
+            prefill_token = int(prefill_host.argmax())
+            assert prefill_token in prefill_indices.tolist()
+            prefill_tokens.append(prefill_token)
+            prefill_top10.append(
+                {
+                    "token_ids": [int(token_id) for token_id in prefill_indices.tolist()],
+                    "logprobs": [float(value) for value in prefill_values.tolist()],
+                }
+            )
+            decode_logits = generator.decode_forward(
+                torch.tensor([[prefill_token]], dtype=torch.long),
+                torch.tensor([prompt_len], dtype=torch.int32),
+                page_table=oracle_state.page_tables,
+                kv_cache=oracle_state,
+                active_mask=torch.tensor([True]),
+                enable_trace=False,
+                sampling_mode="host",
+            )
+            oracle_logits = generator._gather_logits_to_torch(decode_logits).reshape(-1, model.vocab_size)[0].float()
+            oracle_logprobs = torch.log_softmax(oracle_logits, dim=-1)
+            top_values, top_indices = torch.topk(oracle_logprobs, k=10)
+            decode_token = int(oracle_logits.argmax())
+            assert decode_token in top_indices.tolist()
+            decode_tokens.append(decode_token)
+            decode_logits_by_group.append(oracle_logits)
+            decode_top10.append(
+                {
+                    "token_ids": [int(token_id) for token_id in top_indices.tolist()],
+                    "logprobs": [float(value) for value in top_values.tolist()],
+                }
+            )
+            del prefill_logits, decode_logits, oracle_state
+        batch32_control = None
+        if batch32:
+
+            def run_batch32_case(prompt_group_by_row: torch.Tensor) -> dict[str, Any]:
+                batch_prompts = torch.tensor(
+                    [prompt_groups[group] for group in prompt_group_by_row.tolist()], dtype=torch.long
+                )
+                generator.prefill_forward(
+                    batch_prompts,
+                    page_table=model.state.page_tables,
+                    kv_cache=model.state,
+                    prompt_lens=[prompt_len] * probe_batch,
+                )
+                batch_decode = generator.decode_forward(
+                    torch.tensor([[prefill_tokens[group]] for group in prompt_group_by_row.tolist()], dtype=torch.long),
+                    torch.full((probe_batch,), prompt_len, dtype=torch.int32),
+                    page_table=model.state.page_tables,
+                    kv_cache=model.state,
+                    active_mask=torch.ones(probe_batch, dtype=torch.bool),
+                    enable_trace=False,
+                    sampling_mode="host",
+                )
+                batch_logits = (
+                    generator._gather_logits_to_torch(batch_decode).reshape(-1, model.vocab_size)[:probe_batch].float()
+                )
+                batch_logprobs = torch.log_softmax(batch_logits, dim=-1)
+                batch_values, batch_indices = torch.topk(batch_logprobs, k=10, dim=-1)
+                batch_tokens = batch_logits.argmax(dim=-1)
+                comparisons = []
+                for row, group in enumerate(prompt_group_by_row.tolist()):
+                    oracle_logits = decode_logits_by_group[group]
+                    oracle_logprobs = torch.log_softmax(oracle_logits, dim=-1)
+                    oracle_probs = torch.softmax(oracle_logits, dim=-1)
+                    row_probs = torch.softmax(batch_logits[row], dim=-1)
+                    oracle_ids = set(decode_top10[group]["token_ids"])
+                    row_ids = {int(token_id) for token_id in batch_indices[row].tolist()}
+                    common_ids = oracle_ids & row_ids
+                    selected_token = decode_tokens[group]
+                    row_top2 = torch.topk(batch_logits[row], k=2).values
+                    comparisons.append(
+                        {
+                            "row": row,
+                            "prompt_group": group,
+                            "selected_token_match": int(batch_tokens[row]) == selected_token,
+                            "logits_cosine": float(
+                                torch.nn.functional.cosine_similarity(batch_logits[row], oracle_logits, dim=0)
+                            ),
+                            "centered_logits_cosine": float(
+                                torch.nn.functional.cosine_similarity(
+                                    batch_logits[row] - batch_logits[row].mean(),
+                                    oracle_logits - oracle_logits.mean(),
+                                    dim=0,
+                                )
+                            ),
+                            "probability_total_variation": float(0.5 * torch.abs(row_probs - oracle_probs).sum()),
+                            "b1_selected_probability": float(oracle_probs[selected_token]),
+                            "b32_selected_probability": float(row_probs[selected_token]),
+                            "b32_top1_logit_margin": float(row_top2[0] - row_top2[1]),
+                            "selected_logprob_absolute_delta": float(
+                                abs(batch_logprobs[row, selected_token] - oracle_logprobs[selected_token])
+                            ),
+                            "top10_token_overlap": len(common_ids),
+                            "maximum_common_top10_logprob_absolute_delta": float(
+                                max(
+                                    abs(batch_logprobs[row, token_id] - oracle_logprobs[token_id])
+                                    for token_id in common_ids
+                                )
+                            ),
+                        }
+                    )
+                return {
+                    "prompt_group_by_row": prompt_group_by_row.tolist(),
+                    "decode_input_token_id_by_row": [prefill_tokens[group] for group in prompt_group_by_row.tolist()],
+                    "selected_token_id_by_row": [int(token_id) for token_id in batch_tokens.tolist()],
+                    "top10_by_row": [
+                        {
+                            "token_ids": [int(token_id) for token_id in batch_indices[row].tolist()],
+                            "logprobs": [float(value) for value in batch_values[row].tolist()],
+                        }
+                        for row in range(probe_batch)
+                    ],
+                    "comparisons_to_b1_by_row": comparisons,
+                    "all_selected_tokens_match": all(comparison["selected_token_match"] for comparison in comparisons),
+                    "minimum_logits_cosine": min(comparison["logits_cosine"] for comparison in comparisons),
+                    "minimum_centered_logits_cosine": min(
+                        comparison["centered_logits_cosine"] for comparison in comparisons
+                    ),
+                    "maximum_probability_total_variation": max(
+                        comparison["probability_total_variation"] for comparison in comparisons
+                    ),
+                    "maximum_selected_logprob_absolute_delta": max(
+                        comparison["selected_logprob_absolute_delta"] for comparison in comparisons
+                    ),
+                    "minimum_top10_token_overlap": min(comparison["top10_token_overlap"] for comparison in comparisons),
+                    "maximum_common_top10_logprob_absolute_delta": max(
+                        comparison["maximum_common_top10_logprob_absolute_delta"] for comparison in comparisons
+                    ),
+                }
+
+            cases = {
+                f"homogeneous_group_{group}": run_batch32_case(torch.full((probe_batch,), group, dtype=torch.long))
+                for group in range(4)
+            }
+            mixed = run_batch32_case(torch.arange(probe_batch, dtype=torch.long) % 4)
+            cases["mixed_groups"] = mixed
+            assert all(case["all_selected_tokens_match"] for case in cases.values())
+            batch32_control = {
+                "correctness_gate": "every B32 row must select its corresponding B1 global maximum",
+                "distribution_metrics": "diagnostic graph-shape sensitivity; no fitted pass threshold",
+                "cases": cases,
+                **mixed,
+            }
+        report = {
+            "verdict": "pass",
+            "evidence_kind": "full_model_b1_b32_logit_oracle" if batch32 else "full_model_b1_logit_oracle",
+            "profile": {1: "P150", 2: "P150x2", 4: "P150x4"}[tp_size],
+            "tp_size": tp_size,
+            "mesh_shape": list(target_mesh.shape),
+            "checkpoint_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+            "real_weights": True,
+            "layer_indices": model.layer_indices,
+            "prompt_len": prompt_len,
+            "allocated_probe_sequence_capacity": model.max_seq_len,
+            "terminal_weight_dtype": str(model.terminal_weight_dtype),
+            "kv_cache_dtype": str(model.kv_cache_dtype),
+            "prompt_token_ids_by_group": prompt_groups,
+            "prefill_oracle_token_by_group": prefill_tokens,
+            "prefill_oracle_top10_by_group": prefill_top10,
+            "decode_input_token_id_by_group": prefill_tokens,
+            "decode_oracle_token_by_group": decode_tokens,
+            "decode_oracle_top10_by_group": decode_top10,
+        }
+        if batch32_control is not None:
+            report["batch32_control"] = batch32_control
+        output_dir = Path(os.environ.get("GEMMA4_FULL_MODEL_PROBE_OUTPUT_DIR", "/tmp/gemma4_full_model_evidence"))
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / f"logit_oracle_tp{tp_size}.json").write_text(json.dumps(report, indent=2) + "\n")
+        print("GEMMA4_LOGIT_ORACLE_RESULT=" + json.dumps(report, sort_keys=True))
+        return
     original_page_tables = None
     replacement_page_tables = None
     second_replacement_page_tables = None
@@ -1034,9 +1227,22 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
                 "largest_contiguous_free_bytes_per_bank": dram.largest_contiguous_bytes_free_per_bank,
             }
         if batch32:
+            oracle_top10 = []
+            for oracle_logit_row in batch32_oracle_logits:
+                oracle_logprobs = torch.log_softmax(oracle_logit_row, dim=-1)
+                top_values, top_indices = torch.topk(oracle_logprobs, k=10)
+                oracle_top10.append(
+                    {
+                        "token_ids": [int(token_id) for token_id in top_indices.tolist()],
+                        "logprobs": [float(value) for value in top_values.tolist()],
+                    }
+                )
             report["batch_correctness"] = {
+                "prompt_token_ids_by_group": batch_tokens[:4].tolist(),
+                "decode_input_token_id": 1,
                 "prompt_group_by_row": batch32_prompt_groups.tolist(),
                 "b1_oracle_token_by_group": batch32_oracle_tokens,
+                "b1_oracle_top10_by_group": oracle_top10,
                 "first_b32_tokens": sampled_rows,
                 "same_position_replay_tokens": repeated_rows,
                 "all_rows_select_global_max": torch.equal(sampled_values, batch_max),

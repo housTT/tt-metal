@@ -1,0 +1,80 @@
+{
+  "verdict": "pass",
+  "scope": "Per-prompt comparison of P150, P150x2, and P150x4 vLLM outputs against the retained same-suite HF plus standalone-TT control",
+  "model": {
+    "hf_model_id": "google/gemma-4-26B-A4B-it",
+    "checkpoint_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+    "tokenizer_class": "GemmaTokenizer",
+    "chat_template_present": true
+  },
+  "prompt_format": {
+    "mode": "chat",
+    "serving_method": "OpenAI /v1/chat/completions; vLLM applies the checkpoint chat template",
+    "control_method": "tokenizer.apply_chat_template(add_generation_prompt=True)",
+    "prompt_source": "models/common/readiness_check/vllm_prompts.txt",
+    "prompt_source_sha256": "2ad452c15d8442d3fe641eb968bbd84e3bfe9acb01ddc540f451983c0da3cbbd"
+  },
+  "control": {
+    "outputs": "../doc/optimized_full_model/final/qualitative/shared_readiness_suite/prompt_format_and_outputs.json",
+    "outputs_sha256": "4662797cd34ab9cd23856309c2f74b70ea81ee1b4edaa8c008b61b69668bd02b",
+    "assessment": "../doc/optimized_full_model/final/qualitative/shared_readiness_suite/assessment.json",
+    "assessment_sha256": "0b6b81714427f85ea9a9eb5b4e6010f8458032d0e670cea80b5ee0ccf0f9485d",
+    "generation": {
+      "max_new_tokens": 64,
+      "do_sample": false
+    },
+    "contains_hf_and_standalone_tt_token_ids": true
+  },
+  "serving": {
+    "artifacts": {
+      "P150": "P150/vllm_qualitative_outputs.json",
+      "P150x2": "P150x2/vllm_qualitative_outputs.json",
+      "P150x4": "P150x4/vllm_qualitative_outputs.json"
+    },
+    "generation": {
+      "max_tokens": 256,
+      "greedy": {
+        "temperature": 0.0,
+        "top_k": 1
+      },
+      "sampled": {
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "top_k": 32
+      }
+    },
+    "outputs_read": 36,
+    "profiles": {
+      "P150": "pass",
+      "P150x2": "pass",
+      "P150x4": "pass"
+    }
+  },
+  "comparison_method": "The greedy serving result is the direct same-prompt and same-template comparison; the sampled result is checked for the same requested task, language, and structure. Lexical identity is not required for free-running generation. All retained completions were read through their requested cap.",
+  "cases": {
+    "machine_learning_haiku": {
+      "verdict": "pass",
+      "comparison": "The HF/standalone-TT control and every serving profile produce a coherent three-line English haiku about data, patterns, and learning; no repetition or task drift appears."
+    },
+    "supervised_unsupervised": {
+      "verdict": "pass",
+      "comparison": "The control and every serving profile use the same simple teacher-and-fruit framing, correctly distinguish labels from discovery, and remain coherent through the serving-length continuation."
+    },
+    "inventor_story": {
+      "verdict": "pass",
+      "comparison": "The control and every serving profile continue the faraway-kingdom inventor premise as coherent English fantasy prose; ordinary creative divergence introduces no collapse, echo, or cross-request leakage."
+    },
+    "thermodynamics_laws": {
+      "verdict": "pass",
+      "comparison": "The control and every serving profile correctly organize the first, second, and third laws while noting the zeroth law; all continuations stay factual and on topic."
+    },
+    "french_translation": {
+      "verdict": "pass",
+      "comparison": "The control and every serving profile give correct formal and informal French translations with English framing; no wrong-language drift occurs."
+    },
+    "fibonacci_function": {
+      "verdict": "pass",
+      "comparison": "The control and every serving profile provide valid iterative Python Fibonacci logic and structured explanation; longer responses truncate only at the explicit 256-token limit."
+    }
+  }
+}

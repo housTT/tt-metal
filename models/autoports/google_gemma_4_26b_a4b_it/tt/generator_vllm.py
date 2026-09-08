@@ -26,6 +26,7 @@ MODEL_ROOT = Path(__file__).resolve().parents[1]
 PRECISION_CONFIG = MODEL_ROOT / "doc" / "datatype_sweep" / "selected_precision_config.json"
 MAX_MODEL_LEN = 262_144
 MAX_TOKENS_ALL_USERS = 262_144
+PROFILE_MAX_MODEL_LEN = {1: 50_624, 2: 262_144, 4: 262_144}
 
 
 class Gemma4ForCausalLM(nn.Module):
@@ -37,6 +38,8 @@ class Gemma4ForCausalLM(nn.Module):
         "supports_async_decode": True,
         "supports_async_decode_overlap": True,
         "supports_sample_on_device": True,
+        "supports_device_penalties": False,
+        "supports_device_seeded_sampling": False,
         "max_device_top_k": 32,
         "state_slots_are_stateless": True,
     }
@@ -60,6 +63,7 @@ class Gemma4ForCausalLM(nn.Module):
         self._last_page_tables: list[torch.Tensor] | None = None
         self._page_table_refreshes = 0
         self._decode_ready = False
+        self._last_execution_batch: int | None = None
         self._unseeded_epoch = 0
 
     # These three methods declare vLLM's standard text-generation protocol for
@@ -75,11 +79,14 @@ class Gemma4ForCausalLM(nn.Module):
         raise NotImplementedError("TT Gemma4 terminal logits are produced by Gemma4Generator")
 
     @classmethod
-    def get_max_tokens_all_users(cls, **_: Any) -> int:
-        # The context contract proves one aggregate full-attention budget of
-        # 262,144 tokens. Concurrency shares that pool without reducing the
-        # per-request max_model_len advertised by vLLM.
-        return MAX_TOKENS_ALL_USERS
+    def get_max_tokens_all_users(cls, *, num_devices: int = 4, **_: Any) -> int:
+        # This is the aggregate scheduler-owned KV budget, not a per-slot
+        # allocation.  The full-model context contract proves a smaller hard
+        # physical limit for TP1; TP2 and TP4 retain the checkpoint maximum.
+        try:
+            return PROFILE_MAX_MODEL_LEN[int(num_devices)]
+        except KeyError as error:
+            raise ValueError(f"unsupported Gemma4 serving mesh size {num_devices}") from error
 
     @classmethod
     def get_kv_cache_spec(cls, vllm_config):
@@ -162,14 +169,25 @@ class Gemma4ForCausalLM(nn.Module):
         if len(per_layer_specs) != gen.model.num_layers:
             raise ValueError(f"vLLM requested {len(per_layer_specs)} layers; TT built {gen.model.num_layers}")
         cache = []
+        # vLLM's HMA tensor index is sufficient on TP1/TP2, where sliding and
+        # full cache blocks have equal physical volume. TP4 duplicates its one
+        # local full-attention KV head, making a full block twice as large as a
+        # sliding block; keep those two physical geometries distinct while
+        # retaining vLLM's sharing within each geometry.
+        unique_buffers: dict[tuple[int, int], tuple[ttnn.Tensor, ttnn.Tensor]] = {}
         page_tables = []
-        for model_spec, (shape, _torch_dtype, _tensor_idx) in zip(gen.model.cache_specs, per_layer_specs):
+        for model_spec, (shape, torch_dtype, tensor_idx) in zip(gen.model.cache_specs, per_layer_specs):
             shape = tuple(int(value) for value in shape)
+            if torch_dtype != torch.bfloat16:
+                raise ValueError(f"Gemma4 serving requires BF16 KV cache, got {torch_dtype}")
             expected = (model_spec.local_kv_heads, model_spec.block_size, model_spec.head_dim)
             if shape[1:] != expected:
                 raise ValueError(f"layer {model_spec.layer_idx} cache geometry {shape[1:]} != {expected}")
-            cache.append(
-                tuple(
+            physical_block_elements = math.prod(shape[1:])
+            buffer_key = (int(tensor_idx), physical_block_elements)
+            cache_pair = unique_buffers.get(buffer_key)
+            if cache_pair is None:
+                cache_pair = tuple(
                     ttnn.zeros(
                         shape,
                         dtype=gen.model.kv_cache_dtype,
@@ -179,7 +197,21 @@ class Gemma4ForCausalLM(nn.Module):
                     )
                     for _ in range(2)
                 )
-            )
+                unique_buffers[buffer_key] = cache_pair
+            else:
+                # vLLM's hybrid manager deliberately aliases one physical
+                # tensor across compatible groups. Logical dimensions can
+                # differ while physical tile volume matches (sliding/full on
+                # TP1 and TP2). TP4's duplicated full KV head has a different
+                # volume and therefore a distinct ``buffer_key`` above.
+                allocated_elements = math.prod(int(value) for value in cache_pair[0].shape)
+                requested_elements = math.prod(shape)
+                if allocated_elements != requested_elements:
+                    raise ValueError(
+                        f"shared cache tensor {tensor_idx} has {allocated_elements} elements; "
+                        f"layer {model_spec.layer_idx} requests {requested_elements}"
+                    )
+            cache.append(cache_pair)
             table_width = math.ceil(
                 (SLIDING_CACHE_TOKENS if model_spec.layer_type == "sliding_attention" else self.max_seq_len)
                 / model_spec.block_size
@@ -277,9 +309,14 @@ class Gemma4ForCausalLM(nn.Module):
 
     def _host_prefill_logits(self, logits, batch_size: int) -> torch.Tensor:
         gen = self._require_generator()
-        items = logits if isinstance(logits, list) else [logits]
-        gathered = [gen._gather_logits_to_torch(item).reshape(1, 1, -1) for item in items]
-        result = torch.cat(gathered, dim=0)
+        if isinstance(logits, list):
+            gathered = [gen._gather_logits_to_torch(item).reshape(1, 1, -1) for item in logits]
+            result = torch.cat(gathered, dim=0)
+        else:
+            # Multi-user canonical prefill concatenates last-token logits on
+            # the TT batch axis. Preserve that axis for vLLM's optional host
+            # compatibility sampler instead of flattening all rows into one.
+            result = gen._gather_logits_to_torch(logits).reshape(batch_size, 1, -1)
         if result.shape[0] != batch_size:
             raise ValueError(f"expected {batch_size} prefill outputs, got {result.shape[0]}")
         return result
@@ -394,14 +431,6 @@ class Gemma4ForCausalLM(nn.Module):
             if sorted(remap.tolist()) != list(range(self.max_batch_size)):
                 raise ValueError("slot_remap must be a permutation of the serving slots")
             remap_changed = not torch.equal(remap, torch.arange(self.max_batch_size))
-        # The TT worker has already gathered tokens, positions, block tables,
-        # and sampling parameters into decode-row order. Sampling1D consumes
-        # explicit per-call seeds and therefore owns no hidden per-slot RNG
-        # state to remap. A non-identity mapping still invalidates captured
-        # row state, so recapture before executing the newly aligned batch.
-        if reset_batch or remap_changed or not self._decode_ready:
-            self._release_decode_traces()
-            self._decode_ready = True
         flat_positions = start_pos.reshape(-1)[: self.max_batch_size]
         logical_batch = int((flat_positions >= 0).sum().item())
         if (
@@ -424,7 +453,19 @@ class Gemma4ForCausalLM(nn.Module):
         # (0.7857/0.8372/0.8214/0.8605). Re-deriving the cheaper active-row path is
         # tracked in doc/tti_release/POST_FIX_EVAL_RESULTS.md.
         execution_batch = 1 if logical_batch == 1 else self.max_batch_size
+        batch_shape_changed = self._last_execution_batch not in (None, execution_batch)
+        # A non-identity mapping or physical batch-shape transition invalidates
+        # captured row state. Release all trace allocations before a different
+        # shape is captured; TT-Metal forbids allocating that new trace while
+        # an older trace still pins the allocator range.
+        if reset_batch or remap_changed or not self._decode_ready or batch_shape_changed:
+            self._release_decode_traces()
+            self._decode_ready = True
+        self._last_execution_batch = execution_batch
         active = flat_positions[:execution_batch] >= 0
+        desired_active = torch.zeros(DECODE_SLOT_COUNT, dtype=torch.bool)
+        desired_active[:execution_batch] = active
+        active_rows_changed = not torch.equal(state.active_mask, desired_active)
         mode = "host" if sampling_params is None else "device"
         output = gen.decode_forward(
             tokens.reshape(-1)[:execution_batch].reshape(execution_batch, 1),
@@ -433,7 +474,13 @@ class Gemma4ForCausalLM(nn.Module):
             kv_cache=state,
             sampling_mode=mode,
             enable_trace=True,
-            active_mask=active,
+            # Passing active_mask marks a scheduler boundary in the canonical
+            # generator and refreshes its token input from the host. vLLM's
+            # on-device sampling path intentionally supplies stale host tokens
+            # during steady decode, so only cross that boundary when row
+            # ownership actually changes (or an explicit reset/remap demands
+            # it). This preserves the traced split-sampling feedback loop.
+            active_mask=active if active_rows_changed or reset_batch or remap_changed else None,
             **self._sampling_values(sampling_params, execution_batch, unseeded_epoch=self._unseeded_epoch),
         )
         if sampling_params is None:
@@ -441,7 +488,15 @@ class Gemma4ForCausalLM(nn.Module):
             # device sampler. Keep the full-logits gather delegated to the
             # canonical generator and never enter this branch in performance
             # runs (`sample_on_device_mode=all`).
-            return gen._gather_logits_to_torch(output).reshape(execution_batch, 1, -1)
+            # The full-model LM head retains its fixed 32-row physical output
+            # even for the genuine batch-one decode fast path. Recover the
+            # vocabulary dimension before slicing active rows; reshaping by
+            # ``execution_batch`` first would concatenate all 32 vocab rows.
+            return (
+                gen._gather_logits_to_torch(output)
+                .reshape(-1, gen.model.vocab_size)[:execution_batch]
+                .reshape(execution_batch, 1, gen.model.vocab_size)
+            )
         if read_from_device:
             return self.process_decode_output_host(
                 self.read_decode_output(output), is_tokens=sampling_params is not None

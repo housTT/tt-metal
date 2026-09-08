@@ -4,18 +4,26 @@
 import ast
 import inspect
 from pathlib import Path
+from types import SimpleNamespace
 
+import torch
+
+import ttnn
 from models.autoports.google_gemma_4_26b_a4b_it.tt.generator_vllm import Gemma4ForCausalLM
 from models.common.sampling import SamplingParams
 
 
 def test_capabilities_and_context_contract():
-    assert Gemma4ForCausalLM.get_max_tokens_all_users() == 262_144
+    assert Gemma4ForCausalLM.get_max_tokens_all_users(num_devices=1) == 50_624
+    assert Gemma4ForCausalLM.get_max_tokens_all_users(num_devices=2) == 262_144
+    assert Gemma4ForCausalLM.get_max_tokens_all_users(num_devices=4) == 262_144
     assert Gemma4ForCausalLM.model_capabilities == {
         "supports_prefix_caching": False,
         "supports_async_decode": True,
         "supports_async_decode_overlap": True,
         "supports_sample_on_device": True,
+        "supports_device_penalties": False,
+        "supports_device_seeded_sampling": False,
         "max_device_top_k": 32,
         "state_slots_are_stateless": True,
     }
@@ -50,12 +58,17 @@ def test_selected_precision_and_external_cache_are_explicit():
     allocation = inspect.getsource(Gemma4ForCausalLM.allocate_kv_cache_per_layer)
     assert "gen.model.kv_cache_dtype" in allocation
     assert "FullModelState" in allocation
+    assert "unique_buffers" in allocation
+    assert "tensor_idx" in allocation
+    assert "torch_dtype != torch.bfloat16" in allocation
 
 
 def test_plugin_registration_targets_autoport():
     platform = Path("../vllm/plugins/vllm-tt-plugin/src/vllm_tt_plugin/platform.py").read_text()
-    target = "models.autoports.google_gemma_4_26b_a4b_it.tt.generator_vllm:Gemma4ForCausalLM"
-    assert target in platform
+    assert '"models.autoports.google_gemma_4_26b_a4b_it.tt.generator_vllm:"' in platform
+    assert '"Gemma4ForCausalLM"' in platform
+    assert 'os.getenv("TT_GEMMA4_TEXT_VER", "tt_transformers")' in platform
+    assert 'gemma4_text_version == "google_gemma_4_26b_a4b_it_autoport"' in platform
 
 
 def test_async_split_is_implemented():
@@ -65,6 +78,8 @@ def test_async_split_is_implemented():
     assert "read_from_device" in decode
     assert "enable_trace=True" in decode
     assert "self._page_table_refreshes" in inspect.getsource(Gemma4ForCausalLM._refresh_page_tables)
+    process = inspect.getsource(Gemma4ForCausalLM.process_decode_output_host)
+    assert "[: self.max_batch_size]" in process
 
 
 def test_unseeded_greedy_request_uses_deterministic_device_seed_default():
@@ -88,7 +103,9 @@ def test_host_sampling_compatibility_formats_rank2_logits():
     prefill = inspect.getsource(Gemma4ForCausalLM.prefill_forward)
     decode = inspect.getsource(Gemma4ForCausalLM.decode_forward)
     assert "_host_prefill_logits(logits, len(lengths))" in prefill
-    assert "_gather_logits_to_torch(output).reshape(execution_batch, 1, -1)" in decode
+    assert ".reshape(-1, gen.model.vocab_size)[:execution_batch]" in decode
+    helper = inspect.getsource(Gemma4ForCausalLM._host_prefill_logits)
+    assert "reshape(batch_size, 1, -1)" in helper
 
 
 def test_mixed_prefill_delegates_each_sampling_output_to_generator():
@@ -126,16 +143,146 @@ def test_slot_remap_is_validated_and_recaptures_without_a_second_rng_path():
     source = inspect.getsource(Gemma4ForCausalLM.decode_forward)
     assert "slot_remap must be a permutation" in source
     assert "remap_changed" in source
+    assert "gen.remap_sampling_slots" not in source
     assert "SeedManager" not in source
     assert "slot remapping is not yet supported" not in source
 
 
-def test_padded_decode_uses_only_the_contiguous_logical_batch():
+def test_unsupported_device_sampling_features_are_explicit_plugin_fallbacks():
+    capabilities = Gemma4ForCausalLM.model_capabilities
+    assert capabilities["supports_device_penalties"] is False
+    assert capabilities["supports_device_seeded_sampling"] is False
+    runner = Path("../vllm/plugins/vllm-tt-plugin/src/vllm_tt_plugin/model_runner.py").read_text()
+    assert "self.supports_device_penalties" in runner
+    assert "presence_penalties_reqs" in runner
+    assert "self.supports_device_seeded_sampling" in runner
+    assert "SEED_NONE_SENTINEL" in runner
+
+
+def test_decode_uses_batch_one_fast_path_and_padded_multi_request_width():
     source = inspect.getsource(Gemma4ForCausalLM.decode_forward)
     assert "logical_batch = int((flat_positions >= 0).sum().item())" in source
-    assert "execution_batch = logical_batch" in source
+    assert "execution_batch = 1 if logical_batch == 1 else self.max_batch_size" in source
     assert "pack active requests before inactive slots" in source
     assert "tokens.reshape(-1)[:execution_batch].reshape(execution_batch, 1)" in source
+    assert "active_rows_changed = not torch.equal(state.active_mask, desired_active)" in source
+    assert "active_mask=active if active_rows_changed or reset_batch or remap_changed else None" in source
+
+
+def test_decode_releases_pinned_traces_before_batch_shape_recapture():
+    source = inspect.getsource(Gemma4ForCausalLM.decode_forward)
+    assert "batch_shape_changed = self._last_execution_batch not in (None, execution_batch)" in source
+    assert "or batch_shape_changed" in source
+    assert source.index("self._release_decode_traces()") < source.index("gen.decode_forward(")
+
+
+def test_adapter_steady_decode_ignores_stale_host_feedback_and_refreshes_changed_pages_once(monkeypatch):
+    class FakeGenerator:
+        def __init__(self, state):
+            self.model = SimpleNamespace(num_layers=1, vocab_size=262_144)
+            self.state = state
+            self.calls = []
+
+        def decode_forward(self, tokens, positions, *, active_mask=None, **kwargs):
+            if active_mask is not None:
+                self.state.active_mask.zero_()
+                self.state.active_mask[: active_mask.numel()] = active_mask
+            self.calls.append(
+                {
+                    "tokens": tokens.clone(),
+                    "positions": positions.clone(),
+                    "active_mask": None if active_mask is None else active_mask.clone(),
+                    "page_table": kwargs["page_table"],
+                }
+            )
+            return object()
+
+    state = SimpleNamespace(
+        kv_cache=object(),
+        active_mask=torch.zeros(32, dtype=torch.bool),
+        page_tables=[object()],
+    )
+    gen = FakeGenerator(state)
+    adapter = Gemma4ForCausalLM()
+    adapter.max_batch_size = 32
+    adapter._serving_state = state
+    refreshes = []
+    releases = []
+
+    monkeypatch.setattr(adapter, "_require_generator", lambda: gen)
+    monkeypatch.setattr(adapter, "_sampling_values", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(adapter, "_release_decode_traces", lambda: releases.append(True))
+
+    def refresh(tables):
+        refreshes.append([table.clone() for table in tables])
+        adapter._last_page_tables = [table.clone() for table in tables]
+
+    monkeypatch.setattr(adapter, "_refresh_page_tables", refresh)
+    table_a = torch.tensor([[0, 1]], dtype=torch.int32)
+    table_b = torch.tensor([[1, 0]], dtype=torch.int32)
+    positions = torch.cat((torch.tensor([5]), torch.full((31,), -1)))
+
+    adapter.decode_forward(
+        torch.ones((32, 1), dtype=torch.int64),
+        positions,
+        table_a,
+        state.kv_cache,
+        sampling_params=object(),
+        read_from_device=False,
+    )
+    adapter.decode_forward(
+        torch.full((32, 1), 999, dtype=torch.int64),
+        positions,
+        table_a,
+        state.kv_cache,
+        sampling_params=object(),
+        read_from_device=False,
+    )
+    adapter.decode_forward(
+        torch.full((32, 1), 999, dtype=torch.int64),
+        positions,
+        table_b,
+        state.kv_cache,
+        sampling_params=object(),
+        read_from_device=False,
+    )
+
+    assert len(releases) == 1
+    assert len(refreshes) == 2  # initial bind, then the one changed table
+    assert gen.calls[0]["active_mask"].tolist() == [True]
+    assert gen.calls[1]["active_mask"] is None
+    assert gen.calls[2]["active_mask"] is None
+    assert gen.calls[1]["tokens"].item() == 999
+    assert gen.calls[1]["positions"].item() == 5
+
+
+def test_page_table_refresh_uses_host_staging_and_existing_device_storage(monkeypatch):
+    target = SimpleNamespace(shape=(32, 4))
+    adapter = Gemma4ForCausalLM()
+    adapter.mesh_device = object()
+    adapter._serving_state = SimpleNamespace(page_tables=[target])
+    calls = []
+
+    monkeypatch.setattr(ttnn, "ReplicateTensorToMesh", lambda mesh: ("replicate", mesh))
+
+    def from_torch(source, **kwargs):
+        calls.append(("from_torch", source.clone(), kwargs))
+        return "host-staging"
+
+    monkeypatch.setattr(ttnn, "from_torch", from_torch)
+    monkeypatch.setattr(
+        ttnn,
+        "copy_host_to_device_tensor",
+        lambda source, destination: calls.append(("copy", source, destination)),
+    )
+
+    adapter._refresh_page_tables([torch.tensor([[7, 8]], dtype=torch.int32)])
+
+    _, staged, kwargs = calls[0]
+    assert "device" not in kwargs
+    assert staged.shape == (32, 4)
+    assert staged[0, :2].tolist() == [7, 8]
+    assert calls[1] == ("copy", "host-staging", target)
 
 
 def test_state_slot_contract_keeps_external_cache_in_execution_row_order():

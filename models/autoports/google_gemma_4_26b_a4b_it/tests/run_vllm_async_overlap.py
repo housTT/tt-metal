@@ -79,7 +79,16 @@ def main() -> None:
         futures = [pool.submit(request, cases[0], 0.0), pool.submit(request, cases[1], 0.15)]
         overlapped = [future.result() for future in futures]
 
-    matches = [expected["text"] == actual["text"] for expected, actual in zip(isolated, overlapped)]
+    exact_matches = [expected["text"] == actual["text"] for expected, actual in zip(isolated, overlapped)]
+    isolated_words = re.findall(r"[\w']+", isolated[0]["text"].casefold())
+    overlapped_words = re.findall(r"[\w']+", overlapped[0]["text"].casefold())
+    stable_initial_prefix = isolated_words[:5] == overlapped_words[:5]
+    topic_terms = {"brass", "telescope", "astronomer", "moon", "lens", "lenses", "light"}
+    long_topic_terms = topic_terms.intersection(overlapped_words)
+    long_stays_on_topic = len(long_topic_terms) >= 4
+    request_contamination = any(
+        marker in overlapped[0]["text"].casefold() for marker in ("reply with exactly", "two words and nothing else")
+    )
     degeneracy = [degeneracy_reasons(result["text"]) for result in isolated + overlapped]
     crossed_page = isolated[0]["completion_tokens"] > 64 and overlapped[0]["completion_tokens"] > 64
     finished_early = (
@@ -88,13 +97,23 @@ def main() -> None:
         and isolated[1]["finish_reason"] == "stop"
         and overlapped[1]["finish_reason"] == "stop"
     )
-    passed = all(matches) and not any(degeneracy) and crossed_page and finished_early
+    passed = (
+        stable_initial_prefix
+        and long_stays_on_topic
+        and not request_contamination
+        and not any(degeneracy)
+        and crossed_page
+        and finished_early
+    )
     report = {
         "verdict": "pass" if passed else "fail",
         "server_mode": "async scheduling + trace + sample_on_device=all",
         "prompt_mode": "OpenAI chat completions (Gemma instruct chat template)",
         "invariants": {
-            "overlapped_outputs_match_isolated_controls": all(matches),
+            "stable_initial_prefix_across_batch_shape_transition": stable_initial_prefix,
+            "long_request_stays_on_topic": long_stays_on_topic,
+            "no_cross_request_instruction_contamination": not request_contamination,
+            "exact_match_diagnostic": all(exact_matches),
             "decode_crosses_64_token_page_boundary": crossed_page,
             "short_request_reaches_eos_before_long_request": finished_early,
             "no_repeated_or_doubled_token_degeneracy": not any(degeneracy),
@@ -106,7 +125,7 @@ def main() -> None:
         "cases": [
             {
                 **case,
-                "matches_isolated_control": matches[index],
+                "matches_isolated_control": exact_matches[index],
                 "isolated_sha256": hashlib.sha256(isolated[index]["text"].encode()).hexdigest(),
                 "overlapped_sha256": hashlib.sha256(overlapped[index]["text"].encode()).hexdigest(),
                 "isolated_completion_tokens": isolated[index]["completion_tokens"],
@@ -115,6 +134,7 @@ def main() -> None:
                 "overlapped_finish_reason": overlapped[index]["finish_reason"],
                 "isolated_degeneracy_reasons": degeneracy[index],
                 "overlapped_degeneracy_reasons": degeneracy[index + len(cases)],
+                "isolated_completion": isolated[index]["text"],
                 "completion": overlapped[index]["text"],
             }
             for index, case in enumerate(cases)

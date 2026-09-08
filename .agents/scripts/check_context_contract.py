@@ -144,7 +144,32 @@ def checked_files(model_dir: Path) -> list[Path]:
     return sorted(set(paths))
 
 
-def scan_caps(model_dir: Path, minimum_context: int) -> tuple[list[str], list[str]]:
+def profile_context_limits(contract: dict[str, Any]) -> dict[str, int]:
+    """Return the latest recorded supported context for each hardware profile."""
+    limits: dict[str, int] = {}
+    for section in contract.values():
+        if not isinstance(section, dict):
+            continue
+        profiles = section.get("profiles")
+        if not isinstance(profiles, dict):
+            continue
+        for profile, details in profiles.items():
+            if not isinstance(details, dict):
+                continue
+            supported = first_int(
+                details,
+                ("supported_context_tokens", "current_supported_context", "supported_context", "max_model_len"),
+            )
+            if supported is not None:
+                limits[str(profile)] = supported
+    return limits
+
+
+def scan_caps(
+    model_dir: Path,
+    minimum_context: int,
+    per_profile_context: dict[str, int] | None = None,
+) -> tuple[list[str], list[str]]:
     critical: list[str] = []
     advisory: list[str] = []
 
@@ -157,6 +182,9 @@ def scan_caps(model_dir: Path, minimum_context: int) -> tuple[list[str], list[st
 
         suffix = path.suffix.lower()
         rel = path.relative_to(model_dir)
+        file_minimum = minimum_context
+        if per_profile_context and len(rel.parts) > 1 and rel.parts[0] == "readiness_vllm":
+            file_minimum = per_profile_context.get(rel.parts[1], minimum_context)
 
         if suffix == ".json":
             try:
@@ -166,8 +194,8 @@ def scan_caps(model_dir: Path, minimum_context: int) -> tuple[list[str], list[st
             for json_path, value in iter_json_values(data):
                 key = json_path.rsplit(".", 1)[-1].split("[", 1)[0].lower()
                 amount = parse_int(value)
-                if key in CONTEXT_KEYS and amount is not None and amount < minimum_context:
-                    critical.append(f"{rel}:{json_path} sets {key}={amount} below {minimum_context}")
+                if key in CONTEXT_KEYS and amount is not None and amount < file_minimum:
+                    critical.append(f"{rel}:{json_path} sets {key}={amount} below {file_minimum}")
             continue
 
         if suffix not in {".md", ".txt", ".log", ".py", ".yaml", ".yml", ".sh", ".toml"}:
@@ -242,7 +270,7 @@ def main() -> int:
         )
         return 2
 
-    critical, advisory = scan_caps(model_dir, supported)
+    critical, advisory = scan_caps(model_dir, supported, profile_context_limits(contract))
     for finding in critical:
         print(f"CONTEXT CAP: {finding}", file=sys.stderr)
     for finding in advisory:
