@@ -1,0 +1,49 @@
+{
+  "argv": [
+    "/home/hous/dev/ornith-1.5-9b/tt-metal/../state/serving-env/bin/python",
+    "-m",
+    "models.common.readiness_check.run_vllm_server",
+    "--stages",
+    "serve",
+    "--model-dir",
+    "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b",
+    "--hf-model",
+    "/home/hous/dev/ornith-1.5-9b/upstream",
+    "--mesh-device",
+    "P150x4",
+    "--max-num-seqs",
+    "32",
+    "--max-model-len",
+    "262144",
+    "--sampling-profile",
+    "full",
+    "--tt-config",
+    "{\"trace_region_size\": 100000000, \"l1_small_size\": 32768, \"fabric_config\": \"FABRIC_1D_RING\", \"fabric_max_packet_payload_size_bytes\": 8192}",
+    "--additional-server-args",
+    "--hf-overrides '{\"architectures\": [\"OrnithForCausalLM\"]}' --async-scheduling"
+  ],
+  "command": "/home/hous/dev/ornith-1.5-9b/tt-metal/../state/serving-env/bin/python -m models.common.readiness_check.run_vllm_server --stages serve --model-dir /home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b --hf-model /home/hous/dev/ornith-1.5-9b/upstream --mesh-device P150x4 --max-num-seqs 32 --max-model-len 262144 --sampling-profile full --tt-config '{\"trace_region_size\": 100000000, \"l1_small_size\": 32768, \"fabric_config\": \"FABRIC_1D_RING\", \"fabric_max_packet_payload_size_bytes\": 8192}' --additional-server-args '--hf-overrides '\"'\"'{\"architectures\": [\"OrnithForCausalLM\"]}'\"'\"' --async-scheduling'",
+  "layers": null,
+  "host_sampling_compatibility": true,
+  "runtime_environment": {
+    "USER": "hous",
+    "ORNITH_VLLM_LAYER_INDICES": null,
+    "ORNITH_VLLM_ALLOW_HOST_SAMPLING": "1",
+    "TT_METAL_DEVICE_PROFILER": null,
+    "TT_METAL_WATCHER": null,
+    "TT_METAL_TRACE_ALLOC_TRACKING": null
+  },
+  "source_sha256": {
+    "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/tt/generator_vllm.py": "9337fb7072d9cfdef38553074ac8d1e2f8deddc3004b2e9364cc2dfd6b01b994",
+    "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/tt/generator.py": "391c7f2de7a6be6ee73161f233219dfef86ad716e59bb46367d313adac797e65",
+    "/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/tt/model.py": "f9da26100bdf48dd1a2e487a3687895e75b2b385f0a32cf21d10c2786907e615",
+    "/home/hous/dev/ornith-1.5-9b/tt-metal/models/common/readiness_check/run_vllm_server.py": "601d9b00c3c0ef51b50caf398c35e5a3b24d88f9901e90c913c53b35b842e064",
+    "/home/hous/dev/ornith-1.5-9b/tt-metal/models/common/sampling/tt_penalties.py": "70e8821444cac1abe6541578ecf3edcfa3eb1b8249d7d680f57a8f8818c88714",
+    "/home/hous/dev/ornith-1.5-9b/tt-metal/models/common/sampling/tt_sampling.py": "a2bf86fb456c10c6d6d8fc3fee1dfe05f5828c3c55808f40c8f752e588ff0fc2",
+    "/home/hous/dev/ornith-1.5-9b/vllm/plugins/vllm-tt-plugin/src/vllm_tt_plugin/model_runner.py": "d4fc721d8eb965c5c1e15cdb3ebf28e43f78c63bc2ce792c7c565e40c864e303",
+    "/home/hous/dev/ornith-1.5-9b/vllm/plugins/vllm-tt-plugin/src/vllm_tt_plugin/platform.py": "865dbd056fa68628a5961ee7d8056db4ec548414740d9fe94c60ef3d65482b0f",
+    "/home/hous/dev/ornith-1.5-9b/vllm/plugins/vllm-tt-plugin/src/vllm_tt_plugin/worker.py": "1945a5cb85cb82a3a828b5a990bc95a008e1717c746f88e0b69b9dfdda9d543f"
+  },
+  "runner_pid": 24797,
+  "returncode": 0
+}

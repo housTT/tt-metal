@@ -90,6 +90,7 @@ class ModelCache:
     active_recurrent: object
     active_conv: object
     zero_hidden: object
+    num_blocks: int
 
 
 class OrnithModel:
@@ -318,11 +319,23 @@ class OrnithModel:
             memory_config=memory,
         )
 
-    def allocate_cache(self, batch_size=1, context=None):
+    def allocate_cache(self, batch_size=1, context=None, *, num_blocks=None):
+        """Allocate logical slots over an optional scheduler-owned physical pool.
+
+        ``context`` bounds each request's positions; ``num_blocks`` is the exact
+        shared KV block count per attention layer, independent of batch/context.
+        Callers providing a shared pool must also provide its page table.
+        """
         context = self.max_context if context is None else int(context)
         if not 1 <= batch_size <= 32 or not 1 <= context <= self.max_context:
             raise ValueError("cache requires batch 1..32 and context within supported bounds")
-        blocks = num_blocks_for_context(context, self.page_block_size) * batch_size
+        if num_blocks is not None and (
+            not isinstance(num_blocks, int) or isinstance(num_blocks, bool) or num_blocks < 1
+        ):
+            raise ValueError("num_blocks must be a positive integer physical pool size")
+        blocks = (
+            num_blocks_for_context(context, self.page_block_size) * batch_size if num_blocks is None else num_blocks
+        )
         decode, prefill, kv = [], [], []
         for original in self.layers:
             layer = copy.copy(original)
@@ -353,12 +366,15 @@ class OrnithModel:
             active_recurrent,
             active_conv,
             self.upload(torch.zeros(1, 1, self.dim), dtype=getattr(ttnn, self.precision["residual_dtype"])),
+            blocks,
         )
         self.cache = cache
         return cache
 
     def page_table(self, cache):
         width = num_blocks_for_context(cache.context, self.page_block_size)
+        if width * cache.batch_size > cache.num_blocks:
+            raise ValueError("Shared physical cache requires a scheduler-owned page table")
         return torch.arange(width * cache.batch_size, dtype=torch.int32).reshape(cache.batch_size, width)
 
     @staticmethod

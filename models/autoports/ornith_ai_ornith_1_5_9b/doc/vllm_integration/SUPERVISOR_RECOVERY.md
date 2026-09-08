@@ -1,0 +1,5 @@
+# Stage 9 environment recovery
+
+The stage stopped after three checks of missing vLLM, TT plugin and OpenAI packages, interpreting generic root AGENTS host no-install guidance as requiring permission. The accepted user plan already requires building the serving environment and selecting/testing/pinning these dependencies. Root and model AGENTS now explicitly record that existing task-scoped authorization for the task container/virtual environments. USER=hous is set in the launcher to resolve the documented uid lookup prerequisite. No validation gate has been waived; no dependency compatibility is claimed yet.
+
+Old worker process group is absent, runtime container exited, and the hardware lock is free. Resume original stage 9 thread 01a073ff-4654-7d61-8302-7fa0371ff421. Preserve all original logs, manifests and session storage. Provision/test the actual serving dependencies before proceeding through the reduced/full-model serving gates. TP1 and TP2 full-model/serving remain unvalidated; all three profiles are required for final publication.

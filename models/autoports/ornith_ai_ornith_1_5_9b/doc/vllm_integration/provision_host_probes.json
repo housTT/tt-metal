@@ -1,0 +1,46 @@
+{
+  "imports": {
+    "command": [
+      "/home/hous/dev/ornith-1.5-9b/tt-metal/../state/serving-env/bin/python",
+      "-c",
+      "import torch,torchvision,numpy,transformers,openai,ttnn,vllm,vllm_tt_plugin; from vllm.platforms import current_platform; print(\"VERSIONS\",torch.__version__,torchvision.__version__,numpy.__version__,transformers.__version__,openai.__version__,vllm.__version__); print(\"TTNN\",ttnn.__file__); print(\"PLATFORM\",type(current_platform).__module__,type(current_platform).__name__)"
+    ],
+    "started": "2026-09-08T12:25:35.058377+00:00",
+    "returncode": 0,
+    "log": "provision_imports.log"
+  },
+  "runner_help": {
+    "command": [
+      "/home/hous/dev/ornith-1.5-9b/tt-metal/../state/serving-env/bin/python",
+      "-m",
+      "models.common.readiness_check.run_vllm_server",
+      "--help"
+    ],
+    "started": "2026-09-08T12:25:40.379457+00:00",
+    "returncode": 0,
+    "log": "provision_runner_help.log"
+  },
+  "vllm_help": {
+    "command": [
+      "/home/hous/dev/ornith-1.5-9b/tt-metal/../state/serving-env/bin/python",
+      "-m",
+      "vllm.entrypoints.openai.api_server",
+      "--help"
+    ],
+    "started": "2026-09-08T12:25:43.542574+00:00",
+    "returncode": 0,
+    "log": "provision_vllm_help.log"
+  },
+  "runner_host_tests": {
+    "command": [
+      "/home/hous/dev/ornith-1.5-9b/tt-metal/../state/serving-env/bin/python",
+      "-m",
+      "pytest",
+      "-q",
+      "models/common/readiness_check/test_run_vllm_server.py"
+    ],
+    "started": "2026-09-08T12:25:50.233161+00:00",
+    "returncode": 0,
+    "log": "provision_runner_host_tests.log"
+  }
+}

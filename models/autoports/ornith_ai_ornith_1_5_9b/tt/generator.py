@@ -198,6 +198,131 @@ class OrnithGenerator(Generator):
             self._write(table, self._inputs[3], "page_table_refreshes")
             self._previous_table = table.clone()
 
+    def _merge_serving_vector(self, target, values, refresh_mask, counter):
+        """Replace selected integer lanes without reading live feedback to host."""
+        width = int(torch.as_tensor(values).numel())
+        shape = (1, 1, 1, width)
+        select = self.model.upload(torch.as_tensor(refresh_mask).to(torch.int32).reshape(shape), dtype=ttnn.int32)
+        fresh = self.model.upload(torch.as_tensor(values).to(torch.int32).reshape(shape), dtype=target.dtype)
+        old = ttnn.to_layout(ttnn.reshape(target, shape), ttnn.TILE_LAYOUT)
+        merged = ttnn.where(select, fresh, old)
+        restored = ttnn.reshape(ttnn.to_layout(merged, ttnn.ROW_MAJOR_LAYOUT), target.shape)
+        ttnn.copy(restored, target)
+        for tensor in (select, fresh, old, merged, restored):
+            ttnn.deallocate(tensor)
+        self.counters[counter] += 1
+
+    def refresh_serving_inputs(self, tokens, positions, refresh_mask):
+        """Apply scheduler changes while retaining continuing rows' device state.
+
+        All arguments describe every fixed slot, after any slot permutation.
+        Only true mask entries replace token/current/RoPE values. Inactive rows
+        additionally get current position -1, and both hybrid activity masks
+        follow the supplied positions. Reactivated rows must be refreshed.
+        """
+        ids, pos, refresh = [torch.as_tensor(value).reshape(-1) for value in (tokens, positions, refresh_mask)]
+        if any(value.numel() != self.max_batch_size for value in (ids, pos, refresh)):
+            raise ValueError("Serving inputs must explicitly describe every fixed slot")
+        if ids.is_floating_point() or pos.is_floating_point() or bool(((refresh != 0) & (refresh != 1)).any()):
+            raise ValueError("Serving inputs require integer tokens/positions and a boolean refresh mask")
+        ids, pos, refresh = ids.to(torch.int32), pos.to(torch.int32), refresh.bool()
+        if bool(refresh.any()):
+            padded_ids = torch.zeros(32, dtype=torch.int32)
+            padded_mask = torch.zeros(32, dtype=torch.bool)
+            padded_ids[: self.max_batch_size], padded_mask[: self.max_batch_size] = ids, refresh
+            self._merge_serving_vector(self._inputs[0], padded_ids, padded_mask, "token_refreshes")
+            self._merge_serving_vector(self._inputs[2], pos.clamp_min(0), refresh, "rope_refreshes")
+        position_mask = refresh | (pos < 0)
+        if bool(position_mask.any()):
+            self._merge_serving_vector(self._inputs[1], pos, position_mask, "position_refreshes")
+        if self.max_batch_size > 1:
+            active = (pos >= 0).float()
+            for target, shape in (
+                (self.kv_cache.active_recurrent, (-1, 1, 1, 1)),
+                (self.kv_cache.active_conv, (-1, 1, 1)),
+            ):
+                host = self.model.upload(active.reshape(shape), dtype=target.dtype, device=False)
+                ttnn.copy_host_to_device_tensor(host, target)
+
+    def _remap_serving_vector(self, target, values):
+        """Gather exact 32-bit lanes along the last dimension, then copy in place."""
+        width = len(values)
+        shape = (1, 1, 1, width)
+        indices = self.model.upload(torch.tensor(values, dtype=torch.int32).reshape(shape), dtype=ttnn.uint32)
+        source = ttnn.to_layout(ttnn.reshape(target, shape), ttnn.TILE_LAYOUT)
+        moved = ttnn.gather(source, dim=3, index=indices)
+        restored = ttnn.reshape(ttnn.to_layout(moved, ttnn.ROW_MAJOR_LAYOUT), target.shape)
+        ttnn.copy(restored, target)
+        for tensor in (indices, source, moved, restored):
+            ttnn.deallocate(tensor)
+
+    def _remap_serving_rows(self, target, values):
+        """Move batch-axis rows using snapshots so cycles and NaNs stay isolated."""
+        shape = list(target.shape)
+        moves = [(row, source) for row, source in enumerate(values) if row != source]
+        saved = {}
+        for _, source in moves:
+            begins, ends = [0] * len(shape), list(shape)
+            begins[0], ends[0] = source, source + 1
+            saved[source] = ttnn.slice(target, begins, ends)
+        for row, source in moves:
+            mask_shape = [shape[0]] + [1] * (len(shape) - 1)
+            mask = torch.zeros(mask_shape, dtype=torch.int32)
+            mask[row] = 1
+            select = self.model.upload(mask, dtype=target.dtype)
+            if len(shape) == 2:
+                # Full-vocabulary INT32 history rows exceed repeat's L1 row
+                # buffer budget. WHERE broadcasts [1,V] directly over [32,V].
+                ttnn.where(select, saved[source], target, output_tensor=target)
+            else:
+                wide = ttnn.repeat(saved[source], ttnn.Shape(mask_shape))
+                ttnn.where(select, wide, target, output_tensor=target)
+                ttnn.deallocate(wide)
+            ttnn.deallocate(select)
+        for tensor in saved.values():
+            ttnn.deallocate(tensor)
+
+    def remap_serving_slots(self, remap):
+        """Move fixed-slot state in place at a scheduler boundary; return layer count.
+
+        ``remap[new] = old`` must be a full permutation. Paged KV storage stays
+        put: the scheduler supplies its permuted page table separately. Sampling
+        parameters must subsequently describe the new slot order.
+        """
+        supplied = torch.as_tensor(remap).reshape(-1)
+        values = supplied.tolist()
+        if supplied.is_floating_point() or sorted(values) != list(range(self.max_batch_size)):
+            raise ValueError("slot remap must be a full permutation of fixed slots")
+        if values == list(range(self.max_batch_size)):
+            return 0
+        moved = 0
+        for layer in self.kv_cache.decode_layers:
+            if layer.is_full_attention:
+                continue
+            for target in [layer.recurrent_state] + layer.conv_state:
+                self._remap_serving_rows(target, values)
+            moved += 1
+        for target in (self.kv_cache.active_recurrent, self.kv_cache.active_conv):
+            self._remap_serving_rows(target, values)
+        lanes = values + list(range(self.max_batch_size, 32))
+        for target, order in (
+            (self._inputs[0], lanes),
+            (self._inputs[1], values),
+            (self._inputs[2], values),
+            (self.sampling.tt_sampling.seeds_tt_tensor, lanes),
+        ):
+            self._remap_serving_vector(target, order)
+        penalties = self.sampling.tt_penalties
+        for target in [penalties.prompt_mask] + self._sampler_history_tensors():
+            self._remap_serving_rows(target, lanes)
+        if penalties._prompt_tokens_host is not None:
+            penalties._prompt_tokens_host = penalties._prompt_tokens_host[lanes].clone()
+        self._seed_values = self._seed_values[lanes].clone()
+        self._configured_seeds = [self._configured_seeds[slot] for slot in lanes]
+        self.sampling.seed_manager.apply_slot_remap(lanes)
+        self.counters["slot_remaps"] = self.counters.get("slot_remaps", 0) + 1
+        return moved
+
     def _forward(self):
         tokens, pos, rot, page = self._inputs
         return self.model.decode_forward(tokens, current_pos=pos, rot_idxs=rot, page_table=page, kv_cache=self.kv_cache)
@@ -288,7 +413,14 @@ class OrnithGenerator(Generator):
         return [penalties.output_mask, penalties.output_counts, penalties.output_counts_gathered]
 
     def configure_sampling(
-        self, sampling_params=None, *, reset_seed=False, prompt_token_ids=None, generated_token_ids=None
+        self,
+        sampling_params=None,
+        *,
+        reset_seed=False,
+        prompt_token_ids=None,
+        generated_token_ids=None,
+        fresh_slots=None,
+        fresh_seed_slots=None,
     ):
         """Change low-level sampling at a scheduler boundary, preserving live state.
 
@@ -296,17 +428,40 @@ class OrnithGenerator(Generator):
         penalty history survive recapture; seeds survive unless reset_seed=True.
         Enabling penalties on a live stream that did not track them requires
         caller-owned prompt/generated histories for every fixed slot.
+        Newly admitted ``fresh_slots`` may activate penalties without earlier
+        histories only when every penalized lane is fresh. The caller must
+        immediately prefill those slots at start_pos=0, which initializes their
+        prompt masks and empty output histories before sampling.
+        ``fresh_seed_slots`` initializes only requests first admitted through
+        host sampling, after their actual request seeds become available.
+        Continuing device streams keep their persistent seed counters.
         Call only when scheduler state changes, outside the steady-state loop.
         """
         if self.sampling_mode != "device":
             raise ValueError("configure_sampling controls the device sampler; host callers own host_sample")
         params = sampling_params or SamplingParams(temperature=0.0, top_k=1, top_p=1.0)
         formatted = format_sampling_params(params, 32)
-        penalties_on = any(
-            any(value != default for value in getattr(formatted, name))
+        validated = []
+        for name, slots in (("fresh_slots", fresh_slots), ("fresh_seed_slots", fresh_seed_slots)):
+            supplied = torch.as_tensor([] if slots is None else slots).reshape(-1)
+            values = supplied.tolist()
+            if values and (
+                supplied.is_floating_point()
+                or supplied.is_complex()
+                or supplied.dtype == torch.bool
+                or len(set(values)) != len(values)
+                or any(slot < 0 or slot >= self.max_batch_size for slot in values)
+            ):
+                raise ValueError(f"{name} must contain unique integer fixed-slot indices")
+            validated.append(values)
+        fresh, seed_rows = validated
+        penalized = {
+            slot
             for name, default in (("presence_penalty", 0.0), ("frequency_penalty", 0.0), ("repetition_penalty", 1.0))
-        )
-        if self._live and penalties_on and not self.sampling._penalties_active:
+            for slot, value in enumerate(getattr(formatted, name))
+            if value != default
+        }
+        if self._live and penalized.difference(fresh) and not self.sampling._penalties_active:
             if prompt_token_ids is None or generated_token_ids is None:
                 raise ValueError("Enabling live penalties requires prompt_token_ids and generated_token_ids")
         histories = []
@@ -330,6 +485,8 @@ class OrnithGenerator(Generator):
                 self.sampling.reset_output_state(histories[1])
             if reset_seed:
                 self._reset_seeds()
+            if seed_rows:
+                self._reset_request_seeds(seed_rows)
             return
         if self._model_trace is None or self._logits is None:
             raise RuntimeError("Live sampling reconfiguration requires an existing decode trace")
@@ -348,6 +505,8 @@ class OrnithGenerator(Generator):
                 ttnn.deallocate(backup)
         if reset_seed:
             self._reset_seeds()
+        if seed_rows:
+            self._reset_request_seeds(seed_rows)
         if histories[0] is not None:
             self.sampling.reset_prompt_tokens(histories[0])
         if histories[1] is not None:
@@ -476,12 +635,17 @@ class OrnithGenerator(Generator):
         ttnn.copy(temporary, output)
         ttnn.deallocate(temporary)
 
-    def ensure_traces(self):
+    def ensure_traces(self, *, preserve_cache=True):
+        """Warm and capture; an empty serving pool may skip the cache snapshot.
+
+        ``preserve_cache=False`` is only for a newly allocated, unpopulated
+        caller cache. It avoids temporarily duplicating the entire KV pool.
+        """
         if self._model_trace is not None:
             return
         if self._live:
             raise RuntimeError("Capture must be warmed before writing live prompt state")
-        originals = [] if self.owns_cache else self.model.cache_buffers(self.kv_cache)
+        originals = [] if self.owns_cache or not preserve_cache else self.model.cache_buffers(self.kv_cache)
         saved = [ttnn.clone(tensor) for tensor in originals]
         self.model.reset_cache(self.kv_cache, clear_kv=True)
         self._write_tokens([0] * self.max_batch_size)
@@ -514,14 +678,19 @@ class OrnithGenerator(Generator):
             # Recapture records the already-warmed graph without executing a cache update.
             self._capture()
 
-    def _replay(self, *, collect_output=False):
+    def _replay(self, *, collect_output=False, sample_on_device=None):
+        sample = self.sampling_mode == "device" if sample_on_device is None else sample_on_device
+        if sample and self.sampling_mode != "device":
+            raise ValueError("Device sampling requires a captured device sampler")
+        if collect_output and not sample:
+            raise ValueError("Output history requires device sampling")
         if collect_output and (
             self._sampling_history_trace is None or self._history_rows >= self._output_history_capacity
         ):
             raise RuntimeError("Output collection requires a captured sampler and available history capacity")
         ttnn.execute_trace(self.mesh_device, self._model_trace, cq_id=0, blocking=False)
         self.counters["model_replays"] += 1
-        if self.sampling_mode == "device":
+        if sample:
             trace = self._sampling_history_trace if collect_output else self._sampling_trace
             ttnn.execute_trace(self.mesh_device, trace, cq_id=0, blocking=False)
             self.counters["sampling_replays"] += 1
@@ -536,6 +705,32 @@ class OrnithGenerator(Generator):
             .reshape(-1)[: self.max_batch_size]
             .to(torch.int64)
         )
+
+    def read_output_async(self, tensor=None, *, return_logits=False):
+        """Queue this step's copy on CQ0 before its persistent output is reused.
+
+        Return ``(host_tensor, event)`` without waiting. Callers must wait on the
+        event before formatting. Token feedback is replicated, so copy only its
+        first shard; the explicit host-logits compatibility path copies all
+        vocabulary shards. Submit this read before the next decode replay.
+        """
+        target = self._inputs[0] if tensor is None else tensor
+        if not return_logits:
+            target = ttnn.get_device_tensors(target)[0]
+        host = target.cpu(blocking=False)
+        event = ttnn.record_event(self.mesh_device, 0)
+        self.counters["readbacks"] += 1
+        return host, event
+
+    def tokens_from(self, tensor):
+        """Read a replicated device buffer or format its completed host copy."""
+        return ttnn.to_torch(ttnn.get_device_tensors(tensor)[0]).reshape(-1)[: self.max_batch_size].to(torch.int64)
+
+    def logits_from(self, tensor):
+        """Compose completed host logits as ``[B, V]`` for host compatibility."""
+        return ttnn.to_torch(tensor, mesh_composer=ttnn.ConcatMeshToTensor(self.mesh_device, dim=-1))[
+            0, 0, : self.max_batch_size, : self.model.vocab_size
+        ].float()
 
     def prefill_forward(
         self,
@@ -634,11 +829,23 @@ class OrnithGenerator(Generator):
         self._sample_prefill_device(outputs, rows)
         return self._read_tokens()[rows]
 
-    def decode_forward(self, tokens, start_pos, *, page_table, kv_cache, return_logits=False, read_from_device=True):
+    def decode_forward(
+        self,
+        tokens,
+        start_pos,
+        *,
+        page_table,
+        kv_cache,
+        return_logits=False,
+        read_from_device=True,
+        sample_on_device=None,
+    ):
         """Replay one step; callers may retain device output without synchronizing.
 
         The returned device tensor aliases persistent feedback and is overwritten
         by the next replay. The caller owns scheduling and context bounds.
+        ``sample_on_device=False`` advances the model without changing sampler
+        state; the caller must refresh its host-sampled token before continuing.
         """
         if kv_cache is not self.kv_cache:
             raise ValueError("decode cache differs from the cache bound to this generator")
@@ -649,10 +856,11 @@ class OrnithGenerator(Generator):
         if start_pos is not None:
             self._write_positions(start_pos)
         self._refresh_table(page_table)
-        self._replay()
+        self._replay(sample_on_device=sample_on_device)
+        host_output = return_logits or self.sampling_mode == "host" or sample_on_device is False
         if not read_from_device:
-            return self._logits if return_logits or self.sampling_mode == "host" else self._inputs[0]
-        if return_logits or self.sampling_mode == "host":
+            return self._logits if host_output else self._inputs[0]
+        if host_output:
             return self.model.logits_to_host(self._logits, self.max_batch_size)
         return self._read_tokens()
 
