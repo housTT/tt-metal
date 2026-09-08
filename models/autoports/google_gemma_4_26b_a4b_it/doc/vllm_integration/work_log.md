@@ -421,3 +421,11 @@ the nine regression tests, seven additional negative scope mutations, all 39
 manifest hash checks, and cached-tokenizer prompt comparisons, and read all
 36 serving completions. See `STAGE_REVIEW_CONTEXT_REPAIR.md` for the report
 and explicit boundary-evidence limitations.
+
+Local repair checkpoint after clean review:
+`f55d744ee0ba6f58cfc4e1cbee9212fe45e077f4`. This includes the checker fix,
+regression tests, preserved gate logs, hash audit, corrected evidence scope,
+and independent review report. Final full stage verification after the report
+was written also exited 0; its output is
+`bringup/artifacts/multigoal-runs/gemma4-26b-a4b-p150/09-vllm-context-final.log`.
+Pre-commit passed on all changed source, Markdown, and JSON files. No push.
