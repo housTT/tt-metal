@@ -50,26 +50,45 @@ slabs and runs compact indexed sparse matmuls, replacing the packed
 32-token-group path with its dense 128-expert expanded outputs. Design points
 that were needed to make it work in serving, not just in a layer test:
 
-- Slab heights are power-of-two tile multiples capped at 256 rows; an expert
-  with more tokens takes several consecutive slabs (same expert id repeated).
-  Taller slabs overflow L1 in the sparse matmul (per_core_M x in0_block_w input
-  tiles), which crashed 16k-token prompts.
-- Experts with equal slab height form one group; group sizes are padded to a
-  power of two with dummy slabs and split into chunks of at most 128 ids (the
-  indexed mode's limit). The slab buffer is rounded to a power of two. With
+- An expert's tokens fill `count // 512` full slabs of 512 rows plus one
+  remainder slab whose height is a power-of-two tile multiple (32..256), so
+  padding is at most one short slab per expert. Taller slabs overflow L1 in
+  the sparse matmul (per_core_M x in0_block_w input tiles); 4096-row slabs
+  crashed 16k-token prompts.
+- Slabs of equal height form a group; a group is split into power-of-two
+  chunks (largest first, at most 128 ids, the indexed mode's limit) with no
+  padding slabs, and each chunk is one indexed sparse matmul pair. With
   routing-dependent shapes every prompt recompiled programs (32 s TTFT);
-  with these shape classes the set is 4 heights x 8 sizes and stays cached.
+  with these shape classes the set is 5 heights x 8 sizes and stays cached.
+  The slab buffer is rounded to 1/8 of its power-of-two octave (<= 12.5%
+  waste; the earlier full power-of-two rounding plus padding slabs made the
+  16k-token dispatch gather 2.5x larger than the slots).
 - `warmup_indexed_prefill_shapes` compiles that set once on layer 0 during
-  the adapter's prefill warmup (program caches key on shapes, not weights).
-- Flat slot vectors are reshaped through TILE layout; a ROW_MAJOR reshape of
-  a 256 KB stick stages the whole stick in L1 and clashed with resident
-  buffers at 16k tokens.
-- Per-expert counts are read back to the host once per layer (prefill is
-  untraced) to lay the slabs out. Below 512 tokens the packed path is used,
-  since the per-layer sync costs more than it saves there.
-- `ttnn.gather` returns wrong values for a long single-stick index; offsets
-  are gathered with a `[rows, top_k]` index against a row-repeated table, and
-  scores are scattered by slot destination instead of gathered.
+  the adapter's prefill warmup (program caches key on shapes, not weights),
+  including the per-group token gather.
+- Prefill is untraced and host-synchronised, so the routing runs in torch:
+  the router linear runs on device and its bf16 logits are read back (4 MB
+  at 16k tokens, the same bytes as the padded index/score tiles); top-4,
+  softmax, per-expert counts, slab layout, the stable argsort of slots and
+  the gather-back columns are torch and are uploaded as four small tensors.
+  A device `ttnn.sort` of the slots alone cost 5-18 ms per layer, and the
+  device `ttnn.topk` path was no faster than the readback.
+- Token rows are gathered straight into each group's slab stack with one
+  tile-layout `ttnn.embedding` per group (no capacity-sized copy). Expert
+  rows come back with one `[top_k, rows]` embedding gather, are multiplied
+  by the `[1, top_k, rows, 1]` routing weights and reduced over `top_k`
+  (`fast_reduce_nc`); the down bias is folded in through the dense routing
+  weights. Below 512 tokens the packed path is used, since the per-layer
+  sync costs more than it saves there.
+- Matmul blocking is specific to this path (`_indexed_prefill_matmul_config`):
+  gate/up `(in0_block_w, out_block_h, out_subblock_h, out_subblock_w)` =
+  (30, 4, 2, 1), down (24, 8, 4, 2). With `out_block_h = 1` (the decode
+  configs) the kernel re-reads every weight block once per slab tile row:
+  16k-token gate/up went from 27.7 ms to 15.5 ms per layer and down from
+  20.8 ms to 6.8 ms. Both matmuls are bound by the single in0 multicast
+  sender of the 1D kernel (bf16 slabs: 425 MB per chip at 16k tokens); a
+  bfp8 slab saved 3 ms on the matmul but cost 2 ms in the cast and lowered
+  the PCC, so it is not used (`indexed_prefill_slab_dtype`).
 
 Packed path improvements that remain in use below 512 tokens: 768 layout
 (tile-aligned gate/up slices), pre-transposed gate/up bias, down bias folded
@@ -97,9 +116,18 @@ Full layer-0 prefill on real token embeddings, one call with a host sync
 
 | tokens | packed | indexed | speedup | PCC |
 |---:|---:|---:|---:|---:|
-| 128 | 7.7 ms | 7.8 ms | 1.0x | 0.99999 |
-| 1,024 | 54.3 ms | 22.1 ms | 2.5x | 0.99999 |
-| 4,096 | 228.9 ms | 69.8 ms | 3.3x | 0.99999 |
+| 128 | 7.9 ms | 4.5 ms | 1.8x | 0.99984 |
+| 1,024 | 53.8 ms | 8.0 ms | 6.7x | 0.99997 |
+| 4,096 | 228.8 ms | 19.6 ms | 11.7x | 0.99995 |
+| 16,384 | 912.5 ms | 61.7 ms | 14.8x | 0.99995 |
+
+Per-stage times at 16,384 tokens (`GPT_OSS_120B_PREFILL_STAGES=1`, device
+sync after every op, so the sum is above the pipelined 61.7 ms): gate/up
+matmuls 15.5 ms, down matmuls 6.8 ms, gather-back + weights + reduce 7.3 ms,
+token gathers 3.8 ms, all-reduce 3.8 ms, SwiGLU 3.2 ms, logits readback
+3.0 ms, uploads 2.8 ms, down untilize 2.8 ms, gate/up slices 2.6 ms, gate/up
+bias 4.3 ms, host layout 1.5 ms. The earlier version of this path measured
+14.9 / 33 / 174 ms at 1k / 4k / 16k.
 
 The packed numbers already include the 768 layout and bias fold (the 127-token
 layer prefill in the acceptance test went from 14.4 ms to 9.2 ms).

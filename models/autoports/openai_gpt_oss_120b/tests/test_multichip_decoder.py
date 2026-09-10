@@ -819,7 +819,8 @@ def test_runtime_fallback_and_active_expert_audit():
     assert DEFAULT_MULTICHIP_POLICY.expert_activation_ccl_dtype is None
     assert DEFAULT_MULTICHIP_POLICY.activation_ccl_dtype == ttnn.bfloat16
     assert DEFAULT_MULTICHIP_POLICY.projection_math_fidelity == ttnn.MathFidelity.LoFi
-    assert DEFAULT_MULTICHIP_POLICY.expert_gate_up_cores == (5, 9)
+    # 768-wide per-rank gate/up slices give 48 output tiles: a full (6, 8) grid.
+    assert DEFAULT_MULTICHIP_POLICY.expert_gate_up_cores == (6, 8)
     assert DEFAULT_MULTICHIP_POLICY.expert_gate_up_subblock_w == 1
     assert DEFAULT_MULTICHIP_POLICY.expert_gate_up_subblock_w_tp2 == 2
     assert DEFAULT_MULTICHIP_POLICY.expert_down_cores == (5, 3)

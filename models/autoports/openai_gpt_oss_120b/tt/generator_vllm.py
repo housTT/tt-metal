@@ -826,7 +826,8 @@ class TTGptOssForCausalLM:
         # The indexed expert prefill picks matmul shapes from the routing of
         # each prompt; compile the whole (height x group size) set once now so
         # the first long prompts do not pay tens of seconds of JIT.
-        warmup = getattr(getattr(self.model.layers[0], "decoder", None), "mlp", None)
+        layers = getattr(self.model, "layers", None) or ()
+        warmup = getattr(getattr(layers[0], "decoder", None), "mlp", None) if len(layers) else None
         warmup = getattr(warmup, "warmup_indexed_prefill_shapes", None)
         if warmup is not None:
             compiled = warmup()

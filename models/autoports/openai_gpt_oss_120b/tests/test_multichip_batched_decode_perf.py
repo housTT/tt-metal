@@ -215,6 +215,15 @@ def test_indexed_prefill_moe(mesh_device, device_params, layer_idx, sequence_len
     )
     mlp = decoder.mlp
     mlp.indexed_prefill_min_tokens = 0
+    # Optional tuning overrides for stage sweeps.
+    if os.environ.get("GPT_OSS_120B_IDX_GU"):
+        mlp.indexed_prefill_gate_up_blocking = tuple(int(v) for v in os.environ["GPT_OSS_120B_IDX_GU"].split(","))
+    if os.environ.get("GPT_OSS_120B_IDX_DN"):
+        mlp.indexed_prefill_down_blocking = tuple(int(v) for v in os.environ["GPT_OSS_120B_IDX_DN"].split(","))
+    if os.environ.get("GPT_OSS_120B_IDX_SLAB_BFP8") == "1":
+        mlp.indexed_prefill_slab_dtype = ttnn.bfloat8_b
+    if os.environ.get("GPT_OSS_120B_IDX_SLAB_ROWS"):
+        type(mlp)._PREFILL_MAX_SLAB_ROWS = int(os.environ["GPT_OSS_120B_IDX_SLAB_ROWS"])
     host = real_token_embeddings(snapshot, config, sequence_length, 7_120_000 + sequence_length)
     page_table_host = tmd._host_batch_page_table(config, 1, seed=8_120_000 + sequence_length)
     prefill_hidden, prefill_rope, page_table = tmd._prefill_inputs(config, mesh_device, host, page_table_host)
@@ -244,6 +253,18 @@ def test_indexed_prefill_moe(mesh_device, device_params, layer_idx, sequence_len
     packed_out, packed_ms = run(False, repeats)
     indexed_out, indexed_ms = run(True, repeats)
     passing, detail = comp_pcc(packed_out.float(), indexed_out.float(), 0.99)
+    if os.environ.get("GPT_OSS_120B_PREFILL_STAGES") == "1":
+        mlp.indexed_prefill = True
+        mlp.indexed_prefill_min_tokens = 0
+        for _ in range(2):  # the second pass is warm (programs compiled)
+            mlp._prefill_timing = {}
+            out = decoder.prefill_forward(prefill_hidden, position_embeddings=prefill_rope, page_table=page_table)
+        ttnn.synchronize_device(mesh_device)
+        out.deallocate(True)
+        stages = {k: round(v * 1000, 2) for k, v in mlp._prefill_timing.items()}
+        mlp._prefill_timing = None
+        print(f"INDEXED_PREFILL_STAGES sequence={sequence_length} total_ms={sum(stages.values()):.2f} {stages}")
+        print(f"INDEXED_PREFILL_LAYOUT sequence={sequence_length} {getattr(mlp, '_prefill_stats', None)}")
     print(
         f"INDEXED_PREFILL layer={layer_idx} sequence={sequence_length} "
         f"packed_ms={statistics.median(packed_ms):.3f} indexed_ms={statistics.median(indexed_ms):.3f} "

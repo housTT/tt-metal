@@ -1129,18 +1129,9 @@ class _ReplicatedL1Router(TopKRouter):
             routing_scores.deallocate(True)
         return routing_weights
 
-    def __call__(self, hidden_states, use_throughput_experts):
-        """Apply the opt-in prefill placement/config while preserving decode."""
+    def prefill_logits(self, hidden_states):
+        """Return the [tokens, experts] router logits for a prefill sequence."""
         actual_tokens = hidden_states.volume() // self.hidden_dim
-        if actual_tokens <= ttnn.TILE_SIZE:
-            if self.use_fused_op and use_throughput_experts:
-                hidden_2d = ttnn.reshape(hidden_states, (-1, self.hidden_dim))
-                return self._fused_call(
-                    hidden_2d,
-                    use_throughput_experts=True,
-                )
-            return super().__call__(hidden_states, use_throughput_experts)
-
         hidden_states = ttnn.reshape(hidden_states, (-1, self.hidden_dim))
         router_input = hidden_states
         if self.prefill_input_l1:
@@ -1155,6 +1146,21 @@ class _ReplicatedL1Router(TopKRouter):
         )
         if router_input is not hidden_states:
             router_input.deallocate(True)
+        return router_logits
+
+    def __call__(self, hidden_states, use_throughput_experts):
+        """Apply the opt-in prefill placement/config while preserving decode."""
+        actual_tokens = hidden_states.volume() // self.hidden_dim
+        if actual_tokens <= ttnn.TILE_SIZE:
+            if self.use_fused_op and use_throughput_experts:
+                hidden_2d = ttnn.reshape(hidden_states, (-1, self.hidden_dim))
+                return self._fused_call(
+                    hidden_2d,
+                    use_throughput_experts=True,
+                )
+            return super().__call__(hidden_states, use_throughput_experts)
+
+        router_logits = self.prefill_logits(hidden_states)
         expert_indices, expert_weights = topk_router(
             router_logits,
             self.top_k,
@@ -1315,10 +1321,24 @@ class _ActiveExpertTPMLP(MLP):
         self.grouped_decode_l1 = bool(grouped_decode_l1)
         self.indexed_prefill = bool(indexed_prefill)
         self.indexed_prefill_min_tokens = int(indexed_prefill_min_tokens)
+        # Indexed prefill matmul blocking: (in0_block_w, out_block_h,
+        # out_subblock_h, out_subblock_w) in tiles.  out_block_h > 1 makes the
+        # kernel reuse each weight block across several slab tile rows instead
+        # of re-reading it per row; in0 L1 staging is out_block_h * in0_block_w
+        # tiles double buffered.
+        self.indexed_prefill_gate_up_blocking = (30, 4, 2, 1)
+        self.indexed_prefill_down_blocking = (24, 8, 4, 2)
+        # Optional narrower dtype for the slab fed to the gate/up matmul (the
+        # single in0 multicast sender is the matmul's bottleneck).
+        self.indexed_prefill_slab_dtype = None
         self._prefill_constants = {}
         # Optional dict; when set, the indexed prefill stores host copies of its
         # routing intermediates for offline checking (untraced path only).
         self._prefill_debug = None
+        # Optional dict; when set, the indexed prefill synchronizes at stage
+        # boundaries and records elapsed seconds per stage (test/diagnostics).
+        self._prefill_timing = None
+        self._prefill_stats = None
         self._slot_selectors = {}
         self._load_indexed_decode_weights(
             substate(state_dict, "experts"),
@@ -1946,29 +1966,26 @@ class _ActiveExpertTPMLP(MLP):
             mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
         )
 
+    def _stage_mark(self, name, started):
+        """Record ``name`` stage time when timing is enabled; returns the new start."""
+        if self._prefill_timing is None:
+            return started
+        import time
+
+        ttnn.synchronize_device(self.mesh_device)
+        now = time.perf_counter()
+        self._prefill_timing[name] = self._prefill_timing.get(name, 0.0) + (now - started)
+        return now
+
     def _debug_capture(self, name, tensor):
         if self._prefill_debug is not None:
             self._prefill_debug[name] = ttnn.to_torch(ttnn.get_device_tensors(tensor)[0]).clone()
 
     # Tallest expert slab.  The sparse matmul stages per_core_M x in0_block_w
     # input tiles in L1, so slab height is bounded; experts with more tokens
-    # take several consecutive slabs of this height (same expert id repeated).
-    _PREFILL_MAX_SLAB_ROWS = 256
-
-    @classmethod
-    def _prefill_slabs(cls, count):
-        """Return (height, slab count) for an expert with ``count`` routed tokens.
-
-        Heights are power-of-two tile multiples up to ``_PREFILL_MAX_SLAB_ROWS``
-        so the number of distinct matmul shapes stays small; larger counts use
-        several max-height slabs.  Total slab area stays within 2x of the slots.
-        """
-        rows = max(ttnn.TILE_SIZE, ((count + ttnn.TILE_SIZE - 1) // ttnn.TILE_SIZE) * ttnn.TILE_SIZE)
-        rows = 1 << (rows - 1).bit_length()
-        if rows <= cls._PREFILL_MAX_SLAB_ROWS:
-            return rows, 1
-        max_rows = cls._PREFILL_MAX_SLAB_ROWS
-        return max_rows, (count + max_rows - 1) // max_rows
+    # take several consecutive slabs of this height (same expert id repeated)
+    # plus one shorter power-of-two remainder slab.
+    _PREFILL_MAX_SLAB_ROWS = 512
 
     @staticmethod
     def _reshape_via_tile(tensor, shape):
@@ -1987,27 +2004,70 @@ class _ActiveExpertTPMLP(MLP):
         reshaped.deallocate(True)
         return result
 
-    def _indexed_prefill_group(self, slab_tiled, members, height, weights):
-        """Run one height group of expert slabs: gate/up -> SwiGLU -> weights -> down.
+    @staticmethod
+    def _indexed_prefill_matmul_config(cores, m, n, k, blocking):
+        """1D-multicast sparse matmul config for an [m, k] x [k, n] slab matmul.
 
-        ``slab_tiled`` is [1, len(members), height, hidden] TILE, ``weights`` is
-        [1, len(members), height, 1] TILE.  Returns [len(members)*height, hidden]
-        ROW_MAJOR bf16 rows in slab order.  Both inputs are consumed.
+        ``blocking`` is (in0_block_w, out_block_h, out_subblock_h,
+        out_subblock_w); every value is snapped to the kernel's divisibility
+        rules (Kt % in0_block_w, per_core_M % out_block_h, out_block_h %
+        out_subblock_h, per_core_N % out_subblock_w, subblock <= 8 tiles).
         """
-        count = len(members)
+        in0_block_w, out_block_h, out_subblock_h, out_subblock_w = blocking
+        core_x, core_y = cores
+        num_cores = core_x * core_y
+        Kt = (k + 31) // 32
+        Nt = (n + 31) // 32
+        per_core_M = max(32, m) // 32
+        per_core_N = (Nt + num_cores - 1) // num_cores
+
+        def snap(value, total):
+            value = max(1, min(value, total))
+            while total % value:
+                value -= 1
+            return value
+
+        in0_block_w = snap(in0_block_w, Kt)
+        out_block_h = snap(out_block_h, per_core_M)
+        out_subblock_w = snap(out_subblock_w, per_core_N)
+        out_subblock_h = snap(min(out_subblock_h, 8 // out_subblock_w), out_block_h)
+        return ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
+            compute_with_storage_grid_size=ttnn.CoreCoord(core_x, core_y),
+            in0_block_w=in0_block_w,
+            out_subblock_h=out_subblock_h,
+            out_subblock_w=out_subblock_w,
+            out_block_h=out_block_h,
+            out_block_w=out_subblock_w,
+            per_core_M=per_core_M,
+            per_core_N=per_core_N,
+            fuse_batch=False,
+            fused_activation=None,
+            mcast_in0=True,
+        )
+
+    def _indexed_prefill_group(self, slab_tiled, member_ids, height):
+        """Run one height group of expert slabs: gate/up -> SwiGLU -> down.
+
+        ``slab_tiled`` is [1, count, height, hidden] TILE, ``member_ids`` is a
+        device UINT32 [1, 1, 1, count] ROW_MAJOR expert-id list.  Returns
+        [count*height, hidden] ROW_MAJOR bf16 rows in slab order (unweighted;
+        routing weights are applied when the rows are gathered back).  Both
+        inputs are consumed.
+        """
+        count = int(member_ids.shape[-1])
+        import time as _time
+
+        _t = _time.perf_counter()
         hidden = self.hidden_size
         padded = self.padded_local_intermediate_size
-        mapper = ttnn.ReplicateTensorToMesh(self.mesh_device)
         output_tile = ttnn.Tile([32, 32])
-        member_ids = ttnn.from_torch(
-            torch.tensor(members, dtype=torch.int32).reshape(1, 1, 1, count),
-            device=self.mesh_device,
-            dtype=ttnn.uint32,
-            layout=ttnn.ROW_MAJOR_LAYOUT,
-            memory_config=ttnn.DRAM_MEMORY_CONFIG,
-            mesh_mapper=mapper,
-        )
         member_ids_u16 = ttnn.typecast(member_ids, ttnn.uint16)
+        _t = self._stage_mark("g.ids", _t)
+        if self.indexed_prefill_slab_dtype is not None and slab_tiled.dtype != self.indexed_prefill_slab_dtype:
+            narrowed = ttnn.typecast(slab_tiled, self.indexed_prefill_slab_dtype)
+            slab_tiled.deallocate(True)
+            slab_tiled = narrowed
+            _t = self._stage_mark("g.slab_cast", _t)
         gate_up = ttnn.sparse_matmul(
             slab_tiled,
             self.indexed_gate_up,
@@ -2017,15 +2077,18 @@ class _ActiveExpertTPMLP(MLP):
             is_input_b_sparse=True,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
             output_tile=output_tile,
-            program_config=self.experts.program_config.get_prefill_gate_up_config(
+            program_config=self._indexed_prefill_matmul_config(
+                self.experts.program_config.prefill_gate_up_cores,
                 height,
                 self.indexed_gate_up.shape[3],
-                k=hidden,
+                hidden,
+                self.indexed_prefill_gate_up_blocking,
             ),
             compute_kernel_config=self.expert_compute_kernel_config,
             dtype=self.expert_intermediate_dtype,
         )
         slab_tiled.deallocate(True)
+        _t = self._stage_mark("g.gate_up_mm", _t)
         gate_up = ttnn.reshape(gate_up, (1, count, height, 2 * padded))
         bias_rows = ttnn.embedding(
             member_ids,
@@ -2035,8 +2098,10 @@ class _ActiveExpertTPMLP(MLP):
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
         bias_rows = ttnn.to_layout(ttnn.reshape(bias_rows, (1, count, 1, 2 * padded)), ttnn.TILE_LAYOUT)
+        _t = self._stage_mark("g.bias_gather", _t)
         gate_up = ttnn.add(gate_up, bias_rows, output_tensor=gate_up)
         bias_rows.deallocate(True)
+        _t = self._stage_mark("g.bias_add", _t)
         if gate_up.dtype == ttnn.bfloat4_b:
             converted = ttnn.typecast(gate_up, self.expert_intermediate_dtype)
             gate_up.deallocate(True)
@@ -2044,10 +2109,10 @@ class _ActiveExpertTPMLP(MLP):
         gate = ttnn.slice(gate_up, [0, 0, 0, 0], [1, count, height, padded], [1, 1, 1, 1])
         up = ttnn.slice(gate_up, [0, 0, 0, padded], [1, count, height, 2 * padded], [1, 1, 1, 1])
         gate_up.deallocate(True)
+        _t = self._stage_mark("g.slices", _t)
         down_input = self._fused_swiglu(gate, up)
         up.deallocate(True)
-        down_input = ttnn.mul(down_input, weights, output_tensor=down_input)
-        weights.deallocate(True)
+        _t = self._stage_mark("g.swiglu", _t)
         down = ttnn.sparse_matmul(
             down_input,
             self.indexed_down,
@@ -2057,10 +2122,12 @@ class _ActiveExpertTPMLP(MLP):
             is_input_b_sparse=True,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
             output_tile=output_tile,
-            program_config=self.experts.program_config.get_prefill_down_config(
+            program_config=self._indexed_prefill_matmul_config(
+                self.experts.program_config.prefill_down_cores,
                 height,
                 self.indexed_down.shape[-1],
-                k=padded,
+                padded,
+                self.indexed_prefill_down_blocking,
             ),
             compute_kernel_config=self.expert_compute_kernel_config,
             dtype=self.expert_intermediate_dtype,
@@ -2068,12 +2135,14 @@ class _ActiveExpertTPMLP(MLP):
         down_input.deallocate(True)
         member_ids.deallocate(True)
         member_ids_u16.deallocate(True)
+        _t = self._stage_mark("g.down_mm", _t)
         if down.dtype != ttnn.bfloat16:
             converted = ttnn.typecast(down, ttnn.bfloat16)
             down.deallocate(True)
             down = converted
         down_rows = ttnn.reshape(ttnn.to_layout(down, ttnn.ROW_MAJOR_LAYOUT), (count * height, hidden))
         down.deallocate(True)
+        _t = self._stage_mark("g.down_untilize", _t)
         return down_rows
 
     def warmup_indexed_prefill_shapes(self):
@@ -2097,44 +2166,64 @@ class _ActiveExpertTPMLP(MLP):
         while size <= self.num_experts:
             sizes.append(size)
             size *= 2
+        # One 32-row token table stands in for the prefill activations: each
+        # group's slab is produced by the same tile-layout embedding gather the
+        # production path uses, so those program shapes are compiled too.
+        table = ttnn.from_torch(
+            torch.zeros((ttnn.TILE_SIZE, hidden), dtype=torch.bfloat16),
+            device=self.mesh_device,
+            dtype=ttnn.bfloat16,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=mapper,
+        )
         compiled = 0
         for height in heights:
             for count in sizes:
-                slab = ttnn.from_torch(
-                    torch.zeros((1, count, height, hidden), dtype=torch.bfloat16),
+                group_rows = ttnn.from_torch(
+                    torch.zeros((1, count * height), dtype=torch.int32),
                     device=self.mesh_device,
-                    dtype=ttnn.bfloat16,
-                    layout=ttnn.TILE_LAYOUT,
+                    dtype=ttnn.uint32,
+                    layout=ttnn.ROW_MAJOR_LAYOUT,
                     memory_config=ttnn.DRAM_MEMORY_CONFIG,
                     mesh_mapper=mapper,
                 )
-                weights = ttnn.from_torch(
-                    torch.zeros((1, count, height, 1), dtype=torch.bfloat16),
+                slab = ttnn.reshape(
+                    ttnn.embedding(group_rows, table, layout=ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG),
+                    (1, count, height, hidden),
+                )
+                group_rows.deallocate(True)
+                member_ids = ttnn.from_torch(
+                    torch.tensor([index % self.num_experts for index in range(count)], dtype=torch.int32).reshape(
+                        1, 1, 1, count
+                    ),
                     device=self.mesh_device,
-                    dtype=ttnn.bfloat16,
-                    layout=ttnn.TILE_LAYOUT,
+                    dtype=ttnn.uint32,
+                    layout=ttnn.ROW_MAJOR_LAYOUT,
                     memory_config=ttnn.DRAM_MEMORY_CONFIG,
                     mesh_mapper=mapper,
                 )
-                members = [index % self.num_experts for index in range(count)]
-                rows = self._indexed_prefill_group(slab, members, height, weights)
+                rows = self._indexed_prefill_group(slab, member_ids, height)
                 rows.deallocate(True)
                 compiled += 1
+        table.deallocate(True)
         ttnn.synchronize_device(self.mesh_device)
         return compiled
 
     def _run_indexed_prefill(self, hidden_states):
         """Prefill MoE with per-expert token slabs and compact indexed matmuls.
 
-        Each expert that received tokens gets a slab whose height is its
-        routed-token count rounded up to a power-of-two tile multiple.  Experts
-        with equal slab height form one group and run as one indexed sparse
-        matmul pair with compact outputs, so expert work scales with routed
-        slots (within 2x) instead of with ``experts x tokens`` and there is no
-        zero-filled expanded output.  Routing weights are applied before the
-        (linear) down projection; the down bias is folded in through the dense
-        routing weights.  Prefill is untraced, so the per-expert counts are
-        read back to the host to lay the slabs out.
+        Each expert that received tokens gets ``count // max`` full-height slabs
+        plus one slab whose height is the remainder rounded up to a power-of-two
+        tile multiple.  Slabs of equal height form groups, split into
+        power-of-two chunks, and each chunk runs as one indexed sparse matmul
+        pair with compact outputs, so expert work scales with routed slots
+        (plus at most one short slab of padding per expert) instead of with
+        ``experts x tokens``, and every program shape comes from a small static
+        set.  Routing weights are applied when the expert rows are gathered
+        back; the down bias is folded in through the dense routing weights.
+        Prefill is untraced and host-synchronised, so the router logits are read
+        back and the top-k selection and slab bookkeeping run in torch.
         """
         experts = self.num_experts
         top_k = self.top_k
@@ -2154,195 +2243,179 @@ class _ActiveExpertTPMLP(MLP):
         slots = rows * top_k
         mapper = ttnn.ReplicateTensorToMesh(self.mesh_device)
 
-        expert_indices, routing_scores = self.router(routed_hidden, True)
-        if expert_indices.layout != ttnn.TILE_LAYOUT:
-            tiled = ttnn.to_layout(expert_indices, ttnn.TILE_LAYOUT)
-            expert_indices.deallocate(True)
-            expert_indices = tiled
-        if routing_scores.layout != ttnn.TILE_LAYOUT:
-            tiled = ttnn.to_layout(routing_scores, ttnn.TILE_LAYOUT)
-            routing_scores.deallocate(True)
-            routing_scores = tiled
-        expert_indices = ttnn.reshape(expert_indices, (rows, top_k))
-        routing_scores = ttnn.reshape(routing_scores, (rows, top_k))
-        self._debug_capture("expert_indices", expert_indices)
-        self._debug_capture("routing_scores", routing_scores)
+        import time as _time
 
-        # Per-expert token counts (device) and slab layout (host).
-        expert_mask = self._prefill_constant(
-            "expert_mask",
-            lambda: ttnn.from_torch(
-                torch.zeros((1, experts), dtype=torch.int32),
-                device=self.mesh_device,
-                dtype=ttnn.int32,
-                layout=ttnn.ROW_MAJOR_LAYOUT,
-                memory_config=ttnn.DRAM_MEMORY_CONFIG,
-                mesh_mapper=mapper,
-            ),
-        )
-        counts = ttnn.experimental.deepseek_prefill.masked_bincount(expert_indices, expert_mask, experts, top_k)
-        counts = ttnn.reshape(counts, (1, experts))
-        self._debug_capture("counts", counts)
-        counts_host = ttnn.to_torch(ttnn.get_device_tensors(counts)[0]).reshape(-1).to(torch.int64).tolist()
-        groups = {}  # height -> expert ids, one entry per slab (big experts repeat)
+        stage_started = _time.perf_counter()
+        # The device top-k over [tokens, 128] costs ~10 ms at 16k tokens and its
+        # result is read back anyway, so read the bf16 logits (same bytes as the
+        # padded index/score tiles) and select the experts in torch: same bf16
+        # logits, same top-4, fp32 softmax as the device HiFi3/fp32 path.
+        router_logits = self.router.prefill_logits(routed_hidden)
+        stage_started = self._stage_mark("router", stage_started)
+        logits_host = ttnn.to_torch(ttnn.get_device_tensors(router_logits)[0])[:rows, :experts]
+        router_logits.deallocate(True)
+        top_logits, indices_host = torch.topk(logits_host.to(torch.float32), top_k, dim=-1, sorted=True)
+        scores_host = torch.softmax(top_logits, dim=-1)
+        indices_host = indices_host.to(torch.int64)
+        if self._prefill_debug is not None:
+            self._prefill_debug["expert_indices"] = indices_host.clone()
+            self._prefill_debug["routing_scores"] = scores_host.clone()
+        stage_started = self._stage_mark("routing_readback", stage_started)
+        flat_experts = indices_host.reshape(-1)
+        counts_tensor = torch.bincount(flat_experts, minlength=experts)
+        counts_host = counts_tensor.tolist()
+        max_rows = self._PREFILL_MAX_SLAB_ROWS
+        # Each expert's tokens fill `full` consecutive slabs of the maximum
+        # height plus at most one power-of-two remainder slab in a shorter
+        # group, so padded rows stay below one short slab per expert.
+        groups = {}  # height -> expert ids, one entry per slab
+        full_slabs = [0] * experts
         for expert, count in enumerate(counts_host):
-            if count > 0:
-                height, slabs = self._prefill_slabs(count)
-                groups.setdefault(height, []).extend([expert] * slabs)
-        base_host = torch.zeros(experts, dtype=torch.int32)
-        layout = []  # (height, expert ids incl. padding, start row)
+            if count == 0:
+                continue
+            full, remainder = divmod(count, max_rows)
+            if remainder:
+                height = max(ttnn.TILE_SIZE, 1 << (remainder - 1).bit_length())
+                if height >= max_rows:
+                    full += 1
+                else:
+                    groups.setdefault(height, []).append(expert)
+            if full:
+                full_slabs[expert] = full
+                groups.setdefault(max_rows, []).extend([expert] * full)
+        full_base_host = torch.zeros(experts, dtype=torch.int64)
+        remainder_base_host = torch.zeros(experts, dtype=torch.int64)
+        layout = []  # (height, expert ids, start row, id offset)
         capacity = 0
+        member_ids_host = []
         for height in sorted(groups):
             members = groups[height]
+            base_host = full_base_host if height == max_rows else remainder_base_host
             seen = set()
             for expert in members:
                 if expert not in seen:
-                    base_host[expert] = capacity
                     seen.add(expert)
+                    base_host[expert] = capacity
                 capacity += height
-            # Pad the group to a power-of-two expert count with repeats of its
-            # first expert so every matmul shape comes from a small static set
-            # (heights x sizes) and stays in the program cache across prompts.
-            # Padding slabs hold token row 0 with zero routing weight and are
-            # never gathered back.
-            padded_count = 1 << (len(members) - 1).bit_length()
-            padded_members = members + [members[0]] * (padded_count - len(members))
+            # Split the group into power-of-two chunks (largest first, at most
+            # num_experts ids per indexed call) so every matmul shape comes from
+            # a small static set (heights x sizes) that stays in the program
+            # cache across prompts, with no padding slabs.
             group_start = capacity - height * len(members)
-            capacity += height * (padded_count - len(members))
-            # Indexed mode accepts at most num_experts ids per call: split wide
-            # groups into consecutive chunks of at most num_experts slabs.
-            chunk = experts
-            for offset in range(0, padded_count, chunk):
-                chunk_members = padded_members[offset : offset + chunk]
-                layout.append((height, chunk_members, group_start + offset * height))
-        # Round the slab buffer to a power of two so the capacity-sized ops
-        # (gathers, scatters, the flat row buffers) repeat their shapes across
-        # prompts and layers instead of creating a new program per prompt.
-        capacity = 1 << (capacity - 1).bit_length()
-        base_table = ttnn.from_torch(
-            base_host.reshape(1, experts),
-            device=self.mesh_device,
-            dtype=ttnn.uint32,
-            layout=ttnn.ROW_MAJOR_LAYOUT,
-            memory_config=ttnn.DRAM_MEMORY_CONFIG,
-            mesh_mapper=mapper,
+            offset = 0
+            while offset < len(members):
+                remaining = len(members) - offset
+                chunk = min(experts, 1 << (remaining.bit_length() - 1))
+                chunk_members = members[offset : offset + chunk]
+                layout.append((height, chunk_members, group_start + offset * height, len(member_ids_host)))
+                member_ids_host.extend(chunk_members)
+                offset += chunk
+        # Round the slab buffer up to 1/8 of its power-of-two octave so the
+        # capacity-sized ops (dispatch upload, token gather) repeat their shapes
+        # across prompts while wasting at most 12.5% of the gather.
+        if capacity > 256:
+            unit = 1 << (capacity.bit_length() - 4)
+            capacity = ((capacity + unit - 1) // unit) * unit
+        order = torch.argsort(flat_experts, stable=True)
+        sorted_experts_host = flat_experts[order]
+        offsets_host = torch.cumsum(counts_tensor, 0) - counts_tensor
+        rank_host = torch.arange(slots, dtype=torch.int64) - offsets_host[sorted_experts_host]
+        full_rows_host = (torch.tensor(full_slabs, dtype=torch.int64) * max_rows)[sorted_experts_host]
+        destinations_sorted = torch.where(
+            rank_host < full_rows_host,
+            full_base_host[sorted_experts_host] + rank_host,
+            remainder_base_host[sorted_experts_host] + rank_host - full_rows_host,
         )
-        counts_tiled = ttnn.to_layout(counts, ttnn.TILE_LAYOUT)
-        counts_i32 = ttnn.typecast(counts_tiled, ttnn.int32)
-        inclusive = ttnn.cumsum(counts_i32, dim=-1, dtype=ttnn.int32, memory_config=ttnn.DRAM_MEMORY_CONFIG)
-        offsets_i32 = ttnn.subtract(inclusive, counts_i32)
-        offsets_rm = ttnn.to_layout(offsets_i32, ttnn.ROW_MAJOR_LAYOUT)
-        token_offsets = ttnn.typecast(offsets_rm, ttnn.uint32)
-        for tensor in (counts, counts_tiled, counts_i32, inclusive, offsets_i32, offsets_rm):
-            tensor.deallocate(True)
+        dispatch_rows_host = torch.zeros(capacity, dtype=torch.int32)
+        dispatch_rows_host[destinations_sorted] = (order // top_k).to(torch.int32)
+        if self._prefill_debug is not None:
+            self._prefill_debug["layout"] = layout
+            self._prefill_debug["capacity"] = capacity
+            self._prefill_debug["dispatch_rows_host"] = dispatch_rows_host.clone()
+        if self._prefill_timing is not None:
+            self._prefill_stats = {
+                "slots": slots,
+                "capacity": capacity,
+                "groups": len(layout),
+                "heights": sorted(groups),
+                "max_count": max(counts_host),
+            }
+        slot_to_destination_host = torch.empty(slots, dtype=torch.int64)
+        slot_to_destination_host[order] = destinations_sorted
+        # [top_k, rows]: row k holds every token's k-th slot destination / score.
+        slot_columns_host = slot_to_destination_host.reshape(rows, top_k).transpose(0, 1).contiguous().to(torch.int32)
+        slot_weights_host = scores_host.transpose(0, 1).contiguous().reshape(1, top_k, rows, 1).to(torch.bfloat16)
+        if self._prefill_debug is not None:
+            self._prefill_debug["slot_columns"] = slot_columns_host.clone()
+        # Dense [rows, experts] routing weights for the down-bias fold.
+        routing_dense_host = torch.zeros(rows, experts, dtype=torch.float32).scatter_(1, indices_host, scores_host)
+        stage_started = self._stage_mark("host_layout", stage_started)
 
-        # Sort the flattened routed slots by expert.  UINT16 reshape is not a
-        # device operation, so widen, flatten, and narrow.
-        indices_u32 = ttnn.typecast(expert_indices, ttnn.uint32)  # TILE [rows, top_k]
-        flat_u32_tiled = ttnn.reshape(indices_u32, (1, slots))
-        flat_tiled = ttnn.typecast(flat_u32_tiled, ttnn.uint16)
-        sorted_experts, permutation = ttnn.sort(flat_tiled, dim=-1, descending=False)
-        sorted_u32_tiled = ttnn.typecast(sorted_experts, ttnn.uint32)
-        permutation_u32_tiled = ttnn.typecast(permutation, ttnn.uint32)
-        sorted_u32 = ttnn.to_layout(sorted_u32_tiled, ttnn.ROW_MAJOR_LAYOUT)
-        permutation_u32 = ttnn.to_layout(permutation_u32_tiled, ttnn.ROW_MAJOR_LAYOUT)
-        # [rows, top_k] view of the sorted ids through TILE layout (short sticks).
-        sorted_2d = ttnn.to_layout(ttnn.reshape(sorted_u32_tiled, (rows, top_k)), ttnn.ROW_MAJOR_LAYOUT)
-        for tensor in (
-            indices_u32,
-            flat_u32_tiled,
-            flat_tiled,
-            sorted_experts,
-            permutation,
-            sorted_u32_tiled,
-            permutation_u32_tiled,
-        ):
-            tensor.deallocate(True)
+        def upload(host, dtype):
+            return ttnn.from_torch(
+                host,
+                device=self.mesh_device,
+                dtype=dtype,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                mesh_mapper=mapper,
+            )
 
-        # ttnn.gather mis-reads long single-stick indices, so gather with a
-        # [rows, top_k] index against row-repeated tables.
-        offsets_table = ttnn.repeat(token_offsets, ttnn.Shape((rows, 1)))
-        offsets_by_slot = self._reshape_via_tile(ttnn.gather(offsets_table, -1, index=sorted_2d), (1, slots))
-        offsets_table.deallocate(True)
-        bases_table = ttnn.repeat(base_table, ttnn.Shape((rows, 1)))
-        base_by_slot = self._reshape_via_tile(ttnn.gather(bases_table, -1, index=sorted_2d), (1, slots))
-        bases_table.deallocate(True)
-        sorted_2d.deallocate(True)
-        positions = self._prefill_constant(
-            ("positions", slots),
-            lambda: self._prefill_u32(torch.arange(slots, dtype=torch.int32).reshape(1, slots)),
+        dispatch_rows = upload(dispatch_rows_host.reshape(1, capacity), ttnn.uint32)
+        slot_columns = upload(slot_columns_host, ttnn.uint32)
+        member_ids_all = upload(
+            torch.tensor(member_ids_host, dtype=torch.int32).reshape(1, len(member_ids_host)), ttnn.uint32
         )
-        rank_in_expert = ttnn.subtract(positions, offsets_by_slot)
-        destinations = ttnn.add(base_by_slot, rank_in_expert)
-        source_rows = ttnn.logical_right_shift(permutation_u32, 2)
-        zero_capacity = self._prefill_u32(torch.zeros((1, capacity), dtype=torch.int32))
-        zero_slots = self._prefill_constant(
-            ("zero_slots", slots),
-            lambda: self._prefill_u32(torch.zeros((1, slots), dtype=torch.int32)),
-        )
-        dispatch_rows = ttnn.scatter(zero_capacity, -1, destinations, source_rows)
-        slot_to_destination = ttnn.scatter(zero_slots, -1, permutation_u32, destinations)
-        self._debug_capture("token_offsets", token_offsets)
-        self._debug_capture("sorted_experts", sorted_u32)
-        self._debug_capture("permutation", permutation_u32)
-        self._debug_capture("destinations", destinations)
-        self._debug_capture("dispatch_rows", dispatch_rows)
-        self._debug_capture("slot_to_destination", slot_to_destination)
-        # Routing weight of every dispatched row (zero for unused slab rows):
-        # scatter each original slot's score to that slot's destination row.
-        scores_rm = ttnn.to_layout(ttnn.reshape(routing_scores, (1, slots)), ttnn.ROW_MAJOR_LAYOUT)
-        zero_capacity_bf16 = ttnn.from_torch(
-            torch.zeros((1, capacity), dtype=torch.bfloat16),
+        slot_weights = ttnn.from_torch(
+            slot_weights_host,
             device=self.mesh_device,
             dtype=ttnn.bfloat16,
-            layout=ttnn.ROW_MAJOR_LAYOUT,
+            layout=ttnn.TILE_LAYOUT,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
             mesh_mapper=mapper,
         )
-        row_weights_flat = ttnn.scatter(zero_capacity_bf16, -1, slot_to_destination, scores_rm)
-        self._debug_capture("row_weights_flat", row_weights_flat)
-        for tensor in (
-            token_offsets,
-            base_table,
-            offsets_by_slot,
-            base_by_slot,
-            rank_in_expert,
-            destinations,
-            source_rows,
-            sorted_u32,
-            scores_rm,
-            zero_capacity,
-            zero_capacity_bf16,
-        ):
-            tensor.deallocate(True)
+        routing_dense = ttnn.from_torch(
+            routing_dense_host.to(torch.bfloat16),
+            device=self.mesh_device,
+            dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=mapper,
+        )
+        self._debug_capture("dispatch_rows", dispatch_rows)
+        stage_started = self._stage_mark("upload", stage_started)
 
-        # Gather every expert's tokens into its slab: [1, capacity, hidden] row major.
+        # Token rows are gathered straight into each group's slab stack (one
+        # tile-layout embedding per group) so no capacity-sized copy is needed.
         hidden_rm = ttnn.reshape(ttnn.to_layout(routed_hidden, ttnn.ROW_MAJOR_LAYOUT), (rows, hidden))
         if routed_hidden is not hidden_states:
             routed_hidden.deallocate(True)
-        dispatched = ttnn.embedding(
-            dispatch_rows, hidden_rm, layout=ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG
-        )
-        hidden_rm.deallocate(True)
-        dispatch_rows.deallocate(True)
-        self._debug_capture("dispatched", dispatched)
+        stage_started = self._stage_mark("token_rm", stage_started)
 
-        output_tile = ttnn.Tile([32, 32])
         if self.separate_gate_up:
             raise NotImplementedError("indexed prefill requires the packed gate/up expert layout")
         group_outputs = []
-        for height, members, start in layout:
+        for height, members, start, id_offset in layout:
             count = len(members)
             span = count * height
-            slab = ttnn.slice(dispatched, [0, start, 0], [1, start + span, hidden], [1, 1, 1])
-            slab = ttnn.reshape(slab, (1, count, height, hidden))
-            slab_tiled = ttnn.to_layout(slab, ttnn.TILE_LAYOUT)
-            slab.deallocate(True)
-            weights = ttnn.slice(row_weights_flat, [0, start], [1, start + span], [1, 1])
-            weights = ttnn.to_layout(ttnn.reshape(weights, (1, count, height, 1)), ttnn.TILE_LAYOUT)
-            group_outputs.append(self._indexed_prefill_group(slab_tiled, members, height, weights))
-        dispatched.deallocate(True)
-        row_weights_flat.deallocate(True)
+            group_rows = ttnn.slice(dispatch_rows, [0, start], [1, start + span], [1, 1])
+            slab_tiled = ttnn.reshape(
+                ttnn.embedding(group_rows, hidden_rm, layout=ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG),
+                (1, count, height, hidden),
+            )
+            group_rows.deallocate(True)
+            stage_started = self._stage_mark("g.token_gather", stage_started)
+            member_ids = ttnn.reshape(
+                ttnn.slice(member_ids_all, [0, id_offset], [1, id_offset + count], [1, 1]),
+                (1, 1, 1, count),
+            )
+            stage_started = self._stage_mark("g.ids_prep", stage_started)
+            group_outputs.append(self._indexed_prefill_group(slab_tiled, member_ids, height))
+            stage_started = _time.perf_counter()
+        stage_started = self._stage_mark("expert_groups", stage_started)
+        hidden_rm.deallocate(True)
+        dispatch_rows.deallocate(True)
+        member_ids_all.deallocate(True)
         if len(group_outputs) == 1:
             out_rows = group_outputs[0]
         else:
@@ -2350,26 +2423,21 @@ class _ActiveExpertTPMLP(MLP):
             for tensor in group_outputs:
                 tensor.deallocate(True)
 
-        # Gather each token's top_k weighted expert rows back and sum them.
-        slot_matrix = self._reshape_via_tile(slot_to_destination, (rows, top_k))
-        combined = None
-        for k in range(top_k):
-            slot_column = ttnn.reshape(ttnn.slice(slot_matrix, [0, k], [rows, k + 1], [1, 1]), (1, rows))
-            gathered = ttnn.embedding(
-                slot_column, out_rows, layout=ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG
-            )
-            slot_column.deallocate(True)
-            gathered = ttnn.to_layout(ttnn.reshape(gathered, (1, 1, rows, hidden)), ttnn.TILE_LAYOUT)
-            if combined is None:
-                combined = gathered
-            else:
-                combined = ttnn.add(combined, gathered, output_tensor=combined)
-                gathered.deallocate(True)
-        slot_to_destination.deallocate(True)
+        # Gather each token's top_k weighted expert rows back and sum them:
+        # one [top_k, rows] gather, one tilize, one reduction over top_k.
+        gathered = ttnn.embedding(
+            slot_columns, out_rows, layout=ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG
+        )
+        slot_columns.deallocate(True)
         out_rows.deallocate(True)
+        gathered = ttnn.reshape(gathered, (1, top_k, rows, hidden))
+        gathered = ttnn.mul(gathered, slot_weights, output_tensor=gathered)
+        slot_weights.deallocate(True)
+        combined = ttnn.unsqueeze_to_4D(ttnn.experimental.fast_reduce_nc(gathered, dims=[1]))
+        gathered.deallocate(True)
+        stage_started = self._stage_mark("gather_back", stage_started)
 
         # Down bias through the dense routing weights.
-        routing_dense = self.router.scatter_dense_routing(expert_indices, routing_scores, deallocate=True)
         bias_term = ttnn.matmul(
             routing_dense,
             self.grouped_down_bias,
@@ -2396,6 +2464,7 @@ class _ActiveExpertTPMLP(MLP):
             sequence_length,
             self.ccl_manager,
         )
+        self._stage_mark("bias_allreduce", stage_started)
         return ttnn.reshape(
             output,
             (1, 1, sequence_length, hidden),
