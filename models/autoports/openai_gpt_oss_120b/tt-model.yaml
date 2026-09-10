@@ -84,19 +84,27 @@ card:
     The first start compiles kernels and model tensors into the persistent package
     cache. The previously validated cold start took 14m25s; a warm restart took 6m50s.
 
-    ### Measured P150x4 latency
+    ### Measured P150x4 latency (2026-09-10, batched decode)
 
-    The following warmed-server measurements used concurrency 1 and
-    `temperature: 0` (greedy) solely to make the results deterministic and
-    repeatable. Greedy sampling is a benchmark condition, not a serve-profile
-    restriction.
+    Warmed server, random-token prompts of exactly the input length, `ignore_eos`,
+    output pinned to the output length, `bench_client.py` from
+    `/home/ttuser/dev/bench-sweeps`. Decode is batched across users: batches of
+    2-8 gather their routed experts by index, batches of 9-32 run as one token
+    group. Aggregate decode is `users / TPOT`.
 
-    | input | output | TTFT | TPOT | decode tok/s/user |
-    | ---: | ---: | ---: | ---: | ---: |
-    | 128 | 128 | 0.500 s | 18.27 ms | 54.73 |
-    | 8,192 | 1,024 | 29.27 s | 19.14 ms | 52.26 |
-    | 32,768 | 128 | 122.80 s | 20.72 ms | 48.27 |
-    | 65,536 | 128 | 240.11 s | 23.07 ms | 43.36 |
+    | input | output | users | TTFT | TPOT | decode tok/s/user | aggregate decode tok/s |
+    | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+    | 128 | 128 | 1 | 0.25 s | 15.3 ms | 65 | 65 |
+    | 128 | 128 | 4 | 0.95 s | 21.9 ms | 46 | 183 |
+    | 128 | 128 | 8 | 1.88 s | 32.6 ms | 31 | 245 |
+    | 128 | 128 | 32 | 7.5 s | 52.7 ms | 19 | 607 |
+    | 1,024 | 128 | 1 | 1.73 s | 15.5 ms | 65 | 65 |
+    | 4,096 | 128 | 1 | 7.19 s | 15.6 ms | 64 | 64 |
+    | 16,384 | 128 | 1 | 28.9 s | 16.1 ms | 62 | 62 |
+    | 32,768 | 128 | 1 | 58.3 s | 16.6 ms | 60 | 60 |
+
+    Prefills are not batched with decode steps, so TTFT at many users is the
+    serialized prefill queue.
 
     P150 and P150x2 are not offered as serve profiles: the fixed resident model
     state does not fit those configurations. Production serving requires P150x4.
