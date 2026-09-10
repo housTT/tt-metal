@@ -212,11 +212,20 @@ and artifact names are recorded in `work_log.md` and in each log header.
   full-context cache in 32 GiB per device. Their decoder APIs retain 131072 for
   compatibility and layer testing; P150x4 is the feasible resident-stack
   target. The future full-model stage must measure all non-decoder allocations.
-- Decode batch values greater than one use a static per-user active-expert loop
-  because the reusable sparse kernel's decode representation is batch one.
+- Decode batches above one no longer loop per user (2026-09-10). Batches of
+  2--8 gather their `top_k * batch` expert slots by index and batches of 9--32
+  run as one 32-row token group with a union expert mask; both apply routing
+  weights before the down projection and fold the down bias through a small
+  matmul. Every batched row matches the batch-1 indexed path at PCC >= 0.9999
+  (`tests/test_multichip_batched_decode_perf.py`). Per-rank expert slices are
+  padded to 768 so gate/up slices are tile aligned. Prefill gathers each
+  expert's routed tokens into a uniform-capacity slab and runs compact indexed
+  sparse matmuls (`prefill_indexed_experts`). See
+  `doc/optimized_batched_decode/README.md` for measurements.
 - Batch 2 is qualified for both layer kinds, non-aligned prefill, exact-limit
   decode, trace refresh, page-table remapping, cache reconstruction, and rank
-  replication. The configured batch 3--32 range is not yet hardware-qualified.
+  replication. Batches 8 and 32 are qualified at the layer level against the
+  batch-1 path and at the serving level (128/128 concurrency sweep).
 - The TP4 attention decode specialization mirrors the canonical attention
   prefix because that implementation has no collective-tail hook. Its
   correctness and trace tests guard this model-local fork against drift.

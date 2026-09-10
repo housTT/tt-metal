@@ -9,7 +9,11 @@ import pytest
 import torch
 
 from models.autoports.openai_gpt_oss_120b.tt.generator import Generator
-from models.autoports.openai_gpt_oss_120b.tt.generator_vllm import TTGptOssForCausalLM, _sampling_key
+from models.autoports.openai_gpt_oss_120b.tt.generator_vllm import (
+    TTGptOssForCausalLM,
+    _sampling_key,
+    _sampling_params_to_host_values,
+)
 from models.autoports.openai_gpt_oss_120b.tt.model import (
     HF_CONTEXT_LENGTH,
     FullModelArgs,
@@ -166,13 +170,57 @@ def test_capacity_contract_requires_p150x4_and_full_context(expect_error):
 def test_device_sampling_capability_declares_exact_top_k_limit():
     assert TTGptOssForCausalLM.model_capabilities["supports_sample_on_device"]
     assert TTGptOssForCausalLM.model_capabilities["max_device_sampling_top_k"] == 32
+    assert TTGptOssForCausalLM.model_capabilities["accepts_tensor_sampling_params"]
+    assert TTGptOssForCausalLM.model_capabilities["accepts_serving_state_ids"]
+
+
+def test_tensor_sampling_params_convert_seed_sentinel_without_mutating_input():
+    from dataclasses import make_dataclass
+
+    tensor_params_type = make_dataclass(
+        "TensorSamplingParams",
+        [
+            (field, object)
+            for field in (
+                "temperature",
+                "top_k",
+                "top_p",
+                "presence_penalty",
+                "frequency_penalty",
+                "repetition_penalty",
+                "seed",
+                "enable_log_probs",
+                "num_logprobs",
+            )
+        ],
+        frozen=True,
+    )
+    params = tensor_params_type(
+        torch.tensor([0.0, 0.7]),
+        torch.tensor([1, 20]),
+        torch.tensor([1.0, 0.9]),
+        torch.tensor([0.0, 0.0]),
+        torch.tensor([0.0, 0.0]),
+        torch.tensor([1.0, 1.0]),
+        torch.tensor([-1, 7]),
+        torch.tensor([False, False]),
+        torch.tensor([0, 0]),
+    )
+
+    converted = _sampling_params_to_host_values(params)
+
+    assert converted.temperature == pytest.approx([0.0, 0.7])
+    assert converted.seed == [None, 7]
+    assert torch.equal(params.seed, torch.tensor([-1, 7]))
 
 
 def test_adapter_exposes_the_decode_buckets_it_prepares():
-    assert TTGptOssForCausalLM.tt_supported_decode_batch_sizes == (1, 32)
+    assert TTGptOssForCausalLM.tt_supported_decode_batch_sizes == (1, 4, 8, 32)
 
 
-def test_vllm_initialization_disables_duplicate_seed_salting_before_sampling_construction(monkeypatch):
+def test_vllm_initialization_disables_duplicate_seed_salting_before_sampling_construction(
+    monkeypatch,
+):
     captured = {}
 
     def fake_from_checkpoint(cls, mesh_device, **kwargs):
@@ -372,6 +420,87 @@ def test_steady_decode_reuses_sampling_and_page_table_state():
     assert len(adapter.model.page_table_updates) == 2
 
 
+def test_steady_decode_state_ids_skip_sampling_materialization(monkeypatch):
+    adapter = _adapter()
+    page_table = torch.zeros(2, 8, dtype=torch.int32)
+    params = _greedy()
+    materializations = 0
+    original = _sampling_params_to_host_values
+
+    def counted_materialization(value):
+        nonlocal materializations
+        materializations += 1
+        return original(value)
+
+    monkeypatch.setattr(
+        "models.autoports.openai_gpt_oss_120b.tt.generator_vllm." "_sampling_params_to_host_values",
+        counted_materialization,
+    )
+    common = {
+        "tokens": torch.tensor([[11], [12]]),
+        "start_pos": torch.tensor([65, 97]),
+        "page_table": page_table,
+        "page_tables_per_layer": [page_table, page_table],
+        "page_table_state_id": 3,
+        "sampling_state_id": 5,
+        "kv_cache": object(),
+        "sampling_params": params,
+        "enable_trace": True,
+        "read_from_device": False,
+    }
+
+    adapter.decode_forward(reset_batch=True, **common)
+    adapter.decode_forward(reset_batch=False, **common)
+
+    assert materializations == 1
+    assert adapter.generator.decode_calls[-1][2]["sampling_params"] is None
+    assert adapter.serving_counters["page_table_reuses"] == 1
+
+
+def test_repeated_layer_page_tables_are_compared_and_cloned_once_per_group(monkeypatch):
+    adapter = _adapter(n_layers=4)
+    first = torch.zeros(2, 8, dtype=torch.int32)
+    second = torch.ones(2, 8, dtype=torch.int32)
+    params = _greedy()
+    common = {
+        "tokens": torch.tensor([[11], [12]]),
+        "start_pos": torch.tensor([65, 97]),
+        "page_table": first,
+        "kv_cache": object(),
+        "sampling_params": params,
+        "enable_trace": True,
+        "read_from_device": False,
+    }
+    adapter.decode_forward(
+        page_tables_per_layer=[first, first, second, second],
+        reset_batch=True,
+        **common,
+    )
+    assert adapter._last_page_tables[0] is adapter._last_page_tables[1]
+    assert adapter._last_page_tables[2] is adapter._last_page_tables[3]
+
+    equal_calls = 0
+    original_equal = torch.equal
+
+    def counted_equal(left, right):
+        nonlocal equal_calls
+        equal_calls += 1
+        return original_equal(left, right)
+
+    monkeypatch.setattr(torch, "equal", counted_equal)
+    first_next = first.clone()
+    second_next = second.clone()
+    adapter.decode_forward(
+        page_table=first_next,
+        page_tables_per_layer=[first_next, first_next, second_next, second_next],
+        reset_batch=False,
+        **{key: value for key, value in common.items() if key != "page_table"},
+    )
+
+    assert equal_calls == 2
+    assert adapter.serving_counters["page_table_reuses"] == 1
+
+
 @pytest.mark.parametrize("bucket", [1, 32])
 def test_selected_policy_sampled_greedy_sampled_keeps_one_device_trace(bucket):
     adapter = _adapter()
@@ -485,7 +614,10 @@ def test_singleton_host_sampling_slices_warmup_padded_hybrid_page_tables():
     )
 
     assert adapter._active_decode_bucket == 1
-    assert [table.shape for table in adapter.model.page_table_updates[-1]] == [(1, 16), (1, 16)]
+    assert [table.shape for table in adapter.model.page_table_updates[-1]] == [
+        (1, 16),
+        (1, 16),
+    ]
     assert adapter.generator.decode_calls[-1][2]["page_table"].shape == (1, 16)
 
 
@@ -614,7 +746,10 @@ def test_single_active_device_decode_uses_width_one_trace_bucket():
     assert tokens.shape == (1, 1)
     assert positions.tolist() == [65]
     assert call["page_table"].shape == (1, 16)
-    assert [table.shape for table in adapter.model.page_table_updates[-1]] == [(1, 16), (1, 16)]
+    assert [table.shape for table in adapter.model.page_table_updates[-1]] == [
+        (1, 16),
+        (1, 16),
+    ]
     assert call["force_host_tokens"] is False
     assert adapter._active_decode_bucket == 1
     assert adapter.model.decode_batch_sizes[-1] == 1
@@ -743,17 +878,25 @@ def test_decode_bucket_warmup_compiles_before_capturing(monkeypatch):
 
     assert result == "decode-warmup"
     assert [
-        (call["max_batch_size"], call["enable_trace"], call.get("skip_trace_precompile", False))
+        (
+            call["max_batch_size"],
+            call["enable_trace"],
+            call.get("skip_trace_precompile", False),
+        )
         for call in adapter.generator.decode_warmup_calls
     ] == [
         (1, False, False),
+        (4, False, False),
+        (8, False, False),
         (32, False, False),
         (1, True, True),
+        (4, True, True),
+        (8, True, True),
         (32, True, True),
     ]
-    assert set(adapter.generator._inner._bucket_trace_store) == {1, 32}
-    assert [call["max_batch_size"] for call in adapter.generator.decode_prepare_calls] == [1, 32]
-    assert [call["width"] for call in adapter.generator.decode_capture_calls] == [1, 32]
+    assert set(adapter.generator._inner._bucket_trace_store) == {1, 4, 8, 32}
+    assert [call["max_batch_size"] for call in adapter.generator.decode_prepare_calls] == [1, 4, 8, 32]
+    assert [call["width"] for call in adapter.generator.decode_capture_calls] == [1, 4, 8, 32]
     assert adapter._active_decode_bucket == 32
     assert adapter._device_trace_recapture_requires_reset
 
@@ -780,7 +923,8 @@ def test_decode_bucket_activation_toggles_every_decode_norm():
         )
         model.layers.append(
             SimpleNamespace(
-                decoder=decoder, self_attn=SimpleNamespace(transformation_mats={"decode": None}, kv_mem_cfg=None)
+                decoder=decoder,
+                self_attn=SimpleNamespace(transformation_mats={"decode": None}, kv_mem_cfg=None),
             )
         )
 

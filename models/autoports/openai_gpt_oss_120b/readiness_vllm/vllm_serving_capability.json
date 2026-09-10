@@ -14,6 +14,8 @@
   "decode_trace_enabled": true,
   "decode_trace_buckets": [
     1,
+    4,
+    8,
     32
   ],
   "kv_cache_owner": "vllm",
@@ -366,20 +368,22 @@
     "supports_async_decode": true,
     "supports_sample_on_device": true,
     "max_device_sampling_top_k": 32,
-    "supports_batched_prefill": true
+    "supports_batched_prefill": true,
+    "accepts_tensor_sampling_params": true,
+    "accepts_serving_state_ids": true
   },
   "serving_counters": {
-    "prefill_calls": 3,
-    "decode_calls": 226,
-    "device_sampled_decodes": 226,
+    "prefill_calls": 16,
+    "decode_calls": 1545,
+    "device_sampled_decodes": 1545,
     "host_sampled_decodes": 0,
-    "sampling_state_pushes": 2,
-    "sampling_state_reuses": 224,
+    "sampling_state_pushes": 15,
+    "sampling_state_reuses": 1530,
     "host_trace_releases": 0,
-    "device_trace_recaptures": 0,
-    "page_table_refreshes": 9,
-    "page_table_reuses": 221,
-    "async_reads": 226
+    "device_trace_recaptures": 4,
+    "page_table_refreshes": 51,
+    "page_table_reuses": 1518,
+    "async_reads": 1545
   },
   "generator": {
     "model": "openai/gpt-oss-120b",
@@ -402,37 +406,37 @@
       "force_argmax": false
     },
     "trace_evidence": {
-      "decode_calls": 226,
-      "trace_replays": 226,
-      "model_execute_submissions": 226,
-      "sampling_execute_submissions": 226,
+      "decode_calls": 1545,
+      "trace_replays": 1545,
+      "model_execute_submissions": 1545,
+      "sampling_execute_submissions": 1545,
       "unclassified_execute_submissions": 0,
-      "full_input_refreshes": 2,
-      "page_table_only_refreshes": 3,
-      "page_table_reuses": 221,
-      "sampled_token_readbacks": 5,
+      "full_input_refreshes": 15,
+      "page_table_only_refreshes": 12,
+      "page_table_reuses": 1518,
+      "sampled_token_readbacks": 18,
       "full_logits_readbacks": 0,
       "forced_token_refreshes": 0,
       "host_argmax_calls": 0,
-      "token_input_host_refreshes": 2,
-      "position_rope_host_refreshes": 2,
-      "page_table_host_refreshes": 5,
-      "steady_token_input_host_refreshes": 1,
-      "steady_position_rope_host_refreshes": 1,
-      "steady_page_table_host_refreshes": 4,
-      "caller_visible_token_synchronizations": 5,
+      "token_input_host_refreshes": 15,
+      "position_rope_host_refreshes": 15,
+      "page_table_host_refreshes": 27,
+      "steady_token_input_host_refreshes": 14,
+      "steady_position_rope_host_refreshes": 14,
+      "steady_page_table_host_refreshes": 26,
+      "caller_visible_token_synchronizations": 18,
       "validation_full_logit_synchronizations": 0,
-      "device_token_out_submissions": 226,
-      "fixed_sampling_state_replays": 224,
+      "device_token_out_submissions": 1545,
+      "fixed_sampling_state_replays": 1530,
       "fixed_greedy_sampling_replays": 0,
-      "sampling_state_host_refreshes": 2,
+      "sampling_state_host_refreshes": 15,
       "decode_output_collections": 0,
-      "asynchronous_decode_output_collections": 226,
-      "minimal_token_readbacks": 226,
-      "token_read_device_shards": 226,
-      "token_read_replica_shards_skipped": 678,
-      "new_prefill_variants_compiled": 2,
-      "decode_trace_releases_for_prefill_compile": 0,
+      "asynchronous_decode_output_collections": 1545,
+      "minimal_token_readbacks": 1545,
+      "token_read_device_shards": 1545,
+      "token_read_replica_shards_skipped": 4635,
+      "new_prefill_variants_compiled": 6,
+      "decode_trace_releases_for_prefill_compile": 4,
       "decode_trace_releases_for_host_sampling": 0
     },
     "last_generation_metrics": {},
@@ -452,10 +456,34 @@
         "page_rounded_length": 128,
         "last_token_tile_start": 96,
         "path": "host_last_logits"
+      },
+      {
+        "padded_length": 1024,
+        "page_rounded_length": 1024,
+        "last_token_tile_start": 992,
+        "path": "device_sampling"
+      },
+      {
+        "padded_length": 4096,
+        "page_rounded_length": 4096,
+        "last_token_tile_start": 4064,
+        "path": "device_sampling"
+      },
+      {
+        "padded_length": 16384,
+        "page_rounded_length": 16384,
+        "last_token_tile_start": 16352,
+        "path": "device_sampling"
+      },
+      {
+        "padded_length": 32768,
+        "page_rounded_length": 32768,
+        "last_token_tile_start": 32736,
+        "path": "device_sampling"
       }
     ],
-    "lifetime_prefill_variant_compilations": 2,
-    "lifetime_decode_trace_releases_for_prefill_compile": 0,
+    "lifetime_prefill_variant_compilations": 6,
+    "lifetime_decode_trace_releases_for_prefill_compile": 4,
     "lifetime_decode_trace_releases_for_host_sampling": 0
   }
 }

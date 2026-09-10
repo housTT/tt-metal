@@ -33,6 +33,7 @@ from models.demos.gpt_oss.tt.attention.operations import apply_rope
 from models.demos.gpt_oss.tt.attention_configs import GPTOSSAttentionProgramConfig
 from models.demos.gpt_oss.tt.ccl import CCLManager
 from models.demos.gpt_oss.tt.expert_configs import GPTOSSProgramConfig
+from models.demos.gpt_oss.tt.experts import ExpertConfig
 from models.demos.gpt_oss.tt.experts.operations import (
     apply_routing_weights,
     apply_swiglu,
@@ -73,7 +74,8 @@ class MultichipDecoderPolicy:
     """Static multichip dtype/topology policy selected at construction."""
 
     name: str = (
-        "p150_1d_tp_replicated_residual_mixed_ccl_lofi_sparse_decode45x15_prefill45x45_tp2_subblock2_dram_output"
+        "p150_1d_tp_replicated_residual_mixed_ccl_lofi_sparse_fused_router_"
+        "decode45x15_prefill_group_sparse45x45_layer_aware_sdpa_tp2_subblock2_dram_output"
     )
     attention_weight_dtype: object = ttnn.bfloat8_b
     expert_weight_dtype: object = ttnn.bfloat4_b
@@ -87,6 +89,33 @@ class MultichipDecoderPolicy:
     decode_separate_qkv: bool = False
     decode_explicit_output_projection: bool = False
     decode_fused_output_projection_ccl: bool = False
+    decode_fused_router: bool = True
+    prefill_token_group_sparsity: bool = True
+    # Decode batches above one run as a single 32-row token group through the
+    # gate-selected sparse experts (union of the batch's experts) instead of a
+    # per-user loop over the batch-one graph.
+    decode_grouped_batch: bool = True
+    # Decode batches in (1, this] gather exactly top_k*batch expert slots by
+    # index (duplicates allowed) so every dense stage scales with the batch
+    # instead of with the 128-expert union mask.  Larger batches use the mask.
+    decode_indexed_slots_max_batch: int = 8
+    # Keep the grouped-decode expert intermediates in L1 instead of DRAM.
+    decode_grouped_l1: bool = True
+    # Prefill: gather each expert's routed tokens into per-expert slabs and run
+    # the projections in the compact indexed sparse-matmul mode, instead of a
+    # dense 128-expert expanded output per 32-token group.  Experimental: exact
+    # and 2.5-3.3x faster per layer in isolation, but its data-dependent tensor
+    # shapes recompile programs on every layer/prompt in the serving path
+    # (32 s TTFT at 1024 tokens, L1 clash at 16k).  Off until shapes are static.
+    prefill_indexed_experts: bool = False
+    # Below this many tokens the packed group-sparse path is used: the indexed
+    # path syncs the host once per layer to size its expert slabs, which costs
+    # more than it saves on short prompts.
+    prefill_indexed_min_tokens: int = 512
+    prefill_sliding_q_chunk_size_large: int = 128
+    prefill_sliding_k_chunk_size_large: int = 128
+    prefill_full_q_chunk_size_large: int = 256
+    prefill_full_k_chunk_size_large: int = 512
     decode_separate_gate_up: bool = False
     router_weight_dtype: object = ttnn.bfloat16
     normalization_weight_dtype: object = ttnn.bfloat16
@@ -103,7 +132,7 @@ class MultichipDecoderPolicy:
     residual_dtype: object = ttnn.bfloat16
     attention_projection_input_dtype: object = ttnn.bfloat8_b
     expert_intermediate_dtype: object = ttnn.bfloat16
-    expert_gate_up_cores: tuple[int, int] = (5, 9)
+    expert_gate_up_cores: tuple[int, int] = (6, 8)
     expert_gate_up_in0_block_w: int = 30
     expert_gate_up_subblock_w: int = 1
     expert_gate_up_subblock_w_tp2: int | None = 2
@@ -171,6 +200,36 @@ FUSED_OUTPUT_CCL_MULTICHIP_POLICY = replace(
     DEFAULT_MULTICHIP_POLICY,
     name="p150_1d_tp_replicated_residual_fused_output_ccl",
     decode_fused_output_projection_ccl=True,
+)
+FUSED_ROUTER_MULTICHIP_POLICY = replace(
+    DEFAULT_MULTICHIP_POLICY,
+    name="p150_1d_tp_replicated_residual_fused_router",
+    decode_fused_router=True,
+)
+DENSE_PREFILL_MULTICHIP_POLICY = replace(
+    DEFAULT_MULTICHIP_POLICY,
+    name="p150_1d_tp_replicated_residual_dense_prefill",
+    prefill_token_group_sparsity=False,
+)
+PREFILL_TOKEN_GROUP_SPARSITY_MULTICHIP_POLICY = replace(
+    DEFAULT_MULTICHIP_POLICY,
+    name="p150_1d_tp_replicated_residual_prefill_token_group_sparsity",
+    prefill_token_group_sparsity=True,
+)
+PER_USER_LOOP_DECODE_MULTICHIP_POLICY = replace(
+    DEFAULT_MULTICHIP_POLICY,
+    name="p150_1d_tp_replicated_residual_per_user_loop_decode",
+    decode_grouped_batch=False,
+)
+INDEXED_PREFILL_MULTICHIP_POLICY = replace(
+    DEFAULT_MULTICHIP_POLICY,
+    name="p150_1d_tp_replicated_residual_indexed_prefill",
+    prefill_indexed_experts=True,
+)
+PACKED_GROUP_PREFILL_MULTICHIP_POLICY = replace(
+    DEFAULT_MULTICHIP_POLICY,
+    name="p150_1d_tp_replicated_residual_packed_group_prefill",
+    prefill_indexed_experts=False,
 )
 SEPARATE_QKV_MULTICHIP_POLICY = replace(
     DEFAULT_MULTICHIP_POLICY,
@@ -360,6 +419,12 @@ _SUPPORTED_MULTICHIP_POLICIES = (
     DRAM_SHARDED_OUTPUT_2_CORE_MULTICHIP_POLICY,
     EXPLICIT_OUTPUT_PROJECTION_MULTICHIP_POLICY,
     FUSED_OUTPUT_CCL_MULTICHIP_POLICY,
+    FUSED_ROUTER_MULTICHIP_POLICY,
+    DENSE_PREFILL_MULTICHIP_POLICY,
+    PREFILL_TOKEN_GROUP_SPARSITY_MULTICHIP_POLICY,
+    PER_USER_LOOP_DECODE_MULTICHIP_POLICY,
+    INDEXED_PREFILL_MULTICHIP_POLICY,
+    PACKED_GROUP_PREFILL_MULTICHIP_POLICY,
     SEPARATE_QKV_MULTICHIP_POLICY,
     SEPARATE_GATE_UP_MULTICHIP_POLICY,
     ATTENTION_BFP4_MULTICHIP_POLICY,
@@ -443,7 +508,10 @@ def _is_supported_multichip_policy(policy: MultichipDecoderPolicy) -> bool:
         "attention_projection_input_dtype",
         "expert_intermediate_dtype",
     )
-    optional_dtype_fields = ("attention_activation_ccl_dtype", "expert_activation_ccl_dtype")
+    optional_dtype_fields = (
+        "attention_activation_ccl_dtype",
+        "expert_activation_ccl_dtype",
+    )
     fidelity_fields = (
         "projection_math_fidelity",
         "prefill_projection_math_fidelity",
@@ -615,7 +683,10 @@ def _allreduce_physical_hidden(
     logical = ttnn.slice(
         reduced,
         starts=[0] * len(reduced.shape),
-        ends=[*[int(reduced.shape[index]) for index in range(len(reduced.shape) - 1)], hidden_size],
+        ends=[
+            *[int(reduced.shape[index]) for index in range(len(reduced.shape) - 1)],
+            hidden_size,
+        ],
         steps=[1] * len(reduced.shape),
     )
     reduced.deallocate(True)
@@ -854,7 +925,12 @@ class _PhysicalHiddenCollectiveAttention(Attention):
             tt_out = ttnn.slice(
                 gathered,
                 starts=[0, 0, 0, 0],
-                ends=[gathered.shape[0], gathered.shape[1], gathered.shape[2], hidden_size],
+                ends=[
+                    gathered.shape[0],
+                    gathered.shape[1],
+                    gathered.shape[2],
+                    hidden_size,
+                ],
                 steps=[1, 1, 1, 1],
             )
             fused_input.deallocate(True)
@@ -929,6 +1005,7 @@ class _ReplicatedL1Router(TopKRouter):
         *,
         prefill_input_l1=False,
         prefill_explicit_program_config=False,
+        decode_fused_router=False,
     ):
         self.top_k = hf_config.num_experts_per_tok
         self.num_experts = hf_config.num_local_experts
@@ -983,16 +1060,85 @@ class _ReplicatedL1Router(TopKRouter):
             fp32_dest_acc_en=True,
             packer_l1_acc=False,
         )
-        # Decode needs the ordinary sparse score tensor.  The fused router's
-        # sparse [token,k] contract is reserved for throughput experts.
-        self.use_fused_op = False
+        # The fused router consumes one physical 32-row tile. Decode tensors
+        # already own that physical tile even when their logical batch is
+        # smaller; the operation preserves the sub-tile logical batch.
+        self.use_fused_op = bool(decode_fused_router and self.num_experts == 128 and weight_dtype == ttnn.bfloat16)
         self._fused_bias = None
-        self._bias_torch = None
+        self._fused_biases = {}
+        self._dense_zero_templates = {}
+        self._bias_torch = state_dict["bias"].unsqueeze(0).to(torch.bfloat16) if self.use_fused_op else None
+
+    def _fused_call(self, hidden_states, use_throughput_experts):
+        """Select the [batch, experts] bias tile that matches this decode width.
+
+        The fused kernel validates ``bias.shape[0] == batch``.  One layer serves
+        every decode bucket (1, 8, 32, ...), so keep one bias tensor per width;
+        each is created on the first untraced call for that width.
+        """
+        batch_size = int(hidden_states.shape[0])
+        self._fused_bias = self._fused_biases.get(batch_size)
+        if self._fused_bias is None:
+            self._init_fused_op(hidden_states.device(), batch_size)
+            self._fused_biases[batch_size] = self._fused_bias
+        return super()._fused_call(hidden_states, use_throughput_experts)
+
+    def dense_decode_routing(self, hidden_states):
+        """Return [batch, experts] routing weights, positive only at each row's top-k.
+
+        Uses the same router path as batch-1 decode (fused when enabled) so the
+        selected experts match the single-user graph exactly.
+        """
+        expert_indices, routing_scores = self(hidden_states, True)
+        return self.scatter_dense_routing(expert_indices, routing_scores, deallocate=True)
+
+    def scatter_dense_routing(self, expert_indices, routing_scores, *, deallocate):
+        """Scatter [batch, top_k] indices/scores into a dense [batch, experts] row per user."""
+        if expert_indices.layout != ttnn.TILE_LAYOUT:
+            indices_tiled = ttnn.to_layout(expert_indices, ttnn.TILE_LAYOUT)
+        else:
+            indices_tiled = expert_indices
+        if routing_scores.layout != ttnn.TILE_LAYOUT:
+            scores_tiled = ttnn.to_layout(routing_scores, ttnn.TILE_LAYOUT)
+        else:
+            scores_tiled = routing_scores
+        batch_size = int(indices_tiled.shape[0])
+        template = self._dense_zero_templates.get(batch_size)
+        if template is None:
+            # Created once per width on the first untraced call; trace replays
+            # only see the device-side clone below.
+            template = ttnn.from_torch(
+                torch.zeros((batch_size, self.num_experts), dtype=torch.bfloat16),
+                device=indices_tiled.device(),
+                dtype=ttnn.bfloat16,
+                layout=ttnn.TILE_LAYOUT,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                mesh_mapper=ttnn.ReplicateTensorToMesh(indices_tiled.device()),
+            )
+            self._dense_zero_templates[batch_size] = template
+        dense = ttnn.clone(template, memory_config=ttnn.L1_MEMORY_CONFIG)
+        routing_weights = ttnn.scatter(dense, dim=1, index=indices_tiled, src=scores_tiled)
+        if routing_weights is not dense:
+            dense.deallocate(True)
+        if indices_tiled is not expert_indices:
+            indices_tiled.deallocate(True)
+        if scores_tiled is not routing_scores:
+            scores_tiled.deallocate(True)
+        if deallocate:
+            expert_indices.deallocate(True)
+            routing_scores.deallocate(True)
+        return routing_weights
 
     def __call__(self, hidden_states, use_throughput_experts):
         """Apply the opt-in prefill placement/config while preserving decode."""
         actual_tokens = hidden_states.volume() // self.hidden_dim
         if actual_tokens <= ttnn.TILE_SIZE:
+            if self.use_fused_op and use_throughput_experts:
+                hidden_2d = ttnn.reshape(hidden_states, (-1, self.hidden_dim))
+                return self._fused_call(
+                    hidden_2d,
+                    use_throughput_experts=True,
+                )
             return super().__call__(hidden_states, use_throughput_experts)
 
         hidden_states = ttnn.reshape(hidden_states, (-1, self.hidden_dim))
@@ -1019,6 +1165,15 @@ class _ReplicatedL1Router(TopKRouter):
         return expert_indices, expert_weights
 
 
+@dataclass
+class _PackedTPExpertsRuntime:
+    """Weight-free state shared by the packed TP expert paths."""
+
+    config: ExpertConfig
+    program_config: GPTOSSProgramConfig
+    prefill_sparsity: object
+
+
 class _ActiveExpertTPMLP(MLP):
     """Packed TP sparse experts with batch-safe decode at the autoport boundary."""
 
@@ -1038,6 +1193,13 @@ class _ActiveExpertTPMLP(MLP):
         expert_intermediate_dtype=ttnn.bfloat16,
         router_prefill_input_l1=False,
         router_prefill_explicit_program_config=False,
+        decode_fused_router=False,
+        prefill_token_group_sparsity=False,
+        grouped_decode_batch=False,
+        indexed_slots_max_batch=0,
+        grouped_decode_l1=False,
+        indexed_prefill=False,
+        indexed_prefill_min_tokens=512,
         activation_ccl_dtype=ttnn.bfloat8_b,
         separate_gate_up=False,
         gate_up_cores=(3, 4),
@@ -1050,19 +1212,11 @@ class _ActiveExpertTPMLP(MLP):
         prefill_down_in0_block_w=12,
         prefill_down_subblock_w=2,
     ):
-        super().__init__(
-            mesh_device,
-            hf_config,
-            state_dict,
-            ccl_manager,
-            dtype=ttnn.bfloat16,
-            tensor_cache_path=tensor_cache_path,
-            mesh_config=mesh_config,
-            use_throughput_experts=False,
-        )
-        old_router = self.router
-        old_router.weight.deallocate(True)
-        old_router.bias.deallocate(True)
+        # This implementation has its own packed TP weight layout for decode
+        # and prefill.  Constructing MLP/Experts first would load the generic
+        # six-tensor expert layout only to deallocate it immediately, doubling
+        # setup-time host/device pressure for a 120B checkpoint.
+        self.use_throughput_experts = False
         self.router = _ReplicatedL1Router(
             mesh_device,
             hf_config,
@@ -1072,6 +1226,7 @@ class _ActiveExpertTPMLP(MLP):
             math_fidelity=router_math_fidelity,
             prefill_input_l1=router_prefill_input_l1,
             prefill_explicit_program_config=router_prefill_explicit_program_config,
+            decode_fused_router=decode_fused_router,
         )
         # Geometry is a policy because the legal subblock width depends on the
         # chosen core count.  Decode uses 45-core gate/up and 15-core down on
@@ -1085,7 +1240,7 @@ class _ActiveExpertTPMLP(MLP):
             if prefill_down_subblock_w is None
             else prefill_down_subblock_w
         )
-        self.experts.program_config = GPTOSSProgramConfig(
+        program_config = GPTOSSProgramConfig(
             decode_gate_up_cores=gate_up_cores,
             decode_gate_up_in0_block_w=gate_up_in0_block_w,
             decode_gate_up_subblock_w=gate_up_subblock_w,
@@ -1105,8 +1260,44 @@ class _ActiveExpertTPMLP(MLP):
         self.hidden_size = int(hf_config.hidden_size)
         self.intermediate_size = int(hf_config.intermediate_size)
         self.local_intermediate_size = self.intermediate_size // mesh_config.decode.tp
+        # Pad each rank's intermediate slice to a multiple of 64 so the packed
+        # [gate | up] width is an even number of tiles that fills a rectangular
+        # core grid exactly (the sparse matmul requires every grid core to have
+        # work): 720 -> 768 gives 48 output tiles for a 6x8 grid.
+        self.padded_local_intermediate_size = math.ceil(self.local_intermediate_size / (2 * ttnn.TILE_SIZE)) * (
+            2 * ttnn.TILE_SIZE
+        )
         self.num_experts = int(hf_config.num_local_experts)
         self.top_k = int(hf_config.num_experts_per_tok)
+        expert_config = ExpertConfig(
+            intermediate_size=self.intermediate_size,
+            num_experts=self.num_experts,
+            hidden_size=self.hidden_size,
+            num_experts_per_tok=self.top_k,
+            swiglu_limit=hf_config.swiglu_limit,
+        )
+        prefill_ep = mesh_config.prefill.ep
+        experts_per_ep = self.num_experts // prefill_ep
+        prefill_sparsity_host = torch.zeros(1, 1, prefill_ep, self.num_experts)
+        for ep_rank in range(prefill_ep):
+            start = ep_rank * experts_per_ep
+            prefill_sparsity_host[:, :, ep_rank, start : start + experts_per_ep] = 1
+        prefill_sparsity = ttnn.from_torch(
+            prefill_sparsity_host,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            dtype=ttnn.bfloat16,
+            device=mesh_device,
+            mesh_mapper=ttnn.ShardTensor2dMesh(
+                dims=(-2, None) if prefill_ep > 1 else (None, None),
+                mesh_shape=mesh_device.shape,
+                mesh_device=mesh_device,
+            ),
+        )
+        self.experts = _PackedTPExpertsRuntime(
+            config=expert_config,
+            program_config=program_config,
+            prefill_sparsity=prefill_sparsity,
+        )
         self.expert_weight_dtype = expert_weight_dtype
         self.activation_ccl_dtype = activation_ccl_dtype
         self.expert_intermediate_dtype = expert_intermediate_dtype
@@ -1118,26 +1309,38 @@ class _ActiveExpertTPMLP(MLP):
             packer_l1_acc=True,
         )
         self.separate_gate_up = separate_gate_up
+        self.prefill_token_group_sparsity = prefill_token_group_sparsity
+        self.grouped_decode_batch = grouped_decode_batch
+        self.indexed_slots_max_batch = int(indexed_slots_max_batch)
+        self.grouped_decode_l1 = bool(grouped_decode_l1)
+        self.indexed_prefill = bool(indexed_prefill)
+        self.indexed_prefill_min_tokens = int(indexed_prefill_min_tokens)
+        self._prefill_constants = {}
+        # Optional dict; when set, the indexed prefill stores host copies of its
+        # routing intermediates for offline checking (untraced path only).
+        self._prefill_debug = None
+        self._slot_selectors = {}
         self._load_indexed_decode_weights(
             substate(state_dict, "experts"),
             tensor_cache_path=get_cache_file_name(tensor_cache_path, "indexed_decode"),
         )
-        for tensor in (
-            self.experts.weights.gate_proj,
-            self.experts.weights.up_proj,
-            self.experts.weights.down_proj,
-            self.experts.weights.gate_proj_bias,
-            self.experts.weights.up_proj_bias,
-            self.experts.weights.down_proj_bias,
-        ):
-            tensor.deallocate(True)
-        self.experts.weights = None
         self.decode_uses_gate_selected_sparse_experts = True
 
     def _load_indexed_decode_weights(self, expert_state, *, tensor_cache_path):
-        """Load a compact top-k decode representation with TP-sharded weights."""
+        """Load a compact top-k decode representation with TP-sharded weights.
+
+        Every rank's slice of the expert intermediate dimension is zero-padded
+        from ``local_intermediate_size`` (720 at TP4) to the next tile multiple
+        (768) on the host.  The packed gate/up halves and the down projection's
+        contraction rows then sit on tile boundaries, so the per-rank gate/up
+        split is a tile-aligned slice instead of an untilize/retilize fallback.
+        The padding columns of gate and up are zero, SwiGLU maps them to zero,
+        and the matching down rows are zero, so results are unchanged.
+        """
         tp = self.mesh_config.decode.tp
         local = self.local_intermediate_size
+        padded = self.padded_local_intermediate_size
+        pad = padded - local
         gate = expert_state["gate_up_proj"][..., ::2].reshape(
             1, self.num_experts, self.hidden_size, self.intermediate_size
         )
@@ -1147,90 +1350,87 @@ class _ActiveExpertTPMLP(MLP):
         gate_bias = expert_state["gate_up_proj_bias"][..., ::2].reshape(self.num_experts, self.intermediate_size)
         up_bias = expert_state["gate_up_proj_bias"][..., 1::2].reshape(self.num_experts, self.intermediate_size)
 
+        def rank_slices(tensor):
+            return [
+                torch.nn.functional.pad(tensor[..., rank * local : (rank + 1) * local], (0, pad)) for rank in range(tp)
+            ]
+
+        gate_ranks = rank_slices(gate)
+        up_ranks = rank_slices(up)
+        gate_bias_ranks = rank_slices(gate_bias)
+        up_bias_ranks = rank_slices(up_bias)
         # Arrange [gate_rank, up_rank] chunks consecutively.  Sharding the
         # resulting last dimension then gives every rank both operands for its
         # local SwiGLU instead of assigning whole gate/up halves to ranks.
         packed_gate_up = torch.cat(
-            [
-                torch.cat(
-                    (
-                        gate[..., rank * local : (rank + 1) * local],
-                        up[..., rank * local : (rank + 1) * local],
-                    ),
-                    dim=-1,
-                )
-                for rank in range(tp)
-            ],
+            [torch.cat((gate_ranks[rank], up_ranks[rank]), dim=-1) for rank in range(tp)],
             dim=-1,
         )
         packed_gate_up_bias = torch.cat(
-            [
-                torch.cat(
-                    (
-                        gate_bias[..., rank * local : (rank + 1) * local],
-                        up_bias[..., rank * local : (rank + 1) * local],
-                    ),
-                    dim=-1,
-                )
-                for rank in range(tp)
-            ],
+            [torch.cat((gate_bias_ranks[rank], up_bias_ranks[rank]), dim=-1) for rank in range(tp)],
             dim=-1,
         )
         column_mapper = self.mesh_config.column_parallel(self.mesh_device)
         row_mapper = self.mesh_config.row_parallel(self.mesh_device)
+        suffix = f"_pad{padded}"
         if self.separate_gate_up:
+            padded_gate = torch.cat(gate_ranks, dim=-1)
+            padded_up = torch.cat(up_ranks, dim=-1)
+            padded_gate_bias = torch.cat(gate_bias_ranks, dim=-1)
+            padded_up_bias = torch.cat(up_bias_ranks, dim=-1)
             self.indexed_gate = ttnn.as_tensor(
-                gate,
+                padded_gate,
                 device=self.mesh_device,
                 layout=ttnn.TILE_LAYOUT,
                 dtype=self.expert_weight_dtype,
                 mesh_mapper=column_mapper,
-                cache_file_name=get_cache_file_name(tensor_cache_path, "separate_gate"),
+                cache_file_name=get_cache_file_name(tensor_cache_path, "separate_gate" + suffix),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
             self.indexed_up = ttnn.as_tensor(
-                up,
+                padded_up,
                 device=self.mesh_device,
                 layout=ttnn.TILE_LAYOUT,
                 dtype=self.expert_weight_dtype,
                 mesh_mapper=column_mapper,
-                cache_file_name=get_cache_file_name(tensor_cache_path, "separate_up"),
+                cache_file_name=get_cache_file_name(tensor_cache_path, "separate_up" + suffix),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
             self.indexed_gate_bias = ttnn.as_tensor(
-                gate_bias,
+                padded_gate_bias,
                 device=self.mesh_device,
                 layout=ttnn.ROW_MAJOR_LAYOUT,
                 dtype=ttnn.bfloat16,
                 mesh_mapper=column_mapper,
-                cache_file_name=get_cache_file_name(tensor_cache_path, "separate_gate_bias"),
+                cache_file_name=get_cache_file_name(tensor_cache_path, "separate_gate_bias" + suffix),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
             self.indexed_up_bias = ttnn.as_tensor(
-                up_bias,
+                padded_up_bias,
                 device=self.mesh_device,
                 layout=ttnn.ROW_MAJOR_LAYOUT,
                 dtype=ttnn.bfloat16,
                 mesh_mapper=column_mapper,
-                cache_file_name=get_cache_file_name(tensor_cache_path, "separate_up_bias"),
+                cache_file_name=get_cache_file_name(tensor_cache_path, "separate_up_bias" + suffix),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
+            # [experts, 1, width] so the prefill bias add broadcasts over rows.
             self.prefill_gate_bias = ttnn.as_tensor(
-                gate_bias.unsqueeze(0),
+                padded_gate_bias.unsqueeze(1),
                 device=self.mesh_device,
                 layout=ttnn.TILE_LAYOUT,
                 dtype=ttnn.bfloat16,
                 mesh_mapper=column_mapper,
-                cache_file_name=get_cache_file_name(tensor_cache_path, "prefill_separate_gate_bias"),
+                cache_file_name=get_cache_file_name(tensor_cache_path, "prefill_separate_gate_bias_t" + suffix),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
             self.prefill_up_bias = ttnn.as_tensor(
-                up_bias.unsqueeze(0),
+                padded_up_bias.unsqueeze(1),
                 device=self.mesh_device,
                 layout=ttnn.TILE_LAYOUT,
                 dtype=ttnn.bfloat16,
                 mesh_mapper=column_mapper,
-                cache_file_name=get_cache_file_name(tensor_cache_path, "prefill_separate_up_bias"),
+                cache_file_name=get_cache_file_name(tensor_cache_path, "prefill_separate_up_bias_t" + suffix),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
             self.indexed_gate_up = None
@@ -1243,7 +1443,7 @@ class _ActiveExpertTPMLP(MLP):
                 layout=ttnn.TILE_LAYOUT,
                 dtype=self.expert_weight_dtype,
                 mesh_mapper=column_mapper,
-                cache_file_name=get_cache_file_name(tensor_cache_path, "packed_gate_up"),
+                cache_file_name=get_cache_file_name(tensor_cache_path, "packed_gate_up" + suffix),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
             self.indexed_gate_up_bias = ttnn.as_tensor(
@@ -1252,30 +1452,40 @@ class _ActiveExpertTPMLP(MLP):
                 layout=ttnn.ROW_MAJOR_LAYOUT,
                 dtype=ttnn.bfloat16,
                 mesh_mapper=column_mapper,
-                cache_file_name=get_cache_file_name(tensor_cache_path, "packed_gate_up_bias"),
+                cache_file_name=get_cache_file_name(tensor_cache_path, "packed_gate_up_bias" + suffix),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
+            # Stored as [experts, 1, width] so the prefill/grouped-decode bias add
+            # broadcasts over the token rows without a per-call transpose.
             self.prefill_gate_up_bias = ttnn.as_tensor(
-                packed_gate_up_bias.unsqueeze(0),
+                packed_gate_up_bias.unsqueeze(1),
                 device=self.mesh_device,
                 layout=ttnn.TILE_LAYOUT,
                 dtype=ttnn.bfloat16,
                 mesh_mapper=column_mapper,
-                cache_file_name=get_cache_file_name(tensor_cache_path, "prefill_packed_gate_up_bias"),
+                cache_file_name=get_cache_file_name(tensor_cache_path, "prefill_packed_gate_up_bias_t" + suffix),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
+        down = expert_state["down_proj"].reshape(
+            1,
+            self.num_experts,
+            self.intermediate_size,
+            self.hidden_size,
+        )
+        padded_down = torch.cat(
+            [
+                torch.nn.functional.pad(down[:, :, rank * local : (rank + 1) * local, :], (0, 0, 0, pad))
+                for rank in range(tp)
+            ],
+            dim=-2,
+        )
         self.indexed_down = ttnn.as_tensor(
-            expert_state["down_proj"].reshape(
-                1,
-                self.num_experts,
-                self.intermediate_size,
-                self.hidden_size,
-            ),
+            padded_down,
             device=self.mesh_device,
             layout=ttnn.TILE_LAYOUT,
             dtype=self.expert_weight_dtype,
             mesh_mapper=row_mapper,
-            cache_file_name=get_cache_file_name(tensor_cache_path, "down"),
+            cache_file_name=get_cache_file_name(tensor_cache_path, "down" + suffix),
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
         down_bias = expert_state["down_proj_bias"].reshape(self.num_experts, self.hidden_size)
@@ -1289,13 +1499,15 @@ class _ActiveExpertTPMLP(MLP):
             cache_file_name=get_cache_file_name(tensor_cache_path, "down_bias"),
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
-        self.prefill_down_bias = ttnn.as_tensor(
-            down_bias.unsqueeze(0),
+        # [experts, hidden] tile layout for folding the down bias through the
+        # dense routing weights with one small matmul (prefill and batched decode).
+        self.grouped_down_bias = ttnn.as_tensor(
+            down_bias,
             device=self.mesh_device,
             layout=ttnn.TILE_LAYOUT,
             dtype=ttnn.bfloat16,
             mesh_mapper=column_mapper,
-            cache_file_name=get_cache_file_name(tensor_cache_path, "prefill_down_bias"),
+            cache_file_name=get_cache_file_name(tensor_cache_path, "down_bias_tiled"),
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
         self.indexed_unused_sparsity = ttnn.as_tensor(
@@ -1311,8 +1523,11 @@ class _ActiveExpertTPMLP(MLP):
     def _run_indexed_decode(self, hidden_states):
         """Run gate-selected top-4 TP experts without materializing 128 outputs."""
         expert_indices, routing_scores = self.router(hidden_states, True)
-        expert_indices_rm = ttnn.to_layout(expert_indices, ttnn.ROW_MAJOR_LAYOUT)
-        expert_indices.deallocate(True)
+        if expert_indices.layout == ttnn.ROW_MAJOR_LAYOUT:
+            expert_indices_rm = expert_indices
+        else:
+            expert_indices_rm = ttnn.to_layout(expert_indices, ttnn.ROW_MAJOR_LAYOUT)
+            expert_indices.deallocate(True)
         expert_indices_rm = ttnn.reshape(expert_indices_rm, (1, 1, 1, self.top_k))
         embedding_indices = ttnn.typecast(expert_indices_rm, ttnn.uint32)
         output_tile = ttnn.Tile([32, 32])
@@ -1339,7 +1554,7 @@ class _ActiveExpertTPMLP(MLP):
                     compute_kernel_config=self.expert_compute_kernel_config,
                     dtype=self.expert_intermediate_dtype,
                 )
-                projected = ttnn.reshape(projected, (1, self.top_k, self.local_intermediate_size))
+                projected = ttnn.reshape(projected, (1, self.top_k, self.padded_local_intermediate_size))
                 projected_bias = ttnn.embedding(
                     embedding_indices,
                     bias,
@@ -1368,7 +1583,7 @@ class _ActiveExpertTPMLP(MLP):
                 compute_kernel_config=self.expert_compute_kernel_config,
                 dtype=self.expert_intermediate_dtype,
             )
-            gate_up = ttnn.reshape(gate_up, (1, self.top_k, 2 * self.local_intermediate_size))
+            gate_up = ttnn.reshape(gate_up, (1, self.top_k, 2 * self.padded_local_intermediate_size))
             gate_up_bias = ttnn.embedding(
                 embedding_indices,
                 self.indexed_gate_up_bias,
@@ -1385,18 +1600,18 @@ class _ActiveExpertTPMLP(MLP):
             gate = ttnn.slice(
                 gate_up,
                 [0, 0, 0],
-                [1, self.top_k, self.local_intermediate_size],
+                [1, self.top_k, self.padded_local_intermediate_size],
                 [1, 1, 1],
             )
             up = ttnn.slice(
                 gate_up,
-                [0, 0, self.local_intermediate_size],
-                [1, self.top_k, 2 * self.local_intermediate_size],
+                [0, 0, self.padded_local_intermediate_size],
+                [1, self.top_k, 2 * self.padded_local_intermediate_size],
                 [1, 1, 1],
             )
             gate_up.deallocate(True)
         down_input = apply_swiglu(gate, up, self.experts.config)
-        down_input = ttnn.reshape(down_input, (1, self.top_k, 1, self.local_intermediate_size))
+        down_input = ttnn.reshape(down_input, (1, self.top_k, 1, self.padded_local_intermediate_size))
         down = ttnn.sparse_matmul(
             down_input,
             self.indexed_down,
@@ -1427,8 +1642,11 @@ class _ActiveExpertTPMLP(MLP):
         embedding_indices.deallocate(True)
         output = ttnn.add(output, down_bias, output_tensor=output)
         down_bias.deallocate(True)
-        routing_scores_rm = ttnn.to_layout(routing_scores, ttnn.ROW_MAJOR_LAYOUT)
-        routing_scores.deallocate(True)
+        if routing_scores.layout == ttnn.ROW_MAJOR_LAYOUT:
+            routing_scores_rm = routing_scores
+        else:
+            routing_scores_rm = ttnn.to_layout(routing_scores, ttnn.ROW_MAJOR_LAYOUT)
+            routing_scores.deallocate(True)
         routing_scores_rm = ttnn.reshape(routing_scores_rm, (1, self.top_k, 1))
         output = ttnn.mul(output, routing_scores_rm, output_tensor=output)
         routing_scores_rm.deallocate(True)
@@ -1463,7 +1681,24 @@ class _ActiveExpertTPMLP(MLP):
             raise ValueError("packed TP expert prefill requires batch 1 and tile-aligned internal chunks")
         groups = sequence_length // ttnn.TILE_SIZE
         hidden_4d = ttnn.reshape(hidden_states, (1, groups, ttnn.TILE_SIZE, self.hidden_size))
-        sparsity = ttnn.repeat(self.experts.prefill_sparsity, (1, 1, groups, 1))
+        if self.prefill_token_group_sparsity:
+            # The sparse matmul consumes one expert mask per 32-token group.
+            # Router weights are positive only at the selected top-k entries,
+            # so a reduction over the group produces exactly the union of
+            # experts needed by those tokens. This skips unused expert weight
+            # matmuls without changing the dense downstream routing contract.
+            grouped_routing = ttnn.reshape(
+                routing_weights,
+                (1, groups, ttnn.TILE_SIZE, self.num_experts),
+            )
+            group_sums = ttnn.sum(grouped_routing, dim=2, keepdim=True)
+            group_sums_transposed = ttnn.permute(group_sums, (0, 2, 1, 3))
+            sparsity = ttnn.to_layout(group_sums_transposed, ttnn.ROW_MAJOR_LAYOUT)
+            group_sums.deallocate(True)
+            gate_up_sparse_kwargs = {}
+        else:
+            sparsity = ttnn.repeat(self.experts.prefill_sparsity, (1, 1, groups, 1))
+            gate_up_sparse_kwargs = {"nnz": self.num_experts * groups}
         output_tile = ttnn.Tile([32, 32])
         if self.separate_gate_up:
             projections = []
@@ -1475,7 +1710,7 @@ class _ActiveExpertTPMLP(MLP):
                     hidden_4d,
                     weight,
                     sparsity=sparsity,
-                    nnz=self.num_experts * groups,
+                    **gate_up_sparse_kwargs,
                     memory_config=ttnn.DRAM_MEMORY_CONFIG,
                     output_tile=output_tile,
                     program_config=self.experts.program_config.get_prefill_gate_up_config(
@@ -1486,12 +1721,18 @@ class _ActiveExpertTPMLP(MLP):
                     compute_kernel_config=self.expert_compute_kernel_config,
                     dtype=self.expert_intermediate_dtype,
                 )
-                projected = ttnn.transpose(projected, 1, 3)
+                if groups > 1:
+                    projected = ttnn.transpose(projected, 1, 3)
                 projected = ttnn.reshape(
                     projected,
-                    (batch_size, self.num_experts, sequence_length, self.local_intermediate_size),
+                    (
+                        batch_size,
+                        self.num_experts,
+                        sequence_length,
+                        self.padded_local_intermediate_size,
+                    ),
                 )
-                projected_bias = ttnn.transpose(bias, 1, 0)
+                projected_bias = bias
                 projected = ttnn.add(projected, projected_bias, output_tensor=projected)
                 projections.append(projected)
             gate, up = projections
@@ -1500,7 +1741,7 @@ class _ActiveExpertTPMLP(MLP):
                 hidden_4d,
                 self.indexed_gate_up,
                 sparsity=sparsity,
-                nnz=self.num_experts * groups,
+                **gate_up_sparse_kwargs,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
                 output_tile=output_tile,
                 program_config=self.experts.program_config.get_prefill_gate_up_config(
@@ -1511,12 +1752,20 @@ class _ActiveExpertTPMLP(MLP):
                 compute_kernel_config=self.expert_compute_kernel_config,
                 dtype=self.expert_intermediate_dtype,
             )
-            gate_up = ttnn.transpose(gate_up, 1, 3)
+            # The sparse output is [1, groups, 1, experts, rows, width]; with one
+            # group the expert-major reshape is a view, so skip the transpose.
+            if groups > 1:
+                gate_up = ttnn.transpose(gate_up, 1, 3)
             gate_up = ttnn.reshape(
                 gate_up,
-                (batch_size, self.num_experts, sequence_length, 2 * self.local_intermediate_size),
+                (
+                    batch_size,
+                    self.num_experts,
+                    sequence_length,
+                    2 * self.padded_local_intermediate_size,
+                ),
             )
-            gate_up_bias = ttnn.transpose(self.prefill_gate_up_bias, 1, 0)
+            gate_up_bias = self.prefill_gate_up_bias
             gate_up = ttnn.add(gate_up, gate_up_bias, output_tensor=gate_up)
             # TP4 owns 720 intermediate elements per rank.  That logical split is
             # intentionally not tile aligned, and slice's internal untilize cannot
@@ -1530,43 +1779,76 @@ class _ActiveExpertTPMLP(MLP):
             gate = ttnn.slice(
                 gate_up,
                 [0, 0, 0, 0],
-                [batch_size, self.num_experts, sequence_length, self.local_intermediate_size],
+                [
+                    batch_size,
+                    self.num_experts,
+                    sequence_length,
+                    self.padded_local_intermediate_size,
+                ],
                 [1, 1, 1, 1],
             )
             up = ttnn.slice(
                 gate_up,
-                [0, 0, 0, self.local_intermediate_size],
-                [batch_size, self.num_experts, sequence_length, 2 * self.local_intermediate_size],
+                [0, 0, 0, self.padded_local_intermediate_size],
+                [
+                    batch_size,
+                    self.num_experts,
+                    sequence_length,
+                    2 * self.padded_local_intermediate_size,
+                ],
                 [1, 1, 1, 1],
             )
             gate_up.deallocate(True)
         down_input = apply_swiglu(gate, up, self.experts.config)
         down_input = ttnn.reshape(
             down_input,
-            (1, self.num_experts, sequence_length, self.local_intermediate_size),
+            (1, self.num_experts, sequence_length, self.padded_local_intermediate_size),
         )
 
+        # Down bias through the dense routing weights: one small [S, E] x [E, H] matmul.
+        bias_term = ttnn.matmul(
+            routing_weights,
+            self.grouped_down_bias,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            dtype=ttnn.bfloat16,
+            compute_kernel_config=self.router.compute_config,
+        )
+        bias_term = ttnn.reshape(bias_term, (1, 1, sequence_length, self.hidden_size))
         prefill_sparsity_2d = ttnn.reshape(self.experts.prefill_sparsity, (1, self.num_experts))
         routing_weights = ttnn.mul(routing_weights, prefill_sparsity_2d, output_tensor=routing_weights)
         routing_weights = ttnn.permute(routing_weights, (1, 0))
         routing_weights = ttnn.reshape(routing_weights, (batch_size, self.num_experts, sequence_length, 1))
-        split_size = self.experts.program_config.get_down_split_size(sequence_length)
+        split_size = (
+            ttnn.TILE_SIZE
+            if self.prefill_token_group_sparsity
+            else self.experts.program_config.get_down_split_size(sequence_length)
+        )
         if sequence_length > split_size:
             down_inputs = ttnn.split(down_input, split_size, dim=2)
             down_input.deallocate(True)
             routing_splits = ttnn.split(routing_weights, split_size, dim=2)
             routing_weights.deallocate(True)
+            if self.prefill_token_group_sparsity:
+                down_sparsities = ttnn.split(sparsity, split_size // ttnn.TILE_SIZE, dim=2)
+                sparsity.deallocate(True)
+            else:
+                down_sparsities = [self.experts.prefill_sparsity] * len(down_inputs)
         else:
             down_inputs = [down_input]
             routing_splits = [routing_weights]
+            down_sparsities = [sparsity if self.prefill_token_group_sparsity else self.experts.prefill_sparsity]
 
         reduced_accumulator = None
-        for down_input_split, routing_split in zip(down_inputs, routing_splits):
+        for down_input_split, routing_split, down_sparsity in zip(
+            down_inputs,
+            routing_splits,
+            down_sparsities,
+        ):
+            split_sequence = down_input_split.shape[2]
             down = ttnn.sparse_matmul(
                 down_input_split,
                 self.indexed_down,
-                sparsity=self.experts.prefill_sparsity,
-                nnz=self.num_experts,
+                sparsity=down_sparsity,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
                 output_tile=output_tile,
                 is_input_a_sparse=True,
@@ -1577,15 +1859,12 @@ class _ActiveExpertTPMLP(MLP):
                 ),
                 compute_kernel_config=self.expert_compute_kernel_config,
                 dtype=self.expert_intermediate_dtype,
+                **({} if self.prefill_token_group_sparsity else {"nnz": self.num_experts}),
             )
-            split_sequence = down_input_split.shape[2]
+            if self.prefill_token_group_sparsity:
+                down_sparsity.deallocate(True)
             down_input_split.deallocate(True)
-            next_states = ttnn.reshape(
-                down,
-                (batch_size, self.num_experts, split_sequence, self.hidden_size),
-            )
-            down_bias = ttnn.transpose(self.prefill_down_bias, 1, 0)
-            next_states = ttnn.add(next_states, down_bias, output_tensor=next_states)
+            next_states = ttnn.reshape(down, (batch_size, self.num_experts, split_sequence, self.hidden_size))
             next_states = apply_routing_weights(next_states, routing_split)
             routing_split.deallocate(True)
             if next_states.dtype == ttnn.bfloat4_b:
@@ -1601,6 +1880,12 @@ class _ActiveExpertTPMLP(MLP):
                 reduced_accumulator.deallocate(True)
                 reduced.deallocate(True)
                 reduced_accumulator = concatenated
+        if reduced_accumulator.dtype != bias_term.dtype:
+            converted = ttnn.typecast(bias_term, reduced_accumulator.dtype)
+            bias_term.deallocate(True)
+            bias_term = converted
+        reduced_accumulator = ttnn.add(reduced_accumulator, bias_term, output_tensor=reduced_accumulator)
+        bias_term.deallocate(True)
         return reduced_accumulator
 
     def _run_packed_prefill(self, hidden_states, routing_weights):
@@ -1641,17 +1926,760 @@ class _ActiveExpertTPMLP(MLP):
             (1, 1, max(ttnn.TILE_SIZE, sequence_length), self.hidden_size),
         )
 
+    _PREFILL_ROUTING_GRANULARITY = 64
+
+    def _prefill_constant(self, key, build):
+        """Return a setup-only device constant for the untraced prefill path."""
+        value = self._prefill_constants.get(key)
+        if value is None:
+            value = build()
+            self._prefill_constants[key] = value
+        return value
+
+    def _prefill_u32(self, host):
+        return ttnn.from_torch(
+            host,
+            device=self.mesh_device,
+            dtype=ttnn.uint32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+        )
+
+    def _debug_capture(self, name, tensor):
+        if self._prefill_debug is not None:
+            self._prefill_debug[name] = ttnn.to_torch(ttnn.get_device_tensors(tensor)[0]).clone()
+
+    @staticmethod
+    def _prefill_slab_rows(count):
+        """Return the slab height for an expert with ``count`` routed tokens.
+
+        Power-of-two tile multiples (32, 64, 128, ...) so that the number of
+        distinct matmul shapes per prefill stays small while the total slab
+        area stays within 2x of the routed slots.
+        """
+        rows = max(ttnn.TILE_SIZE, ((count + ttnn.TILE_SIZE - 1) // ttnn.TILE_SIZE) * ttnn.TILE_SIZE)
+        return 1 << (rows - 1).bit_length()
+
+    def _run_indexed_prefill(self, hidden_states):
+        """Prefill MoE with per-expert token slabs and compact indexed matmuls.
+
+        Each expert that received tokens gets a slab whose height is its
+        routed-token count rounded up to a power-of-two tile multiple.  Experts
+        with equal slab height form one group and run as one indexed sparse
+        matmul pair with compact outputs, so expert work scales with routed
+        slots (within 2x) instead of with ``experts x tokens`` and there is no
+        zero-filled expanded output.  Routing weights are applied before the
+        (linear) down projection; the down bias is folded in through the dense
+        routing weights.  Prefill is untraced, so the per-expert counts are
+        read back to the host to lay the slabs out.
+        """
+        experts = self.num_experts
+        top_k = self.top_k
+        hidden = self.hidden_size
+        padded = self.padded_local_intermediate_size
+        sequence_length = int(hidden_states.shape[2])
+        granularity = self._PREFILL_ROUTING_GRANULARITY
+        rows = ((sequence_length + granularity - 1) // granularity) * granularity
+        routed_hidden = hidden_states
+        if rows != sequence_length:
+            routed_hidden = ttnn.pad(
+                hidden_states,
+                [(0, 0), (0, 0), (0, rows - sequence_length), (0, 0)],
+                value=0.0,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+        slots = rows * top_k
+        mapper = ttnn.ReplicateTensorToMesh(self.mesh_device)
+
+        expert_indices, routing_scores = self.router(routed_hidden, True)
+        if expert_indices.layout != ttnn.TILE_LAYOUT:
+            tiled = ttnn.to_layout(expert_indices, ttnn.TILE_LAYOUT)
+            expert_indices.deallocate(True)
+            expert_indices = tiled
+        if routing_scores.layout != ttnn.TILE_LAYOUT:
+            tiled = ttnn.to_layout(routing_scores, ttnn.TILE_LAYOUT)
+            routing_scores.deallocate(True)
+            routing_scores = tiled
+        expert_indices = ttnn.reshape(expert_indices, (rows, top_k))
+        routing_scores = ttnn.reshape(routing_scores, (rows, top_k))
+        self._debug_capture("expert_indices", expert_indices)
+        self._debug_capture("routing_scores", routing_scores)
+
+        # Per-expert token counts (device) and slab layout (host).
+        expert_mask = self._prefill_constant(
+            "expert_mask",
+            lambda: ttnn.from_torch(
+                torch.zeros((1, experts), dtype=torch.int32),
+                device=self.mesh_device,
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                mesh_mapper=mapper,
+            ),
+        )
+        counts = ttnn.experimental.deepseek_prefill.masked_bincount(expert_indices, expert_mask, experts, top_k)
+        counts = ttnn.reshape(counts, (1, experts))
+        self._debug_capture("counts", counts)
+        counts_host = ttnn.to_torch(ttnn.get_device_tensors(counts)[0]).reshape(-1).to(torch.int64).tolist()
+        slab_rows = [self._prefill_slab_rows(count) if count > 0 else 0 for count in counts_host]
+        groups = {}
+        for expert, height in enumerate(slab_rows):
+            if height:
+                groups.setdefault(height, []).append(expert)
+        base_host = torch.zeros(experts, dtype=torch.int32)
+        layout = []  # (height, expert ids, start row)
+        capacity = 0
+        for height in sorted(groups):
+            members = groups[height]
+            layout.append((height, members, capacity))
+            for expert in members:
+                base_host[expert] = capacity
+                capacity += height
+        base_table = ttnn.from_torch(
+            base_host.reshape(1, experts),
+            device=self.mesh_device,
+            dtype=ttnn.uint32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=mapper,
+        )
+        counts_tiled = ttnn.to_layout(counts, ttnn.TILE_LAYOUT)
+        counts_i32 = ttnn.typecast(counts_tiled, ttnn.int32)
+        inclusive = ttnn.cumsum(counts_i32, dim=-1, dtype=ttnn.int32, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        offsets_i32 = ttnn.subtract(inclusive, counts_i32)
+        offsets_rm = ttnn.to_layout(offsets_i32, ttnn.ROW_MAJOR_LAYOUT)
+        token_offsets = ttnn.typecast(offsets_rm, ttnn.uint32)
+        for tensor in (counts, counts_tiled, counts_i32, inclusive, offsets_i32, offsets_rm):
+            tensor.deallocate(True)
+
+        # Sort the flattened routed slots by expert.  UINT16 reshape is not a
+        # device operation, so widen, flatten, and narrow.
+        indices_u32 = ttnn.typecast(expert_indices, ttnn.uint32)
+        indices_rm = ttnn.to_layout(indices_u32, ttnn.ROW_MAJOR_LAYOUT)
+        flat_u32 = ttnn.reshape(indices_rm, (1, slots))
+        flat_u16 = ttnn.typecast(flat_u32, ttnn.uint16)
+        flat_tiled = ttnn.to_layout(flat_u16, ttnn.TILE_LAYOUT)
+        sorted_experts, permutation = ttnn.sort(flat_tiled, dim=-1, descending=False)
+        sorted_rm = ttnn.reshape(ttnn.to_layout(sorted_experts, ttnn.ROW_MAJOR_LAYOUT), (1, slots))
+        permutation_rm = ttnn.reshape(ttnn.to_layout(permutation, ttnn.ROW_MAJOR_LAYOUT), (1, slots))
+        sorted_u32 = ttnn.typecast(sorted_rm, ttnn.uint32)
+        permutation_u32 = ttnn.typecast(permutation_rm, ttnn.uint32)
+        for tensor in (indices_u32, indices_rm, flat_u32, flat_u16, flat_tiled, sorted_experts, permutation, sorted_rm):
+            tensor.deallocate(True)
+
+        # ttnn.gather mis-reads long single-stick indices, so gather with a
+        # [rows, top_k] index against row-repeated tables.
+        sorted_2d = ttnn.reshape(sorted_u32, (rows, top_k))
+        offsets_table = ttnn.repeat(token_offsets, ttnn.Shape((rows, 1)))
+        offsets_by_slot = ttnn.reshape(ttnn.gather(offsets_table, -1, index=sorted_2d), (1, slots))
+        offsets_table.deallocate(True)
+        bases_table = ttnn.repeat(base_table, ttnn.Shape((rows, 1)))
+        base_by_slot = ttnn.reshape(ttnn.gather(bases_table, -1, index=sorted_2d), (1, slots))
+        bases_table.deallocate(True)
+        sorted_2d.deallocate(True)
+        positions = self._prefill_constant(
+            ("positions", slots),
+            lambda: self._prefill_u32(torch.arange(slots, dtype=torch.int32).reshape(1, slots)),
+        )
+        rank_in_expert = ttnn.subtract(positions, offsets_by_slot)
+        destinations = ttnn.add(base_by_slot, rank_in_expert)
+        source_rows = ttnn.logical_right_shift(permutation_u32, 2)
+        zero_capacity = self._prefill_u32(torch.zeros((1, capacity), dtype=torch.int32))
+        zero_slots = self._prefill_constant(
+            ("zero_slots", slots),
+            lambda: self._prefill_u32(torch.zeros((1, slots), dtype=torch.int32)),
+        )
+        dispatch_rows = ttnn.scatter(zero_capacity, -1, destinations, source_rows)
+        slot_to_destination = ttnn.scatter(zero_slots, -1, permutation_u32, destinations)
+        self._debug_capture("token_offsets", token_offsets)
+        self._debug_capture("sorted_experts", sorted_u32)
+        self._debug_capture("permutation", permutation_u32)
+        self._debug_capture("destinations", destinations)
+        self._debug_capture("dispatch_rows", dispatch_rows)
+        self._debug_capture("slot_to_destination", slot_to_destination)
+        # Routing weight of every dispatched row (zero for unused slab rows):
+        # scatter each original slot's score to that slot's destination row.
+        scores_rm = ttnn.reshape(ttnn.to_layout(routing_scores, ttnn.ROW_MAJOR_LAYOUT), (1, slots))
+        zero_capacity_bf16 = ttnn.from_torch(
+            torch.zeros((1, capacity), dtype=torch.bfloat16),
+            device=self.mesh_device,
+            dtype=ttnn.bfloat16,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=mapper,
+        )
+        row_weights_flat = ttnn.scatter(zero_capacity_bf16, -1, slot_to_destination, scores_rm)
+        self._debug_capture("row_weights_flat", row_weights_flat)
+        for tensor in (
+            token_offsets,
+            base_table,
+            offsets_by_slot,
+            base_by_slot,
+            rank_in_expert,
+            destinations,
+            source_rows,
+            sorted_u32,
+            scores_rm,
+            zero_capacity,
+            zero_capacity_bf16,
+        ):
+            tensor.deallocate(True)
+
+        # Gather every expert's tokens into its slab: [1, capacity, hidden] row major.
+        hidden_rm = ttnn.reshape(ttnn.to_layout(routed_hidden, ttnn.ROW_MAJOR_LAYOUT), (rows, hidden))
+        if routed_hidden is not hidden_states:
+            routed_hidden.deallocate(True)
+        dispatched = ttnn.embedding(
+            dispatch_rows, hidden_rm, layout=ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG
+        )
+        hidden_rm.deallocate(True)
+        dispatch_rows.deallocate(True)
+        self._debug_capture("dispatched", dispatched)
+
+        output_tile = ttnn.Tile([32, 32])
+        if self.separate_gate_up:
+            raise NotImplementedError("indexed prefill requires the packed gate/up expert layout")
+        group_outputs = []
+        for height, members, start in layout:
+            count = len(members)
+            span = count * height
+            member_ids = ttnn.from_torch(
+                torch.tensor(members, dtype=torch.int32).reshape(1, 1, 1, count),
+                device=self.mesh_device,
+                dtype=ttnn.uint32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                mesh_mapper=mapper,
+            )
+            member_ids_u16 = ttnn.typecast(member_ids, ttnn.uint16)
+            slab = ttnn.slice(dispatched, [0, start, 0], [1, start + span, hidden], [1, 1, 1])
+            slab = ttnn.reshape(slab, (1, count, height, hidden))
+            slab_tiled = ttnn.to_layout(slab, ttnn.TILE_LAYOUT)
+            slab.deallocate(True)
+            gate_up = ttnn.sparse_matmul(
+                slab_tiled,
+                self.indexed_gate_up,
+                sparsity=self.indexed_unused_sparsity,
+                indices=member_ids_u16,
+                is_input_a_sparse=True,
+                is_input_b_sparse=True,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                output_tile=output_tile,
+                program_config=self.experts.program_config.get_prefill_gate_up_config(
+                    height,
+                    self.indexed_gate_up.shape[3],
+                    k=hidden,
+                ),
+                compute_kernel_config=self.expert_compute_kernel_config,
+                dtype=self.expert_intermediate_dtype,
+            )
+            slab_tiled.deallocate(True)
+            gate_up = ttnn.reshape(gate_up, (1, count, height, 2 * padded))
+            bias_rows = ttnn.embedding(
+                member_ids,
+                self.indexed_gate_up_bias,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+                dtype=ttnn.bfloat16,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            bias_rows = ttnn.to_layout(ttnn.reshape(bias_rows, (1, count, 1, 2 * padded)), ttnn.TILE_LAYOUT)
+            gate_up = ttnn.add(gate_up, bias_rows, output_tensor=gate_up)
+            bias_rows.deallocate(True)
+            if gate_up.dtype == ttnn.bfloat4_b:
+                converted = ttnn.typecast(gate_up, self.expert_intermediate_dtype)
+                gate_up.deallocate(True)
+                gate_up = converted
+            gate = ttnn.slice(gate_up, [0, 0, 0, 0], [1, count, height, padded], [1, 1, 1, 1])
+            up = ttnn.slice(gate_up, [0, 0, 0, padded], [1, count, height, 2 * padded], [1, 1, 1, 1])
+            gate_up.deallocate(True)
+            down_input = self._fused_swiglu(gate, up)
+            up.deallocate(True)
+            weights = ttnn.slice(row_weights_flat, [0, start], [1, start + span], [1, 1])
+            weights = ttnn.to_layout(ttnn.reshape(weights, (1, count, height, 1)), ttnn.TILE_LAYOUT)
+            down_input = ttnn.mul(down_input, weights, output_tensor=down_input)
+            weights.deallocate(True)
+            down = ttnn.sparse_matmul(
+                down_input,
+                self.indexed_down,
+                sparsity=self.indexed_unused_sparsity,
+                indices=member_ids_u16,
+                is_input_a_sparse=True,
+                is_input_b_sparse=True,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                output_tile=output_tile,
+                program_config=self.experts.program_config.get_prefill_down_config(
+                    height,
+                    self.indexed_down.shape[-1],
+                    k=padded,
+                ),
+                compute_kernel_config=self.expert_compute_kernel_config,
+                dtype=self.expert_intermediate_dtype,
+            )
+            down_input.deallocate(True)
+            member_ids.deallocate(True)
+            member_ids_u16.deallocate(True)
+            if down.dtype != ttnn.bfloat16:
+                converted = ttnn.typecast(down, ttnn.bfloat16)
+                down.deallocate(True)
+                down = converted
+            down_rows = ttnn.reshape(ttnn.to_layout(down, ttnn.ROW_MAJOR_LAYOUT), (span, hidden))
+            down.deallocate(True)
+            group_outputs.append(down_rows)
+        dispatched.deallocate(True)
+        row_weights_flat.deallocate(True)
+        if len(group_outputs) == 1:
+            out_rows = group_outputs[0]
+        else:
+            out_rows = ttnn.concat(group_outputs, dim=0)
+            for tensor in group_outputs:
+                tensor.deallocate(True)
+
+        # Gather each token's top_k weighted expert rows back and sum them.
+        slot_matrix = ttnn.reshape(slot_to_destination, (rows, top_k))
+        combined = None
+        for k in range(top_k):
+            slot_column = ttnn.reshape(ttnn.slice(slot_matrix, [0, k], [rows, k + 1], [1, 1]), (1, rows))
+            gathered = ttnn.embedding(
+                slot_column, out_rows, layout=ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG
+            )
+            slot_column.deallocate(True)
+            gathered = ttnn.to_layout(ttnn.reshape(gathered, (1, 1, rows, hidden)), ttnn.TILE_LAYOUT)
+            if combined is None:
+                combined = gathered
+            else:
+                combined = ttnn.add(combined, gathered, output_tensor=combined)
+                gathered.deallocate(True)
+        slot_to_destination.deallocate(True)
+        out_rows.deallocate(True)
+
+        # Down bias through the dense routing weights.
+        routing_dense = self.router.scatter_dense_routing(expert_indices, routing_scores, deallocate=True)
+        bias_term = ttnn.matmul(
+            routing_dense,
+            self.grouped_down_bias,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            dtype=ttnn.bfloat16,
+            compute_kernel_config=self.router.compute_config,
+        )
+        routing_dense.deallocate(True)
+        bias_term = ttnn.reshape(bias_term, (1, 1, rows, hidden))
+        combined = ttnn.add(combined, bias_term, output_tensor=combined)
+        bias_term.deallocate(True)
+        if rows != sequence_length:
+            trimmed = ttnn.slice(combined, [0, 0, 0, 0], [1, 1, sequence_length, hidden], [1, 1, 1, 1])
+            combined.deallocate(True)
+            combined = trimmed
+        if combined.dtype != self.activation_ccl_dtype:
+            converted = ttnn.typecast(combined, self.activation_ccl_dtype)
+            combined.deallocate(True)
+            combined = converted
+        output = apply_tensor_parallel_allreduce(
+            combined,
+            self.mesh_config,
+            self.mesh_device,
+            sequence_length,
+            self.ccl_manager,
+        )
+        return ttnn.reshape(
+            output,
+            (1, 1, sequence_length, hidden),
+            (1, 1, max(ttnn.TILE_SIZE, sequence_length), hidden),
+        )
+
     def _run_one(self, hidden_states, *, is_decode):
         if is_decode:
             return self._run_indexed_decode(hidden_states)
+        if self.indexed_prefill and int(hidden_states.shape[-2]) >= self.indexed_prefill_min_tokens:
+            return self._run_indexed_prefill(hidden_states)
         expert_indices, expert_weights = self.router(hidden_states, False)
         output = self._run_packed_prefill(hidden_states, expert_weights)
         expert_indices.deallocate(True)
         return output
 
+    def _slot_selector(self, batch_size):
+        """Return the [1, top_k*batch, batch, 1] one-hot that maps slot (u, k) to row u.
+
+        Created on the first (untraced) call for a batch width and reused by
+        every later call, so trace capture never allocates it.
+        """
+        selector = self._slot_selectors.get(batch_size)
+        if selector is None:
+            host = torch.zeros((1, self.top_k * batch_size, batch_size, 1), dtype=torch.bfloat16)
+            for user in range(batch_size):
+                host[0, user * self.top_k : (user + 1) * self.top_k, user, 0] = 1.0
+            # DRAM resident: persistent per-layer L1 tensors crowd out the
+            # sampler's static circular buffers at the end of the decode step.
+            selector = ttnn.from_torch(
+                host,
+                device=self.mesh_device,
+                layout=ttnn.TILE_LAYOUT,
+                dtype=ttnn.bfloat16,
+                mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            self._slot_selectors[batch_size] = selector
+        return selector
+
+    def _fused_swiglu(self, gate, up):
+        """GPT-OSS SwiGLU (clamped gate/up, alpha-scaled sigmoid) in two fused passes.
+
+        ``glu = min(gate, limit) * sigmoid(alpha * min(gate, limit))`` and
+        ``out = glu * (clamp(up, -limit, limit) + 1)``; the unary chains run
+        inside the two binary kernels instead of as seven separate passes.
+        """
+        config = self.experts.config
+        limit = float(config.swiglu_limit)
+        alpha = float(config.alpha)
+        clamp_gate = ttnn.UnaryWithParam(ttnn.UnaryOpType.MINIMUM, limit)
+        glu = ttnn.mul(
+            gate,
+            gate,
+            input_tensor_a_activations=[clamp_gate],
+            input_tensor_b_activations=[
+                clamp_gate,
+                ttnn.UnaryWithParam(ttnn.UnaryOpType.MUL_UNARY_SFPU, alpha),
+                ttnn.UnaryWithParam(ttnn.UnaryOpType.SIGMOID),
+            ],
+            output_tensor=gate,
+        )
+        return ttnn.mul(
+            glu,
+            up,
+            input_tensor_b_activations=[
+                ttnn.UnaryWithParam(ttnn.UnaryOpType.HARDTANH, -limit, limit),
+                ttnn.UnaryWithParam(ttnn.UnaryOpType.ADD_UNARY_SFPU, 1.0),
+            ],
+            output_tensor=glu,
+        )
+
+    def _routed_down_bias(self, routing_dense, rows):
+        """Return sum_e w[row, e] * down_bias[e] as [1, 1, rows, hidden] via one small matmul."""
+        bias_term = ttnn.matmul(
+            routing_dense,
+            self.grouped_down_bias,
+            memory_config=ttnn.L1_MEMORY_CONFIG,
+            dtype=ttnn.bfloat16,
+            compute_kernel_config=self.router.compute_config,
+        )
+        return ttnn.reshape(bias_term, (1, 1, rows, self.hidden_size))
+
+    def _run_indexed_slots_decode(self, hidden_states):
+        """Run a small decode batch through its top_k*batch gathered expert slots.
+
+        Slot (u, k) computes user u's k-th expert for every row of the tile;
+        the routing score of (u, k) is applied to row u only, before the down
+        projection, and one reduction over slots yields the [1, 1, batch,
+        hidden] block output.  Duplicate experts across users are computed
+        twice, which keeps the trace shape static.  The down bias is folded in
+        through the dense routing weights with one small matmul.
+        """
+        batch_size = int(hidden_states.shape[-2])
+        slots = self.top_k * batch_size
+        rows = int(hidden_states.shape[2])
+        expert_indices, routing_scores = self.router(hidden_states, True)
+        if expert_indices.layout != ttnn.ROW_MAJOR_LAYOUT:
+            expert_indices_rm = ttnn.to_layout(expert_indices, ttnn.ROW_MAJOR_LAYOUT)
+        else:
+            expert_indices_rm = expert_indices
+        # Flatten [batch, top_k] into one ROW_MAJOR stick of slot ids.  UINT16
+        # reshape is not a device operation, so widen, flatten, and narrow.
+        indices_u32 = ttnn.typecast(expert_indices_rm, ttnn.uint32)
+        if expert_indices_rm is not expert_indices:
+            expert_indices_rm.deallocate(True)
+        embedding_indices = ttnn.reshape(indices_u32, (1, 1, 1, slots))
+        slot_indices = ttnn.typecast(embedding_indices, ttnn.uint16)
+        routing_dense = self.router.scatter_dense_routing(expert_indices, routing_scores, deallocate=False)
+        output_tile = ttnn.Tile([32, 32])
+
+        def gather_bias(bias, width):
+            # Gather in ROW_MAJOR so the [1, slots, 1, width] view is free, then
+            # tilize once; a TILE-layout reshape would untilize and retilize the
+            # 32-row padded form of every slot.
+            gathered = ttnn.embedding(
+                embedding_indices,
+                bias,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+                dtype=ttnn.bfloat16,
+                memory_config=ttnn.L1_MEMORY_CONFIG,
+            )
+            gathered = ttnn.reshape(gathered, (1, slots, 1, width))
+            tiled = ttnn.to_layout(gathered, ttnn.TILE_LAYOUT)
+            gathered.deallocate(True)
+            return tiled
+
+        if self.separate_gate_up:
+            projections = []
+            for weight, bias in (
+                (self.indexed_gate, self.indexed_gate_bias),
+                (self.indexed_up, self.indexed_up_bias),
+            ):
+                projected = ttnn.sparse_matmul(
+                    hidden_states,
+                    weight,
+                    sparsity=self.indexed_unused_sparsity,
+                    indices=slot_indices,
+                    is_input_b_sparse=True,
+                    memory_config=ttnn.L1_MEMORY_CONFIG,
+                    output_tile=output_tile,
+                    program_config=self.experts.program_config.get_decode_gate_up_config(
+                        rows,
+                        weight.shape[3],
+                        k=hidden_states.shape[-1],
+                    ),
+                    compute_kernel_config=self.expert_compute_kernel_config,
+                    dtype=self.expert_intermediate_dtype,
+                )
+                projected = ttnn.reshape(projected, (1, slots, rows, self.padded_local_intermediate_size))
+                projected_bias = gather_bias(bias, self.padded_local_intermediate_size)
+                projected = ttnn.add(projected, projected_bias, output_tensor=projected)
+                projected_bias.deallocate(True)
+                projections.append(projected)
+            gate, up = projections
+        else:
+            gate_up = ttnn.sparse_matmul(
+                hidden_states,
+                self.indexed_gate_up,
+                sparsity=self.indexed_unused_sparsity,
+                indices=slot_indices,
+                is_input_b_sparse=True,
+                memory_config=ttnn.L1_MEMORY_CONFIG,
+                output_tile=output_tile,
+                program_config=self.experts.program_config.get_decode_gate_up_config(
+                    rows,
+                    self.indexed_gate_up.shape[3],
+                    k=hidden_states.shape[-1],
+                ),
+                compute_kernel_config=self.expert_compute_kernel_config,
+                dtype=self.expert_intermediate_dtype,
+            )
+            gate_up = ttnn.reshape(gate_up, (1, slots, rows, 2 * self.padded_local_intermediate_size))
+            gate_up_bias = gather_bias(self.indexed_gate_up_bias, 2 * self.padded_local_intermediate_size)
+            gate_up = ttnn.add(gate_up, gate_up_bias, output_tensor=gate_up)
+            gate_up_bias.deallocate(True)
+            if gate_up.dtype == ttnn.bfloat4_b:
+                converted = ttnn.typecast(gate_up, self.expert_intermediate_dtype)
+                gate_up.deallocate(True)
+                gate_up = converted
+            gate = ttnn.slice(
+                gate_up,
+                [0, 0, 0, 0],
+                [1, slots, rows, self.padded_local_intermediate_size],
+                [1, 1, 1, 1],
+            )
+            up = ttnn.slice(
+                gate_up,
+                [0, 0, 0, self.padded_local_intermediate_size],
+                [1, slots, rows, 2 * self.padded_local_intermediate_size],
+                [1, 1, 1, 1],
+            )
+            gate_up.deallocate(True)
+        down_input = self._fused_swiglu(gate, up)
+        up.deallocate(True)
+
+        # Per-slot, per-row weight: routing score of (u, k) on row u, zero elsewhere,
+        # applied before the (linear) down projection on the narrower tensor.
+        if routing_scores.layout != ttnn.TILE_LAYOUT:
+            scores_tiled = ttnn.to_layout(routing_scores, ttnn.TILE_LAYOUT)
+        else:
+            scores_tiled = routing_scores
+        scores_4d = ttnn.reshape(scores_tiled, (1, slots, 1, 1))
+        slot_weights = ttnn.mul(self._slot_selector(batch_size), scores_4d)
+        scores_4d.deallocate(True)
+        if scores_tiled is not routing_scores:
+            scores_tiled.deallocate(True)
+        down_input = ttnn.mul(down_input, slot_weights, output_tensor=down_input)
+        slot_weights.deallocate(True)
+
+        down = ttnn.sparse_matmul(
+            down_input,
+            self.indexed_down,
+            sparsity=self.indexed_unused_sparsity,
+            indices=slot_indices,
+            memory_config=ttnn.L1_MEMORY_CONFIG,
+            output_tile=output_tile,
+            is_input_a_sparse=True,
+            is_input_b_sparse=True,
+            program_config=(
+                self.experts.program_config.get_prefill_down_config(
+                    rows,
+                    self.indexed_down.shape[-1],
+                    k=down_input.shape[-1],
+                )
+                if slots > self.top_k
+                else self.experts.program_config.get_decode_down_config(
+                    rows,
+                    self.indexed_down.shape[-1],
+                    k=down_input.shape[-1],
+                )
+            ),
+            compute_kernel_config=self.expert_compute_kernel_config,
+            dtype=self.expert_intermediate_dtype,
+        )
+        down_input.deallocate(True)
+        slot_indices.deallocate(True)
+        embedding_indices.deallocate(True)
+        indices_u32.deallocate(True)
+        expert_indices.deallocate(True)
+        routing_scores.deallocate(True)
+        output = ttnn.reshape(down, (1, slots, rows, self.hidden_size))
+        if output.dtype == ttnn.bfloat4_b:
+            converted = ttnn.typecast(output, self.expert_intermediate_dtype)
+            output.deallocate(True)
+            output = converted
+        reduced = reduce_experts(output)
+        output.deallocate(True)
+        # fast_reduce_nc reports the padded 32-row shape; restore the logical rows
+        # so the bias add sees matching [1, 1, batch, hidden] operands.
+        reduced = ttnn.reshape(
+            reduced,
+            (1, 1, rows, self.hidden_size),
+            (1, 1, ttnn.TILE_SIZE, self.hidden_size),
+        )
+        bias_term = self._routed_down_bias(routing_dense, rows)
+        routing_dense.deallocate(True)
+        reduced = ttnn.add(reduced, bias_term, output_tensor=reduced)
+        bias_term.deallocate(True)
+        return self._finish_decode_block(reduced, batch_size)
+
+    def _finish_decode_block(self, reduced, batch_size):
+        """All-reduce the per-rank partial block output and restore the [1, 1, batch, hidden] view."""
+        if reduced.dtype != self.activation_ccl_dtype:
+            converted = ttnn.typecast(reduced, self.activation_ccl_dtype)
+            reduced.deallocate(True)
+            reduced = converted
+        reduced = apply_tensor_parallel_allreduce(
+            reduced,
+            self.mesh_config,
+            self.mesh_device,
+            ttnn.TILE_SIZE,
+            self.ccl_manager,
+        )
+        return ttnn.reshape(
+            reduced,
+            (1, 1, batch_size, self.hidden_size),
+            (1, 1, ttnn.TILE_SIZE, self.hidden_size),
+        )
+
+    def _run_grouped_decode(self, hidden_states):
+        """Run every decode user through one 32-row group of gate-selected experts.
+
+        The decode activation already occupies one physical 32-row tile, so a
+        batch of up to 32 users is one token group: the sparse expert matmuls
+        read each expert in the batch's union once for all rows, and the dense
+        per-row routing weights (applied before the linear down projection)
+        keep each user's own top-k contributions.  Padded rows are zero: they
+        add no experts to the union and contribute zero output.  The down bias
+        is folded in through the dense routing weights with one small matmul.
+        """
+        batch_size = int(hidden_states.shape[-2])
+        rows = ttnn.TILE_SIZE
+        experts = self.num_experts
+        local = self.padded_local_intermediate_size
+        memory_config = ttnn.L1_MEMORY_CONFIG if self.grouped_decode_l1 else ttnn.DRAM_MEMORY_CONFIG
+        output_tile = ttnn.Tile([32, 32])
+
+        routing_dense = self.router.dense_decode_routing(hidden_states)
+        grouped_hidden = hidden_states
+        if ttnn.is_sharded(grouped_hidden):
+            grouped_hidden = ttnn.to_memory_config(grouped_hidden, memory_config)
+        if batch_size != rows:
+            padded_hidden = ttnn.pad(
+                grouped_hidden,
+                [(0, 0), (0, 0), (0, rows - batch_size), (0, 0)],
+                value=0.0,
+                memory_config=memory_config,
+            )
+            if grouped_hidden is not hidden_states:
+                grouped_hidden.deallocate(True)
+            grouped_hidden = padded_hidden
+            padded_routing = ttnn.pad(
+                routing_dense,
+                [(0, rows - batch_size), (0, 0)],
+                value=0.0,
+                memory_config=ttnn.L1_MEMORY_CONFIG,
+            )
+            routing_dense.deallocate(True)
+            routing_dense = padded_routing
+
+        # Union of the batch's experts: positive where any row routes to the expert.
+        routing_4d = ttnn.reshape(routing_dense, (1, 1, rows, experts))
+        group_sum = ttnn.sum(routing_4d, dim=2, keepdim=True)
+        sparsity = ttnn.to_layout(group_sum, ttnn.ROW_MAJOR_LAYOUT)
+        group_sum.deallocate(True)
+
+        gate_up = ttnn.sparse_matmul(
+            grouped_hidden,
+            self.indexed_gate_up,
+            sparsity=sparsity,
+            memory_config=memory_config,
+            output_tile=output_tile,
+            program_config=self.experts.program_config.get_prefill_gate_up_config(
+                rows,
+                self.indexed_gate_up.shape[3],
+                k=grouped_hidden.shape[-1],
+            ),
+            compute_kernel_config=self.expert_compute_kernel_config,
+            dtype=self.expert_intermediate_dtype,
+        )
+        if grouped_hidden is not hidden_states:
+            grouped_hidden.deallocate(True)
+        # [1, 1, 1, experts, rows, width] -> expert-major view.
+        gate_up = ttnn.reshape(gate_up, (1, experts, rows, 2 * local))
+        gate_up = ttnn.add(gate_up, self.prefill_gate_up_bias, output_tensor=gate_up)
+        if gate_up.dtype == ttnn.bfloat4_b:
+            converted = ttnn.typecast(gate_up, self.expert_intermediate_dtype)
+            gate_up.deallocate(True)
+            gate_up = converted
+        gate = ttnn.slice(gate_up, [0, 0, 0, 0], [1, experts, rows, local], [1, 1, 1, 1])
+        up = ttnn.slice(gate_up, [0, 0, 0, local], [1, experts, rows, 2 * local], [1, 1, 1, 1])
+        gate_up.deallocate(True)
+        down_input = self._fused_swiglu(gate, up)
+        up.deallocate(True)
+
+        # Routing weights per (expert, row), applied before the linear down projection.
+        routing_t = ttnn.permute(routing_dense, (1, 0))
+        routing_t = ttnn.reshape(routing_t, (1, experts, rows, 1))
+        down_input = ttnn.mul(down_input, routing_t, output_tensor=down_input)
+        routing_t.deallocate(True)
+
+        down = ttnn.sparse_matmul(
+            down_input,
+            self.indexed_down,
+            sparsity=sparsity,
+            memory_config=memory_config,
+            output_tile=output_tile,
+            is_input_a_sparse=True,
+            program_config=self.experts.program_config.get_prefill_down_config(
+                rows,
+                self.indexed_down.shape[-1],
+                k=down_input.shape[-1],
+            ),
+            compute_kernel_config=self.expert_compute_kernel_config,
+            dtype=self.expert_intermediate_dtype,
+        )
+        down_input.deallocate(True)
+        sparsity.deallocate(True)
+        down = ttnn.reshape(down, (1, experts, rows, self.hidden_size))
+        if down.dtype == ttnn.bfloat4_b:
+            converted = ttnn.typecast(down, self.expert_intermediate_dtype)
+            down.deallocate(True)
+            down = converted
+        reduced = reduce_experts(down)
+        down.deallocate(True)
+        bias_term = self._routed_down_bias(routing_dense, rows)
+        routing_dense.deallocate(True)
+        reduced = ttnn.add(reduced, bias_term, output_tensor=reduced)
+        bias_term.deallocate(True)
+        return self._finish_decode_block(reduced, batch_size)
+
     def __call__(self, hidden_states, *, is_decode):
         if not is_decode or hidden_states.shape[-2] == 1:
             return self._run_one(hidden_states, is_decode=is_decode)
+        if self.grouped_decode_batch:
+            if hidden_states.shape[-2] <= self.indexed_slots_max_batch:
+                return self._run_indexed_slots_decode(hidden_states)
+            return self._run_grouped_decode(hidden_states)
 
         # The reusable sparse expert decode kernel represents users as its
         # batch dimension and currently accepts B=1.  Keep the autoport's
@@ -1703,6 +2731,9 @@ class MultichipDecoder(LightweightModule):
         "decode_attention_bfp8_prefill_attention_bf16_expert_bf16_collectives",
         "decode_lofi_prefill_qkv_hifi2_o_lofi_attention_projections",
         "sparse_expert_decode_45x15_prefill_45x45_geometry_with_tp2_gate_subblock2",
+        "fused_decode_router",
+        "route_derived_prefill_token_group_expert_sparsity",
+        "layer_aware_long_prefill_sdpa_chunks",
         "tp2_dram_sharded_output_projection",
         "replicated_decode_l1_prefill_dram_stack_residual_contract",
     )
@@ -1753,7 +2784,12 @@ class MultichipDecoder(LightweightModule):
                 policy=optimized_policy,
                 create_kv_cache=create_kv_cache,
             )
-            return cls(backend=backend, tensor_plan=plan, policy=policy, single_chip_policy=backend.policy)
+            return cls(
+                backend=backend,
+                tensor_plan=plan,
+                policy=policy,
+                single_chip_policy=backend.policy,
+            )
 
         if optimized_policy is not None:
             raise ValueError("optimized_policy configures only the exact TP=1 OptimizedDecoder baseline")
@@ -1770,7 +2806,17 @@ class MultichipDecoder(LightweightModule):
             num_links=get_default_num_links(mesh_device),
             topology=policy.topology,
         )
-        program_config = GPTOSSAttentionProgramConfig(math_fidelity=policy.attention_sdpa_math_fidelity.name)
+        if layer_type == "sliding_attention":
+            prefill_q_chunk_size_large = policy.prefill_sliding_q_chunk_size_large
+            prefill_k_chunk_size_large = policy.prefill_sliding_k_chunk_size_large
+        else:
+            prefill_q_chunk_size_large = policy.prefill_full_q_chunk_size_large
+            prefill_k_chunk_size_large = policy.prefill_full_k_chunk_size_large
+        program_config = GPTOSSAttentionProgramConfig(
+            math_fidelity=policy.attention_sdpa_math_fidelity.name,
+            prefill_q_chunk_size_large=prefill_q_chunk_size_large,
+            prefill_k_chunk_size_large=prefill_k_chunk_size_large,
+        )
         physical_context_length = (
             math.ceil(max_context_length / program_config.decode_k_chunk_size) * program_config.decode_k_chunk_size
         )
@@ -1787,7 +2833,7 @@ class MultichipDecoder(LightweightModule):
             num_heads=hf_config.num_attention_heads,
             num_kv_heads=hf_config.num_key_value_heads,
             head_dim=hf_config.head_dim,
-            sliding_window=hf_config.sliding_window if layer_type == "sliding_attention" else None,
+            sliding_window=(hf_config.sliding_window if layer_type == "sliding_attention" else None),
             max_seq_len=max_context_length,
             max_local_batch_size=max_batch_size,
             users_row_sharded=False,
@@ -2104,6 +3150,13 @@ class MultichipDecoder(LightweightModule):
                 expert_intermediate_dtype=policy.expert_intermediate_dtype,
                 router_prefill_input_l1=policy.router_prefill_input_l1,
                 router_prefill_explicit_program_config=policy.router_prefill_explicit_program_config,
+                decode_fused_router=policy.decode_fused_router,
+                prefill_token_group_sparsity=policy.prefill_token_group_sparsity,
+                grouped_decode_batch=policy.decode_grouped_batch,
+                indexed_slots_max_batch=policy.decode_indexed_slots_max_batch,
+                grouped_decode_l1=policy.decode_grouped_l1,
+                indexed_prefill=policy.prefill_indexed_experts,
+                indexed_prefill_min_tokens=policy.prefill_indexed_min_tokens,
                 activation_ccl_dtype=policy.expert_activation_ccl_dtype or policy.activation_ccl_dtype,
                 separate_gate_up=policy.decode_separate_gate_up,
                 gate_up_cores=policy.expert_gate_up_cores,
@@ -2190,6 +3243,9 @@ __all__ = [
     "MultichipDecoder",
     "MultichipDecoderPolicy",
     "MultichipTensorPlan",
+    "PER_USER_LOOP_DECODE_MULTICHIP_POLICY",
+    "INDEXED_PREFILL_MULTICHIP_POLICY",
+    "PACKED_GROUP_PREFILL_MULTICHIP_POLICY",
     "SUPPORTED_MESH_SHAPES",
     "tensor_plan",
 ]

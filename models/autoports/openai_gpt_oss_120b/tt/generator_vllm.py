@@ -26,7 +26,13 @@ import torch
 
 import ttnn
 from models.autoports.openai_gpt_oss_120b.tt.generator import GREEDY, Generator
-from models.autoports.openai_gpt_oss_120b.tt.model import HF_CONTEXT_LENGTH, MODEL_LAYERS, FullModelCapacityError, Model
+from models.autoports.openai_gpt_oss_120b.tt.model import (
+    HF_CONTEXT_LENGTH,
+    MODEL_LAYERS,
+    FullModelCapacityError,
+    Model,
+    decode_trace_buckets,
+)
 from models.autoports.openai_gpt_oss_120b.tt.precision import dtype_name
 from models.demos.gpt_oss.utils.general_utils import get_cache_file_name
 
@@ -64,11 +70,30 @@ def _sampling_key(sampling_params) -> tuple | None:
     return _freeze(vars(sampling_params))
 
 
+def _sampling_params_to_host_values(sampling_params):
+    """Materialize tensor-backed vLLM parameters only when device state changes."""
+
+    if sampling_params is None or not is_dataclass(sampling_params):
+        return sampling_params
+    values = {}
+    for field in fields(sampling_params):
+        value = getattr(sampling_params, field.name)
+        if isinstance(value, torch.Tensor):
+            value = value.detach().cpu().tolist()
+        if field.name == "seed":
+            if isinstance(value, list):
+                value = [None if seed == -1 else seed for seed in value]
+            elif value == -1:
+                value = None
+        values[field.name] = value
+    return type(sampling_params)(**values)
+
+
 def _all_none(value) -> bool:
     if value is None:
         return True
     if isinstance(value, torch.Tensor):
-        return value.numel() == 0
+        return value.numel() == 0 or bool(torch.all(value == -1))
     if isinstance(value, (list, tuple)):
         return all(item is None for item in value)
     return False
@@ -101,13 +126,15 @@ class TTGptOssForCausalLM:
     # Both widths are prepared during warmup. Advertising them lets the shared
     # runner keep singleton host-sampling requests at B1 instead of padding an
     # exact full-vocabulary fallback to the serving-width B32 eager graph.
-    tt_supported_decode_batch_sizes = (1, MAX_CONCURRENT_SEQS)
+    tt_supported_decode_batch_sizes = decode_trace_buckets(MAX_CONCURRENT_SEQS)
     model_capabilities = {
         "supports_prefix_caching": False,
         "supports_async_decode": True,
         "supports_sample_on_device": True,
         "max_device_sampling_top_k": 32,
         "supports_batched_prefill": True,
+        "accepts_tensor_sampling_params": True,
+        "accepts_serving_state_ids": True,
     }
 
     def __init__(
@@ -126,12 +153,16 @@ class TTGptOssForCausalLM:
         self.model_args = model_args
         self.mesh_device = mesh_device
         self.max_batch_size = int(max_batch_size)
+        # Advertise only the buckets this instance warms and captures.
+        self.tt_supported_decode_batch_sizes = decode_trace_buckets(self.max_batch_size)
         self.max_model_len = int(max_model_len)
         self.hf_config = hf_config
         self.generator: Generator | None = None
         self.page_table_blocks = math.ceil(self.max_model_len / PAGE_SIZE)
         self._last_page_tables: list[torch.Tensor | Any] | None = None
+        self._last_page_table_state_id: Any | None = None
         self._last_sampling_key: tuple | None = None
+        self._last_sampling_state_id: int | None = None
         self._last_decode_was_device_sampled = True
         self._active_decode_bucket: int | None = None
         self._decode_bucket_compile_key: tuple | None = None
@@ -410,7 +441,14 @@ class TTGptOssForCausalLM:
     def _slice_page_tables(page_tables, width: int):
         if page_tables is None:
             return None
-        return [table[:width] if isinstance(table, torch.Tensor) else table for table in page_tables]
+        sliced = {}
+        result = []
+        for table in page_tables:
+            key = id(table)
+            if key not in sliced:
+                sliced[key] = table[:width] if isinstance(table, torch.Tensor) else table
+            result.append(sliced[key])
+        return result
 
     def _decode_bucket(self, *, start_pos, slot_remap, device_sampling: bool, enable_trace: bool) -> int:
         width = int(torch.as_tensor(start_pos).numel())
@@ -446,17 +484,38 @@ class TTGptOssForCausalLM:
         return False
 
     @contextmanager
-    def _route_page_tables(self, page_tables_per_layer, page_table, *, update_persistent=True):
+    def _route_page_tables(
+        self,
+        page_tables_per_layer,
+        page_table,
+        *,
+        update_persistent=True,
+        page_table_state_id=None,
+    ):
         tables = self._normalise_page_tables(page_tables_per_layer, page_table)
         if update_persistent:
-            changed = self._last_page_tables is None or any(
-                not self._page_table_equal(old, new) for old, new in zip(self._last_page_tables or [], tables)
+            changed = self._last_page_tables is None or (
+                page_table_state_id is not None and page_table_state_id != self._last_page_table_state_id
             )
+            if not changed and page_table_state_id is None:
+                comparisons = {}
+                for old, new in zip(self._last_page_tables or [], tables):
+                    pair = (id(old), id(new))
+                    if pair not in comparisons:
+                        comparisons[pair] = self._page_table_equal(old, new)
+                    if not comparisons[pair]:
+                        changed = True
+                        break
             if changed:
                 self.model.update_persistent_per_layer_page_tables(tables)
-                self._last_page_tables = [
-                    table.clone() if isinstance(table, torch.Tensor) else table for table in tables
-                ]
+                clones = {}
+                self._last_page_tables = []
+                for table in tables:
+                    key = id(table)
+                    if key not in clones:
+                        clones[key] = table.clone() if isinstance(table, torch.Tensor) else table
+                    self._last_page_tables.append(clones[key])
+                self._last_page_table_state_id = page_table_state_id
                 self.serving_counters["page_table_refreshes"] += 1
             else:
                 self.serving_counters["page_table_reuses"] += 1
@@ -535,6 +594,7 @@ class TTGptOssForCausalLM:
             lifecycle_changed = True
         self.serving_counters["prefill_calls"] += 1
         self._last_sampling_key = None
+        self._last_sampling_state_id = None
         # EngineCore multiprocessing may bypass Python atexit. Persist the
         # rare trace-lifecycle transitions here so capability evidence cannot
         # remain an initial zero-counter snapshot. This is never on steady
@@ -557,6 +617,8 @@ class TTGptOssForCausalLM:
         slot_remap=None,
         reset_batch=False,
         removal_only_reset: bool = False,
+        sampling_state_id: int | None = None,
+        page_table_state_id: int | None = None,
         enable_trace=True,
         read_from_device=True,
         **kwargs,
@@ -641,16 +703,30 @@ class TTGptOssForCausalLM:
         # declared B1 bucket.  Route only the selected bucket's rows into the
         # matching persistent buffers; B32 inputs are unchanged by the slice.
         page_tables_per_layer = self._slice_page_tables(page_tables_per_layer, bucket)
-        key = _sampling_key(sampling_params)
-        reuse_sampling = (
+        can_reuse_sampling = (
             device_sampling
             and enable_trace
             and not reset_batch
             and not bucket_changed
             and self._sampling_state_reusable(sampling_params)
-            and self._last_sampling_key == key
+            and self._last_sampling_key is not None
         )
-        with self._route_page_tables(page_tables_per_layer, page_table):
+        state_id_matches = sampling_state_id is not None and sampling_state_id == self._last_sampling_state_id
+        sampling_params_for_device = None
+        if can_reuse_sampling and state_id_matches:
+            reuse_sampling = True
+            key = self._last_sampling_key
+        else:
+            sampling_params_for_device = _sampling_params_to_host_values(sampling_params)
+            key = _sampling_key(sampling_params_for_device)
+            reuse_sampling = can_reuse_sampling and sampling_state_id is None and self._last_sampling_key == key
+            if reuse_sampling:
+                sampling_params_for_device = None
+        with self._route_page_tables(
+            page_tables_per_layer,
+            page_table,
+            page_table_state_id=((page_table_state_id, bucket) if page_table_state_id is not None else None),
+        ):
             result = generator.decode_forward(
                 torch.as_tensor(tokens),
                 torch.as_tensor(start_pos),
@@ -658,7 +734,7 @@ class TTGptOssForCausalLM:
                 kv_cache=kv_cache,
                 enable_trace=enable_trace,
                 sampling_mode="device" if device_sampling else "host",
-                sampling_params=None if reuse_sampling else sampling_params,
+                sampling_params=sampling_params_for_device,
                 reset_batch=reset_batch,
                 force_host_tokens=force_host_tokens,
                 prompt_tokens=prompt_tokens,
@@ -679,6 +755,7 @@ class TTGptOssForCausalLM:
             device_sampling
         )
         self._last_sampling_key = key if device_sampling else None
+        self._last_sampling_state_id = sampling_state_id if device_sampling else None
         self._last_decode_was_device_sampled = device_sampling
         return result
 
@@ -758,7 +835,7 @@ class TTGptOssForCausalLM:
         **kwargs,
     ):
         del kwargs
-        widths = [1] if int(max_batch_size) == 1 else [1, int(max_batch_size)]
+        widths = list(decode_trace_buckets(int(max_batch_size)))
         compile_key = (tuple(widths), int(num_blocks), bool(can_sample_on_device))
         result = None
         if self._decode_bucket_compile_key != compile_key:
@@ -803,6 +880,7 @@ class TTGptOssForCausalLM:
                 self._device_trace_recapture_requires_reset = True
         self._activate_decode_bucket(int(max_batch_size))
         self._last_sampling_key = None
+        self._last_sampling_state_id = None
         return result
 
     def _restore_device_decode_traces(self, kv_cache) -> None:
@@ -819,6 +897,7 @@ class TTGptOssForCausalLM:
                 self._require_generator().capture_prepared_model_decode_trace(prepared)
         self._activate_decode_bucket(self.max_batch_size)
         self._last_sampling_key = None
+        self._last_sampling_state_id = None
         self._device_trace_recapture_requires_reset = True
         self.serving_counters["device_trace_recaptures"] += 1
 
@@ -854,7 +933,7 @@ class TTGptOssForCausalLM:
             "hybrid_kv_cache_groups": True,
             "prefill_trace_enabled": False,
             "decode_trace_enabled": True,
-            "decode_trace_buckets": [1] if self.max_batch_size == 1 else [1, self.max_batch_size],
+            "decode_trace_buckets": list(decode_trace_buckets(self.max_batch_size)),
             "kv_cache_owner": self.model.kv_cache_owner,
             "kv_cache_dtype": dtype_name(self.model.precision_config.decoder_policy_for_layer(0).kv_cache_dtype),
             "kv_cache_unique_tensors": len(set(self._cache_tensor_indices)),

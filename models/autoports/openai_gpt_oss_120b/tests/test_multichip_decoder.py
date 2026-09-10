@@ -46,6 +46,7 @@ from models.autoports.openai_gpt_oss_120b.tt.multichip_decoder import (
     BFP8_ACTIVATION_CCL_MULTICHIP_POLICY,
     DEFAULT_MULTICHIP_POLICY,
     DEFAULT_OPTIMIZED_POLICY,
+    DENSE_PREFILL_MULTICHIP_POLICY,
     DRAM_SHARDED_OUTPUT_2_CORE_MULTICHIP_POLICY,
     DRAM_SHARDED_OUTPUT_4_CORE_MULTICHIP_POLICY,
     DRAM_SHARDED_OUTPUT_16_CORE_MULTICHIP_POLICY,
@@ -68,7 +69,12 @@ from models.autoports.openai_gpt_oss_120b.tt.multichip_decoder import (
     EXPERT_GATE_UP_WIDE_SUBBLOCK_MULTICHIP_POLICY,
     EXPLICIT_OUTPUT_PROJECTION_MULTICHIP_POLICY,
     FUSED_OUTPUT_CCL_MULTICHIP_POLICY,
+    FUSED_ROUTER_MULTICHIP_POLICY,
+    INDEXED_PREFILL_MULTICHIP_POLICY,
+    PACKED_GROUP_PREFILL_MULTICHIP_POLICY,
+    PER_USER_LOOP_DECODE_MULTICHIP_POLICY,
     PREFILL_DOWN_45_CORE_MULTICHIP_POLICY,
+    PREFILL_TOKEN_GROUP_SPARSITY_MULTICHIP_POLICY,
     ROUTER_BFP4_MULTICHIP_POLICY,
     ROUTER_BFP8_MULTICHIP_POLICY,
     ROUTER_PREFILL_EXPLICIT_MULTICHIP_POLICY,
@@ -98,8 +104,12 @@ REAL_WEIGHT_SNAPSHOT = os.environ.get("GPT_OSS_120B_SNAPSHOT")
 RUN_ACCEPTANCE = os.environ.get("GPT_OSS_120B_MULTICHIP_ACCEPTANCE") == "1"
 RUN_TOPOLOGY_PROBE = os.environ.get("GPT_OSS_120B_MULTICHIP_TOPOLOGY_PROBE") == "1"
 RUN_FUSED_OUTPUT_PROBE = os.environ.get("GPT_OSS_120B_MULTICHIP_FUSED_OUTPUT_PROBE") == "1"
+RUN_LONG_PREFILL_SDPA_SWEEP = os.environ.get("GPT_OSS_120B_LONG_PREFILL_SDPA_SWEEP") == "1"
+RUN_LONG_PREFILL_LAYER_GATE = os.environ.get("GPT_OSS_120B_LONG_PREFILL_LAYER_GATE") == "1"
 ARTIFACT_DIR = os.environ.get("GPT_OSS_120B_MULTICHIP_ARTIFACT_DIR")
 ACCEPTANCE_RUN_ID = os.environ.get("GPT_OSS_120B_MULTICHIP_RUN_ID")
+LONG_PREFILL_ARTIFACT_DIR = os.environ.get("GPT_OSS_120B_LONG_PREFILL_ARTIFACT_DIR")
+WRITE_LONG_PREFILL_BASELINE = os.environ.get("GPT_OSS_120B_WRITE_LONG_PREFILL_BASELINE") == "1"
 PROCESS_UUID = uuid.uuid4().hex
 PREFILL_PCC_THRESHOLD = 0.95
 DECODE_PCC_THRESHOLD = 0.95
@@ -218,6 +228,223 @@ def _warmed_trace_latency_samples(mesh_device, trace_id, *, signposted=False):
     return repeats, samples, statistics.median(samples)
 
 
+@pytest.mark.skipif(
+    not RUN_LONG_PREFILL_SDPA_SWEEP,
+    reason="set GPT_OSS_120B_LONG_PREFILL_SDPA_SWEEP=1 for the long-prefill SDPA tuning gate",
+)
+@pytest.mark.parametrize("sliding_window", [128, None], ids=["sliding", "full"])
+@pytest.mark.parametrize(
+    "q_chunk_size,k_chunk_size",
+    [(128, 128), (256, 128), (128, 256), (256, 256), (512, 256), (256, 512)],
+    ids=["q128-k128", "q256-k128", "q128-k256", "q256-k256", "q512-k256", "q256-k512"],
+)
+def test_long_prefill_sdpa_chunk_sweep(
+    device,
+    reset_seeds,
+    q_chunk_size,
+    k_chunk_size,
+    sliding_window,
+):
+    """Measure the exact per-TP4-rank GPT-OSS SDPA shape at long context."""
+    del reset_seeds
+    sequence_length = int(os.environ.get("GPT_OSS_120B_LONG_PREFILL_SEQUENCE", "8192"))
+    repeats = int(os.environ.get("GPT_OSS_120B_LONG_PREFILL_SDPA_REPEATS", "10"))
+    sample_count = int(os.environ.get("GPT_OSS_120B_LONG_PREFILL_SDPA_SAMPLES", "3"))
+    assert sequence_length % math.lcm(q_chunk_size, k_chunk_size, 256) == 0
+
+    generator = torch.Generator().manual_seed(120_8192)
+    q_host = torch.randn((1, 16, sequence_length, 64), generator=generator, dtype=torch.bfloat16)
+    k_host = torch.randn((1, 2, sequence_length, 64), generator=generator, dtype=torch.bfloat16)
+    v_host = torch.randn((1, 2, sequence_length, 64), generator=generator, dtype=torch.bfloat16)
+    sink_host = torch.rand((1, 16, 1, 1), generator=generator, dtype=torch.bfloat16) * 32
+    q = ttnn.from_torch(q_host, device=device, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT)
+    k = ttnn.from_torch(k_host, device=device, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT)
+    v = ttnn.from_torch(v_host, device=device, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT)
+    sink = ttnn.from_torch(sink_host, device=device, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT)
+    compute_config = ttnn.WormholeComputeKernelConfig(
+        math_fidelity=ttnn.MathFidelity.HiFi4,
+        math_approx_mode=False,
+        fp32_dest_acc_en=False,
+        packer_l1_acc=False,
+    )
+
+    def run(q_chunk, k_chunk):
+        return ttnn.transformer.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            is_causal=True,
+            sliding_window_size=sliding_window,
+            program_config=ttnn.SDPAProgramConfig(
+                compute_with_storage_grid_size=ttnn.CoreCoord(8, 8),
+                q_chunk_size=q_chunk,
+                k_chunk_size=k_chunk,
+                exp_approx_mode=False,
+            ),
+            compute_kernel_config=compute_config,
+            attention_sink=sink,
+        )
+
+    reference = run(256, 256)
+    ttnn.synchronize_device(device)
+    reference_host = ttnn.to_torch(reference).float()
+    reference.deallocate(True)
+
+    warm = run(q_chunk_size, k_chunk_size)
+    ttnn.synchronize_device(device)
+    warm.deallocate(True)
+    trace_id = ttnn.begin_trace_capture(device, cq_id=0)
+    output = run(q_chunk_size, k_chunk_size)
+    ttnn.end_trace_capture(device, trace_id, cq_id=0)
+    ttnn.execute_trace(device, trace_id, cq_id=0, blocking=False)
+    ttnn.synchronize_device(device)
+    output_host = ttnn.to_torch(output).float()
+    passing, detail = comp_pcc(reference_host, output_host, 0.99)
+    assert passing, detail
+
+    samples = []
+    for _ in range(sample_count):
+        started = time.perf_counter()
+        for _ in range(repeats):
+            ttnn.execute_trace(device, trace_id, cq_id=0, blocking=False)
+        ttnn.synchronize_device(device)
+        samples.append((time.perf_counter() - started) * 1000 / repeats)
+    ttnn.release_trace(device, trace_id)
+    print(
+        f"LONG_PREFILL_SDPA sequence={sequence_length} sliding_window={sliding_window} "
+        f"q_chunk={q_chunk_size} k_chunk={k_chunk_size} median_ms={statistics.median(samples):.6f} "
+        f"samples={samples} {detail}"
+    )
+
+
+def _long_prefill_artifact_path(layer_idx, sequence_length):
+    assert LONG_PREFILL_ARTIFACT_DIR, "set GPT_OSS_120B_LONG_PREFILL_ARTIFACT_DIR"
+    artifact_dir = Path(LONG_PREFILL_ARTIFACT_DIR).resolve()
+    workspace_root = Path(__file__).resolve().parents[5]
+    assert artifact_dir.is_relative_to(
+        workspace_root
+    ), f"long-prefill artifacts must remain inside {workspace_root}, got {artifact_dir}"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    return artifact_dir / f"layer_{layer_idx}_sequence_{sequence_length}.pt"
+
+
+@pytest.mark.skipif(
+    not RUN_LONG_PREFILL_LAYER_GATE or not REAL_WEIGHT_SNAPSHOT,
+    reason="set GPT_OSS_120B_LONG_PREFILL_LAYER_GATE=1 and GPT_OSS_120B_SNAPSHOT for the long-prefill layer gate",
+)
+@pytest.mark.timeout(1800)
+@pytest.mark.parametrize("layer_idx", [0, 1], ids=["sliding", "full"])
+@pytest.mark.parametrize(
+    "mesh_device,device_params",
+    [
+        pytest.param(
+            (1, 4),
+            {
+                "fabric_config": ttnn.FabricConfig.FABRIC_1D_RING,
+                "require_exact_physical_num_devices": True,
+            },
+            id="p150x4",
+        )
+    ],
+    indirect=True,
+)
+def test_real_weight_long_prefill_layer_gate(mesh_device, device_params, layer_idx, reset_seeds):
+    """Compare a long TP4 prefill candidate against a separate dense-policy process."""
+    del device_params, reset_seeds
+    sequence_length = int(os.environ.get("GPT_OSS_120B_LONG_PREFILL_SEQUENCE", "8192"))
+    assert sequence_length >= 2048 and sequence_length % 256 == 0
+    artifact_path = _long_prefill_artifact_path(layer_idx, sequence_length)
+    candidate_name = os.environ.get("GPT_OSS_120B_MULTICHIP_CANDIDATE", "default")
+    if WRITE_LONG_PREFILL_BASELINE:
+        assert candidate_name == "dense_prefill", "the long-prefill baseline must use the dense-prefill policy"
+    else:
+        assert candidate_name in {
+            "default",
+            "prefill_token_group_sparsity",
+        }, "the long-prefill comparison must use the promoted default or prefill_token_group_sparsity policy"
+
+    config = _config()
+    snapshot = Path(REAL_WEIGHT_SNAPSHOT)
+    assert snapshot.name == _FULL_LOCAL_CHECKPOINT_REVISION
+    state_dict = load_real_layer_state_dict(snapshot, layer_idx)
+    decoder = _constructor(
+        state_dict,
+        config,
+        layer_idx,
+        mesh_device,
+        _cache_root(layer_idx, "long_prefill_layer_gate_tp4"),
+    )
+    if config.layer_types[layer_idx] == "sliding_attention":
+        assert decoder.self_attn.program_config.prefill_q_chunk_size_large == 128
+        assert decoder.self_attn.program_config.prefill_k_chunk_size_large == 128
+    else:
+        assert decoder.self_attn.program_config.prefill_q_chunk_size_large == 256
+        assert decoder.self_attn.program_config.prefill_k_chunk_size_large == 512
+
+    generator = torch.Generator().manual_seed(120_000 + sequence_length + layer_idx)
+    hidden_host = (torch.randn((1, 1, sequence_length, config.hidden_size), generator=generator) * 0.02).to(
+        torch.bfloat16
+    )
+    page_table_host = _host_page_table(config, seed=121_000 + layer_idx)
+    hidden, rope, page_table = _prefill_inputs(config, mesh_device, hidden_host, page_table_host)
+
+    warm = decoder.prefill_forward(hidden, position_embeddings=rope, page_table=page_table)
+    ttnn.synchronize_device(mesh_device)
+    warm.deallocate(True)
+    started = time.perf_counter()
+    output = decoder.prefill_forward(hidden, position_embeddings=rope, page_table=page_table)
+    ttnn.synchronize_device(mesh_device)
+    wall_ms = (time.perf_counter() - started) * 1000
+    output_host = _assert_replicated(
+        output,
+        (1, 1, sequence_length, config.hidden_size),
+    )[0, 0, :sequence_length]
+
+    if WRITE_LONG_PREFILL_BASELINE:
+        _save_artifact_atomic(
+            {
+                "schema_version": 1,
+                "producer_process_uuid": PROCESS_UUID,
+                "layer_idx": layer_idx,
+                "layer_type": config.layer_types[layer_idx],
+                "sequence_length": sequence_length,
+                "policy": decoder.policy.name,
+                "wall_ms": wall_ms,
+                "output": output_host,
+            },
+            artifact_path,
+        )
+        print(
+            f"LONG_PREFILL_LAYER_BASELINE layer={layer_idx} type={config.layer_types[layer_idx]} "
+            f"sequence={sequence_length} wall_ms={wall_ms:.6f} artifact={artifact_path}"
+        )
+    else:
+        assert artifact_path.is_file(), f"missing separate-process baseline artifact {artifact_path}"
+        artifact = torch.load(artifact_path, map_location="cpu", weights_only=True)
+        assert artifact["schema_version"] == 1
+        assert artifact["producer_process_uuid"] != PROCESS_UUID
+        assert artifact["layer_idx"] == layer_idx
+        assert artifact["layer_type"] == config.layer_types[layer_idx]
+        assert artifact["sequence_length"] == sequence_length
+        detail = _assert_pcc(
+            output_host,
+            artifact["output"],
+            PREFILL_PCC_THRESHOLD,
+            "long-prefill candidate",
+        )
+        speedup = artifact["wall_ms"] / wall_ms
+        print(
+            f"LONG_PREFILL_LAYER_CANDIDATE layer={layer_idx} type={config.layer_types[layer_idx]} "
+            f"sequence={sequence_length} baseline_ms={artifact['wall_ms']:.6f} candidate_ms={wall_ms:.6f} "
+            f"speedup={speedup:.6f} {detail} artifact={artifact_path}"
+        )
+        assert speedup > 1.0, f"long-prefill candidate regressed: speedup={speedup:.6f}"
+
+    output.deallocate(True)
+    del decoder, state_dict
+    gc.collect()
+
+
 def _artifact_path(layer_idx):
     assert ARTIFACT_DIR, "set GPT_OSS_120B_MULTICHIP_ARTIFACT_DIR to a unique run directory"
     assert ACCEPTANCE_RUN_ID, "set GPT_OSS_120B_MULTICHIP_RUN_ID to a unique run identifier"
@@ -305,6 +532,7 @@ def _constructor(
     candidate_name = os.environ.get("GPT_OSS_120B_MULTICHIP_CANDIDATE", "default")
     candidate_policies = {
         "default": DEFAULT_MULTICHIP_POLICY,
+        "dense_prefill": DENSE_PREFILL_MULTICHIP_POLICY,
         "dram_sharded_qkv": DRAM_SHARDED_QKV_MULTICHIP_POLICY,
         "dram_sharded_output": DRAM_SHARDED_OUTPUT_MULTICHIP_POLICY,
         "dram_sharded_output_16_core": DRAM_SHARDED_OUTPUT_16_CORE_MULTICHIP_POLICY,
@@ -312,6 +540,11 @@ def _constructor(
         "dram_sharded_output_2_core": DRAM_SHARDED_OUTPUT_2_CORE_MULTICHIP_POLICY,
         "explicit_output_projection": EXPLICIT_OUTPUT_PROJECTION_MULTICHIP_POLICY,
         "fused_output_ccl": FUSED_OUTPUT_CCL_MULTICHIP_POLICY,
+        "fused_router": FUSED_ROUTER_MULTICHIP_POLICY,
+        "prefill_token_group_sparsity": PREFILL_TOKEN_GROUP_SPARSITY_MULTICHIP_POLICY,
+        "per_user_loop_decode": PER_USER_LOOP_DECODE_MULTICHIP_POLICY,
+        "indexed_prefill": INDEXED_PREFILL_MULTICHIP_POLICY,
+        "packed_group_prefill": PACKED_GROUP_PREFILL_MULTICHIP_POLICY,
         "router_bfp8": ROUTER_BFP8_MULTICHIP_POLICY,
         "router_bfp4": ROUTER_BFP4_MULTICHIP_POLICY,
         "router_prefill_explicit": ROUTER_PREFILL_EXPLICIT_MULTICHIP_POLICY,
@@ -459,7 +692,11 @@ def _refresh_decode_trace_inputs(
 
 
 def _cache_root(layer_idx, namespace):
-    root = Path(os.environ.get("GPT_OSS_120B_TENSOR_CACHE", "/tmp/gpt_oss_120b_functional_decoder_tensor_cache"))
+    workspace_cache = Path(__file__).resolve().parents[5] / ".cache/gpt_oss_120b_tensor_cache"
+    root = Path(os.environ.get("GPT_OSS_120B_TENSOR_CACHE", workspace_cache))
+    root = root.resolve()
+    workspace_root = Path(__file__).resolve().parents[5]
+    assert root.is_relative_to(workspace_root), f"tensor cache must remain inside {workspace_root}, got {root}"
     path = root / f"layer_{layer_idx}" / namespace
     path.mkdir(parents=True, exist_ok=True)
     return path
@@ -490,7 +727,11 @@ def test_tensor_plan(mesh_shape, expected):
 def test_context_contract_covers_every_mesh_without_reducing_decoder_context():
     with CONTEXT_CONTRACT.open(encoding="utf-8") as contract_file:
         contract = json.load(contract_file)["multichip_decoder"]
-    assert contract["target_meshes"] == {"P150": [1, 1], "P150x2": [1, 2], "P150x4": [1, 4]}
+    assert contract["target_meshes"] == {
+        "P150": [1, 1],
+        "P150x2": [1, 2],
+        "P150x4": [1, 4],
+    }
     assert contract["configured_context_length"] == 131072
     assert contract["supported_decoder_layer_context_length"] == 131072
     assert contract["capability_reduction"] is None
@@ -523,6 +764,7 @@ def test_replicated_l1_router_prefill_memory_policy(monkeypatch, actual_tokens, 
     router.prefill_program_config = object()
     router.compute_config = object()
     router.softmax_compute_config = object()
+    router.use_fused_op = False
 
     base_call = Mock(return_value=(expert_indices, expert_weights))
     reshape = Mock(return_value=hidden_states)
@@ -536,7 +778,10 @@ def test_replicated_l1_router_prefill_memory_policy(monkeypatch, actual_tokens, 
     monkeypatch.setattr(multichip_decoder_module, "topk_router", topk_router)
 
     use_throughput_experts = actual_tokens == 32
-    assert router(hidden_states, use_throughput_experts) == (expert_indices, expert_weights)
+    assert router(hidden_states, use_throughput_experts) == (
+        expert_indices,
+        expert_weights,
+    )
     if expected_memory_config is None:
         base_call.assert_called_once_with(hidden_states, use_throughput_experts)
         linear.assert_not_called()
@@ -561,12 +806,13 @@ def test_runtime_fallback_and_active_expert_audit():
     mlp_source = inspect.getsource(_ActiveExpertTPMLP)
     assert "OptimizedDecoder.from_state_dict" in source
     assert "FunctionalDecoder" not in source
-    assert "use_throughput_experts=False" in mlp_source
+    assert "self.use_throughput_experts = False" in mlp_source
     assert "self.router(hidden_states" in mlp_source
     assert "_run_indexed_decode" in mlp_source
     assert "is_input_b_sparse=True" in mlp_source
     assert "sparse_matmul" in mlp_source
-    assert "self.experts.weights = None" in mlp_source
+    assert "super().__init__(" not in mlp_source
+    assert "_PackedTPExpertsRuntime" in mlp_source
     assert "ThroughputExperts" not in mlp_source
     assert DEFAULT_MULTICHIP_POLICY.expert_weight_dtype == ttnn.bfloat4_b
     assert DEFAULT_MULTICHIP_POLICY.attention_activation_ccl_dtype == ttnn.bfloat8_b
@@ -585,6 +831,12 @@ def test_runtime_fallback_and_active_expert_audit():
     assert not DEFAULT_MULTICHIP_POLICY.decode_dram_sharded_output_tp4
     assert DEFAULT_MULTICHIP_POLICY.decode_dram_sharded_output_input_cores == 16
     assert not DEFAULT_MULTICHIP_POLICY.decode_fused_output_projection_ccl
+    assert DEFAULT_MULTICHIP_POLICY.decode_fused_router
+    assert DEFAULT_MULTICHIP_POLICY.prefill_token_group_sparsity
+    assert DEFAULT_MULTICHIP_POLICY.prefill_sliding_q_chunk_size_large == 128
+    assert DEFAULT_MULTICHIP_POLICY.prefill_sliding_k_chunk_size_large == 128
+    assert DEFAULT_MULTICHIP_POLICY.prefill_full_q_chunk_size_large == 256
+    assert DEFAULT_MULTICHIP_POLICY.prefill_full_k_chunk_size_large == 512
     assert "expert_weight_dtype=policy.expert_weight_dtype" in source
     attention_source = inspect.getsource(_PhysicalHiddenCollectiveAttention)
     assert "_allreduce_physical_hidden" in attention_source
@@ -648,7 +900,9 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
     generator = torch.Generator().manual_seed(818_000 + logical_tp)
 
     partials_host = torch.randn(
-        (logical_tp, 1, ttnn.TILE_SIZE, physical_hidden), generator=generator, dtype=torch.float32
+        (logical_tp, 1, ttnn.TILE_SIZE, physical_hidden),
+        generator=generator,
+        dtype=torch.float32,
     ).to(torch.bfloat16)
     if physical_hidden != config.hidden_size:
         partials_host[..., config.hidden_size :] = 0
@@ -671,7 +925,10 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
 
     partials = upload_partials(partials_host)
     expert_partials = upload_partials(partials_host[..., : config.hidden_size].contiguous())
-    gamma_current_host = torch.ones((1, 1, config.hidden_size // ttnn.TILE_SIZE, ttnn.TILE_SIZE), dtype=torch.bfloat16)
+    gamma_current_host = torch.ones(
+        (1, 1, config.hidden_size // ttnn.TILE_SIZE, ttnn.TILE_SIZE),
+        dtype=torch.bfloat16,
+    )
     gamma_current = ttnn.from_torch(
         gamma_current_host,
         device=target_mesh,
@@ -780,7 +1037,12 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
         sliced = ttnn.slice(
             partials,
             starts=[0, 0, 0, 0],
-            ends=[partials.shape[0], partials.shape[1], partials.shape[2], config.hidden_size],
+            ends=[
+                partials.shape[0],
+                partials.shape[1],
+                partials.shape[2],
+                config.hidden_size,
+            ],
             steps=[1, 1, 1, 1],
         )
         sliced = ttnn.to_memory_config(sliced, ttnn.DRAM_MEMORY_CONFIG)
@@ -814,7 +1076,12 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
         sliced = ttnn.slice(
             reduced,
             starts=[0, 0, 0, 0],
-            ends=[reduced.shape[0], reduced.shape[1], reduced.shape[2], config.hidden_size],
+            ends=[
+                reduced.shape[0],
+                reduced.shape[1],
+                reduced.shape[2],
+                config.hidden_size,
+            ],
             steps=[1, 1, 1, 1],
         )
         normalized = ttnn.rms_norm(sliced, epsilon=config.rms_norm_eps, weight=gamma_current)
@@ -857,7 +1124,12 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
         sliced = ttnn.slice(
             gathered,
             starts=[0, 0, 0, 0],
-            ends=[gathered.shape[0], gathered.shape[1], gathered.shape[2], config.hidden_size],
+            ends=[
+                gathered.shape[0],
+                gathered.shape[1],
+                gathered.shape[2],
+                config.hidden_size,
+            ],
             steps=[1, 1, 1, 1],
         )
         normalized = ttnn.rms_norm(sliced, epsilon=config.rms_norm_eps, weight=gamma_current)
@@ -955,7 +1227,12 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
         logical = ttnn.slice(
             reduced,
             starts=[0, 0, 0, 0],
-            ends=[reduced.shape[0], reduced.shape[1], reduced.shape[2], config.hidden_size],
+            ends=[
+                reduced.shape[0],
+                reduced.shape[1],
+                reduced.shape[2],
+                config.hidden_size,
+            ],
             steps=[1, 1, 1, 1],
         )
         reduced.deallocate(True)
@@ -1040,7 +1317,10 @@ def test_residual_sharded_distributed_norm_fused_qkv_probe(mesh_device, device_p
     sharded_output.deallocate(True)
     sharded_persistent_output.deallocate(True)
     for rank, (current_rank, padded_rank) in enumerate(
-        zip(ttnn.get_device_tensors(expert_current_output), ttnn.get_device_tensors(expert_padded_output))
+        zip(
+            ttnn.get_device_tensors(expert_current_output),
+            ttnn.get_device_tensors(expert_padded_output),
+        )
     ):
         _assert_pcc(
             ttnn.to_torch(padded_rank),
@@ -1179,7 +1459,12 @@ def test_fused_output_projection_reduce_scatter_probe(mesh_device, device_params
     batch = ttnn.TILE_SIZE
     generator = torch.Generator().manual_seed(919_004)
     input_host = (
-        torch.randn((1, 1, batch, local_attention_width * logical_tp), generator=generator, dtype=torch.float32) * 0.02
+        torch.randn(
+            (1, 1, batch, local_attention_width * logical_tp),
+            generator=generator,
+            dtype=torch.float32,
+        )
+        * 0.02
     ).to(torch.bfloat16)
     weight_host = (
         torch.randn(
@@ -1205,7 +1490,11 @@ def test_fused_output_projection_reduce_scatter_probe(mesh_device, device_params
         memory_config=ttnn.DRAM_MEMORY_CONFIG,
         mesh_mapper=ttnn.ShardTensorToMesh(target_mesh, dim=2),
     )
-    ccl = CCLManager(target_mesh, num_links=get_default_num_links(target_mesh), topology=ttnn.Topology.Ring)
+    ccl = CCLManager(
+        target_mesh,
+        num_links=get_default_num_links(target_mesh),
+        topology=ttnn.Topology.Ring,
+    )
     mesh_config = MeshConfig(
         target_mesh.shape,
         decode=ModeConfig(tp=logical_tp, ep=1, sp=1),
@@ -1590,7 +1879,11 @@ def test_write_real_weight_batch2_high_position_baseline_artifact(mesh_device, d
     generator = torch.Generator().manual_seed(180_000 + layer_idx)
     prefill_sequence_length = 33
     prefill_hidden_host = (
-        torch.randn((1, batch_size, prefill_sequence_length, config.hidden_size), generator=generator) * 0.02
+        torch.randn(
+            (1, batch_size, prefill_sequence_length, config.hidden_size),
+            generator=generator,
+        )
+        * 0.02
     ).to(torch.bfloat16)
     prefill_hidden, prefill_rope, page_table = _prefill_inputs(
         config,
@@ -1795,12 +2088,12 @@ def test_real_weight_multichip_against_baseline_artifact(
         1,
         config.num_local_experts,
         config.hidden_size,
-        2 * expected_plan.local_intermediate_size,
+        2 * multichip.mlp.padded_local_intermediate_size,
     )
     expected_down_shape = (
         1,
         config.num_local_experts,
-        expected_plan.local_intermediate_size,
+        multichip.mlp.padded_local_intermediate_size,
         config.hidden_size,
     )
     if multichip.policy.decode_separate_gate_up:
@@ -1808,7 +2101,7 @@ def test_real_weight_multichip_against_baseline_artifact(
             1,
             config.num_local_experts,
             config.hidden_size,
-            expected_plan.local_intermediate_size,
+            multichip.mlp.padded_local_intermediate_size,
         )
         assert multichip.mlp.indexed_gate_up is None
         assert all(
@@ -1824,7 +2117,7 @@ def test_real_weight_multichip_against_baseline_artifact(
     assert all(
         tuple(shard.shape) == expected_down_shape for shard in ttnn.get_device_tensors(multichip.mlp.indexed_down)
     )
-    assert multichip.mlp.experts.weights is None
+    assert not hasattr(multichip.mlp.experts, "weights")
     expected_cache_shape = (
         config.max_position_embeddings // accepted.PAGE_SIZE,
         expected_plan.local_kv_heads,

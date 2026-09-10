@@ -95,6 +95,22 @@ class CapacityEvidence:
         return result
 
 
+# Decode trace buckets: vLLM pads a decode step to the smallest declared width
+# that holds the active requests.  With batched expert decode the cost scales
+# with the batch, so one intermediate bucket keeps small batches off the full
+# serving-width graph while bounding trace-region use.
+INTERMEDIATE_DECODE_BUCKETS = (4, 8)
+
+
+def decode_trace_buckets(max_batch_size: int) -> tuple[int, ...]:
+    """Return the sorted decode widths prepared for ``max_batch_size``."""
+
+    max_batch_size = int(max_batch_size)
+    widths = {1, max_batch_size}
+    widths.update(bucket for bucket in INTERMEDIATE_DECODE_BUCKETS if bucket < max_batch_size)
+    return tuple(sorted(widths))
+
+
 def _bfp8_tensor_bytes(height: int, width: int) -> int:
     if height % 32 or width % 32:
         raise ValueError(f"BFP8 tensor dimensions must be tile aligned, got {(height, width)}")
@@ -718,29 +734,31 @@ class Model(_GPTOSSModel):
             max_batch_size: [layer.self_attn.transformation_mats["decode"] for layer in self.layers]
         }
         self._decode_layer_kv_memory_configs = {max_batch_size: [layer.self_attn.kv_mem_cfg for layer in self.layers]}
-        if max_batch_size > 1:
-            # RotarySetup fixes its decode sharding and transformation matrix
-            # to the construction batch.  vLLM's singleton trace bucket needs
-            # a matching B1 setup; sharing this one immutable transform across
-            # every layer avoids constructing a second decoder stack.
-            singleton_rope = create_rope_setup(
+        # RotarySetup fixes its decode sharding and transformation matrix to
+        # the construction batch.  Every smaller decode trace bucket that vLLM
+        # may pad to needs a matching setup; sharing one immutable transform
+        # across every layer avoids constructing a second decoder stack.
+        for bucket in decode_trace_buckets(max_batch_size):
+            if bucket == max_batch_size:
+                continue
+            bucket_rope = create_rope_setup(
                 mesh_device=mesh_device,
                 hf_config=hf_config,
-                max_local_batch_size=1,
+                max_local_batch_size=bucket,
                 users_row_sharded=False,
                 datatype=ttnn.bfloat16,
                 shard_batch_to_mesh_dim=0,
             )
-            self._decode_rope_setups[1] = singleton_rope
-            singleton_transform = singleton_rope.get_both_trans_mats()["decode"]
-            self._decode_layer_transformation_mats[1] = [singleton_transform] * len(self.layers)
-            singleton_kv_memory_config = get_kv_memory_config(
+            self._decode_rope_setups[bucket] = bucket_rope
+            bucket_transform = bucket_rope.get_both_trans_mats()["decode"]
+            self._decode_layer_transformation_mats[bucket] = [bucket_transform] * len(self.layers)
+            bucket_kv_memory_config = get_kv_memory_config(
                 mesh_device,
-                max_local_batch_size=1,
+                max_local_batch_size=bucket,
                 num_local_kv_heads=int(hf_config.num_key_value_heads) // tp,
                 head_dim=int(hf_config.head_dim),
             )
-            self._decode_layer_kv_memory_configs[1] = [singleton_kv_memory_config] * len(self.layers)
+            self._decode_layer_kv_memory_configs[bucket] = [bucket_kv_memory_config] * len(self.layers)
         self._active_decode_batch_size = max_batch_size
         self._validate_precision_runtime()
 
