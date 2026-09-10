@@ -181,7 +181,7 @@ def real_token_embeddings(snapshot, config, num_tokens, seed):
     reason="set GPT_OSS_120B_BATCHED_DECODE_PERF=1 and GPT_OSS_120B_SNAPSHOT",
 )
 @pytest.mark.timeout(2400)
-@pytest.mark.parametrize("sequence_length", [128, 1024, 4096], ids=["s128", "s1024", "s4096"])
+@pytest.mark.parametrize("sequence_length", [128, 1024, 4096, 16384], ids=["s128", "s1024", "s4096", "s16384"])
 @pytest.mark.parametrize("layer_idx", [0], ids=["sliding"])
 @pytest.mark.parametrize(
     "mesh_device,device_params",

@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from loguru import logger
 
 import ttnn
 from models.autoports.openai_gpt_oss_120b.tt.generator import GREEDY, Generator
@@ -822,6 +823,15 @@ class TTGptOssForCausalLM:
                 page_tables_per_layer=[request_table] * self.model.n_layers,
                 enable_trace=False,
             )
+        # The indexed expert prefill picks matmul shapes from the routing of
+        # each prompt; compile the whole (height x group size) set once now so
+        # the first long prompts do not pay tens of seconds of JIT.
+        warmup = getattr(getattr(self.model.layers[0], "decoder", None), "mlp", None)
+        warmup = getattr(warmup, "warmup_indexed_prefill_shapes", None)
+        if warmup is not None:
+            compiled = warmup()
+            if compiled:
+                logger.info(f"indexed prefill: compiled {compiled} expert-group shapes")
         return result
 
     def warmup_model_decode(

@@ -107,7 +107,7 @@ class MultichipDecoderPolicy:
     # and 2.5-3.3x faster per layer in isolation, but its data-dependent tensor
     # shapes recompile programs on every layer/prompt in the serving path
     # (32 s TTFT at 1024 tokens, L1 clash at 16k).  Off until shapes are static.
-    prefill_indexed_experts: bool = False
+    prefill_indexed_experts: bool = True
     # Below this many tokens the packed group-sparse path is used: the indexed
     # path syncs the host once per layer to size its expert slabs, which costs
     # more than it saves on short prompts.
@@ -1950,16 +1950,178 @@ class _ActiveExpertTPMLP(MLP):
         if self._prefill_debug is not None:
             self._prefill_debug[name] = ttnn.to_torch(ttnn.get_device_tensors(tensor)[0]).clone()
 
-    @staticmethod
-    def _prefill_slab_rows(count):
-        """Return the slab height for an expert with ``count`` routed tokens.
+    # Tallest expert slab.  The sparse matmul stages per_core_M x in0_block_w
+    # input tiles in L1, so slab height is bounded; experts with more tokens
+    # take several consecutive slabs of this height (same expert id repeated).
+    _PREFILL_MAX_SLAB_ROWS = 256
 
-        Power-of-two tile multiples (32, 64, 128, ...) so that the number of
-        distinct matmul shapes per prefill stays small while the total slab
-        area stays within 2x of the routed slots.
+    @classmethod
+    def _prefill_slabs(cls, count):
+        """Return (height, slab count) for an expert with ``count`` routed tokens.
+
+        Heights are power-of-two tile multiples up to ``_PREFILL_MAX_SLAB_ROWS``
+        so the number of distinct matmul shapes stays small; larger counts use
+        several max-height slabs.  Total slab area stays within 2x of the slots.
         """
         rows = max(ttnn.TILE_SIZE, ((count + ttnn.TILE_SIZE - 1) // ttnn.TILE_SIZE) * ttnn.TILE_SIZE)
-        return 1 << (rows - 1).bit_length()
+        rows = 1 << (rows - 1).bit_length()
+        if rows <= cls._PREFILL_MAX_SLAB_ROWS:
+            return rows, 1
+        max_rows = cls._PREFILL_MAX_SLAB_ROWS
+        return max_rows, (count + max_rows - 1) // max_rows
+
+    @staticmethod
+    def _reshape_via_tile(tensor, shape):
+        """Reshape a ROW_MAJOR tensor through TILE layout.
+
+        A ROW_MAJOR reshape that splits or merges sticks stages whole sticks in
+        L1; at 16k+ tokens the flat slot vectors are 256 KB sticks and that
+        staging no longer fits beside the resident L1 buffers.  The TILE-layout
+        reshape moves tiles instead.
+        """
+        tiled = ttnn.to_layout(tensor, ttnn.TILE_LAYOUT)
+        reshaped = ttnn.reshape(tiled, shape)
+        if reshaped is not tiled:
+            tiled.deallocate(True)
+        result = ttnn.to_layout(reshaped, ttnn.ROW_MAJOR_LAYOUT)
+        reshaped.deallocate(True)
+        return result
+
+    def _indexed_prefill_group(self, slab_tiled, members, height, weights):
+        """Run one height group of expert slabs: gate/up -> SwiGLU -> weights -> down.
+
+        ``slab_tiled`` is [1, len(members), height, hidden] TILE, ``weights`` is
+        [1, len(members), height, 1] TILE.  Returns [len(members)*height, hidden]
+        ROW_MAJOR bf16 rows in slab order.  Both inputs are consumed.
+        """
+        count = len(members)
+        hidden = self.hidden_size
+        padded = self.padded_local_intermediate_size
+        mapper = ttnn.ReplicateTensorToMesh(self.mesh_device)
+        output_tile = ttnn.Tile([32, 32])
+        member_ids = ttnn.from_torch(
+            torch.tensor(members, dtype=torch.int32).reshape(1, 1, 1, count),
+            device=self.mesh_device,
+            dtype=ttnn.uint32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=mapper,
+        )
+        member_ids_u16 = ttnn.typecast(member_ids, ttnn.uint16)
+        gate_up = ttnn.sparse_matmul(
+            slab_tiled,
+            self.indexed_gate_up,
+            sparsity=self.indexed_unused_sparsity,
+            indices=member_ids_u16,
+            is_input_a_sparse=True,
+            is_input_b_sparse=True,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            output_tile=output_tile,
+            program_config=self.experts.program_config.get_prefill_gate_up_config(
+                height,
+                self.indexed_gate_up.shape[3],
+                k=hidden,
+            ),
+            compute_kernel_config=self.expert_compute_kernel_config,
+            dtype=self.expert_intermediate_dtype,
+        )
+        slab_tiled.deallocate(True)
+        gate_up = ttnn.reshape(gate_up, (1, count, height, 2 * padded))
+        bias_rows = ttnn.embedding(
+            member_ids,
+            self.indexed_gate_up_bias,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            dtype=ttnn.bfloat16,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        bias_rows = ttnn.to_layout(ttnn.reshape(bias_rows, (1, count, 1, 2 * padded)), ttnn.TILE_LAYOUT)
+        gate_up = ttnn.add(gate_up, bias_rows, output_tensor=gate_up)
+        bias_rows.deallocate(True)
+        if gate_up.dtype == ttnn.bfloat4_b:
+            converted = ttnn.typecast(gate_up, self.expert_intermediate_dtype)
+            gate_up.deallocate(True)
+            gate_up = converted
+        gate = ttnn.slice(gate_up, [0, 0, 0, 0], [1, count, height, padded], [1, 1, 1, 1])
+        up = ttnn.slice(gate_up, [0, 0, 0, padded], [1, count, height, 2 * padded], [1, 1, 1, 1])
+        gate_up.deallocate(True)
+        down_input = self._fused_swiglu(gate, up)
+        up.deallocate(True)
+        down_input = ttnn.mul(down_input, weights, output_tensor=down_input)
+        weights.deallocate(True)
+        down = ttnn.sparse_matmul(
+            down_input,
+            self.indexed_down,
+            sparsity=self.indexed_unused_sparsity,
+            indices=member_ids_u16,
+            is_input_a_sparse=True,
+            is_input_b_sparse=True,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            output_tile=output_tile,
+            program_config=self.experts.program_config.get_prefill_down_config(
+                height,
+                self.indexed_down.shape[-1],
+                k=padded,
+            ),
+            compute_kernel_config=self.expert_compute_kernel_config,
+            dtype=self.expert_intermediate_dtype,
+        )
+        down_input.deallocate(True)
+        member_ids.deallocate(True)
+        member_ids_u16.deallocate(True)
+        if down.dtype != ttnn.bfloat16:
+            converted = ttnn.typecast(down, ttnn.bfloat16)
+            down.deallocate(True)
+            down = converted
+        down_rows = ttnn.reshape(ttnn.to_layout(down, ttnn.ROW_MAJOR_LAYOUT), (count * height, hidden))
+        down.deallocate(True)
+        return down_rows
+
+    def warmup_indexed_prefill_shapes(self):
+        """Compile every (slab height, group size) matmul shape the indexed prefill can use.
+
+        Program caches are keyed by shapes, not weights, so running each pair
+        once on one layer covers every layer.  Group sizes are powers of two up
+        to the expert count; heights are tile powers of two up to the cap.
+        """
+        if not self.indexed_prefill or self.separate_gate_up:
+            return 0
+        hidden = self.hidden_size
+        mapper = ttnn.ReplicateTensorToMesh(self.mesh_device)
+        heights = []
+        height = ttnn.TILE_SIZE
+        while height <= self._PREFILL_MAX_SLAB_ROWS:
+            heights.append(height)
+            height *= 2
+        sizes = []
+        size = 1
+        while size <= self.num_experts:
+            sizes.append(size)
+            size *= 2
+        compiled = 0
+        for height in heights:
+            for count in sizes:
+                slab = ttnn.from_torch(
+                    torch.zeros((1, count, height, hidden), dtype=torch.bfloat16),
+                    device=self.mesh_device,
+                    dtype=ttnn.bfloat16,
+                    layout=ttnn.TILE_LAYOUT,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    mesh_mapper=mapper,
+                )
+                weights = ttnn.from_torch(
+                    torch.zeros((1, count, height, 1), dtype=torch.bfloat16),
+                    device=self.mesh_device,
+                    dtype=ttnn.bfloat16,
+                    layout=ttnn.TILE_LAYOUT,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    mesh_mapper=mapper,
+                )
+                members = [index % self.num_experts for index in range(count)]
+                rows = self._indexed_prefill_group(slab, members, height, weights)
+                rows.deallocate(True)
+                compiled += 1
+        ttnn.synchronize_device(self.mesh_device)
+        return compiled
 
     def _run_indexed_prefill(self, hidden_states):
         """Prefill MoE with per-expert token slabs and compact indexed matmuls.
@@ -2022,20 +2184,41 @@ class _ActiveExpertTPMLP(MLP):
         counts = ttnn.reshape(counts, (1, experts))
         self._debug_capture("counts", counts)
         counts_host = ttnn.to_torch(ttnn.get_device_tensors(counts)[0]).reshape(-1).to(torch.int64).tolist()
-        slab_rows = [self._prefill_slab_rows(count) if count > 0 else 0 for count in counts_host]
-        groups = {}
-        for expert, height in enumerate(slab_rows):
-            if height:
-                groups.setdefault(height, []).append(expert)
+        groups = {}  # height -> expert ids, one entry per slab (big experts repeat)
+        for expert, count in enumerate(counts_host):
+            if count > 0:
+                height, slabs = self._prefill_slabs(count)
+                groups.setdefault(height, []).extend([expert] * slabs)
         base_host = torch.zeros(experts, dtype=torch.int32)
-        layout = []  # (height, expert ids, start row)
+        layout = []  # (height, expert ids incl. padding, start row)
         capacity = 0
         for height in sorted(groups):
             members = groups[height]
-            layout.append((height, members, capacity))
+            seen = set()
             for expert in members:
-                base_host[expert] = capacity
+                if expert not in seen:
+                    base_host[expert] = capacity
+                    seen.add(expert)
                 capacity += height
+            # Pad the group to a power-of-two expert count with repeats of its
+            # first expert so every matmul shape comes from a small static set
+            # (heights x sizes) and stays in the program cache across prompts.
+            # Padding slabs hold token row 0 with zero routing weight and are
+            # never gathered back.
+            padded_count = 1 << (len(members) - 1).bit_length()
+            padded_members = members + [members[0]] * (padded_count - len(members))
+            group_start = capacity - height * len(members)
+            capacity += height * (padded_count - len(members))
+            # Indexed mode accepts at most num_experts ids per call: split wide
+            # groups into consecutive chunks of at most num_experts slabs.
+            chunk = experts
+            for offset in range(0, padded_count, chunk):
+                chunk_members = padded_members[offset : offset + chunk]
+                layout.append((height, chunk_members, group_start + offset * height))
+        # Round the slab buffer to a power of two so the capacity-sized ops
+        # (gathers, scatters, the flat row buffers) repeat their shapes across
+        # prompts and layers instead of creating a new program per prompt.
+        capacity = 1 << (capacity - 1).bit_length()
         base_table = ttnn.from_torch(
             base_host.reshape(1, experts),
             device=self.mesh_device,
@@ -2055,27 +2238,34 @@ class _ActiveExpertTPMLP(MLP):
 
         # Sort the flattened routed slots by expert.  UINT16 reshape is not a
         # device operation, so widen, flatten, and narrow.
-        indices_u32 = ttnn.typecast(expert_indices, ttnn.uint32)
-        indices_rm = ttnn.to_layout(indices_u32, ttnn.ROW_MAJOR_LAYOUT)
-        flat_u32 = ttnn.reshape(indices_rm, (1, slots))
-        flat_u16 = ttnn.typecast(flat_u32, ttnn.uint16)
-        flat_tiled = ttnn.to_layout(flat_u16, ttnn.TILE_LAYOUT)
+        indices_u32 = ttnn.typecast(expert_indices, ttnn.uint32)  # TILE [rows, top_k]
+        flat_u32_tiled = ttnn.reshape(indices_u32, (1, slots))
+        flat_tiled = ttnn.typecast(flat_u32_tiled, ttnn.uint16)
         sorted_experts, permutation = ttnn.sort(flat_tiled, dim=-1, descending=False)
-        sorted_rm = ttnn.reshape(ttnn.to_layout(sorted_experts, ttnn.ROW_MAJOR_LAYOUT), (1, slots))
-        permutation_rm = ttnn.reshape(ttnn.to_layout(permutation, ttnn.ROW_MAJOR_LAYOUT), (1, slots))
-        sorted_u32 = ttnn.typecast(sorted_rm, ttnn.uint32)
-        permutation_u32 = ttnn.typecast(permutation_rm, ttnn.uint32)
-        for tensor in (indices_u32, indices_rm, flat_u32, flat_u16, flat_tiled, sorted_experts, permutation, sorted_rm):
+        sorted_u32_tiled = ttnn.typecast(sorted_experts, ttnn.uint32)
+        permutation_u32_tiled = ttnn.typecast(permutation, ttnn.uint32)
+        sorted_u32 = ttnn.to_layout(sorted_u32_tiled, ttnn.ROW_MAJOR_LAYOUT)
+        permutation_u32 = ttnn.to_layout(permutation_u32_tiled, ttnn.ROW_MAJOR_LAYOUT)
+        # [rows, top_k] view of the sorted ids through TILE layout (short sticks).
+        sorted_2d = ttnn.to_layout(ttnn.reshape(sorted_u32_tiled, (rows, top_k)), ttnn.ROW_MAJOR_LAYOUT)
+        for tensor in (
+            indices_u32,
+            flat_u32_tiled,
+            flat_tiled,
+            sorted_experts,
+            permutation,
+            sorted_u32_tiled,
+            permutation_u32_tiled,
+        ):
             tensor.deallocate(True)
 
         # ttnn.gather mis-reads long single-stick indices, so gather with a
         # [rows, top_k] index against row-repeated tables.
-        sorted_2d = ttnn.reshape(sorted_u32, (rows, top_k))
         offsets_table = ttnn.repeat(token_offsets, ttnn.Shape((rows, 1)))
-        offsets_by_slot = ttnn.reshape(ttnn.gather(offsets_table, -1, index=sorted_2d), (1, slots))
+        offsets_by_slot = self._reshape_via_tile(ttnn.gather(offsets_table, -1, index=sorted_2d), (1, slots))
         offsets_table.deallocate(True)
         bases_table = ttnn.repeat(base_table, ttnn.Shape((rows, 1)))
-        base_by_slot = ttnn.reshape(ttnn.gather(bases_table, -1, index=sorted_2d), (1, slots))
+        base_by_slot = self._reshape_via_tile(ttnn.gather(bases_table, -1, index=sorted_2d), (1, slots))
         bases_table.deallocate(True)
         sorted_2d.deallocate(True)
         positions = self._prefill_constant(
@@ -2100,7 +2290,7 @@ class _ActiveExpertTPMLP(MLP):
         self._debug_capture("slot_to_destination", slot_to_destination)
         # Routing weight of every dispatched row (zero for unused slab rows):
         # scatter each original slot's score to that slot's destination row.
-        scores_rm = ttnn.reshape(ttnn.to_layout(routing_scores, ttnn.ROW_MAJOR_LAYOUT), (1, slots))
+        scores_rm = ttnn.to_layout(ttnn.reshape(routing_scores, (1, slots)), ttnn.ROW_MAJOR_LAYOUT)
         zero_capacity_bf16 = ttnn.from_torch(
             torch.zeros((1, capacity), dtype=torch.bfloat16),
             device=self.mesh_device,
@@ -2144,88 +2334,13 @@ class _ActiveExpertTPMLP(MLP):
         for height, members, start in layout:
             count = len(members)
             span = count * height
-            member_ids = ttnn.from_torch(
-                torch.tensor(members, dtype=torch.int32).reshape(1, 1, 1, count),
-                device=self.mesh_device,
-                dtype=ttnn.uint32,
-                layout=ttnn.ROW_MAJOR_LAYOUT,
-                memory_config=ttnn.DRAM_MEMORY_CONFIG,
-                mesh_mapper=mapper,
-            )
-            member_ids_u16 = ttnn.typecast(member_ids, ttnn.uint16)
             slab = ttnn.slice(dispatched, [0, start, 0], [1, start + span, hidden], [1, 1, 1])
             slab = ttnn.reshape(slab, (1, count, height, hidden))
             slab_tiled = ttnn.to_layout(slab, ttnn.TILE_LAYOUT)
             slab.deallocate(True)
-            gate_up = ttnn.sparse_matmul(
-                slab_tiled,
-                self.indexed_gate_up,
-                sparsity=self.indexed_unused_sparsity,
-                indices=member_ids_u16,
-                is_input_a_sparse=True,
-                is_input_b_sparse=True,
-                memory_config=ttnn.DRAM_MEMORY_CONFIG,
-                output_tile=output_tile,
-                program_config=self.experts.program_config.get_prefill_gate_up_config(
-                    height,
-                    self.indexed_gate_up.shape[3],
-                    k=hidden,
-                ),
-                compute_kernel_config=self.expert_compute_kernel_config,
-                dtype=self.expert_intermediate_dtype,
-            )
-            slab_tiled.deallocate(True)
-            gate_up = ttnn.reshape(gate_up, (1, count, height, 2 * padded))
-            bias_rows = ttnn.embedding(
-                member_ids,
-                self.indexed_gate_up_bias,
-                layout=ttnn.ROW_MAJOR_LAYOUT,
-                dtype=ttnn.bfloat16,
-                memory_config=ttnn.DRAM_MEMORY_CONFIG,
-            )
-            bias_rows = ttnn.to_layout(ttnn.reshape(bias_rows, (1, count, 1, 2 * padded)), ttnn.TILE_LAYOUT)
-            gate_up = ttnn.add(gate_up, bias_rows, output_tensor=gate_up)
-            bias_rows.deallocate(True)
-            if gate_up.dtype == ttnn.bfloat4_b:
-                converted = ttnn.typecast(gate_up, self.expert_intermediate_dtype)
-                gate_up.deallocate(True)
-                gate_up = converted
-            gate = ttnn.slice(gate_up, [0, 0, 0, 0], [1, count, height, padded], [1, 1, 1, 1])
-            up = ttnn.slice(gate_up, [0, 0, 0, padded], [1, count, height, 2 * padded], [1, 1, 1, 1])
-            gate_up.deallocate(True)
-            down_input = self._fused_swiglu(gate, up)
-            up.deallocate(True)
             weights = ttnn.slice(row_weights_flat, [0, start], [1, start + span], [1, 1])
             weights = ttnn.to_layout(ttnn.reshape(weights, (1, count, height, 1)), ttnn.TILE_LAYOUT)
-            down_input = ttnn.mul(down_input, weights, output_tensor=down_input)
-            weights.deallocate(True)
-            down = ttnn.sparse_matmul(
-                down_input,
-                self.indexed_down,
-                sparsity=self.indexed_unused_sparsity,
-                indices=member_ids_u16,
-                is_input_a_sparse=True,
-                is_input_b_sparse=True,
-                memory_config=ttnn.DRAM_MEMORY_CONFIG,
-                output_tile=output_tile,
-                program_config=self.experts.program_config.get_prefill_down_config(
-                    height,
-                    self.indexed_down.shape[-1],
-                    k=padded,
-                ),
-                compute_kernel_config=self.expert_compute_kernel_config,
-                dtype=self.expert_intermediate_dtype,
-            )
-            down_input.deallocate(True)
-            member_ids.deallocate(True)
-            member_ids_u16.deallocate(True)
-            if down.dtype != ttnn.bfloat16:
-                converted = ttnn.typecast(down, ttnn.bfloat16)
-                down.deallocate(True)
-                down = converted
-            down_rows = ttnn.reshape(ttnn.to_layout(down, ttnn.ROW_MAJOR_LAYOUT), (span, hidden))
-            down.deallocate(True)
-            group_outputs.append(down_rows)
+            group_outputs.append(self._indexed_prefill_group(slab_tiled, members, height, weights))
         dispatched.deallocate(True)
         row_weights_flat.deallocate(True)
         if len(group_outputs) == 1:
@@ -2236,7 +2351,7 @@ class _ActiveExpertTPMLP(MLP):
                 tensor.deallocate(True)
 
         # Gather each token's top_k weighted expert rows back and sum them.
-        slot_matrix = ttnn.reshape(slot_to_destination, (rows, top_k))
+        slot_matrix = self._reshape_via_tile(slot_to_destination, (rows, top_k))
         combined = None
         for k in range(top_k):
             slot_column = ttnn.reshape(ttnn.slice(slot_matrix, [0, k], [rows, k + 1], [1, 1]), (1, rows))

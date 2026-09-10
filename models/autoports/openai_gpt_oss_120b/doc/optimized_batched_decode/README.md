@@ -44,27 +44,36 @@ The 2026-09-10 latency sweep showed decode TPOT of 15.4 ms at one user and
 
 ### Prefill
 
-Shipping path: the packed 32-token-group union-mask path, now with the 768
-layout (tile-aligned gate/up slices), pre-transposed gate/up bias, no per-call
-bias transposes, and the down bias folded through the dense routing weights.
+Shipping path (`prefill_indexed_experts=True`, prompts of 512+ tokens):
+`_run_indexed_prefill` gathers each expert's routed tokens into per-expert
+slabs and runs compact indexed sparse matmuls, replacing the packed
+32-token-group path with its dense 128-expert expanded outputs. Design points
+that were needed to make it work in serving, not just in a layer test:
 
-Experimental (`prefill_indexed_experts`, default off): `_run_indexed_prefill`
-groups experts by their routed-token count rounded to a power-of-two tile
-multiple, gives every expert a contiguous slab, and runs one compact indexed
-sparse matmul pair per group (no zero-filled expanded output). It is exact
-(full-layer PCC 0.99999 on real token embeddings, where one expert took 314 of
-1024 tokens) and 2.5x / 3.3x faster per layer at 1024 / 4096 tokens in the
-synced layer test. In the serving path it is not usable yet: its tensor
-shapes depend on the routing of each layer and prompt, so the runtime created
-over 13,000 programs and TTFT rose to about 32 s at 1024 tokens, and a
-16k-token prompt hit an L1 clash. The path also syncs the host once per layer
-to read expert counts. Two findings along the way: `ttnn.gather` returns
-wrong values for a long single-stick index (worked around with a
-`[rows, top_k]` index against a row-repeated table), and a uniform per-expert
-slab sized by the largest count blows up memory under real routing imbalance.
-The follow-up is to make the shapes static (fixed slab count per height
-bucket with dummy slabs) or to use a device-side routed kernel that reads the
-counts on device.
+- Slab heights are power-of-two tile multiples capped at 256 rows; an expert
+  with more tokens takes several consecutive slabs (same expert id repeated).
+  Taller slabs overflow L1 in the sparse matmul (per_core_M x in0_block_w input
+  tiles), which crashed 16k-token prompts.
+- Experts with equal slab height form one group; group sizes are padded to a
+  power of two with dummy slabs and split into chunks of at most 128 ids (the
+  indexed mode's limit). The slab buffer is rounded to a power of two. With
+  routing-dependent shapes every prompt recompiled programs (32 s TTFT);
+  with these shape classes the set is 4 heights x 8 sizes and stays cached.
+- `warmup_indexed_prefill_shapes` compiles that set once on layer 0 during
+  the adapter's prefill warmup (program caches key on shapes, not weights).
+- Flat slot vectors are reshaped through TILE layout; a ROW_MAJOR reshape of
+  a 256 KB stick stages the whole stick in L1 and clashed with resident
+  buffers at 16k tokens.
+- Per-expert counts are read back to the host once per layer (prefill is
+  untraced) to lay the slabs out. Below 512 tokens the packed path is used,
+  since the per-layer sync costs more than it saves there.
+- `ttnn.gather` returns wrong values for a long single-stick index; offsets
+  are gathered with a `[rows, top_k]` index against a row-repeated table, and
+  scores are scattered by slot destination instead of gathered.
+
+Packed path improvements that remain in use below 512 tokens: 768 layout
+(tile-aligned gate/up slices), pre-transposed gate/up bias, down bias folded
+through the dense routing weights.
 
 ## Measurements
 
@@ -112,20 +121,20 @@ failures. "Before" is the 2026-09-10 sweep of the shipped container. v8 =
 TTFT at high concurrency is the serialized queue of 128-token prefills (about
 235 ms each); the plugin does not mix prefill and decode steps.
 
-Long prompts, one user, OSL 128, v10 (= v8 configuration; "before" is the
-2026-09-10 sweep of the shipped container):
+Long prompts, one user, OSL 64-128 ("before" is the 2026-09-10 sweep of the
+shipped container; v10 = packed path with the 768 layout; v13 = indexed
+prefill, warm shapes; cold = first prompt of that length after server start):
 
-| ISL | TTFT before | TTFT v10 | prefill tok/s before | prefill tok/s v10 | TPOT v10 |
+| ISL | TTFT before | TTFT v10 | TTFT v13 warm | TTFT v13 cold | TPOT v13 |
 |---:|---:|---:|---:|---:|---:|
-| 1,024 | 2.15 s | 1.73 s | 475 | 593 | 15.5 ms |
-| 4,096 | 8.86 s | 7.19 s | 462 | 570 | 15.6 ms |
-| 16,384 | 35.6 s | 28.9 s | 461 | 567 | 16.1 ms |
-| 32,768 | 71.7 s | 58.3 s | 457 | 562 | 16.6 ms |
+| 1,024 | 2.15 s | 1.73 s | 0.79 s | 4.5 s | 15.4 ms |
+| 4,096 | 8.86 s | 7.19 s | 2.47 s | 5.5 s | 15.6 ms |
+| 16,384 | 35.6 s | 28.9 s | 10.8 s | 16.5 s | 15.9 ms |
+| 32,768 | 71.7 s | 58.3 s | 23.0 s | 31 s | 16.4 ms |
 
-Prefill is about 23% faster at every length from the 768 layout and the bias
-fold alone; the remaining gap to the compute roofline is the dense
-128-expert expanded output of the packed path (see the experimental indexed
-prefill above).
+1024-token prompts at concurrency (v13): 8 users TTFT 6.4 s (v8: 13.7 s),
+16 users 12.4 s (27.4 s), 32 users 24.7 s (not measured before); decode TPOT
+33 / 51 / 53 ms. TTFT at concurrency is still the serialized prefill queue.
 
 ## Remaining per-layer overheads at batch 32 (device profile, v5)
 

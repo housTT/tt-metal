@@ -22,7 +22,7 @@ SNAPSHOT = os.environ.get("GPT_OSS_120B_SNAPSHOT")
 
 @pytest.mark.skipif(not RUN or not SNAPSHOT, reason="set GPT_OSS_120B_BATCHED_DECODE_PERF=1 and GPT_OSS_120B_SNAPSHOT")
 @pytest.mark.timeout(1200)
-@pytest.mark.parametrize("sequence_length", [128, 1024], ids=["s128", "s1024"])
+@pytest.mark.parametrize("sequence_length", [128, 1024, 4096], ids=["s128", "s1024", "s4096"])
 @pytest.mark.parametrize(
     "mesh_device,device_params",
     [
@@ -67,21 +67,29 @@ def test_indexed_prefill_routing_intermediates(mesh_device, device_params, seque
     counts = d["counts"].reshape(-1)[:experts].to(torch.int64)
     print("counts match:", torch.equal(counts, ref_counts), "max", int(ref_counts.max()), "dev max", int(counts.max()))
 
-    def slab(c):
+    def slabs(c):
         r = max(32, ((c + 31) // 32) * 32)
-        return 1 << (r - 1).bit_length()
+        r = 1 << (r - 1).bit_length()
+        if r <= 256:
+            return r, 1
+        return 256, (c + 255) // 256
 
-    heights = [slab(int(c)) if int(c) > 0 else 0 for c in ref_counts.tolist()]
     groups = {}
-    for e, h in enumerate(heights):
-        if h:
-            groups.setdefault(h, []).append(e)
+    for e, c in enumerate(ref_counts.tolist()):
+        if c > 0:
+            h, n = slabs(int(c))
+            groups.setdefault(h, []).extend([e] * n)
     base = torch.zeros(experts, dtype=torch.int64)
     total = 0
     for h in sorted(groups):
+        seen = set()
         for e in groups[h]:
-            base[e] = total
+            if e not in seen:
+                base[e] = total
+                seen.add(e)
             total += h
+        padded = 1 << (len(groups[h]) - 1).bit_length()
+        total += h * (padded - len(groups[h]))
     print(
         "slab heights (nonzero) distinct:",
         sorted(groups),
@@ -105,7 +113,8 @@ def test_indexed_prefill_routing_intermediates(mesh_device, device_params, seque
     ref_dest = base[sorted_dev] + (positions - ref_offsets[sorted_dev])
     dest_dev = d["destinations"].reshape(-1)[:slots].to(torch.int64)
     print("dest match:", torch.equal(dest_dev, ref_dest), "dest max", int(dest_dev.max()), "capacity", total)
-    capacity_total = total
+    assert torch.equal(dest_dev, ref_dest)
+    capacity_total = 1 << (total - 1).bit_length()  # the path rounds the slab buffer to a power of two
     ref_dispatch = torch.zeros(capacity_total, dtype=torch.int64)
     ref_dispatch[ref_dest] = perm_dev // top_k
     dispatch_dev = d["dispatch_rows"].reshape(-1)[:capacity_total].to(torch.int64)
