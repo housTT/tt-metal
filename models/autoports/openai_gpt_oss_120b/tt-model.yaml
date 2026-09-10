@@ -84,7 +84,7 @@ card:
     The first start compiles kernels and model tensors into the persistent package
     cache. The previously validated cold start took 14m25s; a warm restart took 6m50s.
 
-    ### Measured P150x4 latency (2026-09-10, batched decode)
+    ### Measured P150x4 latency (2026-09-10, batched decode + indexed prefill)
 
     Warmed server, random-token prompts of exactly the input length, `ignore_eos`,
     output pinned to the output length, `bench_client.py` from
@@ -97,17 +97,21 @@ card:
     | 128 | 128 | 1 | 0.25 s | 15.3 ms | 65 | 65 |
     | 128 | 128 | 4 | 0.95 s | 21.9 ms | 46 | 183 |
     | 128 | 128 | 8 | 1.88 s | 32.6 ms | 31 | 245 |
-    | 128 | 128 | 32 | 7.5 s | 52.7 ms | 19 | 607 |
-    | 1,024 | 64 | 1 | 0.79 s | 15.4 ms | 65 | 65 |
-    | 1,024 | 128 | 16 | 12.4 s | 51 ms | 19.5 | 312 |
-    | 4,096 | 64 | 1 | 2.47 s | 15.6 ms | 64 | 64 |
-    | 16,384 | 64 | 1 | 10.8 s | 15.9 ms | 63 | 63 |
-    | 32,768 | 64 | 1 | 23.0 s | 16.4 ms | 61 | 61 |
+    | 128 | 128 | 32 | 7.5 s | 53.1 ms | 19 | 603 |
+    | 1,024 | 64 | 1 | 0.62 s | 15.4 ms | 65 | 65 |
+    | 1,024 | 128 | 8 | 4.6 s | 32.9 ms | 30 | 243 |
+    | 1,024 | 128 | 16 | 8.0 s | 62.3 ms | 16 | 257 |
+    | 4,096 | 64 | 1 | 1.20 s | 15.6 ms | 64 | 64 |
+    | 4,096 | 128 | 8 | 16.9 s | 33.3 ms | 30 | 240 |
+    | 16,384 | 64 | 1 | 2.96 s | 15.9 ms | 63 | 63 |
+    | 32,768 | 64 | 1 | 5.95 s | 16.4 ms | 61 | 61 |
 
-    Prompts of 512+ tokens use the indexed expert prefill (per-expert token
-    slabs, compact sparse matmuls); its matmul shapes are compiled once at
-    server start, and the first prompt of a new length still pays a few
-    seconds of program creation.
+    Prompts of 512+ tokens use the indexed expert prefill: each expert's routed
+    tokens are gathered into slabs and run through compact indexed sparse
+    matmuls, with the routing and slab layout computed on the host from the
+    device router logits. The matmul shapes are compiled once at server start;
+    the first prompt of a new length still pays a few seconds of program
+    creation (measured 2.5-7 s extra on the first 1k-32k prompt).
     Prefills are not batched with decode steps, so TTFT at many users is the
     serialized prefill queue.
 

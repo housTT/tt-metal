@@ -1324,10 +1324,13 @@ class _ActiveExpertTPMLP(MLP):
         # Indexed prefill matmul blocking: (in0_block_w, out_block_h,
         # out_subblock_h, out_subblock_w) in tiles.  out_block_h > 1 makes the
         # kernel reuse each weight block across several slab tile rows instead
-        # of re-reading it per row; in0 L1 staging is out_block_h * in0_block_w
-        # tiles double buffered.
-        self.indexed_prefill_gate_up_blocking = (30, 4, 2, 1)
-        self.indexed_prefill_down_blocking = (24, 8, 4, 2)
+        # of re-reading it per row.  The in0 circular buffer is out_block_h *
+        # in0_block_w tiles, double buffered (2 KB bf16 tiles): keep the whole
+        # CB set near 300 KB, since the serving process holds ~600 KB of
+        # resident L1 buffers per core and a (24, 8, 4, 2) down config
+        # (~960 KB of CBs) clashed with them at decode warmup.
+        self.indexed_prefill_gate_up_blocking = (15, 4, 2, 1)
+        self.indexed_prefill_down_blocking = (12, 4, 2, 2)
         # Optional narrower dtype for the slab fed to the gate/up matmul (the
         # single in0 multicast sender is the matmul's bottleneck).
         self.indexed_prefill_slab_dtype = None

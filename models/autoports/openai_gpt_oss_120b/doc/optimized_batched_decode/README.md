@@ -82,13 +82,17 @@ that were needed to make it work in serving, not just in a layer test:
   sync costs more than it saves there.
 - Matmul blocking is specific to this path (`_indexed_prefill_matmul_config`):
   gate/up `(in0_block_w, out_block_h, out_subblock_h, out_subblock_w)` =
-  (30, 4, 2, 1), down (24, 8, 4, 2). With `out_block_h = 1` (the decode
+  (15, 4, 2, 1), down (12, 4, 2, 2). With `out_block_h = 1` (the decode
   configs) the kernel re-reads every weight block once per slab tile row:
   16k-token gate/up went from 27.7 ms to 15.5 ms per layer and down from
-  20.8 ms to 6.8 ms. Both matmuls are bound by the single in0 multicast
-  sender of the 1D kernel (bf16 slabs: 425 MB per chip at 16k tokens); a
-  bfp8 slab saved 3 ms on the matmul but cost 2 ms in the cast and lowered
-  the PCC, so it is not used (`indexed_prefill_slab_dtype`).
+  20.8 ms to 6.8 ms with (30, 4, 2, 1) / (24, 8, 4, 2). Those configs use
+  up to ~960 KB of circular buffers and clashed with the ~600 KB of resident
+  L1 buffers the serving process holds per core (the layer test has no such
+  pressure), so the shipped configs keep the CB set near 300 KB at a cost of
+  ~2 ms per layer at 16k (16.8 / 7.9 ms). Both matmuls are bound by the
+  single in0 multicast sender of the 1D kernel (bf16 slabs: 425 MB per chip
+  at 16k tokens); a bfp8 slab saved 3 ms on the matmul but cost 2 ms in the
+  cast and lowered the PCC, so it is not used (`indexed_prefill_slab_dtype`).
 
 Packed path improvements that remain in use below 512 tokens: 768 layout
 (tile-aligned gate/up slices), pre-transposed gate/up bias, down bias folded
@@ -118,12 +122,12 @@ Full layer-0 prefill on real token embeddings, one call with a host sync
 |---:|---:|---:|---:|---:|
 | 128 | 7.9 ms | 4.5 ms | 1.8x | 0.99984 |
 | 1,024 | 53.8 ms | 8.0 ms | 6.7x | 0.99997 |
-| 4,096 | 228.8 ms | 19.6 ms | 11.7x | 0.99995 |
-| 16,384 | 912.5 ms | 61.7 ms | 14.8x | 0.99995 |
+| 4,096 | 228.8 ms | 20.0 ms | 11.4x | 0.99989 |
+| 16,384 | 912.5 ms | 63.6 ms | 14.3x | 0.99989 |
 
 Per-stage times at 16,384 tokens (`GPT_OSS_120B_PREFILL_STAGES=1`, device
-sync after every op, so the sum is above the pipelined 61.7 ms): gate/up
-matmuls 15.5 ms, down matmuls 6.8 ms, gather-back + weights + reduce 7.3 ms,
+sync after every op, so the sum is above the pipelined 63.6 ms): gate/up
+matmuls 16.8 ms, down matmuls 7.9 ms, gather-back + weights + reduce 7.3 ms,
 token gathers 3.8 ms, all-reduce 3.8 ms, SwiGLU 3.2 ms, logits readback
 3.0 ms, uploads 2.8 ms, down untilize 2.8 ms, gate/up slices 2.6 ms, gate/up
 bias 4.3 ms, host layout 1.5 ms. The earlier version of this path measured
@@ -153,12 +157,19 @@ Long prompts, one user, OSL 64-128 ("before" is the 2026-09-10 sweep of the
 shipped container; v10 = packed path with the 768 layout; v13 = indexed
 prefill, warm shapes; cold = first prompt of that length after server start):
 
-| ISL | TTFT before | TTFT v10 | TTFT v13 warm | TTFT v13 cold | TPOT v13 |
-|---:|---:|---:|---:|---:|---:|
-| 1,024 | 2.15 s | 1.73 s | 0.79 s | 4.5 s | 15.4 ms |
-| 4,096 | 8.86 s | 7.19 s | 2.47 s | 5.5 s | 15.6 ms |
-| 16,384 | 35.6 s | 28.9 s | 10.8 s | 16.5 s | 15.9 ms |
-| 32,768 | 71.7 s | 58.3 s | 23.0 s | 31 s | 16.4 ms |
+| ISL | TTFT before | TTFT v10 | TTFT v13 warm | TTFT v13 cold | TTFT v15 warm | TTFT v15 cold | TPOT v15 |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1,024 | 2.15 s | 1.73 s | 0.79 s | 4.5 s | 0.62 s | 7.5 s | 15.4 ms |
+| 4,096 | 8.86 s | 7.19 s | 2.47 s | 5.5 s | 1.20 s | 3.8 s | 15.6 ms |
+| 16,384 | 35.6 s | 28.9 s | 10.8 s | 16.5 s | 2.96 s | 7.3 s | 15.9 ms |
+| 32,768 | 71.7 s | 58.3 s | 23.0 s | 31 s | 5.95 s | 9.1 s | 16.4 ms |
+
+v15 = indexed prefill v5 (this document's design section); its 1k cold number
+was the first request the server served. Decode at ISL 128 is unchanged in
+v15 (1 / 4 / 8 / 32 users: 15.3 / 21.9 / 32.6 / 53.1 ms TPOT, zero failures).
+1024-token prompts at concurrency (v15): 8 users TTFT 4.6 s, TPOT 32.9 ms;
+16 users TTFT 8.0 s, TPOT 62.3 ms. 4096-token prompts, 8 users: TTFT 16.9 s
+(the serialized prefill queue), TPOT 33.3 ms.
 
 1024-token prompts at concurrency (v13): 8 users TTFT 6.4 s (v8: 13.7 s),
 16 users 12.4 s (27.4 s), 32 users 24.7 s (not measured before); decode TPOT
