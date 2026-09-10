@@ -98,11 +98,16 @@ card:
     | 128 | 128 | 4 | 0.95 s | 21.9 ms | 46 | 183 |
     | 128 | 128 | 8 | 1.88 s | 32.6 ms | 31 | 245 |
     | 128 | 128 | 32 | 7.5 s | 52.7 ms | 19 | 607 |
-    | 1,024 | 128 | 1 | 1.73 s | 15.5 ms | 65 | 65 |
-    | 4,096 | 128 | 1 | 7.19 s | 15.6 ms | 64 | 64 |
-    | 16,384 | 128 | 1 | 28.9 s | 16.1 ms | 62 | 62 |
-    | 32,768 | 128 | 1 | 58.3 s | 16.6 ms | 60 | 60 |
+    | 1,024 | 64 | 1 | 0.79 s | 15.4 ms | 65 | 65 |
+    | 1,024 | 128 | 16 | 12.4 s | 51 ms | 19.5 | 312 |
+    | 4,096 | 64 | 1 | 2.47 s | 15.6 ms | 64 | 64 |
+    | 16,384 | 64 | 1 | 10.8 s | 15.9 ms | 63 | 63 |
+    | 32,768 | 64 | 1 | 23.0 s | 16.4 ms | 61 | 61 |
 
+    Prompts of 512+ tokens use the indexed expert prefill (per-expert token
+    slabs, compact sparse matmuls); its matmul shapes are compiled once at
+    server start, and the first prompt of a new length still pays a few
+    seconds of program creation.
     Prefills are not batched with decode steps, so TTFT at many users is the
     serialized prefill queue.
 
