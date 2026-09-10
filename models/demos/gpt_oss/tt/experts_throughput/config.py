@@ -15,7 +15,43 @@ from typing import Optional
 import torch
 
 import ttnn
-from tests.nightly.tg.ccl.moe.test_moe_compute_6U import gen_expert_mapping
+
+
+def _linearized_mesh_coord(
+    num_replicated_devices: int,
+    cluster_axis: int | None,
+    expert_id: int,
+    experts_per_cluster: int,
+    experts_per_device: int,
+) -> int:
+    """Return the owning device coordinate for one expert."""
+    if cluster_axis == 0:
+        cluster_id = expert_id // experts_per_cluster
+        expert_id_within_cluster = expert_id % experts_per_cluster
+        device_id_within_cluster = expert_id_within_cluster // experts_per_device
+        return device_id_within_cluster * num_replicated_devices + cluster_id
+    return expert_id // experts_per_device
+
+
+def gen_expert_mapping(
+    num_devices: int,
+    num_replicated_devices: int,
+    cluster_axis: int | None,
+    experts: int,
+    experts_per_cluster: int,
+    experts_per_device: int,
+) -> torch.Tensor:
+    """Build the replicated expert-to-device map used by the dispatch path."""
+    expert_mapping = torch.zeros(1, experts, dtype=torch.uint16)
+    for expert_id in range(experts):
+        expert_mapping[0, expert_id] = _linearized_mesh_coord(
+            num_replicated_devices,
+            cluster_axis,
+            expert_id,
+            experts_per_cluster,
+            experts_per_device,
+        )
+    return expert_mapping.repeat(num_devices, 1)
 
 
 @dataclass

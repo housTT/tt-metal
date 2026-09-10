@@ -7,8 +7,8 @@ Test for the fused topk_router_gpt operation.
 
 The fused op computes:  matmul + bias → logits → topk(k=4) → softmax
 Outputs: (indices_rm, weights_rm) both in ROW_MAJOR format
-  - indices_rm: [B, k_padded] uint16 expert indices
-  - weights_rm: [B, k_padded] bf16 softmax weights
+  - indices_rm: logical [B, k] uint16 expert indices
+  - weights_rm: logical [B, k] bf16 softmax weights
 """
 
 import pytest
@@ -17,15 +17,17 @@ import torch.nn.functional as F
 import ttnn
 from loguru import logger
 
-from models.common.utility_functions import comp_pcc, skip_for_blackhole
+from models.common.utility_functions import comp_pcc
 
 PCC_THRESHOLD = 0.95
 
 # (B, K=hidden_dim, N=num_experts, TOP_K)
-# B=32 and N=128 are hardcoded requirements of the fused op.
+# One physical 32-row tile and N=128 are hardcoded requirements of the fused op.
 # K must be divisible by 32 (tile size).
 TEST_SHAPES = [
     (32, 2880, 128, 4),  # production shape
+    (1, 2880, 128, 4),  # single-user decode in a padded physical tile
+    (8, 2880, 128, 4),  # sub-tile continuous batch
     (32, 64, 128, 4),  # small hidden_dim edge case
     (32, 4096, 128, 4),  # large hidden_dim
 ]
@@ -51,7 +53,6 @@ def run_fused_op(device, torch_input, torch_weight, torch_bias, B, K, N, k=4):
     return weights, indices
 
 
-@skip_for_blackhole("topk_router_gpt requires 12 DRAM-aligned cores; Blackhole only has 8")
 @pytest.mark.parametrize(
     "device_params",
     [
@@ -96,7 +97,6 @@ def test_topk_router_gpt_deterministic(device, B, K, N, TOP_K):
     assert pcc_val >= 0.99, f"Weight PCC {pcc_val} below threshold 0.99"
 
 
-@skip_for_blackhole("topk_router_gpt requires 12 DRAM-aligned cores; Blackhole only has 8")
 @pytest.mark.parametrize(
     "device_params",
     [
@@ -152,7 +152,6 @@ def test_topk_router_gpt_random_matmul(device, B, K, N, TOP_K, seed):
     assert all_positive, "Some weights are not positive"
 
 
-@skip_for_blackhole("topk_router_gpt requires 12 DRAM-aligned cores; Blackhole only has 8")
 @pytest.mark.parametrize(
     "device_params",
     [

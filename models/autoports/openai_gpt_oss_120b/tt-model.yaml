@@ -1,0 +1,102 @@
+schema: "5.1"
+
+repo: tt-hous/gpt-oss-120b-p150x4
+name: gpt-oss-120b-p150x4
+weights:
+  repo: openai/gpt-oss-120b
+  revision: b5c939de8f754692c1647ca79fbf85e8c1e70f8a
+  ignore_patterns:
+    - original/*
+    - metal/*
+kind: vllm-plugin
+arch: blackhole
+
+image:
+  registry: hf
+
+source:
+  tt_metal: /home/ttuser/dev/gpt-oss-120b/tt-metal
+  code:
+    - models/autoports/openai_gpt_oss_120b/__init__.py
+    - models/autoports/openai_gpt_oss_120b/tt
+    - models/autoports/openai_gpt_oss_120b/doc/datatype_sweep/selected_precision_config.json
+    - models/autoports/openai_gpt_oss_120b/readiness_vllm/vllm_serving_capability.json
+    - models/common
+    - models/demos/deepseek_v3
+    - models/demos/deepseek_v3_d_p
+    - models/demos/gpt_oss
+    - models/tt_transformers
+  ubuntu: "22.04"
+  python: "3.10"
+
+runtime:
+  vllm:
+    wheel: /home/ttuser/dev/gpt-oss-120b/container/hf/build-inputs/vllm-0.26.0.dev1+g54dea57d9-cp310-cp310-linux_x86_64.whl
+  plugin:
+    path: /home/ttuser/dev/gpt-oss-120b/vllm-tt-plugin
+  wheels:
+    - /home/ttuser/dev/gpt-oss-120b/container/hf/build-inputs/pytest-9.0.3-py3-none-any.whl
+    - /home/ttuser/dev/gpt-oss-120b/container/hf/build-inputs/torch-2.11.0+cpu-cp310-cp310-manylinux_2_28_x86_64.whl
+    - /home/ttuser/dev/gpt-oss-120b/container/hf/build-inputs/transformers-5.12.1-py3-none-any.whl
+
+serve:
+  hardware: p150x4
+  mesh_device: P150x4
+  port: 8000
+  max_num_seqs: 32
+  block_size: 64
+  max_model_len: 131072
+  capabilities:
+    tool_parser: openai
+  additional_config:
+    tt:
+      sample_on_device_mode: all
+      trace_region_size: 750000000
+      fabric_config: FABRIC_1D_RING
+  env:
+    GPT_OSS_120B_FULL_MODEL_TENSOR_CACHE: /cache/model/full
+    GPT_OSS_120B_SNAPSHOT: /hf/hub/models--openai--gpt-oss-120b/snapshots/b5c939de8f754692c1647ca79fbf85e8c1e70f8a
+    GPT_OSS_120B_TENSOR_CACHE: /cache/model/decoder
+    TTNN_CONFIG_OVERRIDES: '{"cache_path":"/cache/ttnn/cache","model_cache_path":"/cache/ttnn/models","tmp_dir":"/cache/ttnn/tmp"}'
+    TORCHDYNAMO_DISABLE: "1"
+    VLLM_RPC_TIMEOUT: "900000"
+    VLLM_SYSTEM_START_DATE: "2026-08-31"
+  args:
+    - --async-scheduling
+    - --disable-log-stats
+    - --structured-outputs-config
+    - '{"reasoning_parser":"openai_gptoss","enable_in_reasoning":false}'
+
+verify:
+  - "from pathlib import Path; p = Path('/opt/tt-metal/models/autoports/openai_gpt_oss_120b/doc/datatype_sweep/selected_precision_config.json'); assert p.is_file(), 'the validated precision policy is missing'"
+  - "from models.autoports.openai_gpt_oss_120b.tt.generator_vllm import TTGptOssForCausalLM; assert TTGptOssForCausalLM"
+  - "from importlib.metadata import version; assert version('torch') == '2.11.0+cpu'; assert version('transformers') == '5.12.1'"
+
+card:
+  quickstart: |
+    This package serves `openai/gpt-oss-120b` with official vLLM and the
+    Tenstorrent vLLM plugin on four P150 boards. Follow startup until the API is ready:
+
+    ```bash
+    tt-model serve tt-hous/gpt-oss-120b-p150x4 --follow
+    ```
+
+    The first start compiles kernels and model tensors into the persistent package
+    cache. The previously validated cold start took 14m25s; a warm restart took 6m50s.
+
+    ### Measured P150x4 latency
+
+    The following warmed-server measurements used concurrency 1 and
+    `temperature: 0` (greedy) solely to make the results deterministic and
+    repeatable. Greedy sampling is a benchmark condition, not a serve-profile
+    restriction.
+
+    | input | output | TTFT | TPOT | decode tok/s/user |
+    | ---: | ---: | ---: | ---: | ---: |
+    | 128 | 128 | 0.500 s | 18.27 ms | 54.73 |
+    | 8,192 | 1,024 | 29.27 s | 19.14 ms | 52.26 |
+    | 32,768 | 128 | 122.80 s | 20.72 ms | 48.27 |
+    | 65,536 | 128 | 240.11 s | 23.07 ms | 43.36 |
+
+    P150 and P150x2 are not offered as serve profiles: the fixed resident model
+    state does not fit those configurations. Production serving requires P150x4.
