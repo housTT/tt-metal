@@ -660,10 +660,19 @@ class TTGptOssForCausalLM:
         # the resulting pre-penalty logits made seeded penalty output depend on
         # request order.  Pure B1 startup still selects B1 above, while a live
         # bucket remains sticky until an admission/prefill boundary recaptures it.
+        # The rule only applies while the plugin still sends wire tensors at
+        # least as wide as the live bucket (condensation to row 0 of a full
+        # width batch).  When the plugin has already padded the shrinking
+        # batch to a narrower declared bucket (32 -> 8 -> 4 -> 1 as requests
+        # finish), tokens, positions, page tables and sampling rows all arrive
+        # at that width, and keeping the wider trace would copy them into
+        # wider persistent inputs (TT_FATAL "Host tensor has different
+        # shape"); the reset boundary makes the switch safe.
+        host_width = int(torch.as_tensor(start_pos).numel())
         if (
             removal_only_reset
             and self._active_decode_bucket is not None
-            and requested_bucket < self._active_decode_bucket
+            and requested_bucket < self._active_decode_bucket <= host_width
         ):
             requested_bucket = self._active_decode_bucket
         bucket_changed = False

@@ -864,6 +864,47 @@ def test_removal_only_reset_keeps_surviving_request_in_active_decode_bucket():
     assert call["slot_remap"] is None
 
 
+def test_removal_only_reset_follows_a_narrower_plugin_wire_width():
+    """32 -> 8: the plugin pads the shrinking batch to the next declared bucket.
+
+    The wire tensors arrive 8 wide, so the adapter must switch to the B8 trace
+    (the B32 persistent inputs cannot take 8-row host tensors).
+    """
+    adapter = _adapter()
+    wide_table = torch.zeros(32, 16, dtype=torch.int32)
+    adapter.decode_forward(
+        tokens=torch.zeros(32, 1, dtype=torch.int32),
+        start_pos=torch.tensor([65, 40, 12, 9, 8, 7] + [-1] * 26),
+        page_table=wide_table,
+        page_tables_per_layer=[wide_table, wide_table],
+        kv_cache=object(),
+        sampling_params=_greedy(32),
+        enable_trace=True,
+        read_from_device=False,
+        reset_batch=True,
+    )
+    assert adapter._active_decode_bucket == 32
+
+    narrow_table = torch.zeros(8, 16, dtype=torch.int32)
+    adapter.decode_forward(
+        tokens=torch.zeros(8, 1, dtype=torch.int32),
+        start_pos=torch.tensor([66, 41, 13, 10, 9] + [-1] * 3),
+        page_table=narrow_table,
+        page_tables_per_layer=[narrow_table, narrow_table],
+        kv_cache=object(),
+        sampling_params=_greedy(8),
+        enable_trace=True,
+        read_from_device=False,
+        reset_batch=True,
+        removal_only_reset=True,
+        slot_remap=None,
+    )
+    tokens, _, call = adapter.generator.decode_calls[-1]
+    assert tokens.shape == (8, 1)
+    assert adapter._active_decode_bucket == 8
+    assert call["force_host_tokens"] is True
+
+
 def test_decode_bucket_warmup_compiles_before_capturing(monkeypatch):
     adapter = _adapter()
     monkeypatch.setattr("ttnn.synchronize_device", lambda *_: None)
