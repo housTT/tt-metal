@@ -265,6 +265,28 @@ def test_indexed_prefill_moe(mesh_device, device_params, layer_idx, sequence_len
         mlp._prefill_timing = None
         print(f"INDEXED_PREFILL_STAGES sequence={sequence_length} total_ms={sum(stages.values()):.2f} {stages}")
         print(f"INDEXED_PREFILL_LAYOUT sequence={sequence_length} {getattr(mlp, '_prefill_stats', None)}")
+        # Program-cache growth per new prompt: every distinct routing must reuse
+        # the same device programs (a growing cache holds DRAM kernel buffers and
+        # slowed serving after a few hundred prompts).
+        growth = []
+        for extra in range(3):
+            other = real_token_embeddings(snapshot, config, sequence_length, 9_000_000 + 17 * extra + sequence_length)
+            other_hidden = tmd._replicated_from_torch(other, mesh_device, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT)
+            before = mesh_device.num_program_cache_entries()
+            mlp._prefill_timing = {}
+            mlp._prefill_program_growth = {"_last": before}
+            out = decoder.prefill_forward(other_hidden, position_embeddings=prefill_rope, page_table=page_table)
+            ttnn.synchronize_device(mesh_device)
+            out.deallocate(True)
+            other_hidden.deallocate(True)
+            growth.append(mesh_device.num_program_cache_entries() - before)
+            by_stage = {k: v for k, v in mlp._prefill_program_growth.items() if k != "_last" and v}
+            print(f"INDEXED_PREFILL_PROGRAM_GROWTH sequence={sequence_length} prompt={extra} by_stage={by_stage}")
+        mlp._prefill_timing = None
+        mlp._prefill_program_growth = None
+        print(
+            f"INDEXED_PREFILL_PROGRAM_CACHE sequence={sequence_length} entries={mesh_device.num_program_cache_entries()} growth_per_new_prompt={growth}"
+        )
     print(
         f"INDEXED_PREFILL layer={layer_idx} sequence={sequence_length} "
         f"packed_ms={statistics.median(packed_ms):.3f} indexed_ms={statistics.median(indexed_ms):.3f} "

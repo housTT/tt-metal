@@ -80,6 +80,18 @@ that were needed to make it work in serving, not just in a layer test:
   (`fast_reduce_nc`); the down bias is folded in through the dense routing
   weights. Below 512 tokens the packed path is used, since the per-layer
   sync costs more than it saves there.
+- Every device op in the path sees prompt-independent shapes and attributes.
+  The first serving build sliced each group's dispatch rows and expert ids
+  out of one uploaded vector with `ttnn.slice` at routing-dependent offsets;
+  each distinct offset is a separate program-cache entry holding a DRAM
+  kernel buffer, so the cache grew by hundreds of entries per prompt for the
+  life of the process and, after a few hundred prompts, every later prefill
+  ran 30-40x slower (the bench-sweeps harness measured 4k TTFT 38-50 s and
+  16k 105 s after its 16-user row; decode, being traced, was unaffected).
+  Per-group index vectors are now uploaded from the host layout instead.
+  `_stage_mark` also accounts program-cache growth per stage
+  (`_prefill_program_growth`) and `test_indexed_prefill_moe` prints it for
+  three new prompts; steady-state growth is bounded by the static shape set.
 - Matmul blocking is specific to this path (`_indexed_prefill_matmul_config`):
   gate/up `(in0_block_w, out_block_h, out_subblock_h, out_subblock_w)` =
   (15, 4, 2, 1), down (12, 4, 2, 2). With `out_block_h = 1` (the decode

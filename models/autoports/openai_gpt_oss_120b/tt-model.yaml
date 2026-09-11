@@ -59,6 +59,10 @@ serve:
     GPT_OSS_120B_TENSOR_CACHE: /cache/model/decoder
     TTNN_CONFIG_OVERRIDES: '{"cache_path":"/cache/ttnn/cache","model_cache_path":"/cache/ttnn/models","tmp_dir":"/cache/ttnn/tmp"}'
     TORCHDYNAMO_DISABLE: "1"
+    # tt-metal's shared-memory stats tracker (for tt-smi) walks every cached
+    # program on each untraced op; with the indexed prefill's program set it
+    # made long prompts 30x slower after a few hundred requests.
+    TT_METAL_SHM_TRACKING_DISABLED: "1"
     VLLM_RPC_TIMEOUT: "900000"
     VLLM_SYSTEM_START_DATE: "2026-08-31"
   args:

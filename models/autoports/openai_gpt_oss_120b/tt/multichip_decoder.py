@@ -1342,6 +1342,7 @@ class _ActiveExpertTPMLP(MLP):
         # boundaries and records elapsed seconds per stage (test/diagnostics).
         self._prefill_timing = None
         self._prefill_stats = None
+        self._prefill_program_growth = None
         self._slot_selectors = {}
         self._load_indexed_decode_weights(
             substate(state_dict, "experts"),
@@ -1978,6 +1979,15 @@ class _ActiveExpertTPMLP(MLP):
         ttnn.synchronize_device(self.mesh_device)
         now = time.perf_counter()
         self._prefill_timing[name] = self._prefill_timing.get(name, 0.0) + (now - started)
+        # Program-cache growth attributed to this stage (new programs since the
+        # previous mark); a steady-state prompt should add none.
+        entries = self.mesh_device.num_program_cache_entries()
+        growth = self._prefill_program_growth
+        if growth is not None:
+            growth[name] = growth.get(name, 0) + entries - growth.get("_last", entries)
+        else:
+            growth = self._prefill_program_growth = {}
+        growth["_last"] = entries
         return now
 
     def _debug_capture(self, name, tensor):
@@ -2288,9 +2298,8 @@ class _ActiveExpertTPMLP(MLP):
                 groups.setdefault(max_rows, []).extend([expert] * full)
         full_base_host = torch.zeros(experts, dtype=torch.int64)
         remainder_base_host = torch.zeros(experts, dtype=torch.int64)
-        layout = []  # (height, expert ids, start row, id offset)
+        layout = []  # (height, expert ids, start row)
         capacity = 0
-        member_ids_host = []
         for height in sorted(groups):
             members = groups[height]
             base_host = full_base_host if height == max_rows else remainder_base_host
@@ -2310,8 +2319,7 @@ class _ActiveExpertTPMLP(MLP):
                 remaining = len(members) - offset
                 chunk = min(experts, 1 << (remaining.bit_length() - 1))
                 chunk_members = members[offset : offset + chunk]
-                layout.append((height, chunk_members, group_start + offset * height, len(member_ids_host)))
-                member_ids_host.extend(chunk_members)
+                layout.append((height, chunk_members, group_start + offset * height))
                 offset += chunk
         # Round the slab buffer up to 1/8 of its power-of-two octave so the
         # capacity-sized ops (dispatch upload, token gather) repeat their shapes
@@ -2332,7 +2340,7 @@ class _ActiveExpertTPMLP(MLP):
         dispatch_rows_host = torch.zeros(capacity, dtype=torch.int32)
         dispatch_rows_host[destinations_sorted] = (order // top_k).to(torch.int32)
         if self._prefill_debug is not None:
-            self._prefill_debug["layout"] = layout
+            self._prefill_debug["layout"] = [(height, members, start, None) for height, members, start in layout]
             self._prefill_debug["capacity"] = capacity
             self._prefill_debug["dispatch_rows_host"] = dispatch_rows_host.clone()
         if self._prefill_timing is not None:
@@ -2364,11 +2372,24 @@ class _ActiveExpertTPMLP(MLP):
                 mesh_mapper=mapper,
             )
 
+        # Every device op in this path must see prompt-independent shapes and
+        # attributes: each distinct program is cached for the life of the
+        # process and holds a DRAM kernel-binary buffer, so per-prompt variants
+        # (for example slices at routing-dependent offsets) grow the program
+        # cache by hundreds of entries per prompt and, after enough prompts,
+        # slow every later prefill.  Per-group index vectors are therefore
+        # uploaded from the host layout instead of being sliced on device.
         dispatch_rows = upload(dispatch_rows_host.reshape(1, capacity), ttnn.uint32)
         slot_columns = upload(slot_columns_host, ttnn.uint32)
-        member_ids_all = upload(
-            torch.tensor(member_ids_host, dtype=torch.int32).reshape(1, len(member_ids_host)), ttnn.uint32
-        )
+        group_inputs = []
+        for height, members, start in layout:
+            span = len(members) * height
+            group_inputs.append(
+                (
+                    upload(dispatch_rows_host[start : start + span].reshape(1, span), ttnn.uint32),
+                    upload(torch.tensor(members, dtype=torch.int32).reshape(1, 1, 1, len(members)), ttnn.uint32),
+                )
+            )
         slot_weights = ttnn.from_torch(
             slot_weights_host,
             device=self.mesh_device,
@@ -2398,27 +2419,19 @@ class _ActiveExpertTPMLP(MLP):
         if self.separate_gate_up:
             raise NotImplementedError("indexed prefill requires the packed gate/up expert layout")
         group_outputs = []
-        for height, members, start, id_offset in layout:
+        for (height, members, _start), (group_rows, member_ids) in zip(layout, group_inputs):
             count = len(members)
-            span = count * height
-            group_rows = ttnn.slice(dispatch_rows, [0, start], [1, start + span], [1, 1])
             slab_tiled = ttnn.reshape(
                 ttnn.embedding(group_rows, hidden_rm, layout=ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG),
                 (1, count, height, hidden),
             )
             group_rows.deallocate(True)
             stage_started = self._stage_mark("g.token_gather", stage_started)
-            member_ids = ttnn.reshape(
-                ttnn.slice(member_ids_all, [0, id_offset], [1, id_offset + count], [1, 1]),
-                (1, 1, 1, count),
-            )
-            stage_started = self._stage_mark("g.ids_prep", stage_started)
             group_outputs.append(self._indexed_prefill_group(slab_tiled, member_ids, height))
             stage_started = _time.perf_counter()
         stage_started = self._stage_mark("expert_groups", stage_started)
         hidden_rm.deallocate(True)
         dispatch_rows.deallocate(True)
-        member_ids_all.deallocate(True)
         if len(group_outputs) == 1:
             out_rows = group_outputs[0]
         else:
