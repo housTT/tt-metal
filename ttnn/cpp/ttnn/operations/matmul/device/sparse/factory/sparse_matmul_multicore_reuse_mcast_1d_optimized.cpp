@@ -117,7 +117,6 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
     const uint32_t in0_aligned_tile_size = tt::align(in0_single_tile_size, dram_alignment);
     const uint32_t in1_aligned_tile_size = tt::align(in1_single_tile_size, dram_alignment);
     const auto output_single_tile_size = output_tile.get_tile_size(output_data_format);
-    const auto interm0_single_tile_size = output_tile.get_tile_size(output_data_format);
 
     auto* const in0_buffer = a.buffer();
     auto* const in1_buffer = b.buffer();
@@ -192,6 +191,7 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
     const auto interm0_data_format = packer_l1_acc_en
                                          ? (fp32_dest_acc_en ? tt::DataFormat::Float32 : tt::DataFormat::Float16_b)
                                          : (fp32_dest_acc_en ? tt::DataFormat::Float32 : output_data_format);
+    const auto interm0_single_tile_size = output_tile.get_tile_size(interm0_data_format);
 
     uint32_t in0_block_h = out_block_h;
     uint32_t in1_block_w = out_block_w;
@@ -457,6 +457,10 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
         mm_kernel_defines,
         ttnn::get_throttle_level(operation_attributes.compute_kernel_config));
 
+    if (in0_mcast_receiver_num_cores == 1) {
+        mm_kernel_in0_sender_writer_defines["SKIP_MCAST"] = "1";
+    }
+
     mm_kernel_in1_sender_writer_defines["SKIP_MCAST"] = "1";
 
     // in1 is the reader of weights/output writer, and we choose to make it use the optimized reader noc
@@ -546,6 +550,13 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
         false,                  // in0_transpose_tile
     };
 
+    // Preserve Float32 partials when copying them back into destination between K blocks.
+    std::vector<tt::tt_metal::UnpackToDestMode> unpack_to_dest_mode(
+        NUM_CIRCULAR_BUFFERS, tt::tt_metal::UnpackToDestMode::Default);
+    if (fp32_dest_acc_en && interm0_data_format == tt::DataFormat::Float32) {
+        unpack_to_dest_mode[static_cast<uint32_t>(tt::CBIndex::c_5)] = tt::tt_metal::UnpackToDestMode::UnpackToDestFp32;
+    }
+
     // Create compute kernel
     // bool fp32_dest_acc_en = false;
     // Gelu currently has better accuracy when run in approx mode
@@ -558,6 +569,7 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
             .math_fidelity = math_fidelity,
             .fp32_dest_acc_en = fp32_dest_acc_en,
             .dst_full_sync_en = dst_full_sync_en,
+            .unpack_to_dest_mode = unpack_to_dest_mode,
             .math_approx_mode = math_approx_mode,
             .compile_args = compute_kernel_args,
             .defines = mm_kernel_defines,

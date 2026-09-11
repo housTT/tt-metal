@@ -412,3 +412,64 @@ def test_indexed_optional_output(device):
         assert_numeric_metrics(
             ref, out[i], atol=0.05 * k, rtol=10.0 * k, frobenius_threshold=0.01 * k, pcc_threshold=0.99
         )
+
+
+@pytest.mark.parametrize("num_cores", [1, 2])
+@pytest.mark.parametrize("fp32_dest_acc_en", [False, True])
+def test_indexed_sparse_partial_cancellation(device, num_cores, fp32_dest_acc_en):
+    """Preserve an FP32 partial through BF16-output sparse matmul and singleton dispatch.
+
+    The first K block produces 1 + 2**-12; the second subtracts 1. Separate
+    16-wide faces keep the small product out of the same matrix-engine dot.
+    BF16 destination rounds the first partial to 1, so its control result is 0.
+    FP32 destination must preserve 2**-12 through the intermediate CB reload.
+    All operand values and expected outputs are exact literals; no CPU matmul.
+    """
+    n = 32 * num_cores
+    in0 = torch.zeros((1, 1, 1, 2816), dtype=torch.bfloat16)
+    in1 = torch.zeros((1, 2, 2816, n), dtype=torch.bfloat16)
+    in0[..., 0], in0[..., 16], in0[..., 1408] = 1.0, 0.015625, -1.0
+    in1[0, 1, 0, :], in1[0, 1, 16, :], in1[0, 1, 1408, :] = 1.0, 0.015625, 1.0
+    in0_t = ttnn.from_torch(
+        in0, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.L1_MEMORY_CONFIG
+    )
+    in1_t = ttnn.from_torch(
+        in1, dtype=ttnn.bfloat8_b, layout=ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.DRAM_MEMORY_CONFIG
+    )
+    assert torch.equal(ttnn.to_torch(in0_t).float(), in0.float())
+    assert torch.equal(ttnn.to_torch(in1_t).float(), in1.float())
+    sparsity_t = _make_sparsity([1], 2, device)
+    indices_t = _make_indices([1], device)
+    program = ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
+        compute_with_storage_grid_size=ttnn.CoreCoord(num_cores, 1),
+        in0_block_w=44,
+        out_subblock_h=1,
+        out_subblock_w=1,
+        per_core_M=1,
+        per_core_N=1,
+        fuse_batch=False,
+        mcast_in0=True,
+    )
+    compute = ttnn.WormholeComputeKernelConfig(
+        math_fidelity=ttnn.MathFidelity.LoFi,
+        math_approx_mode=False,
+        fp32_dest_acc_en=fp32_dest_acc_en,
+        packer_l1_acc=True,
+    )
+    output_t = ttnn.sparse_matmul(
+        in0_t,
+        in1_t,
+        sparsity=sparsity_t,
+        indices=indices_t,
+        is_input_a_sparse=False,
+        is_input_b_sparse=True,
+        dtype=ttnn.bfloat16,
+        memory_config=ttnn.L1_MEMORY_CONFIG,
+        program_config=program,
+        compute_kernel_config=compute,
+    )
+    output = ttnn.to_torch(output_t)
+    assert tuple(output.shape) == (1, 1, 1, 1, 1, n)
+    assert output.dtype == torch.bfloat16
+    expected = torch.full_like(output, 0.000244140625 if fp32_dest_acc_en else 0.0)
+    assert torch.equal(output, expected)
