@@ -18,6 +18,13 @@ void SharedMemoryStatsProvider::update_from_allocator(const Device* device, pid_
     if (!region_ || !device) {
         return;
     }
+    // The allocator query below walks every program registered with the device
+    // (Device::get_total_cb_allocated), so its cost grows with the program cache
+    // and it runs from the hot path of every program allocation.  Honour the
+    // TT_METAL_SHM_TRACKING_DISABLED opt-out here as well as for per-PID stats.
+    if (!per_pid_tracking_enabled_) {
+        return;
+    }
 
     // Rate limiting: max 10 updates/sec per device to reduce overhead
     static std::unordered_map<uint32_t, std::chrono::steady_clock::time_point> last_updates;
