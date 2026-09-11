@@ -14,6 +14,10 @@ install(TARGETS ttnn_op_experimental_kda_common LIBRARY COMPONENT tar)
 add_subdirectory(sigmoid_gated_rms_norm)
 add_subdirectory(qkv_causal_conv1d_silu)
 add_subdirectory(reduce_affine_transforms)
+add_subdirectory(recurrent_gated_delta_rule)
+add_subdirectory(gdn_decode_step)
+add_subdirectory(hc_mixer)
+add_subdirectory(moe_decode)
 
 add_library(ttnn_op_experimental_kda INTERFACE)
 add_library(TTNN::Ops::Experimental::KDA ALIAS ttnn_op_experimental_kda)
@@ -24,6 +28,10 @@ target_link_libraries(
         TTNN::Ops::Experimental::KDA::SigmoidGatedRMSNorm
         TTNN::Ops::Experimental::KDA::QkvCausalConv1dSilu
         TTNN::Ops::Experimental::KDA::ReduceAffineTransforms
+        TTNN::Ops::Experimental::KDA::RecurrentGatedDeltaRule
+        TTNN::Ops::Experimental::KDA::GdnDecodeStep
+        TTNN::Ops::Experimental::KDA::HcMixer
+        TTNN::Ops::Experimental::KDA::MoeDecode
 )
 
 # OBJECT libraries do not propagate their compiled objects through a nested
@@ -36,4 +44,8 @@ target_sources(
         $<TARGET_OBJECTS:TTNN::Ops::Experimental::KDA::SigmoidGatedRMSNorm>
         $<TARGET_OBJECTS:TTNN::Ops::Experimental::KDA::QkvCausalConv1dSilu>
         $<TARGET_OBJECTS:TTNN::Ops::Experimental::KDA::ReduceAffineTransforms>
+        $<TARGET_OBJECTS:TTNN::Ops::Experimental::KDA::RecurrentGatedDeltaRule>
+        $<TARGET_OBJECTS:TTNN::Ops::Experimental::KDA::GdnDecodeStep>
+        $<TARGET_OBJECTS:TTNN::Ops::Experimental::KDA::HcMixer>
+        $<TARGET_OBJECTS:TTNN::Ops::Experimental::KDA::MoeDecode>
 )

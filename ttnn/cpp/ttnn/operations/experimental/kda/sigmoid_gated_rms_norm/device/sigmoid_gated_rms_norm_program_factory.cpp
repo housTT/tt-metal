@@ -33,7 +33,9 @@ ttnn::device_operation::ProgramArtifacts SigmoidGatedRmsNormProgramFactory::crea
     const auto& device = input.device();
     const auto arch = device.arch();
 
-    const uint32_t Mt = attrs.sequence / TILE_HEIGHT;
+    // A partial last tile (the one-row decode step) is processed whole; its
+    // padded rows are independent and dropped by the logical output shape.
+    const uint32_t Mt = (attrs.sequence + TILE_HEIGHT - 1) / TILE_HEIGHT;
     const uint32_t Vt = attrs.value_dim / TILE_WIDTH;
     const uint32_t total = attrs.batch * attrs.num_heads * Mt;
     // Use the fewest workers that preserve the all-core maximum items/worker.

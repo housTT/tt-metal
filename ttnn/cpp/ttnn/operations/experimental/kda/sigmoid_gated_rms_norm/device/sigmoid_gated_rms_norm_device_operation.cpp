@@ -75,9 +75,7 @@ void SigmoidGatedRmsNormOperation::validate_on_program_cache_miss(
         "sigmoid_gated_rms_norm: gate must have shape [B,T,H*V]");
     TT_FATAL(in.weight.logical_volume() == attrs.value_dim, "sigmoid_gated_rms_norm: weight volume must equal V");
     TT_FATAL(attrs.batch > 0, "sigmoid_gated_rms_norm: batch must be positive");
-    TT_FATAL(
-        attrs.sequence > 0 && attrs.sequence % tt::constants::TILE_HEIGHT == 0,
-        "sigmoid_gated_rms_norm: sequence must be positive and tile aligned");
+    TT_FATAL(attrs.sequence > 0, "sigmoid_gated_rms_norm: sequence must be positive");
     TT_FATAL(
         attrs.value_dim > 0 && attrs.value_dim % tt::constants::TILE_WIDTH == 0,
         "sigmoid_gated_rms_norm: value_dim must be positive and tile aligned");

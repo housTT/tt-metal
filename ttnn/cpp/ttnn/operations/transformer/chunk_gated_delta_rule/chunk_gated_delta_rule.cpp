@@ -274,12 +274,13 @@ std::tuple<ttnn::Tensor, std::optional<ttnn::Tensor>> chunk_gated_delta_rule(
 
     // Phase-split path: prep -> (DRAM hand-off) -> scan. The prep phase does all state-independent
     // per-chunk work (incl. the WY inverse) fanned across the grid; the scan phase carries the
-    // recurrent state. Same math as the monolithic op. This is the DEFAULT; QWEN_GDN_PHASED=0 falls
-    // back to the single-kernel monolithic op (benchmark/debug only). Read fresh (not static) so a
-    // caller toggling it between calls is honored.
+    // recurrent state. The monolithic kernel is the correctness-safe default: real Qwen3.8
+    // activations expose a numerical defect in the phased implementation that is not visible in
+    // its small-random-input unit coverage. QWEN_GDN_PHASED=1 opts into the experimental phased
+    // implementation. Read fresh (not static) so a caller toggling it between calls is honored.
     const bool phased = [] {
         const char* e = std::getenv("QWEN_GDN_PHASED");
-        return e == nullptr || e[0] != '0';
+        return e != nullptr && e[0] == '1';
     }();
 
     ttnn::Tensor o_c;          // [BH, NC, C, V]
