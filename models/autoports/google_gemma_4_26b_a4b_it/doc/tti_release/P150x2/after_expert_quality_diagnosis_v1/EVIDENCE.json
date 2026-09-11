@@ -1,0 +1,434 @@
+{
+  "method": "Saved artifact inspection, Jinja rendering and host tokenization only; no framework/model import, inference or evaluation",
+  "prompt": {
+    "checkpoint_revision": "4d7ae4984b7db7de8f8457170b3f1a419ee76d52",
+    "tokenizer_class": "GemmaTokenizer",
+    "tokens": 326,
+    "single_bos": true,
+    "token_roundtrip_exact": true,
+    "saved_transport_exact": true,
+    "default_and_explicit_false_template_exact": true,
+    "contains_native_think_token": false,
+    "requested_step_heading": "## Step 1: [Concise description]",
+    "requested_final_answer": "The best answer is [the_answer_letter].",
+    "suffix": "p by step.<turn|>\n<|turn>model\n<|channel>thought\n<channel|>",
+    "settings": {
+      "model": "google/gemma-4-26B-A4B-it",
+      "max_tokens": 2048,
+      "temperature": 0.0,
+      "stop": [],
+      "seed": 42,
+      "stream": false
+    },
+    "target": "D",
+    "correct_answer": "18"
+  },
+  "current_quality_control": {
+    "status": "completed",
+    "original_request": {
+      "prompt_tokens": 326,
+      "max_tokens": 2048,
+      "temperature": 0,
+      "seed": 42,
+      "stop": [],
+      "stream": false
+    },
+    "context": 262144,
+    "slots": 32,
+    "num_blocks": 4128,
+    "current_checkout_commit": "bc4752de65dce32b8e68eacd7ebcb40dac276cbd",
+    "gate_config_ledger": {
+      "layers": 30,
+      "native": {
+        "math_fidelity": "MathFidelity.LoFi",
+        "math_approx_mode": "False",
+        "fp32_dest_acc_en": "False",
+        "packer_l1_acc": "True",
+        "dst_full_sync_en": "False",
+        "throttle_level": "ThrottleLevel.NO_THROTTLE"
+      },
+      "candidate": {
+        "math_fidelity": "MathFidelity.HiFi4",
+        "math_approx_mode": "False",
+        "fp32_dest_acc_en": "True",
+        "packer_l1_acc": "True",
+        "dst_full_sync_en": "False",
+        "throttle_level": "ThrottleLevel.NO_THROTTLE"
+      },
+      "changed_fields": [
+        "math_fidelity",
+        "fp32_dest_acc_en"
+      ],
+      "prefill_unchanged": true
+    },
+    "native_serialization": {
+      "tokenizer_class": "GemmaTokenizer",
+      "skip_special_tokens": true,
+      "include_stop_str_in_output": false,
+      "stop_token_ids": [
+        1,
+        50,
+        106
+      ]
+    },
+    "device_cleanclosed": true,
+    "quality_pass": false,
+    "release_pass": false,
+    "arms": {
+      "baseline": {
+        "generated_tokens": 2048,
+        "finish_reason": "length",
+        "text": {
+          "path": "/home/hous/dev/tti-release-gemma4/meta_gpqa_expert_precision_quality_control_run_v1/baseline.txt",
+          "sha256": "417f7a965fbf16072d04809181a28713ae5875a4e54477235165200f13b547b7"
+        },
+        "first_logit_hashes": [
+          "2f404628b93a6c59f01d8ae2d8f3f26dcd396f965e106ae9164265604a132c93",
+          "22671983cbd3d1decbd9197f8aeae2f99a1dc0baf7e120075a29f268bdb1ed78"
+        ],
+        "ids_decode_exactly_to_text": true,
+        "native_stop_ids_emitted": [],
+        "required_answer_marker_present": false,
+        "repeated_complete_lines": []
+      },
+      "expert_gate_hifi4_fp32": {
+        "generated_tokens": 2048,
+        "finish_reason": "length",
+        "text": {
+          "path": "/home/hous/dev/tti-release-gemma4/meta_gpqa_expert_precision_quality_control_run_v1/expert_gate_hifi4_fp32.txt",
+          "sha256": "16b380bd28f1e50f1bb6ae8271892b5543c7adebdd68578c6ea706b7134d0fdd"
+        },
+        "first_logit_hashes": [
+          "2f404628b93a6c59f01d8ae2d8f3f26dcd396f965e106ae9164265604a132c93",
+          "d416402ecfa76be847b508a8c5ed1ca4c3601a6bbb00ead4b9f0ad7ab0d01672"
+        ],
+        "ids_decode_exactly_to_text": true,
+        "native_stop_ids_emitted": [],
+        "required_answer_marker_present": false,
+        "repeated_complete_lines": [
+          {
+            "line": "If X is $C_6H_{10}$ and $C_6H_{10}$? No.",
+            "count": 4
+          }
+        ]
+      }
+    },
+    "baseline_exact_all_ids_and_text_to_prior": true,
+    "first_different_output_id_zero_based": 28
+  },
+  "component": {
+    "result": {
+      "path": "/home/hous/dev/tti-release-gemma4/meta_gpqa_moe_gate_fp32_fidelity_run_v1/result.json",
+      "sha256": "5ff778940c500edc6a2cc2953b562c2229c2747e4d55764d639eba1c0852accb"
+    },
+    "admission_measurements": {
+      "packed_rows_improved": 16,
+      "packed_rows_total": 16,
+      "packed_rows_improved_over_fp32_lofi": 16,
+      "fp32_lofi_mean_packed_relative_l2": 0.017745848168268488,
+      "normalized_fp32_lofi_candidate_relative_l2": [
+        [
+          0.01285672891081365,
+          0.0030966748791209364
+        ],
+        [
+          0.01285672891081365,
+          0.0030966748791209364
+        ]
+      ],
+      "native_mean_packed_relative_l2": 0.0248043240893956,
+      "candidate_mean_packed_relative_l2": 0.0016751594007602467,
+      "normalized_native_candidate_relative_l2": [
+        [
+          0.01321207080840812,
+          0.0030966748791209364
+        ],
+        [
+          0.01321207080840812,
+          0.0030966748791209364
+        ]
+      ],
+      "checks": {
+        "all_16_packed_rows_improve": true,
+        "mean_packed_relative_l2_halves": true,
+        "normalized_each_chip_improves_20_percent": true,
+        "native_and_reference_replay_exact": true,
+        "all_16_packed_rows_improve_over_fp32_lofi": true,
+        "normalized_each_chip_improves_over_fp32_lofi": true
+      },
+      "scope": "Host statistics on saved TT readbacks only; no host model arithmetic"
+    }
+  },
+  "r1_comparison": {
+    "sample_path": "/home/hous/dev/tti-release-gemma4/recovery_P150x2_gpqa_timeout7200_v1/eval_id_gemma4-autoport_gemma-4-26B-A4B-it_p300/google__gemma-4-26B-A4B-it/samples_r1_gpqa_diamond_2026-09-11T00-57-23.091373.jsonl",
+    "same_question_exact": true,
+    "target": "(B)",
+    "recorded_exact_match": 1,
+    "prompt_tokens": 229,
+    "same_native_closed_thought_mode": true,
+    "settings": {
+      "model": "google/gemma-4-26B-A4B-it",
+      "max_tokens": 32768,
+      "temperature": 1.0,
+      "stop": [],
+      "seed": 42,
+      "top_k": 20,
+      "top_p": 0.95,
+      "n": 1,
+      "stream": true
+    },
+    "choice_order_meta": [
+      "22",
+      "16",
+      "12",
+      "18"
+    ],
+    "choice_order_r1": [
+      "22",
+      "18",
+      "12",
+      "16"
+    ],
+    "r1_answer_instruction": "Please reason step by step, and your final answer must be only (A,B,C or D) within \\boxed\nAnswer:",
+    "response_text_sha256": "ccb3157c2e05478673632afba565c2300c157c91b9249c723749bd34a13e094b",
+    "response_reencoded_token_count": 4838,
+    "final_answer_reencoded_token_offset": 4827,
+    "reencoded_count_is_not_original_emitted_ids": true,
+    "response_tail": "+ C_6H_8$) = $10 + 8 = 18$.\n\nAnswer: (B)\n\n\\boxed{B}",
+    "response_summary": {
+      "request_started_at": 1789085577.7059846,
+      "endpoint": "http://127.0.0.1:8000/v1/completions",
+      "payload_sha256": "2cc8ce206a558ac5c5b5bb78b628897d06a597112aae5e30002c5457100a0aa3",
+      "payload_file": "/home/hous/dev/tti-release-gemma4/recovery_P150x2_gpqa_timeout7200_v1/payload_capture/80d64b01bc5e4f659d44dae2fd859d89.payload.json",
+      "prompt_token_counts": [
+        229
+      ],
+      "prompt_token_hashes": [
+        "0ddf7fe2efbbf7c3c680fea999eca9d7164bbd727346b8ce25e6faa84123283a"
+      ],
+      "http_status": 200,
+      "response_ids": [
+        "cmpl-aed4edec683404a0"
+      ],
+      "usage": null,
+      "finish_reasons": [
+        "stop"
+      ],
+      "stream_done": true,
+      "stream_text_sha256": "ccb3157c2e05478673632afba565c2300c157c91b9249c723749bd34a13e094b",
+      "stream_finished_at": 1789088180.8243783
+    }
+  },
+  "saved_prefill_reuse_limits": {
+    "prefill_1_capture": {
+      "history_tokens": 327,
+      "operation_rows": {
+        "path": "/home/hous/dev/tti-release-gemma4/meta_gpqa_exact_history_operations_run_v1/prefill_1_capture_layer0.pt",
+        "sha256": "3a240663a92c54d0e96b8ea0b5e5af819cc9e825748eb99079964823985a2266"
+      },
+      "moe_input_geometry": {
+        "shape": [
+          1,
+          1,
+          352,
+          2816
+        ],
+        "padded_shape": [
+          1,
+          1,
+          352,
+          2816
+        ],
+        "starts": [
+          0,
+          0,
+          326,
+          0
+        ],
+        "ends": [
+          1,
+          1,
+          327,
+          2816
+        ],
+        "dtype": "DataType.BFLOAT16",
+        "layout": "Layout.TILE",
+        "memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)"
+      },
+      "routing_geometry": {
+        "shape": [
+          1,
+          1,
+          352,
+          128
+        ],
+        "padded_shape": [
+          1,
+          1,
+          352,
+          128
+        ],
+        "starts": [
+          0,
+          0,
+          326,
+          0
+        ],
+        "ends": [
+          1,
+          1,
+          327,
+          128
+        ],
+        "dtype": "DataType.BFLOAT16",
+        "layout": "Layout.TILE",
+        "memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)"
+      },
+      "no_packed_gate_capture": true
+    },
+    "prefill_68_capture": {
+      "history_tokens": 394,
+      "operation_rows": {
+        "path": "/home/hous/dev/tti-release-gemma4/meta_gpqa_exact_history_operations_run_v1/prefill_68_capture_layer0.pt",
+        "sha256": "ed94acc1563910765d21770c03db91681257027410e8ea23a9a0eb6d95a50159"
+      },
+      "moe_input_geometry": {
+        "shape": [
+          1,
+          1,
+          416,
+          2816
+        ],
+        "padded_shape": [
+          1,
+          1,
+          416,
+          2816
+        ],
+        "starts": [
+          0,
+          0,
+          393,
+          0
+        ],
+        "ends": [
+          1,
+          1,
+          394,
+          2816
+        ],
+        "dtype": "DataType.BFLOAT16",
+        "layout": "Layout.TILE",
+        "memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)"
+      },
+      "routing_geometry": {
+        "shape": [
+          1,
+          1,
+          416,
+          128
+        ],
+        "padded_shape": [
+          1,
+          1,
+          416,
+          128
+        ],
+        "starts": [
+          0,
+          0,
+          393,
+          0
+        ],
+        "ends": [
+          1,
+          1,
+          394,
+          128
+        ],
+        "dtype": "DataType.BFLOAT16",
+        "layout": "Layout.TILE",
+        "memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)"
+      },
+      "no_packed_gate_capture": true
+    }
+  },
+  "source_predicted_original_prefill_geometry": {
+    "logical_tokens": 326,
+    "physical_tokens": 352,
+    "chunk_tokens": 32,
+    "chunks": 11,
+    "selected_chunk_positions": [
+      320,
+      352
+    ],
+    "selected_logical_row": 325,
+    "row_within_chunk": 5,
+    "groups_per_call": 1,
+    "input_shape": [
+      1,
+      1,
+      32,
+      2816
+    ],
+    "packed_weight_shape": [
+      1,
+      128,
+      2816,
+      704
+    ],
+    "program_grid": [
+      11,
+      2
+    ],
+    "in0_block_w": 44,
+    "k_tiles": 88,
+    "per_core_M": 1,
+    "per_core_N": 1,
+    "out_subblock": [
+      1,
+      1
+    ],
+    "fuse_batch": false,
+    "native_fidelity": "LoFi",
+    "native_fp32_dst": false,
+    "input_output_memory": "DRAM",
+    "input_output_dtype": "BF16",
+    "weight_dtype": "BFP8_B",
+    "sparsity": "non-indexed union of actual 32-token routing group; nnz=None",
+    "runtime_confirmation_required": true
+  },
+  "bindings_sha256": {
+    "/home/hous/dev/tti-release-gemma4/collection_P150x2_meta_expert_tanh_v1/meta_gpqa_cot/eval_id_gemma4-autoport_gemma-4-26B-A4B-it_p300/google__gemma-4-26B-A4B-it/samples_meta_gpqa_cot_2026-09-11T00-05-58.736982.jsonl": "7be48b72cb380a38f1146b78ee993f58b5dfcdae705709ac0a5123e59dce488e",
+    "/home/hous/dev/tti-release-gemma4/recovery_P150x2_gpqa_timeout7200_v1/eval_id_gemma4-autoport_gemma-4-26B-A4B-it_p300/google__gemma-4-26B-A4B-it/samples_r1_gpqa_diamond_2026-09-11T00-57-23.091373.jsonl": "379ad8ff627fb4fef39bffe7dd8d1ebf2fa1df32c37d0f6964ca54c02d0f41df",
+    "/home/hous/dev/tti-release-gemma4/meta_gpqa_fixed_prefix_probe_v1/inputs.json": "5e957063c6c5a6438518ce0cec51376885cca544868ad6cddd87509c66a12b2f",
+    "/home/hous/dev/tti-release-gemma4/collection_P150x2_meta_expert_tanh_v1/meta_gpqa_cot/payload_capture/3bda1cfac2ee4cf89b7556698178b2d2.payload.json": "2607c10caf1552c415dc362075ac503aadf49f0b86ed24deb6718eee7de844e1",
+    "/home/hous/.cache/huggingface/hub/models--google--gemma-4-26B-A4B-it/snapshots/4d7ae4984b7db7de8f8457170b3f1a419ee76d52/tokenizer.json": "cc8d3a0ce36466ccc1278bf987df5f71db1719b9ca6b4118264f45cb627bfe0f",
+    "/home/hous/.cache/huggingface/hub/models--google--gemma-4-26B-A4B-it/snapshots/4d7ae4984b7db7de8f8457170b3f1a419ee76d52/chat_template.jinja": "ae53464bf3be25802b3a5b37def7fd89667067d7577049b3b2d74c4d8de4c6d4",
+    "/home/hous/.cache/huggingface/hub/models--google--gemma-4-26B-A4B-it/snapshots/4d7ae4984b7db7de8f8457170b3f1a419ee76d52/tokenizer_config.json": "9f4fec4b1dc6ecddf8f4a92e9caea5971c0e67d81309f3f9066a2bee8c362633",
+    "/home/hous/dev/tti-release-gemma4/meta_gpqa_expert_precision_quality_control_run_v1/result.json": "cff57f4cabc71877bfdc227f5a734408ae69cc15f2daaec91589bf241a7ffc2f",
+    "/home/hous/dev/tti-release-gemma4/meta_gpqa_expert_precision_quality_control_v1/plan.json": "45b7cfce1749fb9ba64eda95c41357251ff88966bea63e2bcd5375ea3164bd2b",
+    "/home/hous/dev/tti-release-gemma4/meta_gpqa_expert_precision_quality_control_v1/probe_tt.py": "7824c7efe14f30f0bf6eefcb7077a4a421c1213b45983a8f8dad7ee4828792d5",
+    "/home/hous/dev/tti-release-gemma4/meta_gpqa_moe_gate_fp32_fidelity_run_v1/result.json": "5ff778940c500edc6a2cc2953b562c2229c2747e4d55764d639eba1c0852accb",
+    "/home/hous/dev/tti-release-gemma4/meta_gpqa_original_quality_control_run_v1/result.json": "640bc6b8d6e9168ecef5d6ecb6c0b5a56e4251fe3c6a765770a3dce2db063936",
+    "/home/hous/dev/tti-release-gemma4/meta_gpqa_expert_precision_quality_control_run_v1/ACTUAL_QUALITY_REVIEW.json": "48ec2069ea0a565d63aa258180c46c7259e41348f0a9faca5869ad2cffc341f7",
+    "/home/hous/dev/tti-release-gemma4/meta_gpqa_expert_precision_quality_control_run_v1/baseline.txt": "417f7a965fbf16072d04809181a28713ae5875a4e54477235165200f13b547b7",
+    "/home/hous/dev/tti-release-gemma4/meta_gpqa_expert_precision_quality_control_run_v1/expert_gate_hifi4_fp32.txt": "16b380bd28f1e50f1bb6ae8271892b5543c7adebdd68578c6ea706b7134d0fdd",
+    "/home/hous/dev/tti-release-gemma4/meta_gpqa_original_quality_control_run_v1/baseline.txt": "417f7a965fbf16072d04809181a28713ae5875a4e54477235165200f13b547b7",
+    "/home/hous/dev/tti-release-gemma4/recovery_P150x2_gpqa_timeout7200_v1/payload_capture/80d64b01bc5e4f659d44dae2fd859d89.payload.json": "2ef97d49ff9edb6de87002b0e32167c2e249072d06a3e893d40239128095b498",
+    "/home/hous/dev/tti-release-gemma4/recovery_P150x2_gpqa_timeout7200_v1/payload_capture/80d64b01bc5e4f659d44dae2fd859d89.summary.json": "d8f579bb41d5f020b181b4ecfb3c703a3c6406d5c5b0df0bd2a58595c14e89f6",
+    "/home/hous/dev/tti-release-gemma4/meta_gpqa_exact_history_operations_run_v1/result.json": "5d8798ba288c9078bb49f8596fd19aae0adb3ccf961e449fc821227bec3f5f94",
+    "/home/hous/dev/tti-release-gemma4/meta_gpqa_exact_history_operations_run_v1/prefill_1_capture_layer0.pt": "3a240663a92c54d0e96b8ea0b5e5af819cc9e825748eb99079964823985a2266",
+    "/home/hous/dev/tti-release-gemma4/meta_gpqa_exact_history_operations_run_v1/prefill_68_capture_layer0.pt": "ed94acc1563910765d21770c03db91681257027410e8ea23a9a0eb6d95a50159",
+    "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/tt/multichip_decoder.py": "e64e290ac1e75daa32e1ed8eb2d1c7b7a143cd0fd7da6c526a4fa6a44a4c70d6",
+    "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/tt/optimized_decoder.py": "29dbdc03e9d25043286809c66c4aa9cc3d610f3ad5cd59b27ff49f4d214a8687",
+    "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/tt/generator.py": "5f1279e72a1cc5e69be70f6c9d3d3be11bbe8a9c1461d25c769ee64c8e3b0f51",
+    "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/tt/generator_vllm.py": "4849405457e07c27c67b923e49ecca9f35828b83c087aaad1811bbcf25d21361",
+    "/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it/doc/tti_release/RUN_NOTES.md": "9f864b5ac3fd6b81c7377986289e5c055bf5856ba4984a3c2b52d42393ec5c8f",
+    "/home/hous/dev/tti-release-gemma4/meta_fixture_wiring_autofix_v1/prepare.py": "ca3cd44ce6a4b032070835d6b62598fff0b7c3921ce510646f7f5a9b8b6ba6ea",
+    "/home/hous/dev/tti-release-gemma4/meta_fixture_wiring_autofix_v1/prepared/include/meta_gpqa_cot.yaml": "d5caa06f039d0d3113dc3bd5e027574bef502dc0a5fe3f0a5147919b79635ddb",
+    "/home/hous/dev/tti-release-gemma4/meta_gpqa_exact_history_operations_v1/operation_capture.py": "6e34303c348b8c18b921c959eb78726c9343bd9866bacea76969db9e31e8a25e",
+    "/home/hous/dev/tti-release-gemma4/meta_gpqa_moe_gate_fp32_fidelity_v1/probe_tt.py": "0e0df5798380d4ff61797603eae46b44bed21ba1d8943cec341cffef17a270d4",
+    "/home/hous/dev/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/sparse/factory/sparse_matmul_multicore_reuse_mcast_1d_optimized.cpp": "a07409f148550d6750a59d88f569604b61ef22181b9731d451030c8342f3199e"
+  }
+}

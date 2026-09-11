@@ -1,0 +1,71 @@
+"""Root-only metadata finalization after the bound serving epoch has stopped.
+
+No subprocesses, model imports, HTTP requests or device operations are performed.
+"""
+import argparse
+import hashlib
+import importlib.util
+import json
+from pathlib import Path
+
+
+def pin(path):
+    path = Path(path).absolute()
+    return {'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--template', type=Path, required=True)
+    parser.add_argument('--template-sha256', required=True)
+    parser.add_argument('--terminal-server', type=Path, required=True)
+    parser.add_argument('--terminal-server-sha256', required=True)
+    parser.add_argument('--root-quiescence-ack', required=True,
+                        help='Root records that all inference clients and other TT users are quiescent')
+    args = parser.parse_args()
+    directory = Path(__file__).resolve().parent
+    assert args.template.resolve() == directory / 'plan.template.json'
+    assert pin(args.template)['sha256'] == args.template_sha256
+    assert pin(args.terminal_server)['sha256'] == args.terminal_server_sha256
+    template = json.loads(args.template.read_text())
+    assert template['status'] == 'prepared_not_runtime_admitted'
+    assert template['terminal_server'] is None and template['root_quiescence_ack'] is None
+    assert pin(__file__) in template['sources']
+    spec = importlib.util.spec_from_file_location('_exact_history_static_validation', directory / 'probe_tt.py')
+    assert pin(directory / 'probe_tt.py') == template['probe']
+    probe = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(probe)
+    probe.validate(args.template, args.template_sha256, runtime=False)
+    terminal = json.loads(args.terminal_server.read_text())
+    assert terminal['launch_id'] == template['expected_server_launch_id'], 'Unexpected serving epoch'
+    assert terminal['profile'] == 'P150x2' and terminal['context'] == 262144
+    assert terminal.get('finished_at') and terminal.get('cleanup', {}).get('complete')
+    assert not terminal['cleanup'].get('survivors') and not terminal['cleanup'].get('signal_errors')
+    assert len(args.root_quiescence_ack.strip()) >= 20, 'Provide a concrete quiescence statement'
+    assert not Path(template['output']).exists() and not Path(template['owner_output']).exists()
+    plan_path, owner_path = directory / 'plan.json', directory / 'owner_plan.json'
+    assert not plan_path.exists() and not owner_path.exists(), 'Never overwrite a materialized diagnostic'
+    plan = dict(template, status='root_materialized_after_server_stop',
+                terminal_server=pin(args.terminal_server), root_quiescence_ack=args.root_quiescence_ack.strip(),
+                template=pin(args.template))
+    with plan_path.open('x') as handle:
+        handle.write(json.dumps(plan, indent=2) + '\n')
+    command = [template['native_python'], '-I', '-B', template['probe']['path'], '--plan', str(plan_path),
+               '--plan-sha256', pin(plan_path)['sha256']]
+    owner = {'scope': 'Original326 prefill capture and matched final-group expert gate component control',
+             'sources': [*template['sources'], pin(args.template), pin(plan_path), pin(args.terminal_server)],
+             'orchestration': template['orchestration'], 'terminal_server': pin(args.terminal_server),
+             'owner_output': template['owner_output'], 'cwd': template['repo_root'],
+             'environment_overrides': {**template['required_env'], 'TT_METAL_DEVICE_PROFILER': '0'},
+             'command': command}
+    with owner_path.open('x') as handle:
+        handle.write(json.dumps(owner, indent=2) + '\n')
+    probe.validate(plan_path, pin(plan_path)['sha256'], runtime=False)
+    print(json.dumps({'plan': pin(plan_path), 'owner_plan': pin(owner_path),
+                      'root_launch_command': [template['native_python'], '-I', '-B', template['owned_launcher']['path'],
+                                              '--plan', str(owner_path), '--plan-sha256', pin(owner_path)['sha256']],
+                      'runtime_started': False}, indent=2))
+
+
+if __name__ == '__main__':
+    main()

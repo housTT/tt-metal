@@ -1,0 +1,111 @@
+"""Verify retained TT evidence and tokenize saved output only; no model execution."""
+import collections
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+
+class NoModelImports:
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in {'torch', 'ttnn', 'tt_metal', 'models', 'transformers', 'vllm', 'vllm_tt_plugin'}:
+            raise RuntimeError('Model/framework import prohibited: ' + fullname)
+
+
+sys.meta_path.insert(0, NoModelImports())
+from tokenizers import Tokenizer
+
+W = Path('/home/hous/dev/tti-release-gemma4')
+OUT = Path(__file__).parent
+bindings = {}
+
+
+def read(path):
+    path = Path(path)
+    raw = path.read_bytes()
+    bindings[str(path)] = hashlib.sha256(raw).hexdigest()
+    return raw
+
+
+def load(path):
+    return json.loads(read(path))
+
+
+def checked(ref):
+    raw = read(ref['path'])
+    assert bindings[ref['path']] == ref['sha256']
+    return raw
+
+
+result_path = W / 'meta_gpqa_expert_both_phase_quality_control_run_v1/result.json'
+result = load(result_path)
+assert bindings[str(result_path)] == 'c78f72a0ed0e46d7598d8537bd8c7b70a934a2d644c182c6972e243b12658abf'
+plan_path = W / 'meta_gpqa_expert_both_phase_quality_control_v1/plan.json'
+plan = load(plan_path)
+assert result['plan_sha256'] == bindings[str(plan_path)]
+checked(plan['probe'])
+assert result['probe_sha256'] == plan['probe']['sha256']
+owner = load(W / 'meta_gpqa_expert_both_phase_quality_control_owner_run_v1/owner.json')
+owner_plan = json.loads(checked(owner['plan']))
+assert owner['command'] == owner_plan['command']
+assert owner['returncode'] == 0 and owner['cleanup']['complete']
+assert not owner['cleanup']['survivors'] and not owner['cleanup']['signal_errors']
+assert result['status'] == 'completed' and result['device_cleanclosed']
+assert not result['quality_pass'] and not result['release_pass']
+assert len(result['arms']) == 1
+arm = result['arms']['expert_gate_both_phase_hifi4_fp32']
+text = checked(arm['text']).decode()
+assert arm['text']['sha256'] == 'd52602d3ffd78c01c1f2c724bde96880aeeb4f7876f8c2a3cb21f338e9834326'
+inputs = json.loads(checked(plan['inputs']))
+payload = json.loads(checked(inputs['payload']))
+tokenizer_path = Path(inputs['checkpoint']) / 'tokenizer.json'
+tokenizer = Tokenizer.from_str(read(tokenizer_path).decode())
+assert tokenizer.decode(arm['output_ids'], skip_special_tokens=True) == text
+assert arm['generated_tokens'] == len(arm['output_ids']) == 2048 and arm['finish_reason'] == 'length'
+assert arm['prefill_method_calls_by_layer'] == [1] * 30
+assert arm['prefill_sparse_gate_calls_by_layer'] == [11] * 30
+assert arm['expert_gate_calls_by_layer'] == arm['decode_sparse_gate_calls_by_layer'] == [2047] * 30
+assert arm['sdpa_calls'] == 61410 and arm['sdpa_compute_configs'] == {'None': 61410}
+assert not set(arm['output_ids']).intersection(result['native_serialization']['stop_token_ids'])
+assert 'best answer is' not in text.lower()
+prior = json.loads(checked(plan['prior_quality_result']))
+prefill = json.loads(checked(plan['prefill_component_result']))
+decode = json.loads(checked(plan['component_result']))
+assert prefill['admission']['candidate_admitted_for_root_review']
+assert all(prefill['admission']['checks'].values())
+assert all(row['exact'] for rows in prefill['native_downstream_guards'].values() for row in rows)
+assert decode['candidate_admitted_for_root_quality_review']
+assert all(decode['admission_measurements']['checks'].values())
+assert result['loaded_tt_runtime'] == prior['loaded_tt_runtime'] == prefill['loaded_tt_runtime']
+assert result['runtime_environment'] == prior['runtime_environment']
+for name in ['meta_gpqa_after_expert_quality_diagnosis_v1/AUTODEBUG.md',
+             'meta_gpqa_sparse_kernel_retention_review_v1/REVIEW.md',
+             'meta_gpqa_expert_both_phase_quality_control_review_v1/REVIEW.md']:
+    read(W / name)
+evidence = {
+    'method': 'Saved artifact/hash inspection and host tokenization only; no framework/model imports or inference',
+    'current_result': {'path': str(result_path), 'sha256': bindings[str(result_path)]},
+    'current_text': arm['text'],
+    'original_request': result['original_request'],
+    'prompt_ids_count': len(payload['prompt'][0]),
+    'generated_tokens': arm['generated_tokens'], 'finish_reason': arm['finish_reason'],
+    'all_ids_decode_exactly_to_text': True, 'native_eos_ids_emitted': [],
+    'required_answer_marker_present': False,
+    'prefill_gate_calls': sum(arm['prefill_sparse_gate_calls_by_layer']),
+    'decode_gate_calls': sum(arm['decode_sparse_gate_calls_by_layer']),
+    'unchanged_sdpa_calls': arm['sdpa_calls'],
+    'root_worker_command': owner['command'],
+    'owner': {'returncode': owner['returncode'], 'client_pid': owner['client_pid'], 'cleanup': owner['cleanup']},
+    'device_cleanclosed': result['device_cleanclosed'],
+    'actual_total_seconds': result['timing_seconds']['total'],
+    'same_runtime_and_environment_as_prior_quality': True,
+    'same_runtime_as_prefill_component': True,
+    'prefill_admission': prefill['admission'],
+    'decode_admission': decode['admission_measurements'],
+    'quality_pass': False, 'release_pass': False,
+    'bindings_sha256': bindings,
+}
+(OUT / 'EVIDENCE.json').write_text(json.dumps(evidence, indent=2) + '\n')
+print(json.dumps({k: evidence[k] for k in ['generated_tokens', 'finish_reason', 'all_ids_decode_exactly_to_text',
+    'required_answer_marker_present', 'prefill_gate_calls', 'decode_gate_calls', 'unchanged_sdpa_calls',
+    'device_cleanclosed', 'actual_total_seconds', 'same_runtime_and_environment_as_prior_quality']}, indent=2))

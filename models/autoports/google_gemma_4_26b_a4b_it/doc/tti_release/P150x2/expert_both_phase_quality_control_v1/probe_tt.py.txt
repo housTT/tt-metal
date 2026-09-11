@@ -1,0 +1,451 @@
+"""Root-owned one original-doc58 candidate with admitted prefill and B1 decode packed gate HiFi4/FP32; native historical baseline retained."""
+import argparse
+import gc
+import hashlib
+import importlib.util
+import json
+import os
+import sys
+import subprocess
+import time
+import traceback
+from pathlib import Path
+from types import SimpleNamespace as NS
+
+
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def checked(binding):
+    path = Path(binding['path'])
+    if sha(path) != binding['sha256']:
+        raise ValueError(f'File-byte SHA mismatch: {path}')
+    return path
+
+
+def validate(plan_path, expected_sha, check_env=True, runtime=None):
+    if runtime is not None:
+        check_env = runtime
+    plan_path = checked({'path': str(plan_path), 'sha256': expected_sha})
+    plan = json.loads(plan_path.read_text())
+    assert checked(plan['probe']).resolve() == Path(__file__).resolve()
+    assert subprocess.check_output(['git', '-C', plan['repo_root'], 'rev-parse', 'HEAD'], text=True).strip() == plan['current_checkout_commit']
+    for binding in plan['sources']:
+        checked(binding)
+    prior = json.loads(checked(plan['original_quality_plan']).read_text())
+    epoch = json.loads(checked(prior['source_epoch']).read_text())
+    refs = [x for x in prior.values() if isinstance(x, dict) and 'path' in x and 'sha256' in x] + prior['extra_sources'] + epoch['files']
+    current = {x['path']: x['sha256'] for x in plan['sources']}
+    for ref in refs:
+        expected = plan['runtime_binary']['sha256'] if ref['path'] == plan['runtime_binary']['path'] else ref['sha256']
+        assert current[ref['path']] == expected
+    component = json.loads(checked(plan['component_result']).read_text())
+    assert component['status'] == 'completed' and component['device_cleanclosed']
+    assert component['candidate_admitted_for_root_quality_review']
+    assert all(component['admission_measurements']['checks'].values())
+    current_epoch = json.loads(checked(plan['component_plan']).read_text())
+    assert all(current[x['path']] == x['sha256'] for x in current_epoch['sources'])
+    assert plan['runtime_binary'] == current_epoch['runtime_binary']
+    prior_quality = json.loads(checked(plan['prior_quality_result']).read_text())
+    original_quality = json.loads(checked(plan['original_quality_result']).read_text())
+    assert prior_quality['status'] == 'completed' and prior_quality['device_cleanclosed']
+    checked(plan['prior_quality_plan'])
+    assert prior_quality['plan_sha256'] == plan['prior_quality_plan']['sha256']
+    assert prior_quality['current_checkout_commit'] == plan['current_checkout_commit']
+    assert prior_quality['loaded_tt_runtime']['factory_library']['sha256'] == plan['runtime_binary']['sha256']
+    assert prior_quality['arms']['baseline']['reproduces_saved_api_baseline']
+    assert prior_quality['arms']['baseline']['output_ids'] == original_quality['arms']['baseline']['output_ids']
+    assert prior_quality['arms']['baseline']['text']['sha256'] == plan['baseline_text_sha256']
+    for arm in prior_quality['arms'].values():
+        checked(arm['text'])
+    prefill = json.loads(checked(plan['prefill_component_result']).read_text())
+    assert prefill['status'] == 'completed' and prefill['device_cleanclosed'] and prefill['native_gate_exact']
+    assert prefill['plan_sha256'] == plan['prefill_component_plan']['sha256']
+    assert prefill['original_prefill_exact'] and prefill['original_prefill_logit_sha256'] == '2f404628b93a6c59f01d8ae2d8f3f26dcd396f965e106ae9164265604a132c93'
+    assert prefill['admission']['candidate_admitted_for_root_review'] and all(prefill['admission']['checks'].values())
+    assert all(x['exact'] for rows in prefill['native_downstream_guards'].values() for x in rows)
+    inherited = json.loads(checked(plan['prefill_component_plan']).read_text())
+    assert all(current[x['path']] == x['sha256'] for x in inherited['sources'])
+    if check_env:
+        assert plan['status'] == 'root_materialized_after_server_stop' and plan['root_quiescence_ack']
+        terminal_current = json.loads(checked(plan['terminal_server']).read_text())
+        assert terminal_current['launch_id'] == plan['expected_server_launch_id']
+        assert terminal_current['finished_at'] and terminal_current['cleanup']['complete']
+        assert not terminal_current['cleanup']['survivors'] and not terminal_current['cleanup']['signal_errors']
+        assert not os.getenv('TT_METAL_WATCHER') and os.getenv('TT_METAL_DEVICE_PROFILER', '0') == '0'
+        assert not any(k.startswith('TT_METAL_DPRINT') for k in os.environ)
+    inputs = json.loads(Path(plan['inputs']['path']).read_text())
+    payload = json.loads(checked(inputs['payload']).read_text())
+    assert hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest() == inputs['payload_json_sha256']
+    assert set(payload) == {'prompt', 'model', 'max_tokens', 'temperature', 'stop', 'seed', 'stream'}
+    assert payload['model'] == 'google/gemma-4-26B-A4B-it'
+    assert len(payload['prompt']) == 1 and len(payload['prompt'][0]) == 326
+    assert payload['max_tokens'] == 2048 and payload['temperature'] == 0 and payload['seed'] == 42
+    assert payload['stop'] == [] and payload['stream'] is False
+    assert inputs['fixed_prefix_length'] == len(inputs['fixed_completion_prefix_ids']) == 63
+    assert inputs['comparison_decode_input_position'] == 388
+    for binding in [*inputs['checkpoint_metadata'], *inputs['response_bindings'].values()]:
+        checked(binding)
+    live = json.loads(Path(plan['server_live_snapshot']['path']).read_text())
+    terminal = json.loads(Path(plan['server_terminal_manifest']['path']).read_text())
+    assert live['launch_id'] == terminal['launch_id'] and terminal['finished_at'] is not None
+    assert terminal['cleanup']['complete'] and not terminal['cleanup']['survivors']
+    assert live['profile'] == 'P150x2' and live['context'] == 262144
+    assert plan['context'] == 262144 and plan['slots'] == 32 and plan['num_blocks'] == 4128
+    assert plan['execution_widths'] == [1] and plan['logical_active_rows'] == [0]
+    if check_env:
+        expected_env = {**live['model_provenance']['environment'], **plan['required_env']}
+        mismatch = {k: [v, os.environ.get(k)] for k, v in expected_env.items() if os.environ.get(k) != v}
+        assert not mismatch, f'Consumed runtime environment differs: {mismatch}'
+    assert plan['generation_tokens'] == plan['original_request_budget'] == 2048
+    baseline = json.loads(Path(plan['baseline_result']['path']).read_text())
+    assert baseline['status'] == 'completed' and baseline['device_cleanclosed'] and baseline['prefill_exact']
+    assert baseline['first_different_logits_output_index'] == 1 and baseline['first_different_top1_output_index'] == 63
+    branch = json.loads(Path(plan['branch_result']['path']).read_text())
+    assert branch['status'] == 'completed' and branch['device_cleanclosed']
+    assert branch['first_different_layer0_branch'] == 'attention_output' and branch['instrumentation_reproduction_pass']
+    attention = json.loads(Path(plan['attention_result']['path']).read_text())
+    assert attention['status'] == 'completed' and attention['device_cleanclosed']
+    assert attention['first_different_attention_boundary'] == 'sdpa_output' and attention['instrumentation_reproduction_pass']
+    cap = json.loads(Path(plan['core_cap_result']['path']).read_text())
+    assert cap['status'] == 'completed' and cap['device_cleanclosed']
+    assert cap['b1_cap1_matches_width32_default'] and cap['width32_default_cap1_exact']
+    numerical = json.loads(Path(plan['numerical_v1_result']['path']).read_text())
+    assert numerical['status'] == 'completed' and numerical['device_cleanclosed']
+    assert numerical['instrumentation_reproduction_pass'] and numerical['decomposed_output_exact_across_widths']
+    numerical_v2 = json.loads(Path(plan['numerical_v2_result']['path']).read_text())
+    assert numerical_v2['status'] == 'completed' and numerical_v2['device_cleanclosed']
+    assert numerical_v2['instrumentation_reproduction_pass'] and numerical_v2['b1_fp32_cap1_matches_width32_fp32_default']
+    return plan, inputs, payload, live
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--plan', type=Path, required=True)
+    parser.add_argument('--plan-sha256', required=True)
+    parser.add_argument('--validate-only', action='store_true')
+    args = parser.parse_args()
+    plan, inputs, payload, live = validate(args.plan, args.plan_sha256, check_env=not args.validate_only)
+    if args.validate_only:
+        print(json.dumps({'static_validation': 'passed', 'source_files': len(plan['sources']), 'device_imported': False}))
+        return
+    out = Path(plan['output'])
+    assert 'doc' not in out.resolve().parts
+    out.mkdir(parents=True, exist_ok=False)
+    report = {'status': 'starting', 'plan_sha256': args.plan_sha256, 'probe_sha256': sha(__file__),
+              'original_request': inputs['original_request'], 'diagnostic_only': True,
+              'quality_pass': False, 'release_pass': False, 'model_compute': 'TT',
+              'mode': 'eager full-model TT logits with native-equivalent host greedy selection and native detokenization',
+              'prior_request_mode': 'source-attributed compatibility host sampling on eager TT logits, seed42',
+              'context': 262144, 'slots': 32, 'num_blocks': 4128,
+              'prompt_tokens': 326, 'generation_token_budget': 2048, 'profile_context': 262144,
+              'execution_widths': [1], 'arm_order': ['expert_gate_both_phase_hifi4_fp32'], 'historical_native_and_decode_only': plan['prior_quality_result'],
+              'candidate_scope': 'Only packed prefill and B1 decode expert gate/up at all30 layers; native down, routing, normalization, attention and sampler',
+              'component_evidence': plan['component_result'], 'current_checkout_commit': plan['current_checkout_commit'],
+              'runtime_environment': {k: os.getenv(k) for k in live['model_provenance']['environment']},
+              'arms': {}, 'timing_seconds': {}}
+    started = time.monotonic()
+
+    def save():
+        (out / 'result.json').write_text(json.dumps(report, indent=2, allow_nan=False) + '\n')
+
+    def progress(message):
+        save()
+        print(message, flush=True)
+
+    save()
+    sys.path.insert(0, plan['repo_root'])
+    spec = importlib.util.spec_from_file_location('_tt_only_boundary_helpers', checked(plan['helpers']))
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    # All model execution below uses TTNN. Torch is host IDs, allocator metadata,
+    # copied TT logit statistics, and artifact serialization only.
+    import torch
+    import ttnn as tt
+    loaded_extension = Path(tt._ttnn.__file__).resolve()
+    assert loaded_extension == checked(plan['python_extension']).resolve()
+    loaded_runtime = sorted({Path(line.split()[-1]).resolve()
+        for line in Path('/proc/self/maps').read_text().splitlines()
+        if line.split() and line.split()[-1].endswith('/_ttnncpp.so')})
+    assert loaded_runtime == [checked(plan['runtime_binary']).resolve()], loaded_runtime
+    report['loaded_tt_runtime'] = {
+        'python_extension': {'path': str(loaded_extension), 'sha256': sha(loaded_extension)},
+        'factory_library': {'path': str(loaded_runtime[0]), 'sha256': sha(loaded_runtime[0])},
+        'factory_library_evidence': '/proc/self/maps after TT import, before mesh open',
+        'original_source_epoch_preserved': plan['source_epoch'],
+        'new_build_evidence': plan['build_evidence']}
+    save()
+    from transformers import AutoConfig
+    from vllm import SamplingParams
+    from vllm.v1.core.kv_cache_manager import KVCacheManager
+    from vllm.v1.core.kv_cache_utils import get_kv_cache_config_from_groups, get_kv_cache_groups
+    from vllm.v1.request import Request
+    from vllm_tt_plugin.model_runner import TTModelRunner
+    from models.autoports.google_gemma_4_26b_a4b_it.tt.generator_vllm import Gemma4ForCausalLM
+
+    torch.set_num_threads(4)
+    prompt = payload['prompt'][0]
+
+    baseline = json.loads(Path(plan['baseline_result']['path']).read_text())
+    parent = adapter = state = capture = None
+    try:
+        tt.set_fabric_config(tt.FabricConfig.FABRIC_2D)
+        parent = tt.open_mesh_device(mesh_shape=tt.MeshShape(2, 2), trace_region_size=220000000)
+        mesh = parent.create_submesh(tt.MeshShape(1, 2), offset=tt.MeshCoordinate(0, 0))
+        report['mesh'] = {'parent': [2, 2], 'logical': [1, 2], 'fabric': 'FABRIC_2D', 'device_ids': list(mesh.get_device_ids())}
+        config_meta = AutoConfig.from_pretrained(inputs['checkpoint'], local_files_only=True, trust_remote_code=False)
+        adapter = Gemma4ForCausalLM.initialize_vllm_model(config_meta, mesh, max_batch_size=32, max_seq_len=262144)
+        generator, model = adapter.generator, adapter.generator.model
+        assert model.num_layers == 30 and model.tp_size == 2 and model.state is None
+        assert Gemma4ForCausalLM.get_max_tokens_all_users(num_devices=2) // 64 + 32 == 4128
+        assert not getattr(Gemma4ForCausalLM, '_HYBRID_KV_CACHE_GROUPS_ENABLED', False)
+        report['precision_summary_scope'] = 'Native shared fields outside controlled methods; both executed phase gate configs and counts recorded separately'
+        report['resolved_precision'] = model.precision_summary()
+        component = json.loads(checked(plan['component_result']).read_text())
+        assert report['resolved_precision'] == component['resolved_precision']
+        config_fields = ('math_fidelity', 'math_approx_mode', 'fp32_dest_acc_en', 'packer_l1_acc', 'dst_full_sync_en', 'throttle_level')
+        gate_configs = []
+        for layer in model.layers:
+            assert layer.packed_expert_decode_gate_up and layer.indexed_expert_decode
+            assert layer.expert_gate_in0_block_w == 44 and layer.expert_gate_per_core_n == 1
+            native = layer.expert_gate_compute_config
+            fields = {key: getattr(native, key) for key in config_fields}
+            assert {key: str(value) for key, value in fields.items()} == component['gate_configs']['native']
+            candidate = tt.WormholeComputeKernelConfig(**dict(fields, math_fidelity=tt.MathFidelity.HiFi4, fp32_dest_acc_en=True))
+            assert {key: str(getattr(candidate, key)) for key in config_fields} == component['gate_configs']['candidate']
+            gate_configs.append((native, candidate))
+        assert len(gate_configs) == 30
+        report['gate_config_ledger'] = {'layers': 30, 'native': component['gate_configs']['native'], 'candidate': component['gate_configs']['candidate'], 'changed_fields': ['math_fidelity', 'fp32_dest_acc_en'], 'prefill_candidate': True, 'decode_candidate': True}
+
+        config = NS(model_config=NS(hf_config=config_meta, dtype=torch.bfloat16),
+                    cache_config=NS(cache_dtype='auto', num_gpu_blocks_override=4128),
+                    scheduler_config=NS(disable_hybrid_kv_cache_manager=False))
+        groups = get_kv_cache_groups(config, adapter.get_kv_cache_spec(config))
+        kv_config = get_kv_cache_config_from_groups(config, groups, available_memory=0)
+        runner = TTModelRunner.__new__(TTModelRunner)
+        runner.num_devices, runner.tt_data_parallel_size = 2, 1
+        per_layer = runner._build_per_layer_specs(kv_config, model.num_layers)
+        report['cache_geometry'] = [{'shape': list(shape), 'dtype': str(dtype), 'tensor_index': index} for shape, dtype, index in per_layer]
+        report['hma_groups'] = [{'layers': g.layer_names, 'block_size': g.kv_cache_spec.block_size} for g in groups]
+        layer_to_group = {name: i for i, group in enumerate(groups) for name in group.layer_names}
+        layer_groups = [layer_to_group[f'model.layers.{i}.self_attn'] for i in model.layer_indices]
+        report['timing_seconds']['initialize'] = time.monotonic() - started
+        progress('TT model loaded; current HMA geometry resolved')
+
+        from transformers import AutoTokenizer
+        from vllm.v1.engine.detokenizer import IncrementalDetokenizer
+        tokenizer = AutoTokenizer.from_pretrained(inputs['checkpoint'], local_files_only=True, trust_remote_code=False)
+        generation_config = json.loads((Path(inputs['checkpoint']) / 'generation_config.json').read_text())
+        baseline_response = json.loads(checked(plan['b1_response']).read_bytes())
+        expected_text = baseline_response['choices'][0]['text']
+        assert hashlib.sha256(expected_text.encode()).hexdigest() == plan['baseline_text_sha256']
+        assert baseline_response['usage']['completion_tokens'] == 2048
+        report['native_serialization'] = {'tokenizer_class': type(tokenizer).__name__,
+            'skip_special_tokens': True, 'include_stop_str_in_output': False}
+        for name in ('expert_gate_both_phase_hifi4_fp32',):
+            arm_start = time.monotonic()
+            params = SamplingParams(temperature=0.0, seed=42, max_tokens=2048, stop=[],
+                top_k=64, top_p=0.95, min_tokens=0, ignore_eos=False,
+                skip_special_tokens=True, spaces_between_special_tokens=True)
+            params.update_from_generation_config(generation_config, model_eos_token_id=tokenizer.eos_token_id)
+            stop_ids = set(params.all_stop_token_ids)
+            assert stop_ids == {1, 50, 106}
+            report['native_serialization']['stop_token_ids'] = sorted(stop_ids)
+            # Forecast allocation only; placeholder IDs are never sent to the TT model.
+            preview_manager = KVCacheManager(kv_config, max_model_len=262144, hash_block_size=64, enable_caching=False)
+            preview_request = Request(name+'-preview', prompt, params, None, eos_token_id=tokenizer.eos_token_id)
+            preview_request.append_output_token_ids([0] * 2048)
+            allocation_plan = helper.preview_allocations(preview_manager, preview_request, [326] + [1] * 2047)
+            del preview_manager, preview_request
+            manager = KVCacheManager(kv_config, max_model_len=262144, hash_block_size=64, enable_caching=False)
+            request = Request(name, prompt, params, None, eos_token_id=tokenizer.eos_token_id)
+            assert adapter._serving_state is None and not generator._trace_cache
+            adapter.allocate_kv_cache_per_layer(per_layer)
+            state = adapter._serving_state
+            assert state.sliding_cache_position_modulo is None
+            arm = {'execution_width': 1, 'logical_active_rows': [0], 'generated_tokens': 0,
+                'output_ids': [], 'finish_reason': None, 'sdpa_calls': 0,
+                'sdpa_compute_configs': {}, 'expert_gate_calls_by_layer': [0] * 30,
+                'executed_gate_configs_by_layer': [component['gate_configs']['candidate'] for _ in range(30)],
+                'prefill_method_calls_by_layer': [0] * 30, 'prefill_sparse_gate_calls_by_layer': [0] * 30,
+                'decode_sparse_gate_calls_by_layer': [0] * 30, 'gate_programs': {}, 'candidate': True}
+            report['arms'][name] = arm
+            original_sdpa = tt.transformer.paged_scaled_dot_product_attention_decode
+            def controlled_sdpa(*op_args, **op_kwargs):
+                arm['sdpa_calls'] += 1
+                assert op_kwargs.get('compute_kernel_config') is None
+                key = str(op_kwargs.get('compute_kernel_config'))
+                arm['sdpa_compute_configs'][key] = arm['sdpa_compute_configs'].get(key, 0) + 1
+                return original_sdpa(*op_args, **op_kwargs)
+            restorations = []
+            original_sparse = tt.sparse_matmul
+            active_gate = [None]
+            def checked_sparse(*op_args, **op_kwargs):
+                context = active_gate[0]
+                if context is not None:
+                    layer, index, phase, candidate, down_config = context
+                    if op_args[1] is layer.prefill_packed_expert_gate_up:
+                        assert op_kwargs['compute_kernel_config'] is candidate
+                        assert list(op_args[1].shape) == [1, 128, 2816, 704]
+                        program = op_kwargs['program_config']
+                        assert program.in0_block_w == 44 and program.per_core_M == program.per_core_N == 1
+                        assert program.out_subblock_h == program.out_subblock_w == 1 and not program.fuse_batch
+                        assert (program.compute_with_storage_grid_size.x, program.compute_with_storage_grid_size.y) == (11, 2)
+                        if phase == 'prefill':
+                            assert list(op_args[0].shape) == [1, 1, 32, 2816]
+                            assert 'indices' not in op_kwargs and op_kwargs.get('nnz') is None
+                            assert op_kwargs['memory_config'] == tt.DRAM_MEMORY_CONFIG
+                        else:
+                            assert list(op_args[0].shape) == [1, 1, 1, 2816]
+                            assert op_kwargs.get('indices') is not None
+                            assert op_kwargs['memory_config'] == tt.L1_MEMORY_CONFIG
+                        arm[phase + '_sparse_gate_calls_by_layer'][index] += 1
+                        key = phase + ':' + str(program)
+                        arm['gate_programs'][key] = arm['gate_programs'].get(key, 0) + 1
+                    else:
+                        assert op_args[1] is layer.weights.expert_down
+                        assert op_kwargs['compute_kernel_config'] is down_config
+                return original_sparse(*op_args, **op_kwargs)
+            def install(layer, method_name, method):
+                restorations.append((layer, method_name, method_name in layer.__dict__, getattr(layer, method_name)))
+                setattr(layer, method_name, method)
+            for layer_index, (layer, (native, candidate)) in enumerate(zip(model.layers, gate_configs)):
+                assert layer.prefill_packed_expert_gate_up is layer.decode_packed_expert_gate_up
+                assert layer.packed_expert_prefill_gate_up and layer.prefill_expert_chunk_size == 32
+                def wrap_gate(layer, index, native, candidate, original_method, phase):
+                    def controlled_gate(hidden_states, routing_weights, **kwargs):
+                        assert layer.multichip_execution_phase == phase
+                        assert bool(layer._in_decode_forward) == (phase == 'decode')
+                        if phase == 'decode':
+                            assert hidden_states.shape[2] == 1 and not kwargs.get('use_batch32_policy', False)
+                            assert kwargs.get('route_indices') is not None and kwargs.get('compact_route_scores') is not None
+                            arm['expert_gate_calls_by_layer'][index] += 1
+                        else:
+                            assert list(hidden_states.shape) == [1, 1, 352, 2816] and not kwargs
+                            arm['prefill_method_calls_by_layer'][index] += 1
+                        assert layer.expert_gate_compute_config is native and active_gate[0] is None
+                        down_config = layer.expert_compute_config
+                        layer.expert_gate_compute_config = candidate
+                        active_gate[0] = (layer, index, phase, candidate, down_config)
+                        try:
+                            return original_method(hidden_states, routing_weights, **kwargs)
+                        finally:
+                            layer.expert_gate_compute_config = native
+                            active_gate[0] = None
+                            assert layer.expert_compute_config is down_config
+                    return controlled_gate
+                install(layer, '_moe_decode_single_user', wrap_gate(layer, layer_index, native, candidate, layer._moe_decode_single_user, 'decode'))
+                install(layer, '_moe_prefill', wrap_gate(layer, layer_index, native, candidate, layer._moe_prefill, 'prefill'))
+            tt.sparse_matmul = checked_sparse
+            tt.transformer.paged_scaled_dot_product_attention_decode = controlled_sdpa
+            try:
+                arm['fresh_zero_pages'] = helper.verify_fresh_pages(torch, tt, state, layer_groups, allocation_plan)
+                detokenizer = IncrementalDetokenizer.from_new_request(tokenizer,
+                    NS(request_id=name, sampling_params=params, prompt_token_ids=prompt))
+                allocation_index = 0
+                def allocate(count):
+                    nonlocal allocation_index
+                    assert manager.allocate_slots(request, count) is not None
+                    ids = [list(x) for x in manager.get_block_ids(request.request_id)]
+                    assert ids == allocation_plan[allocation_index], (allocation_index, ids, allocation_plan[allocation_index])
+                    allocation_index += 1
+                    tables = []
+                    for group, pages in zip(groups, ids):
+                        table = torch.zeros((32, 262144 // group.kv_cache_spec.block_size), dtype=torch.int32)
+                        table[0, :len(pages)] = torch.tensor(pages, dtype=torch.int32)
+                        tables.append(table)
+                    return [tables[i] for i in layer_groups]
+                tables = allocate(326)
+                logits = adapter.prefill_forward(torch.tensor([prompt], dtype=torch.long),
+                    page_table=tables[0], page_tables_per_layer=tables, kv_cache=state.kv_cache,
+                    prompt_lens=[326], start_pos=torch.tensor([0], dtype=torch.int32),
+                    original_prompt_lens=[326], empty_slots=[0], sampling_params=None)
+                assert all(layer.expert_gate_compute_config is native for layer, (native, _) in zip(model.layers, gate_configs))
+                assert arm['expert_gate_calls_by_layer'] == [0] * 30
+                assert arm['prefill_method_calls_by_layer'] == [1] * 30
+                assert arm['prefill_sparse_gate_calls_by_layer'] == [11] * 30
+                vector = logits[0, 0].clone().contiguous()
+                assert vector.shape == (model.vocab_size,)
+                del logits
+                request.num_computed_tokens += 326
+                for step in range(2048):
+                    if step:
+                        tables = allocate(1)
+                        adapter._refresh_page_tables(tables)
+                        position = torch.tensor([326 + step - 1], dtype=torch.int32)
+                        raw = generator.decode_forward(torch.tensor([[arm['output_ids'][-1]]], dtype=torch.long),
+                            position, page_table=state.page_tables, kv_cache=state,
+                            sampling_mode='host', enable_trace=False, active_mask=position >= 0,
+                            temperature=0.0, top_k=-1, top_p=1.0, seeds=42)
+                        vector = torch.cat(helper.read_device_row(torch, tt, raw, 0)).contiguous()
+                        del raw
+                        request.num_computed_tokens += 1
+                    assert not generator._trace_cache and bool(torch.isfinite(vector).all())
+                    if step < 2:
+                        digest = hashlib.sha256(vector.contiguous().view(torch.uint8).numpy().tobytes()).hexdigest()
+                        arm.setdefault('first_logit_hashes', []).append(digest)
+                        arm.setdefault('first_logit_matches_historical_native', []).append(digest == baseline['arms']['width1']['steps'][step]['sha256'])
+                    predicted = int(vector.float().argmax())
+                    arm['output_ids'].append(predicted)
+                    request.append_output_token_ids([predicted])
+                    arm['generated_tokens'] += 1
+                    stop_terminated = predicted in stop_ids
+                    detokenizer.update([predicted], stop_terminated=stop_terminated)
+                    if stop_terminated:
+                        arm['finish_reason'] = 'stop'
+                        break
+                    if (step + 1) % 128 == 0:
+                        progress(f'{name}: {step + 1}/2048 output tokens')
+                arm['finish_reason'] = arm['finish_reason'] or 'length'
+                text = detokenizer.get_next_output_text(finished=True, delta=False)
+                text_path = out / (name + '.txt')
+                text_path.write_text(text)
+                arm['text'] = {'path': str(text_path), 'sha256': sha(text_path)}
+                arm['elapsed_seconds'] = time.monotonic() - arm_start
+                arm['first_difference_from_saved_baseline'] = next((i for i, (a,b) in enumerate(zip(expected_text,text)) if a != b),
+                    None if expected_text == text else min(len(expected_text),len(text)))
+                assert arm['expert_gate_calls_by_layer'] == [arm['generated_tokens'] - 1] * 30
+                assert arm['decode_sparse_gate_calls_by_layer'] == [arm['generated_tokens'] - 1] * 30
+                assert arm['prefill_sparse_gate_calls_by_layer'] == [11] * 30
+                assert arm['sdpa_calls'] == model.num_layers * (arm['generated_tokens'] - 1)
+                progress(f'{name}: complete, {arm["generated_tokens"]} output tokens, finish {arm["finish_reason"]}')
+            finally:
+                for layer, (native, _) in zip(model.layers, gate_configs):
+                    layer.expert_gate_compute_config = native
+                for layer, method_name, had_instance_method, original_method in reversed(restorations):
+                    if had_instance_method:
+                        setattr(layer, method_name, original_method)
+                    else:
+                        delattr(layer, method_name)
+                tt.sparse_matmul = original_sparse
+                tt.transformer.paged_scaled_dot_product_attention_decode = original_sdpa
+                adapter._release_decode_traces()
+                manager.free(request)
+                generator._page_table_sources.pop(id(state), None)
+                adapter._serving_state = None
+                adapter._last_page_tables = None
+                adapter._decode_ready = False
+                adapter._last_execution_batch = None
+                state = None
+                gc.collect()
+        report['status'] = 'completed'
+        report['quality_review'] = 'pending root reading of complete baseline and candidate outputs'
+        progress('Original doc58 both-phase TT candidate complete; historical baseline retained, no production precision change')
+    except BaseException:
+        report.update(status='error', exception=traceback.format_exc())
+        raise
+    finally:
+        if capture is not None:
+            capture.close()
+        if adapter is not None:
+            adapter._release_decode_traces()
+        if parent is not None:
+            tt.close_mesh_device(parent)
+            report['device_cleanclosed'] = True
+        report['timing_seconds']['total'] = time.monotonic() - started
+        save()
+
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,192 @@
+"""Read retained outputs, render the pinned template and tokenize text; no inference."""
+import collections
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+
+class NoModelImports:
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in {'torch', 'ttnn', 'tt_metal', 'models', 'transformers', 'vllm', 'vllm_tt_plugin'}:
+            raise RuntimeError('Model/framework import prohibited: ' + fullname)
+
+
+sys.meta_path.insert(0, NoModelImports())
+from jinja2 import Environment
+from tokenizers import Tokenizer
+
+W = Path('/home/hous/dev/tti-release-gemma4')
+M = Path('/home/hous/dev/tt-metal/models/autoports/google_gemma_4_26b_a4b_it')
+H = Path('/home/hous/.cache/huggingface/hub/models--google--gemma-4-26B-A4B-it/snapshots/4d7ae4984b7db7de8f8457170b3f1a419ee76d52')
+OUT = Path(__file__).parent
+bindings = {}
+
+
+def read(path):
+    path = Path(path)
+    raw = path.read_bytes()
+    bindings[str(path)] = hashlib.sha256(raw).hexdigest()
+    return raw
+
+
+def load(path):
+    return json.loads(read(path))
+
+
+def checked(binding):
+    raw = read(binding['path'])
+    assert bindings[binding['path']] == binding['sha256'], binding
+    return raw
+
+
+def sample(path, doc_id):
+    # JSONL uses LF; splitlines() also splits Unicode separators inside strings.
+    return next(row for line in read(path).split(b'\n') if line
+                for row in [json.loads(line)] if row['doc_id'] == doc_id)
+
+
+meta_path = next((W / 'collection_P150x2_meta_expert_tanh_v1/meta_gpqa_cot').rglob('samples_meta_gpqa_cot_*.jsonl'))
+r1_path = next((W / 'recovery_P150x2_gpqa_timeout7200_v1').rglob('samples_r1_gpqa_diamond_*.jsonl'))
+meta, r1 = sample(meta_path, 58), sample(r1_path, 23)
+inputs = load(W / 'meta_gpqa_fixed_prefix_probe_v1/inputs.json')
+payload = json.loads(checked(inputs['payload']))
+tokenizer = Tokenizer.from_str(read(H / 'tokenizer.json').decode())
+template = Environment().from_string(read(H / 'chat_template.jinja').decode())
+messages = json.loads(meta['doc']['chat_completion_input'])
+prompt = tokenizer.decode(payload['prompt'][0], skip_special_tokens=False)
+assert len(payload['prompt'][0]) == 326 and payload['prompt'][0].count(2) == 1
+assert prompt == meta['doc']['transport_prompt'] == meta['arguments']['gen_args_0']['arg_0']
+assert tokenizer.encode(prompt, add_special_tokens=False).ids == payload['prompt'][0]
+assert template.render(messages=messages, bos_token='<bos>', add_generation_prompt=True, enable_thinking=False) == prompt
+assert template.render(messages=messages, bos_token='<bos>', add_generation_prompt=True) == prompt
+assert '## Step 1: [Concise description]' in prompt
+assert 'The best answer is [the_answer_letter].' in prompt
+assert '<|think|>' not in prompt
+evidence = {
+    'method': 'Saved artifact inspection, Jinja rendering and host tokenization only; no framework/model import, inference or evaluation',
+    'prompt': {
+        'checkpoint_revision': H.name,
+        'tokenizer_class': load(H / 'tokenizer_config.json')['tokenizer_class'],
+        'tokens': len(payload['prompt'][0]),
+        'single_bos': True,
+        'token_roundtrip_exact': True,
+        'saved_transport_exact': True,
+        'default_and_explicit_false_template_exact': True,
+        'contains_native_think_token': False,
+        'requested_step_heading': '## Step 1: [Concise description]',
+        'requested_final_answer': 'The best answer is [the_answer_letter].',
+        'suffix': prompt[-59:],
+        'settings': {k: v for k, v in payload.items() if k != 'prompt'},
+        'target': meta['target'],
+        'correct_answer': meta['doc']['Correct Answer'],
+    },
+}
+
+result = load(W / 'meta_gpqa_expert_precision_quality_control_run_v1/result.json')
+assert bindings[str(W / 'meta_gpqa_expert_precision_quality_control_run_v1/result.json')] == 'cff57f4cabc71877bfdc227f5a734408ae69cc15f2daaec91589bf241a7ffc2f'
+plan_path = W / 'meta_gpqa_expert_precision_quality_control_v1/plan.json'
+plan = load(plan_path)
+assert bindings[str(plan_path)] == result['plan_sha256']
+checked(plan['probe'])
+assert json.loads(checked(plan['inputs'])) == inputs
+component = json.loads(checked(plan['component_result']))
+prior = json.loads(checked(plan['original_quality_result']))
+review = load(W / 'meta_gpqa_expert_precision_quality_control_run_v1/ACTUAL_QUALITY_REVIEW.json')
+assert review['result_sha256'] == bindings[str(W / 'meta_gpqa_expert_precision_quality_control_run_v1/result.json')]
+evidence['current_quality_control'] = {k: result[k] for k in [
+    'status', 'original_request', 'context', 'slots', 'num_blocks', 'current_checkout_commit',
+    'gate_config_ledger', 'native_serialization', 'device_cleanclosed', 'quality_pass', 'release_pass']}
+evidence['current_quality_control']['arms'] = {}
+for name, arm in result['arms'].items():
+    text = checked(arm['text']).decode()
+    assert tokenizer.decode(arm['output_ids'], skip_special_tokens=True) == text
+    counts = collections.Counter(text.split('\n'))
+    evidence['current_quality_control']['arms'][name] = {
+        k: arm[k] for k in ['generated_tokens', 'finish_reason', 'text', 'first_logit_hashes']}
+    evidence['current_quality_control']['arms'][name].update({
+        'ids_decode_exactly_to_text': True,
+        'native_stop_ids_emitted': [t for t in arm['output_ids'] if t in {1, 50, 106}],
+        'required_answer_marker_present': 'best answer is' in text.lower(),
+        'repeated_complete_lines': [{'line': line, 'count': count} for line, count in counts.items() if line and count > 1],
+    })
+assert result['arms']['baseline']['output_ids'] == prior['arms']['baseline']['output_ids']
+assert checked(result['arms']['baseline']['text']) == checked(prior['arms']['baseline']['text'])
+evidence['current_quality_control']['baseline_exact_all_ids_and_text_to_prior'] = True
+a, b = [result['arms'][name]['output_ids'] for name in ['baseline', 'expert_gate_hifi4_fp32']]
+evidence['current_quality_control']['first_different_output_id_zero_based'] = next(i for i, (x, y) in enumerate(zip(a, b)) if x != y)
+evidence['component'] = {'result': plan['component_result'], 'admission_measurements': component['admission_measurements']}
+
+r1_payload_path = W / 'recovery_P150x2_gpqa_timeout7200_v1/payload_capture/80d64b01bc5e4f659d44dae2fd859d89.payload.json'
+r1_payload = load(r1_payload_path)
+r1_prompt = tokenizer.decode(r1_payload['prompt'][0], skip_special_tokens=False)
+assert r1_prompt == r1['arguments']['gen_args_0']['arg_0']
+assert r1_prompt.endswith('<|turn>model\n<|channel>thought\n<channel|>')
+assert '<|think|>' not in r1_prompt
+assert meta['doc']['Question'] == r1['doc']['Question']
+r1_text = r1['resps'][0][0]
+r1_summary = load(r1_payload_path.with_name(r1_payload_path.name.replace('.payload.json', '.summary.json')))
+assert hashlib.sha256(r1_text.encode()).hexdigest() == r1_summary['stream_text_sha256']
+assert r1_text.endswith('Answer: (B)\n\n\\boxed{B}')
+r1_tokens = tokenizer.encode(r1_text, add_special_tokens=False)
+answer_char = r1_text.rfind('Answer: (B)')
+answer_offset = next(i for i, (_, end) in enumerate(r1_tokens.offsets) if end > answer_char)
+evidence['r1_comparison'] = {
+    'sample_path': str(r1_path), 'same_question_exact': True,
+    'target': r1['target'], 'recorded_exact_match': r1['exact_match'],
+    'prompt_tokens': len(r1_payload['prompt'][0]),
+    'same_native_closed_thought_mode': True,
+    'settings': {k: v for k, v in r1_payload.items() if k != 'prompt'},
+    'choice_order_meta': ['22', '16', '12', '18'], 'choice_order_r1': ['22', '18', '12', '16'],
+    'r1_answer_instruction': 'Please reason step by step, and your final answer must be only (A,B,C or D) within \\boxed\nAnswer:',
+    'response_text_sha256': hashlib.sha256(r1_text.encode()).hexdigest(),
+    'response_reencoded_token_count': len(r1_tokens.ids),
+    'final_answer_reencoded_token_offset': answer_offset,
+    'reencoded_count_is_not_original_emitted_ids': True,
+    'response_tail': r1_text[-51:],
+    'response_summary': r1_summary,
+}
+
+operations = load(W / 'meta_gpqa_exact_history_operations_run_v1/result.json')
+evidence['saved_prefill_reuse_limits'] = {}
+for name in ['prefill_1_capture', 'prefill_68_capture']:
+    arm = operations['arms'][name]
+    checked(arm['operation_rows'])
+    phase = next(iter(arm['operation_geometry']))
+    geometry = arm['operation_geometry'][phase]
+    evidence['saved_prefill_reuse_limits'][name] = {
+        'history_tokens': arm['history_tokens'], 'operation_rows': arm['operation_rows'],
+        'moe_input_geometry': geometry['moe_input'], 'routing_geometry': geometry['moe_actual_routing'],
+        'no_packed_gate_capture': not any('gate' in k for k in geometry),
+    }
+
+for path in [
+    M / 'tt/multichip_decoder.py', M / 'tt/optimized_decoder.py', M / 'tt/generator.py',
+    M / 'tt/generator_vllm.py', M / 'doc/tti_release/RUN_NOTES.md',
+    W / 'meta_fixture_wiring_autofix_v1/prepare.py',
+    W / 'meta_fixture_wiring_autofix_v1/prepared/include/meta_gpqa_cot.yaml',
+    W / 'meta_gpqa_exact_history_operations_v1/operation_capture.py',
+    W / 'meta_gpqa_moe_gate_fp32_fidelity_v1/probe_tt.py',
+    Path('/home/hous/dev/tt-metal/ttnn/cpp/ttnn/operations/matmul/device/sparse/factory/sparse_matmul_multicore_reuse_mcast_1d_optimized.cpp'),
+]:
+    read(path)
+evidence['source_predicted_original_prefill_geometry'] = {
+    'logical_tokens': 326, 'physical_tokens': 352, 'chunk_tokens': 32, 'chunks': 11,
+    'selected_chunk_positions': [320, 352], 'selected_logical_row': 325, 'row_within_chunk': 5,
+    'groups_per_call': 1, 'input_shape': [1, 1, 32, 2816], 'packed_weight_shape': [1, 128, 2816, 704],
+    'program_grid': [11, 2], 'in0_block_w': 44, 'k_tiles': 88, 'per_core_M': 1, 'per_core_N': 1,
+    'out_subblock': [1, 1], 'fuse_batch': False, 'native_fidelity': 'LoFi', 'native_fp32_dst': False,
+    'input_output_memory': 'DRAM', 'input_output_dtype': 'BF16', 'weight_dtype': 'BFP8_B',
+    'sparsity': 'non-indexed union of actual 32-token routing group; nnz=None',
+    'runtime_confirmation_required': True,
+}
+evidence['bindings_sha256'] = bindings
+(OUT / 'EVIDENCE.json').write_text(json.dumps(evidence, indent=2) + '\n')
+print(json.dumps({
+    'prompt_checks': evidence['prompt'],
+    'current_quality_control': evidence['current_quality_control'],
+    'r1_tokens': evidence['r1_comparison']['response_reencoded_token_count'],
+    'r1_final_answer_offset': answer_offset,
+    'saved_prefill_capture_keys': list(evidence['saved_prefill_reuse_limits']),
+    'bindings': len(bindings),
+}, indent=2))

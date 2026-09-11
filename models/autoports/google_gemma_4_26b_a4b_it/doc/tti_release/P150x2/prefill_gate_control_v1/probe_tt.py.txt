@@ -1,0 +1,615 @@
+"""Root-owned original326-token prefill capture and exact final-group expert gate controls; no generation."""
+import argparse
+import gc
+import hashlib
+import importlib.util
+import json
+import os
+import sys
+import subprocess
+import time
+import traceback
+from pathlib import Path
+from types import SimpleNamespace as NS
+
+
+def sha(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def checked(binding):
+    path = Path(binding['path'])
+    if sha(path) != binding['sha256']:
+        raise ValueError(f'File-byte SHA mismatch: {path}')
+    return path
+
+
+def validate(plan_path, expected_sha, check_env=True, runtime=None):
+    if runtime is not None:
+        check_env = runtime
+    plan_path = checked({'path': str(plan_path), 'sha256': expected_sha})
+    plan = json.loads(plan_path.read_text())
+    assert checked(plan['probe']).resolve() == Path(__file__).resolve()
+    assert subprocess.check_output(['git', '-C', plan['repo_root'], 'rev-parse', 'HEAD'], text=True).strip() == plan['current_checkout_commit']
+    for binding in plan['sources']:
+        checked(binding)
+    prior = json.loads(checked(plan['original_quality_plan']).read_text())
+    epoch = json.loads(checked(prior['source_epoch']).read_text())
+    refs = [x for x in prior.values() if isinstance(x, dict) and 'path' in x and 'sha256' in x] + prior['extra_sources'] + epoch['files']
+    current = {x['path']: x['sha256'] for x in plan['sources']}
+    for ref in refs:
+        expected = plan['runtime_binary']['sha256'] if ref['path'] == plan['runtime_binary']['path'] else ref['sha256']
+        assert current[ref['path']] == expected
+    component = json.loads(checked(plan['component_result']).read_text())
+    assert component['status'] == 'completed' and component['device_cleanclosed']
+    assert component['candidate_admitted_for_root_quality_review']
+    assert all(component['admission_measurements']['checks'].values())
+    current_epoch = json.loads(checked(plan['component_plan']).read_text())
+    assert all(current[x['path']] == x['sha256'] for x in current_epoch['sources'])
+    inherited = json.loads(checked(plan['inherited_quality_plan']).read_text())
+    assert all(current[x['path']] == x['sha256'] for x in inherited['sources'])
+    checked(plan['fresh_diagnosis'])
+    assert plan['runtime_binary'] == current_epoch['runtime_binary']
+    if check_env:
+        assert plan['status'] == 'root_materialized_after_server_stop' and plan['root_quiescence_ack']
+        terminal_current = json.loads(checked(plan['terminal_server']).read_text())
+        assert terminal_current['launch_id'] == plan['expected_server_launch_id']
+        assert terminal_current['finished_at'] and terminal_current['cleanup']['complete']
+        assert not terminal_current['cleanup']['survivors'] and not terminal_current['cleanup']['signal_errors']
+        assert not os.getenv('TT_METAL_WATCHER') and os.getenv('TT_METAL_DEVICE_PROFILER', '0') == '0'
+        assert not any(k.startswith('TT_METAL_DPRINT') for k in os.environ)
+    inputs = json.loads(Path(plan['inputs']['path']).read_text())
+    payload = json.loads(checked(inputs['payload']).read_text())
+    assert hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest() == inputs['payload_json_sha256']
+    assert set(payload) == {'prompt', 'model', 'max_tokens', 'temperature', 'stop', 'seed', 'stream'}
+    assert payload['model'] == 'google/gemma-4-26B-A4B-it'
+    assert len(payload['prompt']) == 1 and len(payload['prompt'][0]) == 326
+    assert payload['max_tokens'] == 2048 and payload['temperature'] == 0 and payload['seed'] == 42
+    assert payload['stop'] == [] and payload['stream'] is False
+    assert inputs['fixed_prefix_length'] == len(inputs['fixed_completion_prefix_ids']) == 63
+    assert inputs['comparison_decode_input_position'] == 388
+    for binding in [*inputs['checkpoint_metadata'], *inputs['response_bindings'].values()]:
+        checked(binding)
+    live = json.loads(Path(plan['server_live_snapshot']['path']).read_text())
+    terminal = json.loads(Path(plan['server_terminal_manifest']['path']).read_text())
+    assert live['launch_id'] == terminal['launch_id'] and terminal['finished_at'] is not None
+    assert terminal['cleanup']['complete'] and not terminal['cleanup']['survivors']
+    assert live['profile'] == 'P150x2' and live['context'] == 262144
+    assert plan['context'] == 262144 and plan['slots'] == 32 and plan['num_blocks'] == 4128
+    assert plan['execution_widths'] == [1] and plan['logical_active_rows'] == [0]
+    if check_env:
+        expected_env = {**live['model_provenance']['environment'], **plan['required_env']}
+        mismatch = {k: [v, os.environ.get(k)] for k, v in expected_env.items() if os.environ.get(k) != v}
+        assert not mismatch, f'Consumed runtime environment differs: {mismatch}'
+    assert plan['generation_tokens'] == plan['original_request_budget'] == 2048
+    baseline = json.loads(Path(plan['baseline_result']['path']).read_text())
+    assert baseline['status'] == 'completed' and baseline['device_cleanclosed'] and baseline['prefill_exact']
+    assert baseline['first_different_logits_output_index'] == 1 and baseline['first_different_top1_output_index'] == 63
+    branch = json.loads(Path(plan['branch_result']['path']).read_text())
+    assert branch['status'] == 'completed' and branch['device_cleanclosed']
+    assert branch['first_different_layer0_branch'] == 'attention_output' and branch['instrumentation_reproduction_pass']
+    attention = json.loads(Path(plan['attention_result']['path']).read_text())
+    assert attention['status'] == 'completed' and attention['device_cleanclosed']
+    assert attention['first_different_attention_boundary'] == 'sdpa_output' and attention['instrumentation_reproduction_pass']
+    cap = json.loads(Path(plan['core_cap_result']['path']).read_text())
+    assert cap['status'] == 'completed' and cap['device_cleanclosed']
+    assert cap['b1_cap1_matches_width32_default'] and cap['width32_default_cap1_exact']
+    numerical = json.loads(Path(plan['numerical_v1_result']['path']).read_text())
+    assert numerical['status'] == 'completed' and numerical['device_cleanclosed']
+    assert numerical['instrumentation_reproduction_pass'] and numerical['decomposed_output_exact_across_widths']
+    numerical_v2 = json.loads(Path(plan['numerical_v2_result']['path']).read_text())
+    assert numerical_v2['status'] == 'completed' and numerical_v2['device_cleanclosed']
+    assert numerical_v2['instrumentation_reproduction_pass'] and numerical_v2['b1_fp32_cap1_matches_width32_fp32_default']
+    return plan, inputs, payload, live
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--plan', type=Path, required=True)
+    parser.add_argument('--plan-sha256', required=True)
+    parser.add_argument('--validate-only', action='store_true')
+    args = parser.parse_args()
+    plan, inputs, payload, live = validate(args.plan, args.plan_sha256, check_env=not args.validate_only)
+    if args.validate_only:
+        print(json.dumps({'static_validation': 'passed', 'source_files': len(plan['sources']), 'device_imported': False}))
+        return
+    out = Path(plan['output'])
+    assert 'doc' not in out.resolve().parts
+    out.mkdir(parents=True, exist_ok=False)
+    report = {'status': 'starting', 'plan_sha256': args.plan_sha256, 'probe_sha256': sha(__file__),
+              'original_request': inputs['original_request'], 'diagnostic_only': True,
+              'quality_pass': False, 'release_pass': False, 'model_compute': 'TT',
+              'mode': 'One native original-prompt TT prefill, then matched layer0 final32-row gate controls',
+              'prior_request_mode': 'source-attributed compatibility host sampling on eager TT logits, seed42',
+              'context': 262144, 'slots': 32, 'num_blocks': 4128,
+              'prompt_tokens': 326, 'generation_token_budget': 2048, 'profile_context': 262144,
+              'execution_widths': [1], 'arm_order': ['native', 'gate_hifi4_fp32', 'reference_row325'], 'generated_tokens': 0,
+              'candidate_scope': 'Only matched original-prefill final32-row packed gate/up; same routing union, non-indexed sparse program and native downstream',
+              'component_evidence': plan['component_result'], 'current_checkout_commit': plan['current_checkout_commit'],
+              'runtime_environment': {k: os.getenv(k) for k in live['model_provenance']['environment']},
+              'arms': {}, 'timing_seconds': {}}
+    started = time.monotonic()
+
+    def save():
+        (out / 'result.json').write_text(json.dumps(report, indent=2, allow_nan=False) + '\n')
+
+    def progress(message):
+        save()
+        print(message, flush=True)
+
+    save()
+    sys.path.insert(0, plan['repo_root'])
+    spec = importlib.util.spec_from_file_location('_tt_only_boundary_helpers', checked(plan['helpers']))
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    # All model execution below uses TTNN. Torch is host IDs, allocator metadata,
+    # copied TT logit statistics, and artifact serialization only.
+    import torch
+    import ttnn as tt
+    loaded_extension = Path(tt._ttnn.__file__).resolve()
+    assert loaded_extension == checked(plan['python_extension']).resolve()
+    loaded_runtime = sorted({Path(line.split()[-1]).resolve()
+        for line in Path('/proc/self/maps').read_text().splitlines()
+        if line.split() and line.split()[-1].endswith('/_ttnncpp.so')})
+    assert loaded_runtime == [checked(plan['runtime_binary']).resolve()], loaded_runtime
+    report['loaded_tt_runtime'] = {
+        'python_extension': {'path': str(loaded_extension), 'sha256': sha(loaded_extension)},
+        'factory_library': {'path': str(loaded_runtime[0]), 'sha256': sha(loaded_runtime[0])},
+        'factory_library_evidence': '/proc/self/maps after TT import, before mesh open',
+        'original_source_epoch_preserved': plan['source_epoch'],
+        'new_build_evidence': plan['build_evidence']}
+    save()
+    from transformers import AutoConfig
+    from vllm import SamplingParams
+    from vllm.v1.core.kv_cache_manager import KVCacheManager
+    from vllm.v1.core.kv_cache_utils import get_kv_cache_config_from_groups, get_kv_cache_groups
+    from vllm.v1.request import Request
+    from vllm_tt_plugin.model_runner import TTModelRunner
+    from models.autoports.google_gemma_4_26b_a4b_it.tt.generator_vllm import Gemma4ForCausalLM
+
+    torch.set_num_threads(4)
+    prompt = payload['prompt'][0]
+
+    sfpu_options = {'dtype': tt.float32, 'memory_config': tt.DRAM_MEMORY_CONFIG}
+    def digest(value):
+        return hashlib.sha256(value.contiguous().view(torch.uint8).numpy().tobytes()).hexdigest()
+
+    def geometry(tensor):
+        return {'shape': list(tensor.shape), 'padded_shape': list(tensor.padded_shape), 'dtype': str(tensor.dtype),
+                'layout': str(tensor.layout), 'memory_config': str(tensor.memory_config())}
+
+    def host(tensor):
+        value = tt.to_memory_config(tensor, tt.DRAM_MEMORY_CONFIG) if tensor.is_sharded() else tensor
+        return [tt.to_torch(chip).clone().contiguous() for chip in tt.get_device_tensors(value)]
+
+    def flat(tensor):
+        values = [x.reshape(-1) for x in host(tensor)]
+        assert len(values) == 2 and all(bool(torch.isfinite(x).all()) for x in values)
+        return values
+
+    def compare(left, right):
+        comparisons = []
+        for a, b in zip(left, right):
+            assert a.shape == b.shape and bool(torch.isfinite(a).all()) and bool(torch.isfinite(b).all())
+            delta = b.double() - a.double()
+            comparisons.append({'exact': bool(torch.equal(a, b)), 'left_sha256': digest(a), 'right_sha256': digest(b),
+                'changed_element_count': int(torch.count_nonzero(a != b)),
+                'mean_signed_error': float(delta.mean()),
+                'rms_ratio': float(b.double().square().mean().sqrt() / a.double().square().mean().sqrt().clamp_min(1e-30)),
+                'max_abs': float(delta.abs().max()), 'rmse': float(delta.square().mean().sqrt()),
+                'relative_l2': float(delta.square().sum().sqrt() / a.double().square().sum().sqrt().clamp_min(1e-30))})
+        assert len(comparisons) == 2
+        return comparisons
+
+    def upload_fp32_exact(values):
+        assert len(values) == 2 and all(x.dtype == torch.float32 for x in values)
+        tensor = tt.from_torch(torch.cat(values, dim=0), dtype=tt.float32, layout=tt.TILE_LAYOUT,
+            device=mesh, memory_config=tt.DRAM_MEMORY_CONFIG, mesh_mapper=tt.ShardTensorToMesh(mesh, dim=0))
+        observed = host(tensor)
+        assert all(torch.equal(a, b) for a, b in zip(values, observed)), 'FP32 data movement changed exact values'
+        return tensor
+
+    def sfpu_product_tree(left, right, label):
+        assert list(left.shape) == list(right.shape) and left.dtype == right.dtype == tt.float32
+        tree = tt.mul(left, right, **sfpu_options)
+        memory_snapshot(label + '_product')
+        height, width = list(tree.shape)[-2:]
+        assert height > 0 and height & (height - 1) == 0
+        stages = []
+        while height > 1:
+            half = height // 2
+            if half >= 32:
+                a = tt.slice(tree, starts=[0, 0, 0, 0], ends=[1, 1, half, width], steps=[1, 1, 1, 1], memory_config=tt.DRAM_MEMORY_CONFIG)
+                b = tt.slice(tree, starts=[0, 0, half, 0], ends=[1, 1, height, width], steps=[1, 1, 1, 1], memory_config=tt.DRAM_MEMORY_CONFIG)
+                # Readback/indexing checks raw tile copies, never performs a host sum.
+                values = host(tree)
+                assert all(torch.equal(x[..., :half, :], y) for x, y in zip(values, host(a)))
+                assert all(torch.equal(x[..., half:, :], y) for x, y in zip(values, host(b)))
+                movement = 'TT tile-aligned slice; exact readback checked'
+            else:
+                values = host(tree)
+                a = upload_fp32_exact([x[..., :half, :].clone().contiguous() for x in values])
+                b = upload_fp32_exact([x[..., half:, :].clone().contiguous() for x in values])
+                movement = 'Exact FP32 host indexing/reupload below tile height; no host arithmetic'
+            combined = tt.add(a, b, **sfpu_options)
+            memory_snapshot(label + '_add_' + str(height))
+            assert combined.dtype == tt.float32 and list(combined.shape) == [1, 1, half, width]
+            stages.append({'input_rows': height, 'output_rows': half, 'movement': movement, 'input_halves_exact': True})
+            for tensor in (tree, a, b):
+                tt.deallocate(tensor)
+            tree, height = combined, half
+        report.setdefault('sfpu_trees', {})[label] = {'product_shape': list(left.shape), 'product_dtype': 'FLOAT32',
+            'add_stages': stages, 'dispatch': 'implicit FLOAT32 SFPU dispatch', 'matrix_engine_or_sum_used': False}
+        return tree
+
+    baseline = json.loads(Path(plan['baseline_result']['path']).read_text())
+    parent = adapter = state = capture = None
+    restoration = []
+    raw = {}
+    try:
+        tt.set_fabric_config(tt.FabricConfig.FABRIC_2D)
+        parent = tt.open_mesh_device(mesh_shape=tt.MeshShape(2, 2), trace_region_size=220000000)
+        mesh = parent.create_submesh(tt.MeshShape(1, 2), offset=tt.MeshCoordinate(0, 0))
+        report['mesh'] = {'parent': [2, 2], 'logical': [1, 2], 'fabric': 'FABRIC_2D', 'device_ids': list(mesh.get_device_ids())}
+        config_meta = AutoConfig.from_pretrained(inputs['checkpoint'], local_files_only=True, trust_remote_code=False)
+        adapter = Gemma4ForCausalLM.initialize_vllm_model(config_meta, mesh, max_batch_size=32, max_seq_len=262144)
+        generator, model = adapter.generator, adapter.generator.model
+        assert model.num_layers == 30 and model.tp_size == 2 and model.state is None
+        assert Gemma4ForCausalLM.get_max_tokens_all_users(num_devices=2) // 64 + 32 == 4128
+        assert not getattr(Gemma4ForCausalLM, '_HYBRID_KV_CACHE_GROUPS_ENABLED', False)
+        report['precision_summary_scope'] = 'Native full prefill; matched component candidate separately recorded'
+        report['resolved_precision'] = model.precision_summary()
+        component = json.loads(checked(plan['component_result']).read_text())
+        assert report['resolved_precision'] == component['resolved_precision']
+        config = NS(model_config=NS(hf_config=config_meta, dtype=torch.bfloat16),
+                    cache_config=NS(cache_dtype='auto', num_gpu_blocks_override=4128),
+                    scheduler_config=NS(disable_hybrid_kv_cache_manager=False))
+        groups = get_kv_cache_groups(config, adapter.get_kv_cache_spec(config))
+        kv_config = get_kv_cache_config_from_groups(config, groups, available_memory=0)
+        runner = TTModelRunner.__new__(TTModelRunner)
+        runner.num_devices, runner.tt_data_parallel_size = 2, 1
+        per_layer = runner._build_per_layer_specs(kv_config, model.num_layers)
+        report['cache_geometry'] = [{'shape': list(shape), 'dtype': str(dtype), 'tensor_index': index} for shape, dtype, index in per_layer]
+        report['hma_groups'] = [{'layers': g.layer_names, 'block_size': g.kv_cache_spec.block_size} for g in groups]
+        layer_to_group = {name: i for i, group in enumerate(groups) for name in group.layer_names}
+        layer_groups = [layer_to_group[f'model.layers.{i}.self_attn'] for i in model.layer_indices]
+        report['timing_seconds']['initialize'] = time.monotonic() - started
+        progress('TT model loaded; current HMA geometry resolved')
+
+        layer = model.layers[0]
+        assert layer.prefill_expert_chunk_size == 32 and layer.prefill_routed_active
+        assert layer.packed_expert_prefill_gate_up and layer.tp_profile.local_moe_intermediate_size == 352
+        native_config = layer.expert_gate_compute_config
+        config_fields = ('math_fidelity', 'math_approx_mode', 'fp32_dest_acc_en', 'packer_l1_acc', 'dst_full_sync_en', 'throttle_level')
+        fields = {key: getattr(native_config, key) for key in config_fields}
+        candidate_config = tt.WormholeComputeKernelConfig(**dict(fields, math_fidelity=tt.MathFidelity.HiFi4, fp32_dest_acc_en=True))
+        component = json.loads(checked(plan['component_result']).read_text())
+        assert {key: str(value) for key, value in fields.items()} == component['gate_configs']['native']
+        assert {key: str(getattr(candidate_config, key)) for key in config_fields} == component['gate_configs']['candidate']
+        report['gate_configs'] = component['gate_configs']
+        original_sparse = tt.sparse_matmul
+        original_moe, original_chunk = layer._moe_prefill, layer._moe_prefill_chunk
+        original_activation, original_norm = layer._packed_expert_activation, layer._rms_norm
+        captured = {'gate_calls': 0, 'active': False, 'target': False}
+
+        def replace(owner, name, replacement):
+            restoration.append((owner, name, name in getattr(owner, '__dict__', {}), getattr(owner, name)))
+            setattr(owner, name, replacement)
+
+        def restore_hooks():
+            while restoration:
+                owner, name, had_attribute, value = restoration.pop()
+                if had_attribute:
+                    setattr(owner, name, value)
+                else:
+                    delattr(owner, name)
+
+        def capture_sparse(*op_args, **op_kwargs):
+            is_gate = captured['active'] and op_args[1] is layer.prefill_packed_expert_gate_up
+            if is_gate:
+                assert list(op_args[0].shape) == [1, 1, 32, 2816]
+                captured['target'] = captured['gate_calls'] == 10
+                captured['gate_calls'] += 1
+                if captured['target']:
+                    assert 'indices' not in op_kwargs and op_kwargs.get('nnz') is None
+                    assert op_kwargs['compute_kernel_config'] is native_config
+                    assert op_args[0].memory_config() == tt.DRAM_MEMORY_CONFIG
+                    assert op_kwargs['memory_config'] == tt.DRAM_MEMORY_CONFIG
+                    program = op_kwargs['program_config']
+                    assert program.in0_block_w == 44 and program.per_core_M == program.per_core_N == 1
+                    assert program.out_subblock_h == program.out_subblock_w == 1 and not program.fuse_batch
+                    assert (program.compute_with_storage_grid_size.x, program.compute_with_storage_grid_size.y) == (11, 2)
+                    raw['hidden_group'] = host(op_args[0])
+                    raw['sparsity'] = host(op_kwargs['sparsity'])
+                    captured['kwargs'] = dict(op_kwargs)
+                    captured['weight'] = op_args[1]
+                    report['captured_gate'] = {'input': geometry(op_args[0]), 'weight': geometry(op_args[1]),
+                        'sparsity': geometry(op_kwargs['sparsity']), 'program': str(program),
+                        'non_indexed': True, 'nnz': None, 'physical_rows': 32, 'logical_target_group_row': 5}
+            result = original_sparse(*op_args, **op_kwargs)
+            if is_gate and captured['target']:
+                raw['native_gate_raw'] = host(result)
+                report['captured_gate']['output'] = geometry(result)
+            return result
+
+        def capture_activation(value):
+            if captured['active'] and captured['target']:
+                assert list(value.shape) == [1, 128, 32, 704]
+                raw['native_gate_canonical'] = host(value)
+            return original_activation(value)
+
+        def capture_chunk(hidden, routing):
+            result = original_chunk(hidden, routing)
+            if captured['active']:
+                assert list(result.shape) == [1, 1, 352, 2816]
+                raw['native_local_full'] = host(result)
+                raw['native_local_group'] = [x[..., 320:352, :].clone().contiguous() for x in raw['native_local_full']]
+            return result
+
+        def capture_moe(hidden, routing):
+            assert layer.multichip_execution_phase == 'prefill' and not layer._in_decode_forward
+            assert list(hidden.shape) == [1, 1, 352, 2816]
+            raw['routing_group'] = [x[..., 320:352, :].clone().contiguous() for x in host(routing)]
+            captured['active'] = True
+            try:
+                result = original_moe(hidden, routing)
+                raw['native_reduced_group'] = [x[..., 320:352, :].clone().contiguous() for x in host(result)]
+                return result
+            finally:
+                captured['active'] = False
+
+        def capture_norm(hidden, weight):
+            result = original_norm(hidden, weight)
+            if weight is layer.weights.post_ff_ln_2:
+                assert list(hidden.shape) == [1, 1, 352, 2816]
+                raw['native_norm_input_full'] = host(hidden)
+                raw['native_norm_full'] = host(result)
+                raw['native_norm_group'] = [x[..., 320:352, :].clone().contiguous() for x in raw['native_norm_full']]
+            return result
+
+        params = SamplingParams(temperature=0.0, seed=42, max_tokens=2048, stop=[])
+        manager = KVCacheManager(kv_config, max_model_len=262144, hash_block_size=64, enable_caching=False)
+        request = Request('original-prefill-only', prompt, params, None, eos_token_id=1)
+        preview_manager = KVCacheManager(kv_config, max_model_len=262144, hash_block_size=64, enable_caching=False)
+        preview_request = Request('preview-prefill-only', prompt, params, None, eos_token_id=1)
+        allocation_plan = helper.preview_allocations(preview_manager, preview_request, [326])
+        del preview_manager, preview_request
+        adapter.allocate_kv_cache_per_layer(per_layer)
+        state = adapter._serving_state
+        assert state.sliding_cache_position_modulo is None and not generator._trace_cache
+        report['fresh_zero_pages'] = helper.verify_fresh_pages(torch, tt, state, layer_groups, allocation_plan)
+        assert manager.allocate_slots(request, 326) is not None
+        page_ids = [list(x) for x in manager.get_block_ids(request.request_id)]
+        assert page_ids == allocation_plan[0]
+        group_tables = []
+        for group, pages in zip(groups, page_ids):
+            table = torch.zeros((32, 262144 // group.kv_cache_spec.block_size), dtype=torch.int32)
+            table[0, :len(pages)] = torch.tensor(pages, dtype=torch.int32)
+            group_tables.append(table)
+        tables = [group_tables[i] for i in layer_groups]
+        replace(tt, 'sparse_matmul', capture_sparse)
+        replace(layer, '_moe_prefill', capture_moe)
+        replace(layer, '_moe_prefill_chunk', capture_chunk)
+        replace(layer, '_packed_expert_activation', capture_activation)
+        replace(layer, '_rms_norm', capture_norm)
+        progress('Original326-token native prefill with layer0 final-group readbacks')
+        try:
+            logits = adapter.prefill_forward(torch.tensor([prompt], dtype=torch.long), page_table=tables[0],
+                page_tables_per_layer=tables, kv_cache=state.kv_cache, prompt_lens=[326],
+                start_pos=torch.tensor([0], dtype=torch.int32), original_prompt_lens=[326], empty_slots=[0], sampling_params=None)
+            vector = logits[0, 0].clone().contiguous()
+            report['original_prefill_logit_sha256'] = digest(vector)
+            assert digest(vector) == '2f404628b93a6c59f01d8ae2d8f3f26dcd396f965e106ae9164265604a132c93'
+            assert captured['gate_calls'] == 11 and not generator._trace_cache
+            assert layer.expert_gate_compute_config is native_config
+            report['original_prefill_exact'] = True
+            del logits, vector
+        finally:
+            restore_hooks()
+        assert list(captured['weight'].shape) == [1, 128, 2816, 704]
+        assert captured['weight'].dtype == tt.bfloat8_b
+        expert_ids = [torch.nonzero(x[0, 0, 5], as_tuple=False).reshape(-1).tolist() for x in raw['routing_group']]
+        assert all(len(ids) == 8 for ids in expert_ids) and expert_ids[0] == expert_ids[1]
+        report['routing'] = {'row325_expert_ids': expert_ids, 'union_expert_ids': [torch.nonzero(x.reshape(-1), as_tuple=False).reshape(-1).tolist() for x in raw['sparsity']],
+            'whole32_group_preserved': True, 'padded_rows_preserved': 26}
+
+        torch.save(raw, out / 'capture_readbacks.pt')
+        report['native_capture'] = {'path': str(out / 'capture_readbacks.pt'), 'sha256': sha(out / 'capture_readbacks.pt')}
+        progress('Exact native prefill and complete final-group capture preserved outside repository')
+
+        def upload_exact(values, dtype, layout=tt.TILE_LAYOUT, memory=tt.DRAM_MEMORY_CONFIG):
+            result = tt.from_torch(torch.cat(values, dim=0), dtype=dtype, layout=layout, device=mesh,
+                memory_config=memory, mesh_mapper=tt.ShardTensorToMesh(mesh, dim=0))
+            assert all(torch.equal(a.float(), b.float()) for a, b in zip(values, host(result)))
+            return result
+
+        hidden = upload_exact(raw['hidden_group'], tt.bfloat16)
+        routing = upload_exact(raw['routing_group'], tt.bfloat16)
+        sparsity = upload_exact(raw['sparsity'], tt.bfloat16, tt.ROW_MAJOR_LAYOUT)
+        call_kwargs = dict(captured['kwargs'], sparsity=sparsity)
+        # Exact full 32-row native gate replay, using the identical resident object and program.
+        native_gate = original_sparse(hidden, captured['weight'], **call_kwargs)
+        assert all(x['exact'] for x in compare(raw['native_gate_raw'], host(native_gate)))
+        tt.deallocate(native_gate)
+        report['native_gate_exact'] = True
+        arm_rows = {}
+        def run_downstream(name, config, reference_canonical=None):
+            gate_canonical = None
+            def gate_hook(*op_args, **op_kwargs):
+                nonlocal gate_canonical
+                if op_args[1] is not captured['weight']:
+                    return original_sparse(*op_args, **op_kwargs)
+                assert 'indices' not in op_kwargs and op_kwargs.get('nnz') is None
+                assert str(op_kwargs['program_config']) == report['captured_gate']['program']
+                assert all(x['exact'] for x in compare(raw['hidden_group'], host(op_args[0])))
+                assert all(x['exact'] for x in compare(raw['sparsity'], host(op_kwargs['sparsity'])))
+                result = original_sparse(*op_args, **op_kwargs)
+                if reference_canonical is not None:
+                    reference = upload_exact(reference_canonical, tt.bfloat16)
+                    transposed_shape = list(report['captured_gate']['output']['shape'])
+                    transposed_shape[1], transposed_shape[3] = transposed_shape[3], transposed_shape[1]
+                    replacement = tt.transpose(tt.reshape(reference, transposed_shape), 1, 3)
+                    assert geometry(replacement) == geometry(result)
+                    tt.deallocate(result)
+                    result = replacement
+                return result
+            def activation_hook(value):
+                nonlocal gate_canonical
+                gate_canonical = host(value)
+                if reference_canonical is not None:
+                    assert all(torch.equal(a, b) for a, b in zip(reference_canonical, gate_canonical)), 'Reference gate data movement changed another row/expert'
+                return original_activation(value)
+            prior_phase = layer.multichip_execution_phase
+            layer.multichip_execution_phase = 'prefill'
+            layer.expert_gate_compute_config = config
+            replace(tt, 'sparse_matmul', gate_hook)
+            replace(layer, '_packed_expert_activation', activation_hook)
+            try:
+                assert layer.multichip_execution_phase == 'prefill' and not layer._in_decode_forward
+                local = original_chunk(hidden, routing)
+                local_group = host(local)
+                full_local_values = [x.clone() for x in raw['native_local_full']]
+                for value, rows in zip(full_local_values, local_group):
+                    value[..., 320:352, :] = rows
+                full_local = upload_exact(full_local_values, tt.bfloat16)
+                reduced = layer._all_reduce_hidden(full_local)
+                full_reduced_rows = host(reduced)
+                reduced_rows = [x[..., 320:352, :].clone().contiguous() for x in full_reduced_rows]
+                normalized = original_norm(reduced, layer.weights.post_ff_ln_2)
+                normalized_rows = [x[..., 320:352, :].clone().contiguous() for x in host(normalized)]
+                values = {'gate': [x[0, expert_ids[chip], 5, :].clone() for chip, x in enumerate(gate_canonical)],
+                    'local': [x[0, 0, 5].clone() for x in local_group], 'reduced': [x[0, 0, 5].clone() for x in reduced_rows],
+                    'normalized': [x[0, 0, 5].clone() for x in normalized_rows]}
+                arm_rows[name] = values
+                report['arms'][name] = {'gate_config': {key: str(getattr(config, key)) for key in config_fields},
+                    'output_sha256': {key: [digest(x) for x in rows] for key, rows in values.items()},
+                    'reference_only_target_row_modified': reference_canonical is not None}
+                if name == 'native':
+                    guards = {'gate': compare(raw['native_gate_canonical'], gate_canonical),
+                        'local': compare(raw['native_local_group'], local_group),
+                        'full_local': compare(raw['native_local_full'], host(full_local)),
+                        'full_reduced': compare(raw['native_norm_input_full'], full_reduced_rows),
+                        'reduced': compare(raw['native_reduced_group'], reduced_rows),
+                        'normalized': compare(raw['native_norm_group'], normalized_rows),
+                        'full_normalized': compare(raw['native_norm_full'], host(normalized))}
+                    report['native_downstream_guards'] = guards
+                    assert all(x['exact'] for rows in guards.values() for x in rows)
+                for tensor in (local, full_local, reduced, normalized):
+                    tt.deallocate(tensor)
+            finally:
+                layer.expert_gate_compute_config = native_config
+                layer.multichip_execution_phase = prior_phase
+                restore_hooks()
+            progress(name + ': matched final-group downstream complete')
+        run_downstream('native', native_config)
+        run_downstream('gate_hifi4_fp32', candidate_config)
+
+        def memory_snapshot(label):
+            view = tt.get_memory_view(mesh, tt.BufferType.DRAM)
+            record = {key: int(getattr(view, key)) for key in ('num_banks', 'total_bytes_per_bank',
+                'total_bytes_allocated_per_bank', 'total_bytes_free_per_bank', 'largest_contiguous_bytes_free_per_bank')}
+            report.setdefault('dram_snapshots', {})[label] = record
+            return record
+        before = memory_snapshot('before_reference_scratch')
+        scratch_estimate = 80 * 1024 * 1024
+        report['capacity'] = {'one_fp32_product_tensor_bytes_per_device': 4096 * 704 * 4,
+            'conservative_additional_scratch_bytes_per_device': scratch_estimate,
+            'estimate_includes': 'two operands, product, two half copies, half-sized add output, one decoded resident expert and BF8 slice; capture/model/cache allocations already in measured baseline',
+            'observed_peak_scope': 'Allocation snapshots at explicit reference boundaries, not an allocator high-watermark'}
+        required_per_bank = (scratch_estimate + before['num_banks'] - 1) // before['num_banks']
+        assert before['total_bytes_free_per_bank'] > required_per_bank
+        assert before['largest_contiguous_bytes_free_per_bank'] > required_per_bank
+        invariant = torch.zeros((1, 1, 32, 32), dtype=torch.float32)
+        invariant[..., 0, :], invariant[..., 1, :] = 1.0, 0.015625
+        invariant_a, invariant_b = upload_fp32_exact([invariant, invariant]), upload_fp32_exact([invariant, invariant])
+        invariant_out = sfpu_product_tree(invariant_a, invariant_b, 'small_term')
+        expected = torch.full((32,), 1.000244140625, dtype=torch.float32)
+        report['sfpu_invariant'] = compare([expected, expected], flat(invariant_out))
+        assert all(x['exact'] for x in report['sfpu_invariant'])
+        for tensor in (invariant_a, invariant_b, invariant_out):
+            tt.deallocate(tensor)
+        reference_rows = [[], []]
+        substituted = [x.clone() for x in raw['native_gate_canonical']]
+        report['resident_weight_controls'] = []
+        for expert_id in expert_ids[0]:
+            resident = tt.slice(captured['weight'], starts=[0, expert_id, 0, 0],
+                ends=[1, expert_id + 1, 2816, 704], steps=[1, 1, 1, 1], memory_config=tt.DRAM_MEMORY_CONFIG)
+            decoded = tt.typecast(resident, tt.float32, memory_config=tt.DRAM_MEMORY_CONFIG)
+            resident_values, decoded_values = host(resident), host(decoded)
+            assert all(torch.equal(a.float(), b) for a, b in zip(resident_values, decoded_values))
+            left, right = [], []
+            for chip in (0, 1):
+                a = torch.zeros((1, 1, 4096, 704), dtype=torch.float32)
+                b = torch.zeros_like(a)
+                a[..., :2816, :] = raw['hidden_group'][chip][0, 0, 5].float().reshape(1, 1, 2816, 1).expand(1, 1, 2816, 704)
+                b[..., :2816, :] = decoded_values[chip]
+                assert torch.equal(a[0, 0, :2816, 0], raw['hidden_group'][chip][0, 0, 5].float())
+                assert torch.equal(b[..., :2816, :], decoded_values[chip])
+                left.append(a); right.append(b)
+            ta, tb = upload_fp32_exact(left), upload_fp32_exact(right)
+            memory_snapshot('expert_' + str(expert_id) + '_inputs')
+            gate = sfpu_product_tree(ta, tb, 'expert_' + str(expert_id))
+            narrowed = tt.typecast(gate, tt.bfloat16, memory_config=tt.DRAM_MEMORY_CONFIG)
+            for chip, (value, bf16value) in enumerate(zip(flat(gate), flat(narrowed))):
+                reference_rows[chip].append(value)
+                substituted[chip][0, expert_id, 5] = bf16value
+            report['resident_weight_controls'].append({'expert_id': expert_id, 'exact_decoded_and_uploaded': True,
+                'resident_decoded_sha256': [digest(x) for x in decoded_values]})
+            for tensor in (resident, decoded, ta, tb, gate, narrowed):
+                tt.deallocate(tensor)
+            memory_snapshot('expert_' + str(expert_id) + '_released')
+            progress('SFPU selected expert ' + str(expert_id) + ' complete')
+        reference_rows = [torch.stack(rows) for rows in reference_rows]
+        for original, replacement in zip(raw['native_gate_canonical'], substituted):
+            assert torch.equal(original[..., :5, :], replacement[..., :5, :])
+            assert torch.equal(original[..., 6:, :], replacement[..., 6:, :])
+            unused = [i for i in range(128) if i not in expert_ids[0]]
+            assert torch.equal(original[:, unused, 5, :], replacement[:, unused, 5, :])
+        run_downstream('reference_row325', native_config, substituted)
+        comparisons = []
+        for chip in (0, 1):
+            for slot, expert_id in enumerate(expert_ids[chip]):
+                reference = reference_rows[chip][slot]
+                def stats(value):
+                    delta = value.double() - reference.double()
+                    return {'relative_l2': float(delta.square().sum().sqrt() / reference.double().square().sum().sqrt().clamp_min(1e-30)), 'max_abs': float(delta.abs().max())}
+                comparisons.append({'chip': chip, 'expert_id': expert_id,
+                    'native': stats(arm_rows['native']['gate'][chip][slot]),
+                    'candidate': stats(arm_rows['gate_hifi4_fp32']['gate'][chip][slot])})
+        report['per_expert_gate_comparisons'] = comparisons
+        report['downstream_vs_reference'] = {name: {key: compare(arm_rows['reference_row325'][key], values[key]) for key in ('local', 'reduced', 'normalized')}
+            for name, values in arm_rows.items() if name != 'reference_row325'}
+        native_mean = sum(x['native']['relative_l2'] for x in comparisons) / 16
+        candidate_mean = sum(x['candidate']['relative_l2'] for x in comparisons) / 16
+        checks = {'all_16_packed_rows_improve': all(x['candidate']['relative_l2'] < x['native']['relative_l2'] for x in comparisons),
+            'mean_packed_relative_l2_halves': candidate_mean < 0.5 * native_mean,
+            'normalized_each_chip_improves_20_percent': all(b['relative_l2'] < 0.8 * a['relative_l2'] for a, b in zip(report['downstream_vs_reference']['native']['normalized'], report['downstream_vs_reference']['gate_hifi4_fp32']['normalized']))}
+        snapshots = list(report['dram_snapshots'].values())
+        report['capacity']['observed_max_allocated_bytes_per_bank'] = max(x['total_bytes_allocated_per_bank'] for x in snapshots)
+        report['capacity']['observed_max_delta_bytes_per_device'] = (report['capacity']['observed_max_allocated_bytes_per_bank'] - before['total_bytes_allocated_per_bank']) * before['num_banks']
+        assert report['capacity']['observed_max_delta_bytes_per_device'] <= scratch_estimate, 'Observed reference allocation exceeded declared bound'
+        report['admission'] = {'checks': checks, 'native_mean_gate_relative_l2': native_mean, 'candidate_mean_gate_relative_l2': candidate_mean,
+            'candidate_admitted_for_root_review': all(checks.values()), 'quality_or_release_pass': False}
+        torch.save({'arm_target_rows': arm_rows, 'reference_fp32_gate_rows': reference_rows}, out / 'prefill_gate_readbacks.pt')
+        report['raw_readbacks'] = {'path': str(out / 'prefill_gate_readbacks.pt'), 'sha256': sha(out / 'prefill_gate_readbacks.pt')}
+        report['status'] = 'completed'
+        progress('Original-prefill matched gate control complete; no model policy retained')
+    except BaseException:
+        report.update(status='error', exception=traceback.format_exc())
+        raise
+    finally:
+        if 'restore_hooks' in locals():
+            restore_hooks()
+        if 'layer' in locals() and 'native_config' in locals():
+            layer.expert_gate_compute_config = native_config
+        if adapter is not None:
+            adapter._release_decode_traces()
+        if parent is not None:
+            tt.close_mesh_device(parent)
+            report['device_cleanclosed'] = True
+        report['timing_seconds']['total'] = time.monotonic() - started
+        save()
+
+
+if __name__ == '__main__':
+    main()
