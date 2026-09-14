@@ -50,6 +50,28 @@ class ShellProfileConfigTests(unittest.TestCase):
         )
 
 
+class ResumeInstructionTests(unittest.TestCase):
+    def test_resume_message_includes_current_effective_objective(self) -> None:
+        objective = "Use this physical host; no reservation container is required."
+        with mock.patch.object(
+            MULTIGOAL, "input_items_for_resume", side_effect=RuntimeError("captured resume input")
+        ) as capture:
+            with self.assertRaisesRegex(RuntimeError, "captured resume input"):
+                MULTIGOAL.execute_resumed_goal(
+                    None,
+                    None,
+                    pathlib.Path("/repo"),
+                    objective,
+                    "saved-thread",
+                    pathlib.Path("/unused-log"),
+                    pathlib.Path("/historical-prompt"),
+                )
+        message = capture.call_args.args[1]
+        self.assertIn(objective, message)
+        self.assertIn("supersedes conflicting historical template wording", message)
+        self.assertIn("Do not restart from scratch", message)
+
+
 class PersistentLogTests(unittest.TestCase):
     def setUp(self) -> None:
         stack = ExitStack()

@@ -84,7 +84,13 @@ class AppServerClient:
         args = [self.codex_bin]
         for item in self.config_overrides:
             args.extend(["--config", item])
-        args.extend(["app-server", "--enable", "goals", "--listen", "stdio://"])
+        # The bring-up runner already executes in its explicitly authorized
+        # unrestricted host environment.  Avoid app-server's nested
+        # bubblewrap sandbox, which fails on hosts with user namespaces
+        # disabled and causes silent compaction/usage-limit loops.
+        args.extend(
+            ["--dangerously-bypass-approvals-and-sandbox", "app-server", "--enable", "goals", "--listen", "stdio://"]
+        )
         self.proc = subprocess.Popen(
             args,
             stdin=subprocess.PIPE,
@@ -746,6 +752,9 @@ def execute_resumed_goal(
             "Continue this existing multigoal stage after the previous turn stopped before the stage was complete.",
             "",
             f"Original goal prompt copy: {prompt_copy}",
+            "",
+            "Current effective goal (including launch-time replacements; supersedes conflicting historical template wording):",
+            objective,
             "",
             "Keep working on the same goal and use the existing artifacts, logs, and code state.",
             "Do not restart from scratch unless the current artifacts require it.",
