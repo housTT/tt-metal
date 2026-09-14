@@ -211,11 +211,14 @@ class Gemma4Generator(Generator):
                                 ttnn.copy(input_a=source, input_b=target)
                             else:
                                 self._refresh_device_input(target, torch.as_tensor(source, dtype=torch.int32))
+                    state.host_page_tables = None
                     self.trace_counters.page_table_refreshes += 1
                 self._page_table_sources[id(state)] = source_tables
             elif isinstance(page_table, (list, tuple)):
                 if len(page_table) != model.num_layers:
                     raise ValueError(f"expected {model.num_layers} per-layer page tables")
+                if any(source is not target for source, target in zip(page_table, state.page_tables)):
+                    state.host_page_tables = None
                 state.page_tables = list(page_table)
             elif model.num_layers > 0:
                 # Internally allocated mixed-geometry state retains its exact
@@ -225,6 +228,7 @@ class Gemma4Generator(Generator):
                 geometries = {(s.block_size, s.blocks_per_slot) for s in state.cache_specs}
                 if len(geometries) != 1:
                     if not owns_cache:
+                        state.host_page_tables = None
                         state.page_tables = [page_table] * model.num_layers
                         page_table = None
                     # The common readiness runner passes a geometry-agnostic
@@ -233,6 +237,8 @@ class Gemma4Generator(Generator):
                     # matching per-layer page tables.
                     page_table = None
                 if page_table is not None:
+                    if any(source is not page_table for source in state.page_tables):
+                        state.host_page_tables = None
                     state.page_tables = [page_table] * model.num_layers
         if prompt_lens is not None:
             state.prompt_lens[: len(prompt_lens)] = [int(x) for x in prompt_lens]
@@ -459,6 +465,7 @@ class Gemma4Generator(Generator):
         prompt_lens: List[int],
         start_pos: torch.Tensor | None = None,
         chunk_page_tables: Sequence[ttnn.Tensor | None] | None = None,
+        host_page_tables: Sequence[torch.Tensor] | None = None,
         return_all_logits: bool = False,
         **kwargs: Any,
     ) -> torch.Tensor | ttnn.Tensor:
@@ -486,6 +493,22 @@ class Gemma4Generator(Generator):
             if positions.ndim == 1:
                 positions = positions.reshape(len(prompt_lens), -1)
             position_rows = [positions[row, :n].contiguous() for row, n in enumerate(prompt_lens)]
+        if host_page_tables is not None:
+            if len(host_page_tables) != len(state.page_tables):
+                raise ValueError("host_page_tables must contain the current metadata for every layer")
+            state.host_page_tables = list(host_page_tables)
+        elif any(int(row[0]) > 0 for row in position_rows):
+            # Direct callers can mutate the same device table in place. Read
+            # current TABLE metadata for every continuation unless the caller
+            # supplies an authoritative host snapshot. K/V stays on device.
+            state.host_page_tables = [
+                (
+                    ttnn.to_torch(ttnn.get_device_tensors(table)[0]).to(torch.int32).clone()
+                    if isinstance(table, ttnn.Tensor)
+                    else torch.as_tensor(table, dtype=torch.int32).clone()
+                )
+                for table in state.page_tables
+            ]
         state.positions[: len(prompt_lens)] = torch.tensor(
             [int(row[-1]) + 1 for row in position_rows], dtype=torch.int32
         )
@@ -528,6 +551,7 @@ class Gemma4Generator(Generator):
                         state=state,
                         prompt_lens=[logical_len],
                         position_ids=tt_pos,
+                        prefill_start=first_position,
                         user_id=row,
                         chunk_page_tables=chunk_page_tables,
                         return_all_logits=return_all_logits,
@@ -557,6 +581,7 @@ class Gemma4Generator(Generator):
             state=state,
             prompt_lens=prompt_lens,
             position_ids=tt_pos,
+            prefill_start=int(position_rows[0][0]),
             chunk_page_tables=chunk_page_tables,
             return_all_logits=return_all_logits,
         )

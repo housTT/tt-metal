@@ -100,6 +100,8 @@ class FullModelState:
     prompt_lens: list[int]
     positions: torch.Tensor
     active_mask: torch.Tensor
+    host_page_tables: list[torch.Tensor] | None = None
+    sliding_cache_position_modulo: int | None = SLIDING_CACHE_TOKENS
 
 
 class Gemma4FullModel:
@@ -411,6 +413,7 @@ class Gemma4FullModel:
                 raise ValueError("aggregate slot capacity exceeds the full-context KV budget")
         kv_cache = []
         page_tables = []
+        host_page_tables = []
         for spec in self.cache_specs:
             cache_lengths = (
                 [spec.capacity_tokens_per_slot] * batch
@@ -435,6 +438,7 @@ class Gemma4FullModel:
             for row, row_block_count in enumerate(row_blocks):
                 table[row, :row_block_count] = torch.arange(next_block, next_block + row_block_count, dtype=torch.int32)
                 next_block += row_block_count
+            host_page_tables.append(table)
             page_table = ttnn.from_torch(
                 table,
                 dtype=ttnn.int32,
@@ -448,6 +452,7 @@ class Gemma4FullModel:
         return FullModelState(
             kv_cache=kv_cache,
             page_tables=page_tables,
+            host_page_tables=host_page_tables,
             cache_specs=self.cache_specs,
             max_batch_size=batch,
             slot_context_lengths=list(slot_context_lengths) + [0] * (DECODE_SLOT_COUNT - batch),
@@ -579,6 +584,7 @@ class Gemma4FullModel:
         state: FullModelState,
         prompt_lens: Sequence[int],
         position_ids: ttnn.Tensor,
+        prefill_start: int = 0,
         user_id: int = 0,
         chunk_page_tables: Sequence[ttnn.Tensor | None] | None = None,
         return_all_logits: bool = False,
@@ -622,8 +628,14 @@ class Gemma4FullModel:
                 page_table=state.page_tables[state_idx],
                 kv_cache=state.kv_cache[state_idx],
                 user_id=user_id,
+                prefill_start=prefill_start,
+                host_page_table=(
+                    None if state.host_page_tables is None else state.host_page_tables[state_idx][user_id]
+                ),
                 chunk_page_table=(None if chunk_page_tables is None else chunk_page_tables[state_idx]),
-                cache_position_modulo=(SLIDING_CACHE_TOKENS if _layer_kind(layer_type) is SLIDING_KIND else None),
+                cache_position_modulo=(
+                    state.sliding_cache_position_modulo if _layer_kind(layer_type) is SLIDING_KIND else None
+                ),
             )
         if not return_all_logits:
             if len(set(prompt_lens)) != 1:
@@ -666,7 +678,9 @@ class Gemma4FullModel:
                 current_pos=logical_current_pos,
                 page_table=page_table,
                 kv_cache=state.kv_cache[state_idx],
-                cache_position_modulo=(SLIDING_CACHE_TOKENS if _layer_kind(layer_type) is SLIDING_KIND else None),
+                cache_position_modulo=(
+                    state.sliding_cache_position_modulo if _layer_kind(layer_type) is SLIDING_KIND else None
+                ),
             )
         return self._terminal(hidden, sampler_ready=True)
 

@@ -33,6 +33,7 @@ class Gemma4ForCausalLM(nn.Module):
     """vLLM interface translation over the full-model generator."""
 
     decode_input_update_contract = 1
+    supports_original_prompt_lens = True
     model_capabilities = {
         "supports_prefix_caching": False,
         "supports_async_decode": True,
@@ -212,10 +213,9 @@ class Gemma4ForCausalLM(nn.Module):
                         f"layer {model_spec.layer_idx} requests {requested_elements}"
                     )
             cache.append(cache_pair)
-            table_width = math.ceil(
-                (SLIDING_CACHE_TOKENS if model_spec.layer_type == "sliding_attention" else self.max_seq_len)
-                / model_spec.block_size
-            )
+            # Scheduler sliding tables retain absolute virtual columns even
+            # when old physical pages have been reclaimed.
+            table_width = math.ceil(self.max_seq_len / model_spec.block_size)
             page_tables.append(
                 ttnn.from_torch(
                     torch.zeros((DECODE_SLOT_COUNT, table_width), dtype=torch.int32),
@@ -229,6 +229,7 @@ class Gemma4ForCausalLM(nn.Module):
         self._serving_state = FullModelState(
             kv_cache=cache,
             page_tables=page_tables,
+            sliding_cache_position_modulo=None,
             cache_specs=gen.model.cache_specs,
             max_batch_size=self.max_batch_size,
             slot_context_lengths=[self.max_seq_len] * DECODE_SLOT_COUNT,
@@ -315,15 +316,15 @@ class Gemma4ForCausalLM(nn.Module):
             )
             ttnn.copy_host_to_device_tensor(host, target)
         self._last_page_tables = next_tables
+        state.host_page_tables = next_tables
         self._page_table_refreshes += int(any(changed))
 
     def _chunk_page_tables(
         self, host_tables: Sequence[torch.Tensor], start_pos: torch.Tensor, prompt_lens: Sequence[int]
     ) -> list[ttnn.Tensor] | None:
-        # Gemma4's local-attention cache uses a 1024-token position modulo.
-        # Paged fill therefore needs the scheduler's full table width even when
-        # the current prefill chunk spans only a few blocks; narrowing the table
-        # makes the modulo larger than its addressable block span.
+        # Keep absolute scheduler columns for both layer types. The decoder
+        # shifts only each cache fill's view; continuation attention needs the
+        # complete table, including the retained sliding-history pages.
         del host_tables, start_pos, prompt_lens
         return None
 
@@ -349,6 +350,95 @@ class Gemma4ForCausalLM(nn.Module):
             raise ValueError(f"expected {batch_size} prefill outputs, got {result.shape[0]}")
         return result
 
+    def _prefill_with_generated_replay(self, tokens, positions, starts, ends, original_prompt_lens):
+        """Preserve the original execution phase of each scheduled token."""
+        gen = self._require_generator()
+        state = self._serving_state
+        if gen._trace_cache:
+            # Eager decode intermediates cannot allocate in a retained trace's
+            # workspace. The next ordinary decode refreshes its input boundary.
+            self._release_decode_traces()
+        batch = len(starts)
+        outputs = [None] * batch
+
+        def logit_row(logits, row):
+            # Decode terminal output has 32 physical/logical sampler rows even
+            # for batch one; return exactly the requested active vocabulary row.
+            return ttnn.slice(logits, [0, 0, row, 0], [1, 1, row + 1, logits.shape[-1]])
+
+        prefix_lengths = [
+            max(0, min(end, boundary) - start) for start, end, boundary in zip(starts, ends, original_prompt_lens)
+        ]
+        prefix_rows = [row for row, length in enumerate(prefix_lengths) if length]
+        if prefix_rows:
+            original_tables = self._last_page_tables
+            packed_by_source = {}
+            for table in original_tables:
+                if id(table) not in packed_by_source:
+                    packed = torch.zeros_like(table)
+                    packed[: len(prefix_rows)] = table[prefix_rows]
+                    packed_by_source[id(table)] = packed
+            packed_tables = [packed_by_source[id(table)] for table in original_tables]
+            try:
+                self._refresh_page_tables(packed_tables)
+                lengths = [prefix_lengths[row] for row in prefix_rows]
+                prefix_positions = positions[prefix_rows]
+                logits = gen.prefill_forward(
+                    tokens[prefix_rows],
+                    page_table=state.page_tables,
+                    kv_cache=state,
+                    prompt_lens=lengths,
+                    start_pos=prefix_positions,
+                    chunk_page_tables=self._chunk_page_tables(packed_tables, prefix_positions, lengths),
+                    host_page_tables=self._last_page_tables,
+                )
+                for packed_row, original_row in enumerate(prefix_rows):
+                    outputs[original_row] = (
+                        logits[packed_row] if isinstance(logits, list) else logit_row(logits, packed_row)
+                    )
+            finally:
+                # Device table buffers stay fixed, and both device contents and
+                # authoritative host snapshots regain the scheduler's row order.
+                self._refresh_page_tables(original_tables)
+
+        replay_starts = [max(start, boundary) for start, boundary in zip(starts, original_prompt_lens)]
+        replay_lengths = [max(0, end - start) for start, end in zip(replay_starts, ends)]
+        execution_batch = 1 if batch == 1 else self.max_batch_size
+        for offset in range(max(replay_lengths)):
+            current = torch.full((execution_batch,), -1, dtype=torch.int32)
+            inputs = torch.zeros((execution_batch, 1), dtype=tokens.dtype)
+            for row, length in enumerate(replay_lengths):
+                if offset < length:
+                    position = replay_starts[row] + offset
+                    current[row] = position
+                    inputs[row, 0] = tokens[row, position - starts[row]]
+            # Host mode returns TT logits without sampling; only the caller's
+            # final output enters the existing host/device sampling boundary.
+            logits = gen.decode_forward(
+                inputs,
+                current,
+                page_table=state.page_tables,
+                kv_cache=state,
+                sampling_mode="host",
+                enable_trace=False,
+                active_mask=current >= 0,
+            )
+            for row, length in enumerate(replay_lengths):
+                if offset + 1 == length:
+                    outputs[row] = logit_row(logits, row)
+            # Release this owner normally: an output slice may share its buffer.
+            del logits
+
+        state.positions.fill_(-1)
+        state.positions[:batch] = torch.tensor(ends, dtype=torch.int32)
+        state.active_mask.zero_()
+        state.active_mask[:batch] = True
+        state.prompt_lens[:batch] = [end - start for start, end in zip(starts, ends)]
+        gen._request_boundary = True
+        gen._seeded_slots.zero_()
+        gen._sampling_key = None
+        return outputs[0] if batch == 1 else ttnn.concat(outputs, dim=2)
+
     def prefill_forward(
         self,
         tokens,
@@ -359,6 +449,7 @@ class Gemma4ForCausalLM(nn.Module):
         sampling_params=None,
         empty_slots=None,
         page_tables_per_layer=None,
+        original_prompt_lens=None,
         **_: Any,
     ):
         gen = self._require_generator()
@@ -386,6 +477,18 @@ class Gemma4ForCausalLM(nn.Module):
         lengths = [end - start for start, end in zip(starts, cumulative_ends)]
         if any(length < 1 for length in lengths):
             raise ValueError(f"prefill cumulative ends {cumulative_ends} must exceed starts {starts}")
+        has_generated_replay = False
+        if original_prompt_lens is not None:
+            original_prompt_lens = [int(value) for value in original_prompt_lens]
+            if len(original_prompt_lens) != len(lengths) or any(
+                value < 0 or value > self.max_seq_len for value in original_prompt_lens
+            ):
+                raise ValueError("original_prompt_lens must contain one valid original prompt length per row")
+            if len(lengths) > self.max_batch_size or any(
+                start < 0 or end > self.max_seq_len for start, end in zip(starts, cumulative_ends)
+            ):
+                raise ValueError("prefill replay interval exceeds the serving batch/context capacity")
+            has_generated_replay = any(end > boundary for end, boundary in zip(cumulative_ends, original_prompt_lens))
         if empty_slots is not None:
             slots = [int(slot) for slot in empty_slots]
             if len(slots) != len(lengths) or len(set(slots)) != len(slots):
@@ -401,14 +504,20 @@ class Gemma4ForCausalLM(nn.Module):
         for row, (start, end, length) in enumerate(zip(starts, cumulative_ends, lengths)):
             chunk_tokens[row, :length] = tokens[row, start:end]
             positions[row, :length] = torch.arange(start, end, dtype=torch.int32)
-        logits = gen.prefill_forward(
-            chunk_tokens,
-            page_table=state.page_tables,
-            kv_cache=state,
-            prompt_lens=lengths,
-            start_pos=positions,
-            chunk_page_tables=self._chunk_page_tables(tables, positions, lengths),
-        )
+        if has_generated_replay:
+            logits = self._prefill_with_generated_replay(
+                chunk_tokens, positions, starts, cumulative_ends, original_prompt_lens
+            )
+        else:
+            logits = gen.prefill_forward(
+                chunk_tokens,
+                page_table=state.page_tables,
+                kv_cache=state,
+                prompt_lens=lengths,
+                start_pos=positions,
+                chunk_page_tables=self._chunk_page_tables(tables, positions, lengths),
+                host_page_tables=self._last_page_tables,
+            )
         self._decode_ready = False
         if sampling_params is None:
             result = self._host_prefill_logits(logits, len(lengths))

@@ -235,12 +235,8 @@ void PagedFusedUpdateCacheDeviceOperation::validate_on_program_cache_miss(
                     page_table.value().padded_shape()[0] == input_tensor.padded_shape()[1],
                     "Batch size between page_table and input_tensor must match");
             }
-            TT_FATAL(
-                page_table.value().padded_shape()[1] <= cache_tensor.padded_shape()[0],
-                "max_num_blocks_per_seq must be less than max_num_blocks: max_num_blocks_per_seq={}, "
-                "max_num_blocks={}",
-                page_table.value().padded_shape()[1],
-                cache_tensor.padded_shape()[0]);
+            // The table spans virtual blocks and may be wider than the physical pool.
+            // Callers must map each accessed entry to an in-bounds physical cache block.
         }
 
         // Update indices validation

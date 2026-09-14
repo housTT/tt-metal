@@ -32,7 +32,6 @@ from models.autoports.google_gemma_4_26b_a4b_it.tt.functional_decoder import (
     PREFILL_SLIDING_CHUNK_SIZE,
     TILE_SIZE,
     TOP_K_EXPERTS,
-    _bounded_cache_fill_plan,
     _DecoderWeights,
     _detect_layer_prefix,
     _layer_kind,
@@ -1221,7 +1220,9 @@ class MultichipDecoder(OptimizedDecoder):
             return ttnn.L1_MEMORY_CONFIG
         return super()._router_input_memory_config(tokens)
 
-    def prefill_forward(self, hidden_states: ttnn.Tensor, **kwargs: Any) -> ttnn.Tensor:
+    def prefill_forward(
+        self, hidden_states: ttnn.Tensor, *, prefill_start: int = 0, host_page_table=None, **kwargs: Any
+    ) -> ttnn.Tensor:
         logical_seq_len = hidden_states.shape[-2]
         context_limit = _prefill_context_limit(self.tp_size)
         if logical_seq_len > context_limit:
@@ -1229,10 +1230,16 @@ class MultichipDecoder(OptimizedDecoder):
                 f"TP{self.tp_size} prefill length {logical_seq_len} exceeds the {context_limit}-token "
                 "32 GiB full-stack capacity contract"
             )
+        if prefill_start < 0:
+            raise ValueError("prefill_start must be nonnegative")
+        self.multichip_prefill_start = prefill_start
+        self.multichip_prefill_page_table = host_page_table
         self.multichip_execution_phase = "prefill"
         try:
             return super().prefill_forward(hidden_states, **kwargs)
         finally:
+            self.multichip_prefill_start = 0
+            self.multichip_prefill_page_table = None
             self.multichip_execution_phase = "idle"
 
     def decode_forward(self, *args, **kwargs) -> ttnn.Tensor:
@@ -1243,27 +1250,28 @@ class MultichipDecoder(OptimizedDecoder):
             self.multichip_execution_phase = "idle"
 
     def _cache_view_kwargs(self, *, prefill: bool, cache_position_modulo: int | None = None) -> dict[str, int]:
-        """Tensor-parallel cache view; see ``FunctionalDecoder._cache_view_kwargs``.
-
-        The override exposes the rank-local full-attention KV geometry.
-        """
-        kwargs: dict[str, int] = {}
-        if self.layer_kind.name == "full_attention":
-            kwargs["block_size"] = self.layer_kind.block_size
-            if not prefill:
-                kwargs["num_kv_heads"] = self.local_full_kv_heads
+        """Use this layer's TP-local geometry even when its HMA alias differs."""
+        kwargs: dict[str, int] = {"block_size": self.layer_kind.block_size}
+        if not prefill:
+            kwargs["num_kv_heads"] = (
+                self.local_full_kv_heads if self.layer_kind.name == "full_attention" else self.local_sliding_kv_heads
+            )
         if cache_position_modulo is not None:
             kwargs["cache_position_modulo"] = cache_position_modulo
         return kwargs
 
     def _sdpa_cache_view_kwargs(self, *, cache_position_modulo: int | None = None) -> dict[str, object]:
         """Return the SDPA form of the rank-local paged-cache geometry."""
-        kwargs: dict[str, object] = {}
-        if self.layer_kind.name == "full_attention":
-            kwargs["paged_cache_geometry"] = ttnn.PagedCacheGeometryOverride(
+        kwargs: dict[str, object] = {
+            "paged_cache_geometry": ttnn.PagedCacheGeometryOverride(
                 block_size=self.layer_kind.block_size,
-                num_kv_heads=self.local_full_kv_heads,
+                num_kv_heads=(
+                    self.local_full_kv_heads
+                    if self.layer_kind.name == "full_attention"
+                    else self.local_sliding_kv_heads
+                ),
             )
+        }
         if cache_position_modulo is not None:
             kwargs["cache_position_modulo"] = cache_position_modulo
         return kwargs
@@ -1281,35 +1289,55 @@ class MultichipDecoder(OptimizedDecoder):
         cache_position_modulo,
     ) -> None:
         """Modulo-safe cache fill using TP-local, rather than global, KV heads."""
+        prefill_start = getattr(self, "multichip_prefill_start", 0)
+        block_size = self.layer_kind.block_size
+        # Fill kernels start at page column zero. Shift the table for complete
+        # tiles beginning at a page boundary; update only real edge rows.
+        leading = min(logical_seq_len, (-prefill_start) % block_size)
+        aligned_prefix = ((logical_seq_len - leading) // TILE_SIZE) * TILE_SIZE
+        tail_positions = tuple(range(leading)) + tuple(range(leading + aligned_prefix, logical_seq_len))
+        if cache_position_modulo is not None:
+            # Earlier edge rows may share ring addresses with newer bulk
+            # rows. Only the final ring capacity survives this chunk.
+            tail_positions = tuple(
+                position for position in tail_positions if position >= logical_seq_len - cache_position_modulo
+            )
         fill_kwargs = self._cache_view_kwargs(prefill=True, cache_position_modulo=cache_position_modulo)
         if k_heads.dtype != key_cache.dtype:
             k_heads = ttnn.typecast(k_heads, key_cache.dtype, memory_config=k_heads.memory_config())
         if v_heads.dtype != value_cache.dtype:
             v_heads = ttnn.typecast(v_heads, value_cache.dtype, memory_config=v_heads.memory_config())
-        if cache_position_modulo is None or logical_seq_len % TILE_SIZE == 0:
-            ttnn.experimental.paged_fill_cache(key_cache, k_heads, page_table, batch_idx=user_id, **fill_kwargs)
-            ttnn.experimental.paged_fill_cache(value_cache, v_heads, page_table, batch_idx=user_id, **fill_kwargs)
-            return
-        aligned_prefix, tail_positions = _bounded_cache_fill_plan(logical_seq_len)
         if aligned_prefix:
-            k_prefix = ttnn.slice(k_heads, [0, 0, 0, 0], [1, k_heads.shape[1], aligned_prefix, k_heads.shape[3]])
-            v_prefix = ttnn.slice(v_heads, [0, 0, 0, 0], [1, v_heads.shape[1], aligned_prefix, v_heads.shape[3]])
-            ttnn.experimental.paged_fill_cache(
-                key_cache,
-                k_prefix,
-                page_table,
-                batch_idx=user_id,
-                **fill_kwargs,
-            )
-            ttnn.experimental.paged_fill_cache(
-                value_cache,
-                v_prefix,
-                page_table,
-                batch_idx=user_id,
-                **fill_kwargs,
-            )
-            k_prefix.deallocate(True)
-            v_prefix.deallocate(True)
+            first_page = (prefill_start + leading) // block_size
+            fill_table = page_table
+            if cache_position_modulo is not None:
+                page_count = cache_position_modulo // block_size
+                first_page %= page_count
+                if first_page:
+                    fill_table = ttnn.concat(
+                        [
+                            ttnn.slice(page_table, [0, first_page], [page_table.shape[0], page_count]),
+                            ttnn.slice(page_table, [0, 0], [page_table.shape[0], first_page]),
+                        ],
+                        dim=1,
+                    )
+            elif first_page:
+                fill_table = ttnn.slice(page_table, [0, first_page], [page_table.shape[0], page_table.shape[1]])
+            for cache, heads in ((key_cache, k_heads), (value_cache, v_heads)):
+                prefix = (
+                    heads
+                    if leading == 0 and aligned_prefix == heads.shape[2]
+                    else ttnn.slice(
+                        heads, [0, 0, leading, 0], [1, heads.shape[1], leading + aligned_prefix, heads.shape[3]]
+                    )
+                )
+                ttnn.experimental.paged_fill_cache(cache, prefix, fill_table, batch_idx=user_id, **fill_kwargs)
+                if prefix is not heads:
+                    prefix.deallocate(True)
+            if fill_table is not page_table:
+                fill_table.deallocate(True)
+        if not tail_positions:
+            return
         page_table_row = page_table
         owns_page_table_row = False
         if page_table.shape[0] > 1:
@@ -1329,7 +1357,7 @@ class MultichipDecoder(OptimizedDecoder):
             v_token = ttnn.to_memory_config(ttnn.transpose(v_token, 1, 2), update_mem, dtype=v_token.dtype)
             position_tensor = ttnn.full(
                 (1,),
-                position,
+                prefill_start + position,
                 dtype=ttnn.int32,
                 layout=ttnn.ROW_MAJOR_LAYOUT,
                 device=self.mesh_device,
@@ -1382,6 +1410,12 @@ class MultichipDecoder(OptimizedDecoder):
         fill_table = call.get("chunk_page_table")
         if fill_table is None:
             fill_table = call["page_table"]
+        prefill_start = getattr(self, "multichip_prefill_start", 0)
+        history = None
+        if prefill_start and kind.sliding_window is not None:
+            history = self._prefill_sliding_history(
+                key_cache, value_cache, prefill_start, call.get("cache_position_modulo")
+            )
         self._fill_prefill_cache(
             key_cache,
             value_cache,
@@ -1397,7 +1431,19 @@ class MultichipDecoder(OptimizedDecoder):
             is_sliding=kind.sliding_window is not None,
             has_paged_cache=fill_table is not None,
         )
-        if attention_path == "sliding_chunked":
+        if history is not None:
+            attn_out = self._sliding_continuation_attention(q_heads, k_heads, v_heads, history)
+        elif prefill_start and kind.sliding_window is None:
+            attn_out = self._full_chunked_prefill_attention(
+                q_heads,
+                key_cache,
+                value_cache,
+                call["page_table"],
+                user_id=call["user_id"],
+                prefill_start=prefill_start,
+                logical_seq_len=call["logical_seq_len"],
+            )
+        elif attention_path == "sliding_chunked":
             attn_out = self._sliding_chunked_prefill_attention(q_heads, k_heads, v_heads)
         elif attention_path == "full_chunked":
             attn_out = self._full_chunked_prefill_attention(
@@ -1425,10 +1471,110 @@ class MultichipDecoder(OptimizedDecoder):
             )
         )
 
+    def _prefill_sliding_history(self, key_cache, value_cache, prefill_start, cache_position_modulo):
+        """Snapshot the external cache before the current chunk can overwrite it."""
+        window = self.layer_kind.sliding_window
+        table = self.multichip_prefill_page_table
+        if table is None:
+            raise ValueError("sliding continuation prefill requires the current host page-table metadata")
+        first_position = max(0, prefill_start - window + 1)
+        block_size = self.layer_kind.block_size
+        first_page = first_position // block_size
+        last_page = (prefill_start - 1) // block_size
+        page_ids = []
+        for virtual_page in range(first_page, last_page + 1):
+            column = (
+                virtual_page if cache_position_modulo is None else virtual_page % (cache_position_modulo // block_size)
+            )
+            if column >= len(table):
+                raise ValueError("sliding continuation page table does not cover its history")
+            page_ids.append(int(table[column]))
+        result = []
+        for cache in (key_cache, value_cache):
+            shape = [cache.shape[0], self.local_sliding_kv_heads, block_size, self.layer_kind.head_dim]
+            # This is a raw tile reinterpretation of an HMA alias, matching
+            # the cache op geometry, rather than a value-preserving reshape.
+            view = cache if list(cache.shape) == shape else ttnn.experimental.view(cache, shape)
+            pages = [ttnn.slice(view, [page, 0, 0, 0], [page + 1, *shape[1:]]) for page in page_ids]
+            joined = ttnn.concat(pages, dim=2, memory_config=ttnn.DRAM_MEMORY_CONFIG) if len(pages) > 1 else pages[0]
+            if len(pages) > 1:
+                for page in pages:
+                    page.deallocate(True)
+            drop = first_position % block_size
+            history = ttnn.slice(
+                joined, [0, 0, drop, 0], [1, shape[1], drop + prefill_start - first_position, shape[3]]
+            )
+            # A complete slice can share its input buffer.
+            if drop or history.shape[2] != joined.shape[2]:
+                joined.deallocate(True)
+            result.append(history)
+        return result
+
+    def _sliding_continuation_attention(self, q_heads, k_heads, v_heads, history):
+        history_len = history[0].shape[2]
+        seq_len = q_heads.shape[2]
+        dummy_q = ttnn.zeros(
+            [1, self.local_q_heads, history_len, self.layer_kind.head_dim],
+            dtype=q_heads.dtype,
+            layout=ttnn.TILE_LAYOUT,
+            device=self.mesh_device,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        joined = [
+            ttnn.concat([past, current], dim=2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            for past, current in zip([dummy_q, *history], [q_heads, k_heads, v_heads])
+        ]
+        dummy_q.deallocate(True)
+        for past in history:
+            past.deallocate(True)
+        padded_len = ((history_len + seq_len + TILE_SIZE - 1) // TILE_SIZE) * TILE_SIZE
+        if padded_len != history_len + seq_len:
+            joined = [
+                ttnn.pad(item, [(0, 0), (0, 0), (0, padded_len - history_len - seq_len), (0, 0)], 0.0)
+                for item in joined
+            ]
+        output = self._sliding_chunked_prefill_attention(*joined)
+        result = ttnn.slice(
+            output, [0, 0, history_len, 0], [1, self.local_q_heads, history_len + seq_len, self.layer_kind.head_dim]
+        )
+        output.deallocate(True)
+        for item in joined:
+            item.deallocate(True)
+        return result
+
     def _full_chunked_prefill_attention(
-        self, q_heads, key_cache, value_cache, page_table, *, user_id: int
+        self,
+        q_heads,
+        key_cache,
+        value_cache,
+        page_table,
+        *,
+        user_id: int,
+        prefill_start: int = 0,
+        logical_seq_len: int | None = None,
     ) -> ttnn.Tensor:
         """Run the baseline paged long-prefill algorithm with four local Q heads."""
+        original_len = q_heads.shape[2]
+        logical_seq_len = original_len if logical_seq_len is None else logical_seq_len
+        leading = prefill_start % TILE_SIZE
+        aligned_start = prefill_start - leading
+        # Only the query axis is aligned. Cache addresses and causal positions
+        # retain their absolute values, including a nonaligned logical tail.
+        required_len = ((leading + logical_seq_len + TILE_SIZE - 1) // TILE_SIZE) * TILE_SIZE
+        if leading:
+            prefix = ttnn.zeros(
+                [1, self.local_q_heads, leading, self.layer_kind.head_dim],
+                dtype=q_heads.dtype,
+                layout=ttnn.TILE_LAYOUT,
+                device=self.mesh_device,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            q_heads = ttnn.concat([prefix, q_heads], dim=2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            prefix.deallocate(True)
+            if q_heads.shape[2] < required_len:
+                q_heads = ttnn.pad(q_heads, [(0, 0), (0, 0), (0, required_len - q_heads.shape[2]), (0, 0)], 0.0)
+        if q_heads.shape[2] != required_len:
+            q_heads = ttnn.slice(q_heads, [0, 0, 0, 0], [1, self.local_q_heads, required_len, self.layer_kind.head_dim])
         num_pages = page_table.shape[-1]
         user_page_table = page_table
         owns_user_page_table = False
@@ -1447,8 +1593,18 @@ class MultichipDecoder(OptimizedDecoder):
                 key_cache,
                 value_cache,
                 user_page_table,
-                chunk_start_idx=start,
+                chunk_start_idx=aligned_start + start,
+                program_config=(
+                    ttnn.SDPAProgramConfig(
+                        compute_with_storage_grid_size=self.mesh_device.compute_with_storage_grid_size(),
+                        q_chunk_size=32,
+                        k_chunk_size=32,
+                    )
+                    if (aligned_start + start) % 128
+                    else None
+                ),
                 scale=1.0,
+                **self._sdpa_cache_view_kwargs(),
                 compute_kernel_config=self.correctness_compute_config,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
@@ -1457,7 +1613,16 @@ class MultichipDecoder(OptimizedDecoder):
         if owns_user_page_table:
             user_page_table.deallocate(True)
         if len(outputs) == 1:
-            return outputs[0]
+            result = outputs[0]
+            if leading or result.shape[2] != original_len:
+                result = ttnn.slice(
+                    result,
+                    [0, 0, leading, 0],
+                    [1, self.local_q_heads, leading + logical_seq_len, self.layer_kind.head_dim],
+                )
+                if logical_seq_len != original_len:
+                    result = ttnn.pad(result, [(0, 0), (0, 0), (0, original_len - logical_seq_len), (0, 0)], 0.0)
+            return result
         # The complete Q tensor is dead once every chunk has been dispatched,
         # and it has exactly the shape/dtype required by the concatenated
         # result. Release that contiguous allocation before concat so the
@@ -1467,6 +1632,12 @@ class MultichipDecoder(OptimizedDecoder):
         result = ttnn.concat(outputs, dim=2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
         for output in outputs:
             output.deallocate(True)
+        if leading or result.shape[2] != original_len:
+            result = ttnn.slice(
+                result, [0, 0, leading, 0], [1, self.local_q_heads, leading + logical_seq_len, self.layer_kind.head_dim]
+            )
+            if logical_seq_len != original_len:
+                result = ttnn.pad(result, [(0, 0), (0, 0), (0, original_len - logical_seq_len), (0, 0)], 0.0)
         return result
 
     def _sliding_chunked_prefill_attention(self, q_heads, k_heads, v_heads) -> ttnn.Tensor:
