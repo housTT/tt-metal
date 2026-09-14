@@ -47,6 +47,11 @@ serve:
     TT_INTERLEAVE_PREFILL_CHUNKS: "1"
     TT_MAX_PREFILLS_PER_STEP: "1"
     VLLM_RPC_TIMEOUT: "900000"
+    # The vllm-fork readiness runner reports progress and its "Server ready at" line
+    # with print(). Inside a container stdout is a pipe, so without this Python
+    # block-buffers those lines and tt-model never sees readiness: the server is up
+    # but `tt-model serve` waits out the full server_timeout and reports a failure.
+    PYTHONUNBUFFERED: "1"
   args:
     - --async-scheduling
     - --disable-log-stats
@@ -104,7 +109,9 @@ card:
     tt-model serve tt-hous/ornith-1.0-35b-p150 --profile p150x4 --follow
     ```
 
-    The API listens at `http://127.0.0.1:7890/v1`. All three profiles enable
+    `tt-model serve` prints the endpoint when the server is ready; by default it is
+    `http://127.0.0.1:20000/v1` (tt-model picks the host port and moves up from 20000
+    if that port is busy). All three profiles enable
     Qwen3 reasoning and Qwen3 XML tool-call parsing. `tt-model pull --with-weights`
     downloads the 70 GB Hugging Face snapshot. The first serve loads it onto
     the device and compiles kernels into the persistent model cache; later
@@ -112,8 +119,8 @@ card:
 
     ### OpenCode
 
-    Configure an OpenAI-compatible provider with base URL
-    `http://127.0.0.1:7890/v1` and model
+    Configure an OpenAI-compatible provider with the base URL that
+    `tt-model serve` printed (by default `http://127.0.0.1:20000/v1`) and model
     `ornith-ai/Ornith-1.0-35B`.
 
     ### Measured endpoint performance
