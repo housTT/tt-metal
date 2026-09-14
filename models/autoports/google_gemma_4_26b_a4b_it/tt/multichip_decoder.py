@@ -1825,7 +1825,7 @@ class MultichipDecoder(OptimizedDecoder):
         return ttnn.mul(
             gate,
             up,
-            input_tensor_a_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.GELU, 0.0)],
+            input_tensor_a_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.GELU_TANH)],
             memory_config=gate_up.memory_config(),
         )
 

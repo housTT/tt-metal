@@ -2748,7 +2748,7 @@ class OptimizedDecoder(FunctionalDecoder):
         hidden = ttnn.mul(
             gate,
             up,
-            input_tensor_a_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.GELU, 1.0)],
+            input_tensor_a_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.GELU_TANH)],
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
         return self._linear(hidden, "mlp_down", compute_kernel_config=self.mlp_compute_config)
@@ -2779,7 +2779,7 @@ class OptimizedDecoder(FunctionalDecoder):
         hidden = ttnn.mul(
             gate,
             up,
-            input_tensor_a_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.GELU, 1.0)],
+            input_tensor_a_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.GELU_TANH)],
             memory_config=self.residual_intermediate_memory_config,
         )
         return ttnn.linear(
@@ -2856,7 +2856,7 @@ class OptimizedDecoder(FunctionalDecoder):
         hidden = ttnn.mul(
             gate,
             up,
-            input_tensor_a_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.GELU, 1.0)],
+            input_tensor_a_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.GELU_TANH)],
             memory_config=self.residual_intermediate_memory_config,
         )
         gate.deallocate(True)
