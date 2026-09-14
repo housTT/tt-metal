@@ -816,7 +816,8 @@ ProgramDescriptor SdpaDecodeDeviceOperation::create_descriptor(
     compute_desc.config = ComputeConfigDescriptor{
         .math_fidelity = math_fidelity,
         .fp32_dest_acc_en = fp32_dest_acc_en,
-        .dst_full_sync_en = dst_full_sync_en,
+        // Tree correction holds five full-stride DST tiles simultaneously.
+        .dst_full_sync_en = dst_full_sync_en || (fp32_dest_acc_en && num_cores_per_head > 1),
         .math_approx_mode = math_approx_mode,
     };
 
