@@ -304,6 +304,30 @@ at 30.8 s TTFT on the local server; the harness stops at 64k).
 Batch-32 layer-0 traced decode with the sharded norms: 1.262 ms sliding,
 1.384 ms full attention (was 1.326 / 1.454 ms).
 
+### Sparse matmul kernel work (2026-09-16 evening)
+
+- Per-group fused bias: `ttnn.sparse_matmul(..., indices=..., bias=...)` adds group
+  `indices[i]`'s `[1, N]` bias inside the matmul (bf16 tile row per expert, new
+  `BIAS_PER_GROUP` path in the shared in1 reader and compute kernels, sparse
+  factory only). The indexed prefill passes its gate/up bias this way
+  (`GPT_OSS_120B_INDEXED_FUSED_BIAS=0` restores the gather + add; the adapter
+  falls back automatically on a ttnn without the operand). Fused vs gather+add
+  on the same input: PCC 0.99997 / 0.99996 / 0.99996 at 1k / 4k / 16k, MoE
+  prefill 8.5 vs 8.8 ms, 19.7 vs 23.8 ms, 62.1 vs 64.4 ms per layer.
+- Second in0 multicast sender: `in0_senders=2` lets the first two cores of the
+  grid alternate the in0 blocks (the sender's DRAM reads and NoC injection are
+  split). Output bit-identical, no gain on this model (8.25 -> 8.04 ms at 1k,
+  19.7 -> 19.1 ms at 4k, 62.9 -> 63.5 ms at 16k), so the single sender is not
+  what bounds these matmuls: with the shipped (15, 4, 2, 1) blocking a 16k
+  layer issues about 3,500 multicast blocks of 120 KB at about 4.8 us each, and
+  the per-block chain (multicast, flag, 47 acknowledgements into one core)
+  dominates the 1.4 us transfer and the sub-microsecond compute. The next
+  lever is fewer synchronisations per byte: larger blocks when the L1 budget
+  allows, or one acknowledgement per two blocks with a deeper in0 CB.
+  Option kept, default 1 (`GPT_OSS_120B_INDEXED_IN0_SENDERS=2` to enable).
+- Still open from item 6: the gate/up slice copies (2.5 to 3 ms per 16k layer)
+  need a two-output writer in the sparse matmul or an in-place SwiGLU.
+
 ## Remaining per-layer overheads at batch 32 (device profile, v5)
 
 sparse matmuls 643 us (near DRAM roofline for ~81 experts), two unsharded
