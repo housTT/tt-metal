@@ -5,8 +5,10 @@
 #pragma once
 
 #include <memory>
+#include <map>
 #include <mutex>
 #include <optional>
+#include <unordered_map>
 #include <unordered_set>
 
 #include <tt-metalium/device.hpp>
@@ -276,6 +278,22 @@ private:
     // Program tracking for CB memory reporting
     std::unordered_set<detail::ProgramImpl*> active_programs_;
     mutable std::mutex active_programs_mutex_;
+    // Incremental physical CB accounting.  Each registered program contributes
+    // its per-core L1 CB regions to a per-core coverage-count map (segment
+    // start -> number of live programs covering the segment); the covered
+    // length is maintained on insert/remove, so get_total_cb_allocated() is
+    // O(1) instead of re-walking every registered program (which grows with
+    // the program cache and ran on every program allocation).
+    struct CbCoverage {
+        std::map<uint64_t, int> segments;
+        uint64_t covered = 0;
+    };
+    std::unordered_map<detail::ProgramImpl*, std::map<CoreCoord, std::vector<std::pair<uint64_t, uint64_t>>>>
+        registered_cb_regions_;
+    std::map<CoreCoord, CbCoverage> cb_coverage_per_core_;
+    uint64_t total_cb_covered_ = 0;
+    void apply_cb_regions_locked(
+        const std::map<CoreCoord, std::vector<std::pair<uint64_t, uint64_t>>>& regions, int delta);
 
     // Friend declaration for experimental API
     friend uint32_t experimental::Device::get_worker_noc_hop_distance(

@@ -1099,74 +1099,95 @@ HalMemType Device::get_mem_type_of_core(CoreCoord virtual_core) const {
 
 std::shared_ptr<distributed::MeshDevice> Device::get_mesh_device() { return mesh_device.lock(); }
 
-// Program tracking for accurate CB memory reporting
+// Program tracking for accurate CB memory reporting.
+//
+// The physical CB footprint is the per-core union of every live program's CB
+// L1 regions.  It is maintained incrementally: a program's regions are added to
+// per-core coverage-count maps when it is registered and removed when it is
+// unregistered, so the query does not walk the whole program registry (whose
+// size follows the program cache) on every program allocation.
+namespace {
+
+void apply_region(std::map<uint64_t, int>& segments, uint64_t begin, uint64_t end, int delta, uint64_t& covered) {
+    if (begin >= end) {
+        return;
+    }
+    // Segment map: key = segment start, value = number of live regions covering
+    // [key, next key).  Addresses before the first key and from the last key on
+    // are covered by nothing, so the last key always carries a count of 0.
+    auto ensure_key = [&](uint64_t address) {
+        auto it = segments.lower_bound(address);
+        if (it != segments.end() && it->first == address) {
+            return;
+        }
+        int count = 0;
+        if (it != segments.begin()) {
+            count = std::prev(it)->second;
+        }
+        segments.emplace(address, count);
+    };
+    ensure_key(begin);
+    ensure_key(end);
+    for (auto it = segments.find(begin); it != segments.end() && it->first < end; ++it) {
+        const uint64_t length = std::next(it)->first - it->first;
+        const int before = it->second;
+        const int after = before + delta;
+        it->second = after;
+        if (before == 0 && after > 0) {
+            covered += length;
+        } else if (before > 0 && after == 0) {
+            covered -= length;
+        }
+    }
+    // Compact: drop keys whose count equals their predecessor's (and a leading
+    // zero-count key), so the map size follows the distinct region boundaries
+    // rather than the number of registered programs.
+    for (auto it = segments.lower_bound(begin); it != segments.end() && it->first <= end;) {
+        const bool redundant = (it == segments.begin()) ? (it->second == 0) : (std::prev(it)->second == it->second);
+        it = redundant ? segments.erase(it) : std::next(it);
+    }
+}
+
+}  // namespace
+
+void Device::apply_cb_regions_locked(
+    const std::map<CoreCoord, std::vector<std::pair<uint64_t, uint64_t>>>& regions, int delta) {
+    for (const auto& [core, core_regions] : regions) {
+        auto& coverage = cb_coverage_per_core_[core];
+        const uint64_t before = coverage.covered;
+        for (const auto& [begin, end] : core_regions) {
+            apply_region(coverage.segments, begin, end, delta, coverage.covered);
+        }
+        total_cb_covered_ += coverage.covered;
+        total_cb_covered_ -= before;
+    }
+}
+
 void Device::register_program(detail::ProgramImpl* program) {
     std::lock_guard<std::mutex> lock(active_programs_mutex_);
-    active_programs_.insert(program);
+    if (!active_programs_.insert(program).second) {
+        return;
+    }
+    auto regions = program->get_cb_l1_regions_per_core(this->id(), program->get_num_cb_devices());
+    apply_cb_regions_locked(regions, +1);
+    registered_cb_regions_.emplace(program, std::move(regions));
 }
 
 void Device::unregister_program(detail::ProgramImpl* program) {
     std::lock_guard<std::mutex> lock(active_programs_mutex_);
-    active_programs_.erase(program);
+    if (active_programs_.erase(program) == 0) {
+        return;
+    }
+    auto it = registered_cb_regions_.find(program);
+    if (it != registered_cb_regions_.end()) {
+        apply_cb_regions_locked(it->second, -1);
+        registered_cb_regions_.erase(it);
+    }
 }
 
 uint64_t Device::get_total_cb_allocated() const {
     std::lock_guard<std::mutex> lock(active_programs_mutex_);
-
-    // For PHYSICAL CB tracking accounting for address reuse:
-    // Collect L1 regions per core and merge overlapping addresses
-    // This handles cached/traced programs that share the same physical L1 addresses on the same core
-
-    std::map<CoreCoord, std::vector<std::pair<uint64_t, uint64_t>>> device_regions_per_core;
-
-    for (const auto* program : active_programs_) {
-        size_t num_devices = program->get_num_cb_devices();
-
-        // Get L1 regions per core for this program on this device
-        auto program_regions = program->get_cb_l1_regions_per_core(this->id(), num_devices);
-
-        // Merge into device-wide map
-        for (const auto& [core, regions] : program_regions) {
-            auto& core_regions = device_regions_per_core[core];
-            core_regions.insert(core_regions.end(), regions.begin(), regions.end());
-        }
-    }
-
-    // Merge overlapping regions per core to get actual physical usage
-    uint64_t total_physical = 0;
-
-    for (auto& [core, regions] : device_regions_per_core) {
-        if (regions.empty()) {
-            continue;
-        }
-
-        // Sort by start address
-        std::sort(regions.begin(), regions.end());
-
-        // Merge overlapping ranges
-        std::vector<std::pair<uint64_t, uint64_t>> merged;
-        merged.push_back(regions[0]);
-
-        for (size_t i = 1; i < regions.size(); i++) {
-            auto& last = merged.back();
-            const auto& current = regions[i];
-
-            if (current.first <= last.second) {
-                // Overlapping - merge
-                last.second = std::max(last.second, current.second);
-            } else {
-                // Non-overlapping - add new region
-                merged.push_back(current);
-            }
-        }
-
-        // Sum merged regions for this core
-        for (const auto& [start, end] : merged) {
-            total_physical += (end - start);
-        }
-    }
-
-    return total_physical;
+    return total_cb_covered_;
 }
 
 }  // namespace tt::tt_metal
