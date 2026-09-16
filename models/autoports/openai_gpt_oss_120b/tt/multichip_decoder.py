@@ -3373,7 +3373,7 @@ class MultichipDecoder(LightweightModule):
                 tensor_cache_path=get_cache_file_name(cache_root, "input_layernorm"),
                 mesh_config=mesh_config,
                 weight_dtype=policy.normalization_weight_dtype,
-                enable_decode_sharding=max_batch_size < ttnn.TILE_SIZE,
+                enable_decode_sharding=_DecodeShardedRMSNorm.sharding_enabled_for(max_batch_size),
             ),
             post_attention_layernorm=_DecodeShardedRMSNorm(
                 mesh_device,
@@ -3382,7 +3382,7 @@ class MultichipDecoder(LightweightModule):
                 tensor_cache_path=get_cache_file_name(cache_root, "post_attention_layernorm"),
                 mesh_config=mesh_config,
                 weight_dtype=policy.normalization_weight_dtype,
-                enable_decode_sharding=max_batch_size < ttnn.TILE_SIZE,
+                enable_decode_sharding=_DecodeShardedRMSNorm.sharding_enabled_for(max_batch_size),
             ),
             attention=attention,
             mlp=_ActiveExpertTPMLP(

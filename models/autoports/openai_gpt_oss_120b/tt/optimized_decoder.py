@@ -12,6 +12,7 @@ decoder constructor, so tests can attest the optimized runtime path directly.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -693,6 +694,22 @@ class _OptimizedMLP(_FusedMLP):
 class _DecodeShardedRMSNorm(RMSNorm):
     """Keep decode normalization on a legal ten-way L1 width shard."""
 
+    @staticmethod
+    def sharding_enabled_for(batch_size):
+        """Decode norms run on the ten-way width shard at every batch size.
+
+        Sharding at the full 32-row tile was disabled during bring-up after a
+        nondeterministic trace.  On 2026-09-16 the batch-32 layer test replayed
+        the traced decode 100 times per layer type with bit-identical output
+        and the sharded norms saved 66-70 us per layer (1.33 -> 1.26 ms
+        sliding, 1.45 -> 1.38 ms full attention), so the full tile now shards
+        too; ``GPT_OSS_120B_DECODE_NORM_SHARD_FULL_TILE=0`` restores the
+        interleaved 32-row norms.
+        """
+        if batch_size < ttnn.TILE_SIZE:
+            return True
+        return os.environ.get("GPT_OSS_120B_DECODE_NORM_SHARD_FULL_TILE", "1") != "0"
+
     def __init__(self, *args, enable_decode_sharding=True, **kwargs):
         super().__init__(*args, **kwargs)
         grid = ttnn.CoreGrid(x=10, y=1)
@@ -1027,7 +1044,7 @@ class OptimizedDecoder(FusedDecoder):
                 # lifetime trace-unstable on Blackhole. Keep the canonical
                 # interleaved op only at that boundary; smaller batches retain
                 # the measured ten-core decode optimization.
-                enable_decode_sharding=max_batch_size < ttnn.TILE_SIZE,
+                enable_decode_sharding=_DecodeShardedRMSNorm.sharding_enabled_for(max_batch_size),
             ),
             post_attention_layernorm=_DecodeShardedRMSNorm(
                 mesh_device,
@@ -1040,7 +1057,7 @@ class OptimizedDecoder(FusedDecoder):
                 # it with another sharded L1 norm makes captured buffer
                 # lifetimes overlap across replays on Blackhole.  Keep the
                 # canonical interleaved norm only at that capacity boundary.
-                enable_decode_sharding=max_batch_size < ttnn.TILE_SIZE,
+                enable_decode_sharding=_DecodeShardedRMSNorm.sharding_enabled_for(max_batch_size),
             ),
             attention=attention,
             mlp=_OptimizedMLP(

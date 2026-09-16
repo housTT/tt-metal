@@ -108,6 +108,17 @@ def test_batched_decode_layer_latency(mesh_device, device_params, layer_idx, bat
     ttnn.ReadDeviceProfiler(mesh_device)
 
     repeats, samples_ms, median_ms = tmd._warmed_trace_latency_samples(mesh_device, trace_id, signposted=True)
+    if os.environ.get("GPT_OSS_120B_DECODE_TRACE_DETERMINISM") == "1":
+        # The trace has now replayed repeats x samples times on the same inputs:
+        # its output buffer must still hold the first replay's rows bit for bit.
+        replayed = tmd._assert_replicated(output, (1, 1, batch_size, config.hidden_size))[0, 0, :batch_size].clone()
+        equal = bool(torch.equal(replayed.view(torch.int16), output_host.view(torch.int16)))
+        differing = int((replayed.view(torch.int16) != output_host.view(torch.int16)).any(dim=-1).sum())
+        print(
+            f"BATCHED_DECODE_TRACE_DETERMINISM layer={layer_idx} batch={batch_size} "
+            f"replays={repeats * len(samples_ms)} equal={equal} rows_differing={differing}"
+        )
+        assert equal, f"traced decode output changed across replays for {differing} rows"
     ttnn.release_trace(mesh_device, trace_id)
 
     print(

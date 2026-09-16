@@ -704,7 +704,7 @@ class Model(_GPTOSSModel):
             tensor_cache_path=str(cache_root / "terminal" / "final_norm_decode_sharded"),
             mesh_config=mesh_config,
             weight_dtype=terminal_dtypes["normalization"],
-            enable_decode_sharding=max_batch_size < ttnn.TILE_SIZE,
+            enable_decode_sharding=_DecodeShardedRMSNorm.sharding_enabled_for(max_batch_size),
         )
         if lm_head_policy == DRAM_SHARDED_LM_HEAD:
             self.dram_sharded_lm_head = _DramShardedLMHead(
@@ -785,7 +785,7 @@ class Model(_GPTOSSModel):
         self.cos_matrix = setup.cos_matrix
         self.sin_matrix = setup.sin_matrix
         self.transformation_mats = setup.get_both_trans_mats()
-        enable_decode_sharding = batch_size < ttnn.TILE_SIZE
+        enable_decode_sharding = _DecodeShardedRMSNorm.sharding_enabled_for(batch_size)
         self.norm.enable_decode_sharding = enable_decode_sharding
         for layer, transform, kv_memory_config in zip(self.layers, transforms, kv_memory_configs):
             layer.self_attn.transformation_mats["decode"] = transform

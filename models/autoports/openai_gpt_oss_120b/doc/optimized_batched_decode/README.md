@@ -41,6 +41,17 @@ The 2026-09-10 latency sweep showed decode TPOT of 15.4 ms at one user and
   the gate/up grid is (6, 8) = 48 cores at one tile each.
 - Decode trace buckets `(1, 4, 8, 16, 32)` (`tt/model.py::decode_trace_buckets`,
   advertised per instance by the vLLM adapter and warmed/captured in order).
+- Decode norms (`_DecodeShardedRMSNorm`) run on the ten-way L1 width shard at
+  every batch size since 2026-09-16, including the full 32-row tile that
+  bring-up had left interleaved after a nondeterministic trace. The batch-32
+  layer test replays the traced decode 100 times per layer type with
+  bit-identical output (`GPT_OSS_120B_DECODE_TRACE_DETERMINISM=1`), and the
+  sharded norms save 66-70 us per layer (sliding 1.328 -> 1.262 ms, full
+  attention 1.454 -> 1.384 ms), about 2.5 ms per 32-user step.
+  `GPT_OSS_120B_DECODE_NORM_SHARD_FULL_TILE=0` restores the interleaved norms.
+  The DRAM-sharded QKV policy (`GPT_OSS_120B_MULTICHIP_CANDIDATE=dram_sharded_qkv`)
+  measured 1.299 / 1.430 ms alone and 1.266 / 1.375 ms together with the
+  sharded norms, so it is not adopted.
 
 ### Prefill
 
