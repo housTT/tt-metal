@@ -88,7 +88,7 @@ card:
     The first start compiles kernels and model tensors into the persistent package
     cache. The previously validated cold start took 14m25s; a warm restart took 6m50s.
 
-    ### Measured P150x4 latency (2026-09-16, batched decode + batched indexed prefill)
+    ### Measured P150x4 latency (2026-09-16 evening: batched decode, batched indexed prefill, sharded 32-row norms)
 
     Warmed server, random-token prompts of exactly the input length, `ignore_eos`,
     output pinned to the output length, `bench_client.py` from
@@ -102,16 +102,18 @@ card:
     | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
     | 128 | 128 | 1 | 0.25 s | 15.3 ms | 65 | 58 |
     | 128 | 128 | 8 | 0.62 s | 32.6 ms | 31 | 215 |
-    | 128 | 128 | 32 | 1.02 s | 53.6 ms | 19 | 524 |
+    | 128 | 128 | 32 | 1.05 s | 49.4 ms | 20 | 561 |
     | 1,024 | 256 | 8 | 1.65 s | 32.9 ms | 30 | 204 |
-    | 1,024 | 256 | 16 | 2.73 s | 40.9 ms | 24 | 311 |
-    | 1,024 | 256 | 32 | 5.07 s | 55.3 ms | 18 | 427 |
-    | 4,096 | 256 | 1 | 0.98 s | 15.7 ms | 64 | 51 |
+    | 1,024 | 256 | 16 | 2.76 s | 42.4 ms | 24 | 297 |
+    | 1,024 | 256 | 32 | 5.23 s | 51.0 ms | 20 | 453 |
+    | 4,096 | 256 | 1 | 0.79 s | 15.7 ms | 64 | 52 |
     | 4,096 | 256 | 8 | 6.0 s | 33.4 ms | 30 | 141 |
     | 4,096 | 256 | 16 | 11.5 s | 42.1 ms | 24 | 184 |
+    | 4,096 | 256 | 32 | 23.9 s | 50.7 ms | 20 | 223 |
     | 16,384 | 256 | 1 | 2.5 s | 16.1 ms | 62 | 39 |
     | 32,768 | 256 | 1 | 5.2 s | 16.7 ms | 60 | 27 |
     | 65,536 | 256 | 1 | 12.2 s | 17.8 ms | 56 | 15 |
+    | 130,816 | 16 | 1 | 30.8 s | 14.6 ms | 68 | 1 |
 
     Prompts of 512+ tokens use the indexed expert prefill: each expert's routed
     tokens are gathered into slabs and run through compact indexed sparse
@@ -120,7 +122,10 @@ card:
     batched (users, length) pairs) are compiled at server start; the first prompt
     of a new length still pays a few seconds of program creation. Prompts longer
     than 2,048 tokens are prefilled one at a time, so TTFT for many long prompts
-    arriving together is the serialized prefill queue.
+    arriving together is the serialized prefill queue. Prompts longer than 65,536
+    tokens run the expert prefill in 64k-row chunks: the full 131,072-token
+    context is served (the 130,816 row above), where an earlier build of the
+    indexed prefill ran out of device DRAM.
 
     P150 and P150x2 are not offered as serve profiles: the fixed resident model
     state does not fit those configurations. Production serving requires P150x4.
