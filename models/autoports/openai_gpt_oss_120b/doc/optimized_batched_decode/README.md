@@ -105,6 +105,16 @@ that were needed to make it work in serving, not just in a layer test:
   layer test shows no growth in those stages for new prompts.
   `GPT_OSS_120B_LOG_PROGRAM_CACHE=1` makes the vLLM adapter log the program
   cache size after every prefill call as serving-side evidence.
+- Prompts longer than `GPT_OSS_120B_INDEXED_PREFILL_CHUNK` tokens (default
+  65,536) run the indexed MoE prefill in equal row chunks. The 131,072-token
+  bucket (which every prompt above 65,536 tokens pads to) needs a 4.5 GB
+  expert-output arena plus a gather-back table of the same size, and the
+  serving process has about 5.5 GB of DRAM per chip free beside the weights
+  and KV cache, so a 98k prompt killed the engine with a DRAM OOM on
+  2026-09-16. Two 64k chunks reuse the footprint the 64k sweep row already
+  proved; the layer test shows PCC 0.99975 against the packed path at 131,072
+  tokens (533 ms per layer for the MoE block, packed: 7.3 s) and a 15 ms
+  chunking cost at 16k when forced into 8k chunks (not used by default).
 - Matmul blocking is specific to this path (`_indexed_prefill_matmul_config`):
   gate/up `(in0_block_w, out_block_h, out_subblock_h, out_subblock_w)` =
   (15, 4, 2, 1), down (12, 4, 2, 2). With `out_block_h = 1` (the decode

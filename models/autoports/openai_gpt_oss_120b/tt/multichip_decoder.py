@@ -13,6 +13,7 @@ the completed fused/optimized decoder boundary; padding stays internal.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass, fields, replace
 from pathlib import Path
 
@@ -1321,6 +1322,12 @@ class _ActiveExpertTPMLP(MLP):
         self.grouped_decode_l1 = bool(grouped_decode_l1)
         self.indexed_prefill = bool(indexed_prefill)
         self.indexed_prefill_min_tokens = int(indexed_prefill_min_tokens)
+        # Longest prompt the indexed path runs as one piece.  Its expert-output
+        # arena and gather-back table are each ~5.8 KB per routed slot, so the
+        # 131072-token bucket (4.5 GB arena) does not fit beside the weights and
+        # KV cache; longer prompts run in equal row chunks (65536 is the longest
+        # sweep row measured in serving).
+        self.indexed_prefill_chunk_tokens = int(os.environ.get("GPT_OSS_120B_INDEXED_PREFILL_CHUNK", "65536"))
         # Indexed prefill matmul blocking: (in0_block_w, out_block_h,
         # out_subblock_h, out_subblock_w) in tiles.  out_block_h > 1 makes the
         # kernel reuse each weight block across several slab tile rows instead
@@ -2517,8 +2524,23 @@ class _ActiveExpertTPMLP(MLP):
     def _run_one(self, hidden_states, *, is_decode):
         if is_decode:
             return self._run_indexed_decode(hidden_states)
-        if self.indexed_prefill and int(hidden_states.shape[-2]) >= self.indexed_prefill_min_tokens:
-            return self._run_indexed_prefill(hidden_states)
+        rows = int(hidden_states.shape[-2])
+        if self.indexed_prefill and rows >= self.indexed_prefill_min_tokens:
+            chunk = self.indexed_prefill_chunk_tokens
+            if rows <= chunk:
+                return self._run_indexed_prefill(hidden_states)
+            # Row chunks are independent (the router and the experts act per
+            # token); prefill lengths above 1k are powers of two, so the
+            # chunks are equal and the split/concat shapes form a bounded set.
+            pieces = ttnn.split(hidden_states, chunk, dim=2)
+            outputs = []
+            for piece in pieces:
+                outputs.append(self._run_indexed_prefill(piece))
+                piece.deallocate(True)
+            combined = ttnn.concat(outputs, dim=2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            for output in outputs:
+                output.deallocate(True)
+            return combined
         expert_indices, expert_weights = self.router(hidden_states, False)
         output = self._run_packed_prefill(hidden_states, expert_weights)
         expert_indices.deallocate(True)
