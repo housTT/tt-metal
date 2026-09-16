@@ -16,6 +16,7 @@ import gc
 import json
 import math
 import os
+import time
 from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import fields, is_dataclass
@@ -832,6 +833,7 @@ class TTGptOssForCausalLM:
                 page_tables_per_layer=[request_table] * self.model.n_layers,
                 enable_trace=False,
             )
+            self._warmup_batched_prefill_shapes(generator, kv_cache)
         # The indexed expert prefill picks matmul shapes from the routing of
         # each prompt; compile the whole (height x group size) set once now so
         # the first long prompts do not pay tens of seconds of JIT.
@@ -843,6 +845,59 @@ class TTGptOssForCausalLM:
             if compiled:
                 logger.info(f"indexed prefill: compiled {compiled} expert-group shapes")
         return result
+
+    def _warmup_batched_prefill_shapes(self, generator, kv_cache) -> None:
+        """Compile the batched-prefill programs for the common (batch, length) pairs.
+
+        A batched prefill has its own program shapes per (device batch, padded
+        length); the first request of each pair otherwise pays 5 to 20 s of
+        compilation in serving.  Lengths come from
+        ``GPT_OSS_120B_BATCHED_PREFILL_WARMUP`` (default ``128,1024``; empty
+        disables), batches are every supported size up to the serving width.
+        Each row gets its own scratch blocks so the fills do not race.
+        """
+        model_args = getattr(self.model, "args", None) or getattr(generator, "model_args", None)
+        if getattr(model_args, "disable_batched_prefill", True):
+            return
+        if getattr(self, "_batched_prefill_shapes_warm", False):
+            # The plugin runs the prefill warmup twice per boot; the programs
+            # are cached after the first pass (30 s cold, 11 s to re-run).
+            return
+        self._batched_prefill_shapes_warm = True
+        spec = os.environ.get("GPT_OSS_120B_BATCHED_PREFILL_WARMUP", "128,1024").strip()
+        if not spec:
+            return
+        from models.tt_transformers.tt.generator import MAX_BATCHED_PREFILL_SEQ_LEN, SUPPORTED_PREFILL_BATCH_SIZES
+
+        cap = getattr(model_args, "batched_prefill_max_tokens_per_user", None)
+        lengths = [int(v) for v in spec.split(",") if v.strip()]
+        started = time.perf_counter()
+        compiled = 0
+        for seq_len in lengths:
+            if cap is not None and seq_len > int(cap):
+                continue
+            num_blocks = math.ceil(seq_len / PAGE_SIZE)
+            for batch in SUPPORTED_PREFILL_BATCH_SIZES:
+                if batch < 2 or batch > self.max_batch_size or batch * seq_len >= MAX_BATCHED_PREFILL_SEQ_LEN:
+                    continue
+                if batch * num_blocks > self.page_table_blocks * self.max_batch_size:
+                    continue
+                table = torch.arange(batch * num_blocks, dtype=torch.int32).reshape(batch, num_blocks)
+                generator.prefill_forward(
+                    torch.zeros(batch, seq_len, dtype=torch.int64),
+                    page_table=table,
+                    kv_cache=kv_cache,
+                    prompt_lens=[seq_len] * batch,
+                    sampling_params=GREEDY,
+                    empty_slots=list(range(batch)),
+                    page_tables_per_layer=[table] * self.model.n_layers,
+                    enable_trace=False,
+                )
+                compiled += 1
+        if compiled:
+            logger.info(
+                f"batched prefill: compiled {compiled} (batch, length) shapes in {time.perf_counter() - started:.1f} s"
+            )
 
     def warmup_model_decode(
         self,

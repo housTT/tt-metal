@@ -1084,8 +1084,24 @@ class Generator(ModelCapabilitiesMixin, WarmupForwardMixin):
                 # batched-prefill sampling contract is implemented.
                 use_batched_prefill = False
 
+        # Compact-row batched prefill (opt-in per model): requests occupy device
+        # rows 0..B-1 instead of their physical slots, so the padded batch is the
+        # request count rounded up to a supported size rather than the highest
+        # slot in use (two new requests at slots 30/31 would otherwise run a
+        # 32-row pass).  The model's ``extract_last_tokens_batched_prefill``
+        # receives ``slot_map`` and places each row's result at its slot.
+        compact_rows = bool(getattr(self.model_args[0], "batched_prefill_compact_rows", False))
+        # Optional per-user cap: long prompts are already compute bound one at a
+        # time, and every new (batch, length) pair compiles its own prefill
+        # programs, so a model can keep batching to the short prompts where the
+        # per-call overhead dominates.
+        max_batched_len = getattr(self.model_args[0], "batched_prefill_max_tokens_per_user", None)
+        if use_batched_prefill and max_batched_len is not None and prefill_seq_lens[0] > int(max_batched_len):
+            use_batched_prefill = False
         if use_batched_prefill:
-            padded_batch = batched_prefill_padded_batch(batch_size, empty_slots, self.model_args[0].max_batch_size)
+            padded_batch = batched_prefill_padded_batch(
+                batch_size, None if compact_rows else empty_slots, self.model_args[0].max_batch_size
+            )
             if padded_batch > self.model_args[0].max_batch_size:
                 logger.info(
                     f"Batched prefill disabled: padded_batch {padded_batch} exceeds "
@@ -1113,7 +1129,7 @@ class Generator(ModelCapabilitiesMixin, WarmupForwardMixin):
             group_user_id = user_id % local_batch_size if page_table is None else 0
 
             if use_batched_prefill:
-                batch_user_ids = empty_slots
+                batch_user_ids = list(range(batch_size)) if compact_rows else empty_slots
                 last_token_idx = [(seq_len - 1) for seq_len in prompt_lens]
                 prefill_seq_len = prefill_seq_lens[0]
                 seq_len = prompt_lens
@@ -1142,6 +1158,18 @@ class Generator(ModelCapabilitiesMixin, WarmupForwardMixin):
                     valid_seq_len=None if use_batched_prefill else seq_len,
                     block_sizes=layer_block_sizes,
                 )
+                if use_batched_prefill and compact_rows and local_kwargs["page_tables_per_layer"] is not None:
+                    # Per-layer tables arrive with one row per request (request
+                    # order == compact device row order).  The device batch is
+                    # padded to a supported size, so give the padding rows
+                    # tables of -1 (no page) like the legacy batched table.
+                    padded_tables = []
+                    for table in local_kwargs["page_tables_per_layer"]:
+                        if isinstance(table, torch.Tensor) and table.shape[0] < padded_batch:
+                            pad = torch.full((padded_batch - table.shape[0], table.shape[1]), -1, dtype=table.dtype)
+                            table = torch.cat([table[:batch_size], pad], dim=0)
+                        padded_tables.append(table)
+                    local_kwargs["page_tables_per_layer"] = padded_tables
             if getattr(self.model[model_id], "users_row_sharded", False):
                 local_kwargs["global_user_id"] = batch_user_ids if use_batched_prefill else user_id
             sampling_enabled = (
@@ -1160,7 +1188,7 @@ class Generator(ModelCapabilitiesMixin, WarmupForwardMixin):
                     device=tokens.device,
                 )
                 padded_last_token_idx = [0] * padded_batch  # dummy idx for padded slots
-                for local_idx, slot in enumerate(empty_slots):
+                for local_idx, slot in enumerate(batch_user_ids):
                     seq_len_local = int(seq_len[local_idx])
                     padded_tokens = torch.cat(
                         [
@@ -1307,7 +1335,8 @@ class Generator(ModelCapabilitiesMixin, WarmupForwardMixin):
                     combined_prompt_tokens = torch.zeros(sampling_batch, max_prompt_len, dtype=torch.long)
                     for local_idx, slot in enumerate(empty_slots):
                         plen = int(prompt_lens[local_idx])
-                        combined_prompt_tokens[slot, :plen] = prefill_ids[slot, :plen]
+                        row = batch_user_ids[local_idx]
+                        combined_prompt_tokens[slot, :plen] = prefill_ids[row, :plen]
 
                     # ``combined_prompt_tokens`` above and the extracted hidden states
                     # are both laid out by slot, so the params have to be as well.
@@ -1329,6 +1358,7 @@ class Generator(ModelCapabilitiesMixin, WarmupForwardMixin):
                         padded_batch,
                         prefill_seq_len,
                         target_batch=sampling_batch,
+                        **({"slot_map": list(empty_slots)} if compact_rows else {}),
                     )
 
                     sampling_trace_key = f"sampling_{prefill_seq_len}_{model_id}_{sampling_batch}_{sampling_dp}"

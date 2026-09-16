@@ -99,7 +99,7 @@ class CapacityEvidence:
 # that holds the active requests.  With batched expert decode the cost scales
 # with the batch, so one intermediate bucket keeps small batches off the full
 # serving-width graph while bounding trace-region use.
-INTERMEDIATE_DECODE_BUCKETS = (4, 8)
+INTERMEDIATE_DECODE_BUCKETS = (4, 8, 16)
 
 
 def decode_trace_buckets(max_batch_size: int) -> tuple[int, ...]:
@@ -339,7 +339,17 @@ class FullModelArgs:
             math.ceil(max_context_length / self.decode_k_chunk_size) * self.decode_k_chunk_size
         )
         self.max_prefill_chunk_size = self.physical_kv_context_len
-        self.disable_batched_prefill = True
+        # Batched prefill: new requests of one scheduler step that share a padded
+        # length run as one forward (tokens concatenated along the sequence axis;
+        # attention fills the KV cache per user, the MoE sees one longer row
+        # set).  Compact rows keep the device batch at the request count instead
+        # of the highest physical slot.  GPT_OSS_120B_BATCHED_PREFILL=0 disables it.
+        self.disable_batched_prefill = os.environ.get("GPT_OSS_120B_BATCHED_PREFILL", "1") != "1"
+        self.batched_prefill_compact_rows = True
+        # Batch only prompts up to this padded length: above it a single prefill
+        # is already compute bound (4k: 0.98 s) and each new (batch, length)
+        # pair would compile its own programs.
+        self.batched_prefill_max_tokens_per_user = int(os.environ.get("GPT_OSS_120B_BATCHED_PREFILL_MAX_LEN", "2048"))
         self.capped_warmup_seq_len = min(128, max_context_length)
         self.trace_prefill_supported_seq_lens = [128] if max_context_length >= 128 else []
         self.cluster_shape = tuple(int(v) for v in mesh_device.shape)
@@ -795,7 +805,78 @@ class Model(_GPTOSSModel):
     def _forward_layers_and_head(self, *args, is_decode=True, **kwargs):
         self.norm.decode_mode = is_decode
         self._terminal_uses_single_tile = is_decode or int(kwargs.get("get_last_token", -1)) != -1
+        batch_size = int(kwargs.get("batch_size", 1))
+        if not is_decode and batch_size > 1:
+            # Batched prefill.  The shared generator concatenates the users along
+            # the sequence axis ([1, 1, B*S, H] with RoPE for B*S positions); the
+            # decoder stack takes [1, B, S, H] with RoPE for one user's S
+            # positions and concatenates internally for attention and the MoE.
+            hidden_states = kwargs["hidden_states"]
+            total_tokens = int(hidden_states.shape[-2])
+            per_user = total_tokens // batch_size
+            if per_user * batch_size != total_tokens:
+                raise ValueError(f"batched prefill rows {total_tokens} are not a multiple of batch_size {batch_size}")
+            kwargs["hidden_states"] = ttnn.reshape(
+                hidden_states, (1, batch_size, per_user, int(hidden_states.shape[-1]))
+            )
+            rope = self._prefill_rope_slices.get(per_user)
+            if rope is None:
+                rope = [
+                    self.rope_setup.cos_matrix_prefill[:, :, :per_user, :],
+                    self.rope_setup.sin_matrix_prefill[:, :, :per_user, :],
+                ]
+                self._prefill_rope_slices[per_user] = rope
+            kwargs["rope_mats"] = rope
+            # The generator gathers each user's last hidden row and applies the
+            # terminal norm + LM head on those rows (``_apply_norm_and_lm_head``);
+            # running them over every token here would be wasted work.
+            kwargs["skip_lm_head"] = True
         return super()._forward_layers_and_head(*args, is_decode=is_decode, **kwargs)
+
+    def extract_last_tokens_batched_prefill(
+        self, hidden_states, last_token_idx_list, padded_batch, prefill_seq_len, target_batch=None, slot_map=None
+    ):
+        """Gather each batched-prefill user's last hidden row into one [1, 1, target, H] tile.
+
+        ``hidden_states`` is the un-normed decoder output viewed as
+        ``[padded_batch, 1, prefill_seq_len, H]`` (replicated across the mesh);
+        row ``i`` holds request ``i`` in compact-row mode.  Its last token goes to
+        output row ``slot_map[i]`` (the request's physical sampler slot) or to
+        row ``i`` when no map is given.  Device-side: one untilize and one
+        embedding gather, both keyed only on ``(padded_batch * prefill_seq_len)``.
+        """
+        rows = int(padded_batch)
+        seq = int(prefill_seq_len)
+        target = int(target_batch) if target_batch is not None else rows
+        hidden = int(hidden_states.shape[-1])
+        flat = ttnn.reshape(hidden_states, (1, 1, rows * seq, hidden))
+        table = ttnn.reshape(ttnn.to_layout(flat, ttnn.ROW_MAJOR_LAYOUT), (rows * seq, hidden))
+        index = torch.zeros((1, target), dtype=torch.int32)
+        mapped = list(slot_map) if slot_map is not None else list(range(min(rows, target)))
+        for row, slot in enumerate(mapped):
+            index[0, int(slot)] = row * seq + int(last_token_idx_list[row])
+        index_device = ttnn.from_torch(
+            index,
+            device=self.mesh_device,
+            dtype=ttnn.uint32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+        )
+        gathered = ttnn.embedding(index_device, table, layout=ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        index_device.deallocate(True)
+        table.deallocate(True)
+        return ttnn.reshape(gathered, (1, 1, target, hidden))
+
+    def _apply_norm_and_lm_head(self, x):
+        """Terminal norm + LM head for the gathered batched-prefill rows ([1, 1, 32, H])."""
+        self.norm.decode_mode = False
+        normed = self.norm(x)
+        self._terminal_uses_single_tile = True
+        logits = self._apply_lm_head(normed)
+        if normed is not x:
+            normed.deallocate(True)
+        return logits
 
     def _apply_lm_head(self, hidden_states):
         if self.dram_sharded_lm_head is not None and self._terminal_uses_single_tile:

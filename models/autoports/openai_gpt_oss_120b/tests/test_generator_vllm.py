@@ -215,7 +215,7 @@ def test_tensor_sampling_params_convert_seed_sentinel_without_mutating_input():
 
 
 def test_adapter_exposes_the_decode_buckets_it_prepares():
-    assert TTGptOssForCausalLM.tt_supported_decode_batch_sizes == (1, 4, 8, 32)
+    assert TTGptOssForCausalLM.tt_supported_decode_batch_sizes == (1, 4, 8, 16, 32)
 
 
 def test_vllm_initialization_disables_duplicate_seed_salting_before_sampling_construction(
@@ -929,15 +929,17 @@ def test_decode_bucket_warmup_compiles_before_capturing(monkeypatch):
         (1, False, False),
         (4, False, False),
         (8, False, False),
+        (16, False, False),
         (32, False, False),
         (1, True, True),
         (4, True, True),
         (8, True, True),
+        (16, True, True),
         (32, True, True),
     ]
-    assert set(adapter.generator._inner._bucket_trace_store) == {1, 4, 8, 32}
-    assert [call["max_batch_size"] for call in adapter.generator.decode_prepare_calls] == [1, 4, 8, 32]
-    assert [call["width"] for call in adapter.generator.decode_capture_calls] == [1, 4, 8, 32]
+    assert set(adapter.generator._inner._bucket_trace_store) == {1, 4, 8, 16, 32}
+    assert [call["max_batch_size"] for call in adapter.generator.decode_prepare_calls] == [1, 4, 8, 16, 32]
+    assert [call["width"] for call in adapter.generator.decode_capture_calls] == [1, 4, 8, 16, 32]
     assert adapter._active_decode_bucket == 32
     assert adapter._device_trace_recapture_requires_reset
 

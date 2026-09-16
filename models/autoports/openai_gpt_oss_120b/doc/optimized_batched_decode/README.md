@@ -39,7 +39,7 @@ The 2026-09-10 latency sweep showed decode TPOT of 15.4 ms at one user and
   and the down contraction is 24 tiles. 46 tiles (736 padding) is rejected by
   the sparse matmul: every core of the rectangular grid must have work, so
   the gate/up grid is (6, 8) = 48 cores at one tile each.
-- Decode trace buckets `(1, 4, 8, 32)` (`tt/model.py::decode_trace_buckets`,
+- Decode trace buckets `(1, 4, 8, 16, 32)` (`tt/model.py::decode_trace_buckets`,
   advertised per instance by the vLLM adapter and warmed/captured in order).
 
 ### Prefill
@@ -105,6 +105,61 @@ that were needed to make it work in serving, not just in a layer test:
   single in0 multicast sender of the 1D kernel (bf16 slabs: 425 MB per chip
   at 16k tokens); a bfp8 slab saved 3 ms on the matmul but cost 2 ms in the
   cast and lowered the PCC, so it is not used (`indexed_prefill_slab_dtype`).
+
+### Batched prefill (2026-09-16)
+
+New requests that vLLM schedules in the same step and that share a padded
+prompt length are prefilled as one forward pass. The shared tt-transformers
+generator already had this path (Galaxy 70B); the autoport had opted out.
+What was needed:
+
+- **Compact device rows** (opt-in `batched_prefill_compact_rows` on the model
+  args, honoured by `Generator._prefill_forward_text_impl`): requests occupy
+  device rows `0..B-1` instead of their physical sampler slots, so the device
+  batch is the request count rounded up to a supported size (2, 4, 8, 16, 32)
+  rather than the highest slot in use. Two new requests at slots 30 and 31 no
+  longer cost a 32-row pass. Per-layer page tables (vLLM hybrid KV groups)
+  arrive in request order and are padded to the device batch with rows of -1,
+  which `paged_fill_cache` skips.
+- **Layer-stack entry** (`Model._forward_layers_and_head`): the generator hands
+  `[1, 1, B*S, H]` with RoPE for `B*S` positions; the decoder stack takes
+  `[1, B, S, H]` with one user's RoPE and concatenates internally (attention
+  fills the KV cache per user and runs causal SDPA per user; the MoE sees one
+  longer row set). The pass returns un-normed hidden states.
+- **Terminal on the gathered rows**: `extract_last_tokens_batched_prefill`
+  gathers each user's last hidden row on device (one untilize, one embedding
+  gather keyed only on `B*S`) into the sampler's `[1, 1, 32, H]` slot tile;
+  `_apply_norm_and_lm_head` runs the final norm and the DRAM-sharded LM head on
+  it. The batched shape is part of the prefill-variant key, so first-time
+  compilation still releases the decode traces.
+- **Cap and warmup**: batching applies to prompts up to 2,048 padded tokens
+  (`GPT_OSS_120B_BATCHED_PREFILL_MAX_LEN`); longer prompts are compute bound one
+  at a time, and each new (batch, length) pair compiles its own programs (19 s
+  for the first 8 x 1k pass). The common pairs (2..32 users x 128 and 1,024
+  tokens, `GPT_OSS_120B_BATCHED_PREFILL_WARMUP`) are compiled at server start
+  (30 s). `GPT_OSS_120B_BATCHED_PREFILL=0` disables batching.
+
+Correctness: with 8 prompts of 128 tokens and 4 of 1,024 tokens, the first
+sampled token of every prompt is identical to a sequential prefill; later
+greedy tokens diverge for 7 of 8 random-token prompts, exactly as they do with
+sequential prefill followed by concurrent decode (batch-8 vs batch-1 decode
+programs), so that is decode numerics, not batching.
+
+Serving (local server, `bench_client.py`, N = 4 x users, zero failures; sweep
+v20 of 2026-09-11 in parentheses):
+
+| ISL | OSL | users | TTFT | TPOT | decode tok/s/u | aggregate tok/s | E2EL |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 128 | 128 | 8 | 0.62 s (1.89) | 32.6 ms | 30.7 | 215 (170) | 4.8 s (6.0) |
+| 128 | 128 | 32 | 1.02 s (7.49) | 53.6 ms | 18.7 | 524 (286) | 7.8 s (14.3) |
+| 1,024 | 256 | 8 | 1.65 s (2.60) | 32.9 ms | 30.4 | 204 (186) | 10.0 s (11.0) |
+| 1,024 | 256 | 16 | 2.73 s (5.13) | 40.9 ms (63.0) | 24.4 | 311 (193) | 13.2 s (21.2) |
+| 1,024 | 256 | 32 | 5.07 s (9.90) | 55.3 ms | 18.1 | 427 (343) | 19.2 s (23.9) |
+| 4,096 | 256 | 8 | 6.0 s (6.0) | 33.4 ms | 29.9 | 141 (141) | 14.5 s (14.5) |
+| 4,096 | 256 | 16 | 11.5 s (11.8) | 42.1 ms (64.1) | 23.8 | 184 (145) | 22.3 s (28.2) |
+
+The 16-user rows also carry the new 16-user decode bucket (TPOT 63 -> 41 ms);
+4k prompts are above the batching cap and unchanged.
 
 Packed path improvements that remain in use below 512 tokens: 768 layout
 (tile-aligned gate/up slices), pre-transposed gate/up bias, down bias folded

@@ -357,10 +357,44 @@ class Generator(_ReadinessGenerator):
         last_token_tile_start = ((prompt_len - 1) // ttnn.TILE_SIZE) * ttnn.TILE_SIZE
         return padded_length, page_rounded_length, last_token_tile_start, path
 
-    def _prepare_prefill_variants(self, prompt_lens: List[int], *, path: str) -> set[tuple[int, int, int, str]]:
+    def _batched_prefill_shape(self, prompt_lens: List[int]) -> tuple[int, int] | None:
+        """Return ``(padded_batch, padded_len)`` when the shared generator will batch these prompts.
+
+        Mirrors ``Generator._prefill_forward_text_impl``: more than one prompt,
+        one shared padded length, batched prefill enabled, compact rows, and
+        the device batch within the supported sizes and token limit.
+        """
+        from models.tt_transformers.tt.generator import MAX_BATCHED_PREFILL_SEQ_LEN, SUPPORTED_PREFILL_BATCH_SIZES
+
+        if len(prompt_lens) < 2 or getattr(self.model_args, "disable_batched_prefill", True):
+            return None
+        padded = {get_padded_prefill_len(int(length)) for length in prompt_lens}
+        if len(padded) != 1:
+            return None
+        padded_len = padded.pop()
+        if padded_len > self.model_args.max_prefill_chunk_size:
+            return None
+        cap = getattr(self.model_args, "batched_prefill_max_tokens_per_user", None)
+        if cap is not None and padded_len > int(cap):
+            return None
+        padded_batch = next((b for b in SUPPORTED_PREFILL_BATCH_SIZES if b >= len(prompt_lens)), None)
+        if padded_batch is None or padded_batch > self.model_args.max_batch_size:
+            return None
+        if padded_batch * padded_len >= MAX_BATCHED_PREFILL_SEQ_LEN:
+            return None
+        return padded_batch, padded_len
+
+    def _prepare_prefill_variants(self, prompt_lens: List[int], *, path: str) -> set[tuple]:
         """Make first-time prefill program compilation safe with existing traces."""
 
-        variants = {self._prefill_program_signature(prompt_len, path) for prompt_len in prompt_lens}
+        batched = self._batched_prefill_shape(prompt_lens) if path == "device_sampling" else None
+        if batched is not None:
+            # Same 4-field shape as the per-prompt signature so the variant set
+            # stays sortable in the capability report: (padded length, negative
+            # device batch as the batched marker, -1, path).
+            variants = {(batched[1], -batched[0], -1, path)}
+        else:
+            variants = {self._prefill_program_signature(prompt_len, path) for prompt_len in prompt_lens}
         unseen = variants.difference(self._compiled_prefill_variants)
         if unseen and self._has_live_decode_trace():
             self._release_decode_traces_for_prefill_compile()

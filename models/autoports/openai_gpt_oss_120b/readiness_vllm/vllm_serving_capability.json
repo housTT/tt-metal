@@ -16,6 +16,7 @@
     1,
     4,
     8,
+    16,
     32
   ],
   "kv_cache_owner": "vllm",
@@ -373,17 +374,17 @@
     "accepts_serving_state_ids": true
   },
   "serving_counters": {
-    "prefill_calls": 16,
-    "decode_calls": 945,
-    "device_sampled_decodes": 945,
+    "prefill_calls": 61,
+    "decode_calls": 4794,
+    "device_sampled_decodes": 4794,
     "host_sampled_decodes": 0,
-    "sampling_state_pushes": 15,
-    "sampling_state_reuses": 930,
+    "sampling_state_pushes": 38,
+    "sampling_state_reuses": 4756,
     "host_trace_releases": 0,
-    "device_trace_recaptures": 4,
-    "page_table_refreshes": 39,
-    "page_table_reuses": 930,
-    "async_reads": 945
+    "device_trace_recaptures": 2,
+    "page_table_refreshes": 106,
+    "page_table_reuses": 4708,
+    "async_reads": 4794
   },
   "generator": {
     "model": "openai/gpt-oss-120b",
@@ -406,37 +407,37 @@
       "force_argmax": false
     },
     "trace_evidence": {
-      "decode_calls": 945,
-      "trace_replays": 945,
-      "model_execute_submissions": 945,
-      "sampling_execute_submissions": 945,
+      "decode_calls": 4794,
+      "trace_replays": 4794,
+      "model_execute_submissions": 4794,
+      "sampling_execute_submissions": 4794,
       "unclassified_execute_submissions": 0,
-      "full_input_refreshes": 15,
-      "page_table_only_refreshes": 0,
-      "page_table_reuses": 930,
-      "sampled_token_readbacks": 18,
+      "full_input_refreshes": 38,
+      "page_table_only_refreshes": 48,
+      "page_table_reuses": 4708,
+      "sampled_token_readbacks": 83,
       "full_logits_readbacks": 0,
       "forced_token_refreshes": 0,
       "host_argmax_calls": 0,
-      "token_input_host_refreshes": 15,
-      "position_rope_host_refreshes": 15,
-      "page_table_host_refreshes": 15,
-      "steady_token_input_host_refreshes": 14,
-      "steady_position_rope_host_refreshes": 14,
-      "steady_page_table_host_refreshes": 14,
-      "caller_visible_token_synchronizations": 18,
+      "token_input_host_refreshes": 38,
+      "position_rope_host_refreshes": 38,
+      "page_table_host_refreshes": 86,
+      "steady_token_input_host_refreshes": 37,
+      "steady_position_rope_host_refreshes": 37,
+      "steady_page_table_host_refreshes": 85,
+      "caller_visible_token_synchronizations": 83,
       "validation_full_logit_synchronizations": 0,
-      "device_token_out_submissions": 945,
-      "fixed_sampling_state_replays": 930,
+      "device_token_out_submissions": 4794,
+      "fixed_sampling_state_replays": 4756,
       "fixed_greedy_sampling_replays": 0,
-      "sampling_state_host_refreshes": 15,
+      "sampling_state_host_refreshes": 38,
       "decode_output_collections": 0,
-      "asynchronous_decode_output_collections": 945,
-      "minimal_token_readbacks": 945,
-      "token_read_device_shards": 945,
-      "token_read_replica_shards_skipped": 2835,
-      "new_prefill_variants_compiled": 6,
-      "decode_trace_releases_for_prefill_compile": 4,
+      "asynchronous_decode_output_collections": 4794,
+      "minimal_token_readbacks": 4794,
+      "token_read_device_shards": 4794,
+      "token_read_replica_shards_skipped": 14382,
+      "new_prefill_variants_compiled": 14,
+      "decode_trace_releases_for_prefill_compile": 2,
       "decode_trace_releases_for_host_sampling": 0
     },
     "last_generation_metrics": {},
@@ -445,6 +446,36 @@
     "device_top_k_top_p": true,
     "split_token_out_collection": "explicit sync or async boundary; no steady per-token readback",
     "compiled_prefill_variants": [
+      {
+        "padded_length": 128,
+        "page_rounded_length": -32,
+        "last_token_tile_start": -1,
+        "path": "device_sampling"
+      },
+      {
+        "padded_length": 128,
+        "page_rounded_length": -16,
+        "last_token_tile_start": -1,
+        "path": "device_sampling"
+      },
+      {
+        "padded_length": 128,
+        "page_rounded_length": -8,
+        "last_token_tile_start": -1,
+        "path": "device_sampling"
+      },
+      {
+        "padded_length": 128,
+        "page_rounded_length": -4,
+        "last_token_tile_start": -1,
+        "path": "device_sampling"
+      },
+      {
+        "padded_length": 128,
+        "page_rounded_length": -2,
+        "last_token_tile_start": -1,
+        "path": "device_sampling"
+      },
       {
         "padded_length": 128,
         "page_rounded_length": 128,
@@ -459,6 +490,36 @@
       },
       {
         "padded_length": 1024,
+        "page_rounded_length": -32,
+        "last_token_tile_start": -1,
+        "path": "device_sampling"
+      },
+      {
+        "padded_length": 1024,
+        "page_rounded_length": -16,
+        "last_token_tile_start": -1,
+        "path": "device_sampling"
+      },
+      {
+        "padded_length": 1024,
+        "page_rounded_length": -8,
+        "last_token_tile_start": -1,
+        "path": "device_sampling"
+      },
+      {
+        "padded_length": 1024,
+        "page_rounded_length": -4,
+        "last_token_tile_start": -1,
+        "path": "device_sampling"
+      },
+      {
+        "padded_length": 1024,
+        "page_rounded_length": -2,
+        "last_token_tile_start": -1,
+        "path": "device_sampling"
+      },
+      {
+        "padded_length": 1024,
         "page_rounded_length": 1024,
         "last_token_tile_start": 992,
         "path": "device_sampling"
@@ -468,22 +529,10 @@
         "page_rounded_length": 4096,
         "last_token_tile_start": 4064,
         "path": "device_sampling"
-      },
-      {
-        "padded_length": 16384,
-        "page_rounded_length": 16384,
-        "last_token_tile_start": 16352,
-        "path": "device_sampling"
-      },
-      {
-        "padded_length": 32768,
-        "page_rounded_length": 32768,
-        "last_token_tile_start": 32736,
-        "path": "device_sampling"
       }
     ],
-    "lifetime_prefill_variant_compilations": 6,
-    "lifetime_decode_trace_releases_for_prefill_compile": 4,
+    "lifetime_prefill_variant_compilations": 14,
+    "lifetime_decode_trace_releases_for_prefill_compile": 2,
     "lifetime_decode_trace_releases_for_host_sampling": 0
   }
 }
