@@ -26,6 +26,8 @@ from typing import Any
 import torch
 from loguru import logger
 
+_LOG_PROGRAM_CACHE = os.environ.get("GPT_OSS_120B_LOG_PROGRAM_CACHE") == "1"
+
 import ttnn
 from models.autoports.openai_gpt_oss_120b.tt.generator import GREEDY, Generator
 from models.autoports.openai_gpt_oss_120b.tt.model import (
@@ -595,6 +597,15 @@ class TTGptOssForCausalLM:
             self._restore_device_decode_traces(kv_cache)
             lifecycle_changed = True
         self.serving_counters["prefill_calls"] += 1
+        if _LOG_PROGRAM_CACHE:
+            # Opt-in evidence that the untraced prefill adds no programs once its
+            # shapes are warm (every cached program pins a DRAM kernel buffer).
+            logger.info(
+                "prefill call {}: prompt_lens={} program_cache_entries={}",
+                self.serving_counters["prefill_calls"],
+                [int(length) for length in prompt_lens],
+                self.mesh_device.num_program_cache_entries(),
+            )
         self._last_sampling_key = None
         self._last_sampling_state_id = None
         # EngineCore multiprocessing may bypass Python atexit. Persist the

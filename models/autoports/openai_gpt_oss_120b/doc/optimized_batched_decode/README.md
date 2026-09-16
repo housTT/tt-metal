@@ -92,6 +92,19 @@ that were needed to make it work in serving, not just in a layer test:
   `_stage_mark` also accounts program-cache growth per stage
   (`_prefill_program_growth`) and `test_indexed_prefill_moe` prints it for
   three new prompts; steady-state growth is bounded by the static shape set.
+  Two programs per layer per prompt still leaked after that change: the
+  `ttnn.concat` of the per-group expert outputs (keyed on the per-prompt list
+  of group shapes) and the untilize of the capacity-sized gather-back table.
+  Since 2026-09-16 each group's tiled down-projection output is written into
+  one tile-layout arena with `paged_fill_cache` (the page table is the slab's
+  32-row block ids, so the destination offsets are data, not program
+  attributes) and a single untilize produces the gather-back table; the arena
+  is sized to a half-octave class of the slab capacity, so the fill and
+  untilize programs are keyed on a bounded set as well. Layer outputs are
+  identical, timing is unchanged (4k 19.9 ms, 16k 68 ms per layer), and the
+  layer test shows no growth in those stages for new prompts.
+  `GPT_OSS_120B_LOG_PROGRAM_CACHE=1` makes the vLLM adapter log the program
+  cache size after every prefill call as serving-side evidence.
 - Matmul blocking is specific to this path (`_indexed_prefill_matmul_config`):
   gate/up `(in0_block_w, out_block_h, out_subblock_h, out_subblock_w)` =
   (15, 4, 2, 1), down (12, 4, 2, 2). With `out_block_h = 1` (the decode

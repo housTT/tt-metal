@@ -2063,7 +2063,7 @@ class _ActiveExpertTPMLP(MLP):
 
         ``slab_tiled`` is [1, count, height, hidden] TILE, ``member_ids`` is a
         device UINT32 [1, 1, 1, count] ROW_MAJOR expert-id list.  Returns
-        [count*height, hidden] ROW_MAJOR bf16 rows in slab order (unweighted;
+        [1, 1, count*height, hidden] TILE bf16 rows in slab order (unweighted;
         routing weights are applied when the rows are gathered back).  Both
         inputs are consumed.
         """
@@ -2153,10 +2153,8 @@ class _ActiveExpertTPMLP(MLP):
             converted = ttnn.typecast(down, ttnn.bfloat16)
             down.deallocate(True)
             down = converted
-        down_rows = ttnn.reshape(ttnn.to_layout(down, ttnn.ROW_MAJOR_LAYOUT), (count * height, hidden))
-        down.deallocate(True)
-        _t = self._stage_mark("g.down_untilize", _t)
-        return down_rows
+        _t = self._stage_mark("g.down_cast", _t)
+        return ttnn.reshape(down, (1, 1, count * height, hidden))
 
     def warmup_indexed_prefill_shapes(self):
         """Compile every (slab height, group size) matmul shape the indexed prefill can use.
@@ -2343,11 +2341,20 @@ class _ActiveExpertTPMLP(MLP):
             self._prefill_debug["layout"] = [(height, members, start, None) for height, members, start in layout]
             self._prefill_debug["capacity"] = capacity
             self._prefill_debug["dispatch_rows_host"] = dispatch_rows_host.clone()
+        # The expert-output arena is sized to a half-octave class of the slab
+        # capacity so the paged fill programs are keyed on (rows per group,
+        # arena class) only, not on the per-prompt capacity.
+        tile = ttnn.TILE_SIZE
+        arena_rows = capacity
+        if arena_rows > 256:
+            unit = 1 << (arena_rows.bit_length() - 2)
+            arena_rows = ((arena_rows + unit - 1) // unit) * unit
         if self._prefill_timing is not None:
             self._prefill_stats = {
                 "slots": slots,
                 "capacity": capacity,
                 "groups": len(layout),
+                "arena_rows": arena_rows,
                 "heights": sorted(groups),
                 "max_count": max(counts_host),
             }
@@ -2381,6 +2388,12 @@ class _ActiveExpertTPMLP(MLP):
         # uploaded from the host layout instead of being sliced on device.
         dispatch_rows = upload(dispatch_rows_host.reshape(1, capacity), ttnn.uint32)
         slot_columns = upload(slot_columns_host, ttnn.uint32)
+        # Expert outputs are scattered into one tile-layout arena with the paged
+        # fill kernel (page table = the slab's 32-row block ids), instead of
+        # untilizing every group and concatenating: the concat's program was keyed
+        # on the per-prompt list of group shapes and leaked one program per layer
+        # per prompt.  The arena is sized to a half-octave class so the fill
+        # programs are keyed on (rows per group, arena class) only.
         group_inputs = []
         for height, members, start in layout:
             span = len(members) * height
@@ -2388,6 +2401,10 @@ class _ActiveExpertTPMLP(MLP):
                 (
                     upload(dispatch_rows_host[start : start + span].reshape(1, span), ttnn.uint32),
                     upload(torch.tensor(members, dtype=torch.int32).reshape(1, 1, 1, len(members)), ttnn.uint32),
+                    upload(
+                        torch.arange(start // tile, (start + span) // tile, dtype=torch.int32).reshape(1, span // tile),
+                        ttnn.int32,
+                    ),
                 )
             )
         slot_weights = ttnn.from_torch(
@@ -2418,8 +2435,14 @@ class _ActiveExpertTPMLP(MLP):
 
         if self.separate_gate_up:
             raise NotImplementedError("indexed prefill requires the packed gate/up expert layout")
-        group_outputs = []
-        for (height, members, _start), (group_rows, member_ids) in zip(layout, group_inputs):
+        arena = ttnn.empty(
+            (arena_rows // tile, 1, tile, hidden),
+            dtype=ttnn.bfloat16,
+            layout=ttnn.TILE_LAYOUT,
+            device=self.mesh_device,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        for (height, members, _start), (group_rows, member_ids, group_pages) in zip(layout, group_inputs):
             count = len(members)
             slab_tiled = ttnn.reshape(
                 ttnn.embedding(group_rows, hidden_rm, layout=ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG),
@@ -2427,17 +2450,21 @@ class _ActiveExpertTPMLP(MLP):
             )
             group_rows.deallocate(True)
             stage_started = self._stage_mark("g.token_gather", stage_started)
-            group_outputs.append(self._indexed_prefill_group(slab_tiled, member_ids, height))
+            down_tiled = self._indexed_prefill_group(slab_tiled, member_ids, height)
             stage_started = _time.perf_counter()
+            ttnn.experimental.paged_fill_cache(arena, down_tiled, group_pages, batch_idx=0)
+            down_tiled.deallocate(True)
+            group_pages.deallocate(True)
+            stage_started = self._stage_mark("g.arena_fill", stage_started)
         stage_started = self._stage_mark("expert_groups", stage_started)
         hidden_rm.deallocate(True)
         dispatch_rows.deallocate(True)
-        if len(group_outputs) == 1:
-            out_rows = group_outputs[0]
-        else:
-            out_rows = ttnn.concat(group_outputs, dim=0)
-            for tensor in group_outputs:
-                tensor.deallocate(True)
+        out_rows = ttnn.reshape(
+            ttnn.to_layout(ttnn.reshape(arena, (1, 1, arena_rows, hidden)), ttnn.ROW_MAJOR_LAYOUT),
+            (arena_rows, hidden),
+        )
+        arena.deallocate(True)
+        stage_started = self._stage_mark("arena_untilize", stage_started)
 
         # Gather each token's top_k weighted expert rows back and sum them:
         # one [top_k, rows] gather, one tilize, one reduction over top_k.
