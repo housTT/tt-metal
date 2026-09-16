@@ -276,6 +276,34 @@ v15 (1 / 4 / 8 / 32 users: 15.3 / 21.9 / 32.6 / 53.1 ms TPOT, zero failures).
 16 users 12.4 s (27.4 s), 32 users 24.7 s (not measured before); decode TPOT
 33 / 51 / 53 ms. TTFT at concurrency is still the serialized prefill queue.
 
+### Sweep v22 (2026-09-16 19:57 UTC, bench-sweeps harness, package b03f982b)
+
+Cold boot after `tt-model rm`, random-token prompts, 4 x users prompts per
+row (1 or 2 at 16k and above), zero failures. v20 (2026-09-11 package) in
+parentheses. Changes since v20: batched prefill for prompts up to 2k tokens,
+16-user decode bucket, prompt-independent indexed prefill programs, sharded
+32-row decode norms, 64k-row chunked prefill (the 131,072-token bucket serves
+at 30.8 s TTFT on the local server; the harness stops at 64k).
+
+| ISL | OSL | users | TTFT | prefill tok/s/u | decode tok/s/u | aggregate tok/s | E2EL |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 128 | 128 | 1 | 0.26 s (0.25) | 490 | 65.8 | 58 (58) | 2.2 s |
+| 128 | 128 | 8 | 0.58 s (1.89) | 221 | 30.6 | 217 (170) | 4.7 s |
+| 128 | 128 | 16 | 0.78 s (3.76) | 164 | 23.7 | 334 (175) | 6.1 s |
+| 128 | 128 | 32 | 1.14 s (7.49) | 112 | 20.3 | 552 (286) | 7.4 s |
+| 1,024 | 256 | 1 | 0.38 s (0.48) | 2,709 | 64.6 | 59 (58) | 4.3 s |
+| 1,024 | 256 | 16 | 2.83 s (5.13) | 362 | 23.4 | 298 (193) | 13.7 s |
+| 1,024 | 256 | 32 | 5.22 s (9.90) | 196 | 19.5 | 447 (343) | 18.3 s |
+| 4,096 | 256 | 1 | 0.78 s (0.98) | 5,276 | 63.8 | 54 (51) | 4.8 s |
+| 4,096 | 256 | 16 | 12.26 s (11.82) | 334 | 23.4 | 177 (145) | 23.2 s |
+| 4,096 | 256 | 32 | 24.32 s (23.79) | 168 | 19.9 | 220 (217) | 37.2 s |
+| 16,384 | 256 | 1 | 2.58 s (2.54) | 6,352 | 62.1 | 38 (39) | 6.7 s |
+| 32,768 | 256 | 1 | 5.29 s (5.23) | 6,195 | 59.9 | 27 (27) | 9.5 s |
+| 65,536 | 256 | 1 | 12.01 s (12.16) | 5,455 | 56.1 | 15 (15) | 16.6 s |
+
+Batch-32 layer-0 traced decode with the sharded norms: 1.262 ms sliding,
+1.384 ms full attention (was 1.326 / 1.454 ms).
+
 ## Remaining per-layer overheads at batch 32 (device profile, v5)
 
 sparse matmuls 643 us (near DRAM roofline for ~81 experts), two unsharded
