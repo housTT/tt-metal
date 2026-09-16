@@ -112,7 +112,8 @@ Tensor sparse_matmul(
     const std::optional<const GlobalCircularBuffer>& global_cb = std::nullopt,
     const std::optional<tt::tt_metal::SubDeviceId>& sub_device_id = std::nullopt,
     const std::optional<Tensor>& indices = std::nullopt,
-    const std::optional<Tensor>& bias = std::nullopt);
+    const std::optional<Tensor>& bias = std::nullopt,
+    uint32_t in0_senders = 1);
 
 }  // namespace operations::matmul
 

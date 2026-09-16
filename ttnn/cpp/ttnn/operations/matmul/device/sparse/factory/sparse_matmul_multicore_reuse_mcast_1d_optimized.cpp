@@ -248,7 +248,11 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
 
     uint32_t num_cores_with_work = num_blocks_total;
 
-    uint32_t in0_sender_num_cores = 1;
+    // Two in0 sender cores (indexed mode, `in0_senders=2`): the first two cores in row-major order
+    // alternate the multicast blocks and receive each other's, every other core acks the block's
+    // sender. Needs at least one plain receiver besides the two senders.
+    const bool two_in0_senders = operation_attributes.in0_senders == 2 && use_indices && num_cores_with_work >= 3;
+    uint32_t in0_sender_num_cores = two_in0_senders ? 2 : 1;
     uint32_t num_cores = num_cores_with_work;
 
     constexpr bool row_major = true;
@@ -284,13 +288,11 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
     std::vector<uint32_t> in0_mcast_noc_y;
 
     in0_mcast_cores_with_work_and_in_receiver_grid = CoreRangeSet({CoreRange(start_core, start_core)});
-    if (in0_mcast_receiver_num_cores > 1) {
-        // Check against the actual rectangle width (instead of bare grid_size.x-1) so that
-        // sub-devices anchored away from (0, 0) would wrap correctly.
-        auto receiver_start_core = compute_with_storage_grid_size.x > 1 ? CoreCoord{start_core.x + 1, start_core.y}
-                                                                        : CoreCoord{start_core.x, start_core.y + 1};
-        in0_mcast_receivers =
-            num_cores_to_corerangeset_in_subcoregrids(receiver_start_core, num_cores - 1, matmul_core_rect, row_major);
+    const auto& cores = corerange_to_cores(all_cores, std::nullopt, row_major);
+    if (in0_mcast_receiver_num_cores > in0_sender_num_cores) {
+        // Receivers are every core after the sender core(s) in row-major order.
+        in0_mcast_receivers = num_cores_to_corerangeset_in_subcoregrids(
+            cores[in0_sender_num_cores], num_cores - in0_sender_num_cores, matmul_core_rect, row_major);
     }
 
     // Mcast args
@@ -475,6 +477,11 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
         ttnn::get_throttle_level(operation_attributes.compute_kernel_config));
 
     mm_kernel_in1_sender_writer_defines["SKIP_MCAST"] = "1";
+    std::map<std::string, std::string> mm_kernel_in0_receiver_defines;
+    if (two_in0_senders) {
+        mm_kernel_in0_sender_writer_defines["IN0_TWO_SENDERS"] = "1";
+        mm_kernel_in0_receiver_defines["IN0_TWO_SENDERS"] = "1";
+    }
     if (use_bias) {
         // FUSE_BIAS selects the shared kernels' fused-bias path; BIAS_PER_GROUP makes the reader fetch
         // tile row indices[bB] for every group and the compute kernel wait/pop the bias per group.
@@ -514,6 +521,7 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
                 .processor = tt_metal::DataMovementProcessor::RISCV_0,
                 .noc = in0_noc,
                 .compile_args = in0_receiver_compile_time_args,
+                .defines = mm_kernel_in0_receiver_defines,
                 .named_compile_args = {
                     {"cb_in0", tt::CBIndex::c_0},
                 }});
@@ -732,14 +740,17 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
         std::swap(start_core_noc, end_core_noc);
     }
 
-    const auto& cores = corerange_to_cores(all_cores, std::nullopt, row_major);
+    std::vector<CoreCoord> in0_sender_cores_physical;
+    for (uint32_t i = 0; i < in0_sender_num_cores; ++i) {
+        in0_sender_cores_physical.push_back(device->worker_core_from_logical_core(cores[i]));
+    }
     for (uint32_t i = 0; i < num_cores; ++i) {
         const auto& core = cores[i];
         uint32_t output_idx_x = i % num_blocks_x;
         uint32_t output_idx_y = i / num_blocks_x;
 
         // in0 sender and in1 sender
-        if (core == start_core) {
+        if (i < in0_sender_num_cores) {
             std::vector<uint32_t> mm_in0_sender_args = {
                 // in0 tensor args
                 (std::uint32_t)in0_buffer->address(),
@@ -755,6 +766,12 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
                 // sparsity args
                 (std::uint32_t)sparsity_buffer->address()  // sparsity_addr
             };
+            if (two_in0_senders) {
+                const auto& other = in0_sender_cores_physical[1 - i];
+                mm_in0_sender_args.push_back(i);                       // in0_sender_index
+                mm_in0_sender_args.push_back((std::uint32_t)other.x);  // in0_other_sender_noc_x
+                mm_in0_sender_args.push_back((std::uint32_t)other.y);  // in0_other_sender_noc_y
+            }
 
             tt_metal::SetRuntimeArgs(
                 program,
@@ -769,6 +786,10 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
                 (std::uint32_t)top_left_core_physical.x,  // in0_mcast_sender_noc_x
                 (std::uint32_t)top_left_core_physical.y   // in0_mcast_sender_noc_y
             };
+            if (two_in0_senders) {
+                mm_in0_receiver_args.push_back((std::uint32_t)in0_sender_cores_physical[1].x);  // sender 2
+                mm_in0_receiver_args.push_back((std::uint32_t)in0_sender_cores_physical[1].y);
+            }
             tt_metal::SetRuntimeArgs(program, mm_kernel_in0_receiver_id, core, mm_in0_receiver_args);
         }
         if (i < num_cores_with_work) {
@@ -876,11 +897,15 @@ void SparseMatmulMultiCoreReuseMcast1DProgramFactory::override_runtime_arguments
     const bool use_bias = operation_attributes.use_bias && tensor_args.optional_input_tensors.size() > 1 &&
                           tensor_args.optional_input_tensors.at(1).has_value();
 
-    // Manually unroll sender core
-    // in0 sender
-    auto& reader_sender_runtime_args = GetRuntimeArgs(program, shared_vars.kernels.at(0), shared_vars.start_core);
-    reader_sender_runtime_args[0] = src_buffer_a->address();
-    reader_sender_runtime_args[7] = sparsity_buffer->address();
+    // in0 sender core(s): the first one or two cores in row-major order (see create()).
+    const bool two_in0_senders =
+        operation_attributes.in0_senders == 2 && use_indices && shared_vars.num_cores_with_work >= 3;
+    const uint32_t in0_sender_num_cores = two_in0_senders ? 2 : 1;
+    for (uint32_t i = 0; i < in0_sender_num_cores; ++i) {
+        auto& reader_sender_runtime_args = GetRuntimeArgs(program, shared_vars.kernels.at(0), shared_vars.cores[i]);
+        reader_sender_runtime_args[0] = src_buffer_a->address();
+        reader_sender_runtime_args[7] = sparsity_buffer->address();
+    }
 
     auto& writer_runtime_args_by_core = GetRuntimeArgs(program, shared_vars.kernels.at(1));
 

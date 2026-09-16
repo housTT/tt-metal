@@ -15,6 +15,12 @@ void kernel_main() {
     // in0 mcast args
     const uint32_t in0_mcast_sender_noc_x = get_arg_val<uint32_t>(0);
     const uint32_t in0_mcast_sender_noc_y = get_arg_val<uint32_t>(1);
+#ifdef IN0_TWO_SENDERS
+    // Second in0 sender (odd blocks in issue order); see reader_bmm_tile_layout_in0_sender_padding.cpp.
+    const uint32_t in0_mcast_sender2_noc_x = get_arg_val<uint32_t>(2);
+    const uint32_t in0_mcast_sender2_noc_y = get_arg_val<uint32_t>(3);
+    uint32_t in0_mcast_block_idx = 0;
+#endif
 
     // COMPILE TIME ARGS
     // in0 block args
@@ -77,7 +83,15 @@ void kernel_main() {
                     receiver_sem.set(INVALID);
 
                     // Atomic increment source core counter
+#ifdef IN0_TWO_SENDERS
+                    if ((in0_mcast_block_idx++ & 1u) == 0) {
+                        sender_sem.up(noc, in0_mcast_sender_noc_x, in0_mcast_sender_noc_y, 1);
+                    } else {
+                        sender_sem.up(noc, in0_mcast_sender2_noc_x, in0_mcast_sender2_noc_y, 1);
+                    }
+#else
                     sender_sem.up(noc, in0_mcast_sender_noc_x, in0_mcast_sender_noc_y, 1);
+#endif
 
                     // wait on in0 semaphore value to become VALID (set by mcast sender after it multicasts data)
                     receiver_sem.wait(VALID);

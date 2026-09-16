@@ -32,6 +32,19 @@ void kernel_main() {
     const uint32_t last_block_h = get_arg_val<uint32_t>(rt_args_idx++);
     // sparsity args
     const uint32_t sparsity_addr = get_arg_val<uint32_t>(rt_args_idx++);
+#ifdef IN0_TWO_SENDERS
+    // Two in0 sender cores alternate the multicast blocks (sender 0 takes even blocks in issue order,
+    // sender 1 odd). For the other sender's blocks this core follows the receiver protocol against that
+    // core, so every core's in0 CB still receives every block in order; the DRAM reads and the multicast
+    // injection bandwidth are split across two cores. Sparse matmul (indexed mode) only.
+    const uint32_t in0_sender_index = get_arg_val<uint32_t>(rt_args_idx++);
+    const uint32_t in0_other_sender_noc_x = get_arg_val<uint32_t>(rt_args_idx++);
+    const uint32_t in0_other_sender_noc_y = get_arg_val<uint32_t>(rt_args_idx++);
+    uint32_t in0_mcast_block_idx = 0;
+#ifdef IN0_SHARDED
+#error "IN0_TWO_SENDERS is only implemented for interleaved in0"
+#endif
+#endif  // IN0_TWO_SENDERS
 
     // COMPILE TIME ARGS
     // in0 tensor args
@@ -250,8 +263,21 @@ void kernel_main() {
                                 block, in0_tensor_current_inner_dim_block_start_tile_id, in0_tensor_start_tile_id);
                         }
 
-                        // Operand 0
-                        // Common for sharded and interleaved paths
+#ifdef IN0_TWO_SENDERS
+                        const bool in0_block_is_mine = ((in0_mcast_block_idx++ & 1u) == in0_sender_index);
+                        if (!in0_block_is_mine) {
+                            // The other sender multicasts this block: receive it like every other core.
+                            dfb_in0.reserve_back(in0_block_num_tiles);
+                            receiver_sem.set(INVALID);
+                            sender_sem.up(noc, in0_other_sender_noc_x, in0_other_sender_noc_y, 1);
+                            receiver_sem.wait(VALID);
+                            dfb_in0.push_back(in0_block_num_tiles);
+                            in0_tensor_current_inner_dim_block_start_tile_id += in0_tensor_next_inner_dim_block_stride;
+                            continue;
+                        }
+#endif  // IN0_TWO_SENDERS
+        // Operand 0
+        // Common for sharded and interleaved paths
                         dfb_in0.reserve_back(in0_block_num_tiles);
 #ifndef IN0_SHARDED
 

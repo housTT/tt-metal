@@ -26,6 +26,10 @@ struct SparseMatmulParams {
     // tile row e holds group e's [1, N] bias (row-broadcast add, as the dense fused bias). Hashed so the
     // FUSE_BIAS program differs from the plain one.
     bool use_bias = false;
+    // Number of in0 multicast sender cores (1 or 2). With 2 (indexed mode only) the first two cores of the
+    // grid alternate the multicast blocks, splitting the in0 DRAM reads and NoC injection across two
+    // cores. Hashed: the kernels are compiled with IN0_TWO_SENDERS.
+    uint32_t in0_senders = 1;
     std::optional<const operations::matmul::MatmulProgramConfig> program_config = std::nullopt;
     tt::tt_metal::MemoryConfig output_mem_config = tt::tt_metal::operation::DEFAULT_OUTPUT_MEMORY_CONFIG;
     std::optional<tt::tt_metal::DataType> output_dtype = std::nullopt;

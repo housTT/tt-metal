@@ -291,6 +291,13 @@ void SparseMatmulDeviceOperation::validate_on_program_cache_miss(
     // Per-group fused bias validation. `bias` (optional_input_tensors[1]) is a TILE tensor whose tile
     // row e is group e's [1, N] bias; the in1 reader fetches tile row indices[bB] for every group and the
     // compute kernel adds it row-broadcast before packing, so it only exists in indexed/gather mode.
+    TT_FATAL(
+        operation_attributes.in0_senders == 1 || operation_attributes.in0_senders == 2,
+        "in0_senders must be 1 or 2, got {}",
+        operation_attributes.in0_senders);
+    TT_FATAL(
+        operation_attributes.in0_senders == 1 || operation_attributes.use_indices,
+        "in0_senders=2 requires indexed/gather mode (pass `indices`)");
     if (operation_attributes.use_bias) {
         TT_FATAL(
             operation_attributes.use_indices,
@@ -560,13 +567,15 @@ std::tuple<SparseMatmulParams, SparseMatmulInputs> sparse_matmul_build_operation
     const std::optional<const GlobalCircularBuffer>& global_cb,
     const std::optional<tt::tt_metal::SubDeviceId>& sub_device_id,
     const std::optional<Tensor>& indices,
-    const std::optional<Tensor>& bias) {
+    const std::optional<Tensor>& bias,
+    uint32_t in0_senders) {
     auto sparse_matmul_attributes = SparseMatmulParams{
         nnz,
         is_input_a_sparse,
         is_input_b_sparse,
         indices.has_value(),  // use_indices
         bias.has_value(),     // use_bias
+        in0_senders,
         program_config,
         memory_config.has_value() ? memory_config.value() : ttnn::DRAM_MEMORY_CONFIG,
         dtype,
@@ -614,7 +623,8 @@ SparseMatmulDeviceOperation::tensor_return_value_t sparse_matmul(
     const std::optional<const GlobalCircularBuffer>& global_cb,
     const std::optional<tt::tt_metal::SubDeviceId>& sub_device_id,
     const std::optional<Tensor>& indices,
-    const std::optional<Tensor>& bias) {
+    const std::optional<Tensor>& bias,
+    uint32_t in0_senders) {
     auto [params, inputs] = sparse_matmul_build_operation_args(
         input_tensor_a,
         input_tensor_b,
@@ -632,7 +642,8 @@ SparseMatmulDeviceOperation::tensor_return_value_t sparse_matmul(
         global_cb,
         sub_device_id,
         indices,
-        bias);
+        bias,
+        in0_senders);
     return ttnn::device_operation::launch<SparseMatmulDeviceOperation>(params, inputs);
 }
 
@@ -670,6 +681,7 @@ SparseMatmulParams create_sparse_matmul_attributes(
         parameters.is_input_b_sparse,
         parameters.use_indices,
         parameters.use_bias,
+        parameters.in0_senders,
         matmul_struct.program_config,
         matmul_struct.output_mem_config,
         matmul_struct.output_dtype,

@@ -1333,6 +1333,13 @@ class _ActiveExpertTPMLP(MLP):
         self.indexed_prefill_fused_bias = os.environ.get(
             "GPT_OSS_120B_INDEXED_FUSED_BIAS", "1"
         ) == "1" and "bias (ttnn.Tensor, optional)" in (ttnn.sparse_matmul.__doc__ or "")
+        # in0 multicast senders for the group sparse matmuls (2 splits the slab multicast across two
+        # cores; needs a ttnn whose sparse_matmul accepts `in0_senders`).
+        self.indexed_prefill_in0_senders = (
+            int(os.environ.get("GPT_OSS_120B_INDEXED_IN0_SENDERS", "1"))
+            if "in0_senders (int, optional)" in (ttnn.sparse_matmul.__doc__ or "")
+            else 1
+        )
         # Indexed prefill matmul blocking: (in0_block_w, out_block_h,
         # out_subblock_h, out_subblock_w) in tiles.  out_block_h > 1 makes the
         # kernel reuse each weight block across several slab tile rows instead
@@ -2130,6 +2137,7 @@ class _ActiveExpertTPMLP(MLP):
             compute_kernel_config=self.expert_compute_kernel_config,
             dtype=self.expert_intermediate_dtype,
             **({"bias": self.indexed_gate_up_bias_tiled} if fused_bias else {}),
+            **({"in0_senders": 2} if self.indexed_prefill_in0_senders == 2 else {}),
         )
         slab_tiled.deallocate(True)
         _t = self._stage_mark("g.gate_up_mm", _t)
@@ -2176,6 +2184,7 @@ class _ActiveExpertTPMLP(MLP):
             ),
             compute_kernel_config=self.expert_compute_kernel_config,
             dtype=self.expert_intermediate_dtype,
+            **({"in0_senders": 2} if self.indexed_prefill_in0_senders == 2 else {}),
         )
         down_input.deallocate(True)
         member_ids.deallocate(True)
