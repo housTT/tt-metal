@@ -296,10 +296,18 @@ void kernel_main() {
         [[maybe_unused]] const uint32_t out_base_tile_id = out_tensor_start_tile_id;
 
         for (uint32_t bB = 0; bB < batch_loop_lim; ++bB) {
+#ifdef BIAS_PER_GROUP
+            // Per-group fused bias (sparse matmul, indexed mode): tile row `group_id` of the bias tensor,
+            // i.e. out_tensor_stride_h (= Nt) tiles per group.
+            uint32_t in3_group_tile_offset = 0;
+#endif
             if constexpr (use_indices) {
                 // Gather: jump straight to group indices[bB]'s weight block, scatter its result to
                 // compact output slot bB. Every iterated group is active, so nothing is skipped.
                 const uint32_t group_id = reinterpret_cast<volatile tt_l1_ptr uint16_t*>(l1_write_addr_sparsity)[bB];
+#ifdef BIAS_PER_GROUP
+                in3_group_tile_offset = group_id * out_tensor_stride_h;
+#endif
                 // The ids are device-resident, so the host can only bound their count, not their
                 // values. An out-of-range id would silently read an unrelated weight block; assert
                 // loudly (under watcher) instead, as the in0 sender does for the exact-nnz contract.
@@ -322,7 +330,11 @@ void kernel_main() {
                 uint32_t in1_tensor_current_w_dim_block_tile_id = in1_tensor_current_h_dim_block_tile_id;
                 uint32_t out_tensor_current_w_dim_block_tile_id = out_tensor_current_h_dim_block_tile_id;
 #ifdef FUSE_BIAS
+#ifdef BIAS_PER_GROUP
+                uint32_t in3_tensor_current_w_dim_block_tile_id = in3_tensor_start_tile_id + in3_group_tile_offset;
+#else
                 uint32_t in3_tensor_current_w_dim_block_tile_id = in3_tensor_start_tile_id;
+#endif  // BIAS_PER_GROUP
 #endif  // FUSE_BIAS
                 for (uint32_t bw = 0; bw < num_blocks_w_dim; ++bw) {
                     uint32_t in1_tensor_current_inner_dim_block_start_tile_id = in1_tensor_current_w_dim_block_tile_id;
@@ -528,9 +540,14 @@ void kernel_main() {
                     }
 #endif
 #ifdef FUSE_BIAS
-                    // Only read bias on first batch, or we have multiple output blocks
+                    // Only read bias on first batch, or we have multiple output blocks; a per-group bias
+                    // is re-read for every group (the compute kernel pops it after each group).
+#ifdef BIAS_PER_GROUP
+                    if (true) {
+#else
                     if ((b == 0 && bh == 0) || num_blocks_w_dim > 1) {
-                        // Operand 1
+#endif  // BIAS_PER_GROUP
+        // Operand 1
 #ifndef BIAS_SHARDED
                         dfb_in3.reserve_back(in1_block_w);
                         uint32_t in3_write_offset = 0;

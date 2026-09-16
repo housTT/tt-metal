@@ -496,9 +496,14 @@ void kernel_main() {
                 }
                 // Reader only pushes bias once when num_blocks_w_dim == 1;
                 // the tiles stay in the CB for reuse across bh/batch iterations.
+                // With BIAS_PER_GROUP (sparse matmul, per-group bias) every batch gets its own tiles.
+#ifdef BIAS_PER_GROUP
+                bias_dfb.wait_front(bias_ntiles);
+#else
                 if ((b == 0 && bh == 0) || num_blocks_w_dim > 1) {
                     bias_dfb.wait_front(bias_ntiles);
                 }
+#endif  // BIAS_PER_GROUP
                 for (uint32_t in0_subblock = 0; in0_subblock < in0_num_subblocks; in0_subblock++) {
                     int in1_index_subblock_offset = 0;
                     for (uint32_t in1_subblock = 0; in1_subblock < in1_num_subblocks; in1_subblock++) {
@@ -571,9 +576,13 @@ void kernel_main() {
                         in1_index_subblock_offset += out_subblock_w;
                     }
                 }
+#ifdef BIAS_PER_GROUP
+                bias_dfb.pop_front(bias_ntiles);
+#else
                 if constexpr (num_blocks_w_dim > 1) {
                     bias_dfb.pop_front(bias_ntiles);
                 }
+#endif  // BIAS_PER_GROUP
 #endif  // FUSE_BIAS
                 if constexpr (untilize_out) {
 #ifdef PACK_RELU
@@ -616,8 +625,10 @@ void kernel_main() {
     // reusing it across all batch/bh/block iterations without popping. Pop it once here, after the
     // last use, so the CB is balanced. (For num_blocks_w_dim > 1 the per-block pop above already
     // balances each re-pushed bias block.)
+#ifndef BIAS_PER_GROUP
     if constexpr (num_blocks_w_dim == 1) {
         bias_dfb.pop_front(bias_ntiles);
     }
+#endif  // BIAS_PER_GROUP
 #endif
 }

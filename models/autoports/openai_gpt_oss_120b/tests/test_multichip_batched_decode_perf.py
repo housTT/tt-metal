@@ -280,6 +280,25 @@ def test_indexed_prefill_moe(mesh_device, device_params, layer_idx, sequence_len
     packed_out, packed_ms = run(False, repeats)
     indexed_out, indexed_ms = run(True, repeats)
     passing, detail = comp_pcc(packed_out.float(), indexed_out.float(), 0.99)
+    if os.environ.get("GPT_OSS_120B_INDEXED_FUSED_BIAS_CHECK") == "1" and getattr(
+        mlp, "indexed_prefill_fused_bias", False
+    ):
+        # Same input through the indexed path with the gate/up bias added inside the sparse matmul
+        # (default) and with the separate gather + add: the two must agree to bf16 rounding.
+        mlp.indexed_prefill_fused_bias = False
+        try:
+            plain_out, plain_ms = run(True, repeats)
+        finally:
+            mlp.indexed_prefill_fused_bias = True
+        diff = (indexed_out.float() - plain_out.float()).abs()
+        _, fused_vs_plain = comp_pcc(plain_out.float(), indexed_out.float(), 0.99)
+        _, plain_vs_packed = comp_pcc(packed_out.float(), plain_out.float(), 0.99)
+        print(
+            f"INDEXED_PREFILL_FUSED_BIAS_CHECK sequence={sequence_length} fused_ms={statistics.median(indexed_ms):.3f} "
+            f"plain_ms={statistics.median(plain_ms):.3f} pcc_fused_vs_plain={fused_vs_plain} pcc_plain_vs_packed={plain_vs_packed} "
+            f"max_abs_diff={diff.max().item():.4f} mean_abs_diff={diff.mean().item():.5f} mean_abs_plain={plain_out.float().abs().mean().item():.4f} "
+            f"rows_differing={(diff.max(dim=-1).values > 1e-2).sum().item()} of {diff.shape[0]}"
+        )
     if os.environ.get("GPT_OSS_120B_PREFILL_STAGES") == "1":
         mlp.indexed_prefill = True
         mlp.indexed_prefill_min_tokens = 0

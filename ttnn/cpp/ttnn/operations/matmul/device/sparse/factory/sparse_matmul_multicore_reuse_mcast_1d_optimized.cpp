@@ -130,6 +130,19 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
     // it keeps pointing at the real sparsity tensor.
     const Tensor& in1_sparsity_tensor = use_indices ? tensor_args.optional_input_tensors.at(0).value() : sparsity;
     auto* const in1_sparsity_buffer = in1_sparsity_tensor.buffer();
+    // Per-group fused bias (indexed mode only, validated by the device op): optional_input_tensors[1] is a
+    // TILE tensor whose tile row e holds group e's [1, N] bias. The shared in1 reader fetches tile row
+    // indices[bB] for every group (BIAS_PER_GROUP) and the compute kernel adds it row-broadcast before
+    // packing, replacing the caller's separate gather + add.
+    const bool use_bias = operation_attributes.use_bias && tensor_args.optional_input_tensors.size() > 1 &&
+                          tensor_args.optional_input_tensors.at(1).has_value();
+    const Tensor* bias_tensor = use_bias ? &tensor_args.optional_input_tensors.at(1).value() : nullptr;
+    auto* const bias_buffer = use_bias ? bias_tensor->buffer() : nullptr;
+    const auto bias_data_format =
+        use_bias ? tt_metal::datatype_to_dataformat_converter(bias_tensor->dtype()) : tt::DataFormat::Float16_b;
+    const auto bias_tile = use_bias ? bias_tensor->tensor_spec().tile() : tt::tt_metal::Tile({32, 32});
+    const uint32_t bias_single_tile_size = bias_tile.get_tile_size(bias_data_format);
+    const uint32_t bias_aligned_tile_size = tt::align(bias_single_tile_size, dram_alignment);
 
     auto [math_fidelity, math_approx_mode, fp32_dest_acc_en, packer_l1_acc, dst_full_sync_en] =
         get_compute_kernel_config_args(device->arch(), operation_attributes.compute_kernel_config.value());
@@ -407,8 +420,8 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
         (std::uint32_t)(out_subblock_w * out_subblock_h),  // out_subblocks_w * out_subblocks_h
         // batch args
         (std::uint32_t)Mt * Nt,  // MtNt
-        // bias args (placeholders)
-        (std::uint32_t)0,  // in3_tensor_stride_w
+        // bias args (stride 1 along N when a per-group bias is fused, else placeholder)
+        (std::uint32_t)(use_bias ? 1 : 0),  // in3_tensor_stride_w
         // fuse op args
         (std::uint32_t)false,  // fuse_op
         (std::uint32_t)false,  // fuse_op_reduce_scatter
@@ -420,7 +433,11 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
     // Indexed/gather mode reuses this slot for the active-group id list (see in1_sparsity_buffer).
     tt::tt_metal::TensorAccessorArgs(*in1_sparsity_buffer).append_to(in1_sender_writer_compile_time_args);
     tt::tt_metal::TensorAccessorArgs(*out_buffer).append_to(in1_sender_writer_compile_time_args);
-    tt::tt_metal::TensorAccessorArgs().append_to(in1_sender_writer_compile_time_args);  // placeholder for bias
+    if (use_bias) {
+        tt::tt_metal::TensorAccessorArgs(*bias_buffer).append_to(in1_sender_writer_compile_time_args);
+    } else {
+        tt::tt_metal::TensorAccessorArgs().append_to(in1_sender_writer_compile_time_args);  // placeholder for bias
+    }
 
     std::vector<uint32_t> in0_receiver_compile_time_args = {
         // in0 block args
@@ -458,6 +475,14 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
         ttnn::get_throttle_level(operation_attributes.compute_kernel_config));
 
     mm_kernel_in1_sender_writer_defines["SKIP_MCAST"] = "1";
+    if (use_bias) {
+        // FUSE_BIAS selects the shared kernels' fused-bias path; BIAS_PER_GROUP makes the reader fetch
+        // tile row indices[bB] for every group and the compute kernel wait/pop the bias per group.
+        mm_kernel_in1_sender_writer_defines["FUSE_BIAS"] = "1";
+        mm_kernel_in1_sender_writer_defines["BIAS_PER_GROUP"] = "1";
+        mm_kernel_defines["FUSE_BIAS"] = "1";
+        mm_kernel_defines["BIAS_PER_GROUP"] = "1";
+    }
 
     // in1 is the reader of weights/output writer, and we choose to make it use the optimized reader noc
     tt_metal::NOC in0_noc = tt::tt_metal::detail::preferred_noc_for_dram_write(device->arch());
@@ -545,6 +570,9 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
         get_batch_from_reader,  // get_batch_from_reader
         false,                  // in0_transpose_tile
     };
+    if (use_bias) {
+        compute_kernel_args.push_back(1u);  // row_broadcast_bias: bias tile row 0 is broadcast over M
+    }
 
     // Create compute kernel
     // bool fp32_dest_acc_en = false;
@@ -568,6 +596,7 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
                 {"cb_out", tt::CBIndex::c_4},
                 {"cb_intermed0", tt::CBIndex::c_5},
                 {"cb_in0_transposed", tt::CBIndex::c_10},
+                {"bias_ntiles", in1_per_core_w},
             }});
 
     // Create circular buffers
@@ -628,6 +657,18 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
 
     tt_metal::CreateCircularBuffer(program, all_cores, sparsity_cb_config0);
     tt_metal::CreateCircularBuffer(program, all_cores, sparsity_cb_config1);
+
+    if (use_bias) {
+        // One bias tile row per core per group, double-buffered so the reader can fetch the next group's
+        // bias while the compute kernel still holds the current one.
+        const uint32_t bias_cb_index = tt::CBIndex::c_3;
+        const uint32_t bias_cb_size = 2 * out_block_w * bias_aligned_tile_size;
+        tt_metal::CircularBufferConfig bias_cb_config =
+            tt_metal::CircularBufferConfig(bias_cb_size, {{bias_cb_index, bias_data_format}})
+                .set_page_size(bias_cb_index, bias_aligned_tile_size)
+                .set_tile_dims(bias_cb_index, bias_tile);
+        tt_metal::CreateCircularBuffer(program, all_cores, bias_cb_config);
+    }
 
     if (interm0_data_format != output_data_format) {
         // output
@@ -780,8 +821,9 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
                 mm_in1_sender_writer_args.push_back(0);
             }
 
-            mm_in1_sender_writer_args.push_back(0);
-            mm_in1_sender_writer_args.push_back(0);
+            // bias args: address and this core's first bias tile (its N offset within tile row 0)
+            mm_in1_sender_writer_args.push_back(use_bias ? (std::uint32_t)bias_buffer->address() : 0);
+            mm_in1_sender_writer_args.push_back(use_bias ? (std::uint32_t)(per_core_N * output_idx_x) : 0);
 
             if (output_idx_x == num_blocks_x - 1) {
                 mm_in1_sender_writer_args.push_back(last_out_num_blocks_w);
@@ -831,6 +873,8 @@ void SparseMatmulMultiCoreReuseMcast1DProgramFactory::override_runtime_arguments
     const bool use_indices = operation_attributes.use_indices && !tensor_args.optional_input_tensors.empty() &&
                              tensor_args.optional_input_tensors.at(0).has_value();
     auto* in1_sparsity_buffer = use_indices ? tensor_args.optional_input_tensors.at(0)->buffer() : sparsity_buffer;
+    const bool use_bias = operation_attributes.use_bias && tensor_args.optional_input_tensors.size() > 1 &&
+                          tensor_args.optional_input_tensors.at(1).has_value();
 
     // Manually unroll sender core
     // in0 sender
@@ -849,6 +893,9 @@ void SparseMatmulMultiCoreReuseMcast1DProgramFactory::override_runtime_arguments
         writer_runtime_args[0] = src_buffer_b->address();
         writer_runtime_args[6] = in1_sparsity_buffer->address();
         writer_runtime_args[7] = dst_buffer->address();
+        if (use_bias) {
+            writer_runtime_args[18] = tensor_args.optional_input_tensors.at(1)->buffer()->address();
+        }
     }
 }
 

@@ -1328,6 +1328,11 @@ class _ActiveExpertTPMLP(MLP):
         # KV cache; longer prompts run in equal row chunks (65536 is the longest
         # sweep row measured in serving).
         self.indexed_prefill_chunk_tokens = int(os.environ.get("GPT_OSS_120B_INDEXED_PREFILL_CHUNK", "65536"))
+        # Gate/up bias added inside the sparse matmul (ttnn.sparse_matmul(bias=...), per-group tile row)
+        # instead of a per-group gather + add; needs a ttnn build whose sparse_matmul accepts `bias`.
+        self.indexed_prefill_fused_bias = os.environ.get(
+            "GPT_OSS_120B_INDEXED_FUSED_BIAS", "1"
+        ) == "1" and "bias (ttnn.Tensor, optional)" in (ttnn.sparse_matmul.__doc__ or "")
         # Indexed prefill matmul blocking: (in0_block_w, out_block_h,
         # out_subblock_h, out_subblock_w) in tiles.  out_block_h > 1 makes the
         # kernel reuse each weight block across several slab tile rows instead
@@ -1466,6 +1471,7 @@ class _ActiveExpertTPMLP(MLP):
             )
             self.indexed_gate_up = None
             self.indexed_gate_up_bias = None
+            self.indexed_gate_up_bias_tiled = None
             self.prefill_gate_up_bias = None
         else:
             self.indexed_gate_up = ttnn.as_tensor(
@@ -1495,6 +1501,22 @@ class _ActiveExpertTPMLP(MLP):
                 dtype=ttnn.bfloat16,
                 mesh_mapper=column_mapper,
                 cache_file_name=get_cache_file_name(tensor_cache_path, "prefill_packed_gate_up_bias_t" + suffix),
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            # Per-group fused bias for the indexed sparse matmul: one 32-row tile block per expert with
+            # the [1, width] bias in row 0 (the kernel adds tile row `expert` row-broadcast over the
+            # slab rows), so ttnn.sparse_matmul(bias=...) replaces the per-group gather + add.
+            fused_bias = torch.zeros(
+                self.num_experts, ttnn.TILE_SIZE, packed_gate_up_bias.shape[-1], dtype=packed_gate_up_bias.dtype
+            )
+            fused_bias[:, 0, :] = packed_gate_up_bias
+            self.indexed_gate_up_bias_tiled = ttnn.as_tensor(
+                fused_bias,
+                device=self.mesh_device,
+                layout=ttnn.TILE_LAYOUT,
+                dtype=ttnn.bfloat16,
+                mesh_mapper=column_mapper,
+                cache_file_name=get_cache_file_name(tensor_cache_path, "packed_gate_up_bias_tilerow" + suffix),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
         down = expert_state["down_proj"].reshape(
@@ -2088,6 +2110,7 @@ class _ActiveExpertTPMLP(MLP):
             slab_tiled.deallocate(True)
             slab_tiled = narrowed
             _t = self._stage_mark("g.slab_cast", _t)
+        fused_bias = self.indexed_prefill_fused_bias and self.indexed_gate_up_bias_tiled is not None
         gate_up = ttnn.sparse_matmul(
             slab_tiled,
             self.indexed_gate_up,
@@ -2106,22 +2129,24 @@ class _ActiveExpertTPMLP(MLP):
             ),
             compute_kernel_config=self.expert_compute_kernel_config,
             dtype=self.expert_intermediate_dtype,
+            **({"bias": self.indexed_gate_up_bias_tiled} if fused_bias else {}),
         )
         slab_tiled.deallocate(True)
         _t = self._stage_mark("g.gate_up_mm", _t)
         gate_up = ttnn.reshape(gate_up, (1, count, height, 2 * padded))
-        bias_rows = ttnn.embedding(
-            member_ids,
-            self.indexed_gate_up_bias,
-            layout=ttnn.ROW_MAJOR_LAYOUT,
-            dtype=ttnn.bfloat16,
-            memory_config=ttnn.DRAM_MEMORY_CONFIG,
-        )
-        bias_rows = ttnn.to_layout(ttnn.reshape(bias_rows, (1, count, 1, 2 * padded)), ttnn.TILE_LAYOUT)
-        _t = self._stage_mark("g.bias_gather", _t)
-        gate_up = ttnn.add(gate_up, bias_rows, output_tensor=gate_up)
-        bias_rows.deallocate(True)
-        _t = self._stage_mark("g.bias_add", _t)
+        if not fused_bias:
+            bias_rows = ttnn.embedding(
+                member_ids,
+                self.indexed_gate_up_bias,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+                dtype=ttnn.bfloat16,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            bias_rows = ttnn.to_layout(ttnn.reshape(bias_rows, (1, count, 1, 2 * padded)), ttnn.TILE_LAYOUT)
+            _t = self._stage_mark("g.bias_gather", _t)
+            gate_up = ttnn.add(gate_up, bias_rows, output_tensor=gate_up)
+            bias_rows.deallocate(True)
+            _t = self._stage_mark("g.bias_add", _t)
         if gate_up.dtype == ttnn.bfloat4_b:
             converted = ttnn.typecast(gate_up, self.expert_intermediate_dtype)
             gate_up.deallocate(True)
