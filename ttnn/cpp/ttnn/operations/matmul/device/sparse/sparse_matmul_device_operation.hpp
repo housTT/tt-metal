@@ -62,7 +62,8 @@ std::tuple<SparseMatmulParams, SparseMatmulInputs> sparse_matmul_build_operation
     const std::optional<tt::tt_metal::SubDeviceId>& sub_device_id = std::nullopt,
     const std::optional<Tensor>& indices = std::nullopt,
     const std::optional<Tensor>& bias = std::nullopt,
-    uint32_t in0_senders = 1);
+    uint32_t in0_senders = 1,
+    bool in0_block_pairs = false);
 
 SparseMatmulDeviceOperation::tensor_return_value_t sparse_matmul(
     const Tensor& input_tensor_a,
@@ -82,6 +83,7 @@ SparseMatmulDeviceOperation::tensor_return_value_t sparse_matmul(
     const std::optional<tt::tt_metal::SubDeviceId>& sub_device_id = std::nullopt,
     const std::optional<Tensor>& indices = std::nullopt,
     const std::optional<Tensor>& bias = std::nullopt,
-    uint32_t in0_senders = 1);
+    uint32_t in0_senders = 1,
+    bool in0_block_pairs = false);
 
 }  // namespace ttnn::prim

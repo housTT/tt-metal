@@ -606,7 +606,8 @@ Tensor sparse_matmul(
     const std::optional<tt::tt_metal::SubDeviceId>& sub_device_id,
     const std::optional<Tensor>& indices,
     const std::optional<Tensor>& bias,
-    uint32_t in0_senders) {
+    uint32_t in0_senders,
+    bool in0_block_pairs) {
     std::optional<CoreCoord> user_core_coord =
         core_grid.has_value() ? std::make_optional(CoreCoord(core_grid->x, core_grid->y)) : std::nullopt;
 
@@ -628,7 +629,8 @@ Tensor sparse_matmul(
                sub_device_id,
                indices,
                bias,
-               in0_senders)
+               in0_senders,
+               in0_block_pairs)
         .at(0);
 }
 

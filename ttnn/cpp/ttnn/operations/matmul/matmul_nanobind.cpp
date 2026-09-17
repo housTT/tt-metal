@@ -1075,6 +1075,7 @@ void py_module(nb::module_& mod) {
             indices (ttnn.Tensor, optional): enables INDEXED/GATHER mode. A ROW_MAJOR ``UINT16`` tensor listing the ``num_active`` sparse-group ids to compute (e.g. the top-k expert ids). When provided, the kernels iterate ONLY those ids (``bB = indices[i]``) instead of scanning every sparse group, and the output's group axis becomes COMPACT with length ``num_active`` (``output_shape[-3] = num_active``) rather than the full group count ``E``; output slot ``i`` holds the result for group ``indices[i]``, so the ids need not be sorted. Requirements: `is_input_b_sparse` must be True; the tensor must be device-resident on the same device as the inputs and occupy a single ROW_MAJOR stick (all dimensions except the last must be 1); ``num_active`` must be <= the number of sparse groups ``E``; and every id must be < ``E`` (out-of-range ids are only caught on-device, asserting loudly under watcher). `nnz` must not be supplied together with `indices` -- the indexed loop count comes from ``num_active``, so an `nnz` would be silently ignored. `sparsity` is still a required operand but is NOT read by the kernels in this mode (the indexed loop visits only active groups, so there is no per-slot validity scan or multicast). Defaults to `None` (the group axis is scanned densely). Use this when only a few groups are active per call to avoid the full-group multicast cost.
             bias (ttnn.Tensor, optional): per-group fused bias, indexed/gather mode only. A ``BFLOAT16`` TILE tensor of padded shape ``[E, 32, N]`` whose tile row ``e`` holds group ``e``'s ``[1, N]`` bias (row 0 of the tile is used, the other rows are ignored). For every active group the in1 reader fetches tile row ``indices[i]`` and the compute kernel adds it to that group's output before packing, so the bias is applied at bf16 precision without a separate gather and add. Defaults to `None`.
             in0_senders (int, optional): number of in0 multicast sender cores, 1 or 2. With 2 (indexed/gather mode only, grids of at least 3 cores) the first two cores of the grid alternate the in0 multicast blocks and receive each other's, so the in0 DRAM reads and NoC injection are split across two cores. Defaults to 1.
+            in0_block_pairs (bool, optional): indexed/gather mode with one sender only. The in0 sender multicasts two K blocks per synchronisation (one receiver acknowledgement, one flag) and the in0 circular buffer holds four blocks instead of two, halving the round trips per byte at twice the in0 L1 footprint. Requires a tile-aligned K. Defaults to `False`.
 
         Returns:
             ttnn.Tensor: the output tensor with sparse results.
@@ -1188,7 +1189,8 @@ void py_module(nb::module_& mod) {
             nb::arg("sub_device_id") = nb::none(),
             nb::arg("indices") = nb::none(),
             nb::arg("bias") = nb::none(),
-            nb::arg("in0_senders") = 1));
+            nb::arg("in0_senders") = 1,
+            nb::arg("in0_block_pairs") = false));
 
     // Bind MatmulParams for descriptor-based operations
     nb::class_<ttnn::prim::MatmulParams>(mod, "MatmulParams")

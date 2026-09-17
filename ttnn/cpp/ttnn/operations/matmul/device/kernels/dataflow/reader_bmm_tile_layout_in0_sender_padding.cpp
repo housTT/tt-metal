@@ -45,6 +45,9 @@ void kernel_main() {
 #error "IN0_TWO_SENDERS is only implemented for interleaved in0"
 #endif
 #endif  // IN0_TWO_SENDERS
+#if defined(IN0_BLOCK_PAIRS) && (defined(IN0_SHARDED) || defined(IN0_TWO_SENDERS))
+#error "IN0_BLOCK_PAIRS is only implemented for interleaved in0 with one sender"
+#endif
 
     // COMPILE TIME ARGS
     // in0 tensor args
@@ -263,6 +266,72 @@ void kernel_main() {
                                 block, in0_tensor_current_inner_dim_block_start_tile_id, in0_tensor_start_tile_id);
                         }
 
+#ifdef IN0_BLOCK_PAIRS
+                        {
+                            // Two K blocks per synchronisation: read both into two consecutive CB slots
+                            // (the CB holds four blocks, so a pair never wraps), one wait for the
+                            // receivers, two multicast writes, one flag, one push. Interleaved in0 with
+                            // tile-aligned K only (checked by the factory); the compute kernel still
+                            // consumes one block at a time.
+                            const uint32_t blocks_now = (block + 1 < num_blocks_inner_dim) ? 2u : 1u;
+                            dfb_in0.reserve_back(blocks_now * in0_block_num_tiles);
+                            const uint32_t in0_pair_start_address = dfb_in0.get_write_ptr();
+                            uint32_t in0_write_offset = 0;
+                            for (uint32_t j = 0; j < blocks_now; ++j) {
+                                uint32_t in0_tensor_row_start_tile_id =
+                                    in0_tensor_current_inner_dim_block_start_tile_id;
+                                for (uint32_t h = 0; h < in0_block_h; ++h) {
+                                    uint32_t in0_tensor_tile_id = in0_tensor_row_start_tile_id;
+                                    for (uint32_t w = 0; w < in0_block_w; ++w) {
+                                        if (bh < num_blocks_h_dim - 1 || h < last_block_h) {
+                                            noc.async_read(
+                                                s0,
+                                                dfb_in0,
+                                                in0_single_tile_size_bytes,
+                                                {.page_id = in0_tensor_tile_id},
+                                                {.offset_bytes = in0_write_offset});
+                                        }
+                                        in0_write_offset += in0_aligned_tile_size_bytes;
+                                        in0_tensor_tile_id += in0_tensor_stride_w;
+                                    }
+                                    in0_tensor_row_start_tile_id += in0_tensor_stride_h;
+                                }
+                                in0_tensor_current_inner_dim_block_start_tile_id +=
+                                    in0_tensor_next_inner_dim_block_stride;
+                            }
+                            noc.async_read_barrier();
+#ifndef SKIP_MCAST
+                            sender_sem.wait(in0_mcast_num_dests);
+                            sender_sem.set(0);
+                            MulticastEndpoint pair_mcast_dst;
+                            noc.async_write_multicast(
+                                CoreLocalMem<uint32_t>(in0_pair_start_address),
+                                pair_mcast_dst,
+                                blocks_now * in0_block_size_bytes,
+                                in0_mcast_num_cores,
+                                {},
+                                {.noc_x_start = in0_mcast_dest_noc_start_x,
+                                 .noc_y_start = in0_mcast_dest_noc_start_y,
+                                 .noc_x_end = in0_mcast_dest_noc_end_x,
+                                 .noc_y_end = in0_mcast_dest_noc_end_y,
+                                 .addr = in0_pair_start_address},
+                                true);
+#ifdef ARCH_BLACKHOLE
+                            noc.async_writes_flushed();
+#endif  // ARCH_BLACKHOLE
+                            receiver_sem.set_multicast(
+                                noc,
+                                in0_mcast_dest_noc_start_x,
+                                in0_mcast_dest_noc_start_y,
+                                in0_mcast_dest_noc_end_x,
+                                in0_mcast_dest_noc_end_y,
+                                in0_mcast_num_cores);
+#endif  // SKIP_MCAST
+                            dfb_in0.push_back(blocks_now * in0_block_num_tiles);
+                            block += blocks_now - 1;
+                            continue;
+                        }
+#endif  // IN0_BLOCK_PAIRS
 #ifdef IN0_TWO_SENDERS
                         const bool in0_block_is_mine = ((in0_mcast_block_idx++ & 1u) == in0_sender_index);
                         if (!in0_block_is_mine) {

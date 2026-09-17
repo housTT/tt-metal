@@ -113,7 +113,8 @@ Tensor sparse_matmul(
     const std::optional<tt::tt_metal::SubDeviceId>& sub_device_id = std::nullopt,
     const std::optional<Tensor>& indices = std::nullopt,
     const std::optional<Tensor>& bias = std::nullopt,
-    uint32_t in0_senders = 1);
+    uint32_t in0_senders = 1,
+    bool in0_block_pairs = false);
 
 }  // namespace operations::matmul
 

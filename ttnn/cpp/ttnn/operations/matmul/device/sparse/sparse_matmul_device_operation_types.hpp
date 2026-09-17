@@ -30,6 +30,9 @@ struct SparseMatmulParams {
     // grid alternate the multicast blocks, splitting the in0 DRAM reads and NoC injection across two
     // cores. Hashed: the kernels are compiled with IN0_TWO_SENDERS.
     uint32_t in0_senders = 1;
+    // Two K blocks per in0 multicast synchronisation (indexed mode, single sender): halves the
+    // acknowledgement/flag round trips per byte at the cost of a four-block in0 CB. Hashed.
+    bool in0_block_pairs = false;
     std::optional<const operations::matmul::MatmulProgramConfig> program_config = std::nullopt;
     tt::tt_metal::MemoryConfig output_mem_config = tt::tt_metal::operation::DEFAULT_OUTPUT_MEMORY_CONFIG;
     std::optional<tt::tt_metal::DataType> output_dtype = std::nullopt;

@@ -1340,6 +1340,10 @@ class _ActiveExpertTPMLP(MLP):
             if "in0_senders (int, optional)" in (ttnn.sparse_matmul.__doc__ or "")
             else 1
         )
+        # Two K blocks per in0 multicast synchronisation (four-block in0 CB, twice the in0 L1).
+        self.indexed_prefill_in0_block_pairs = os.environ.get(
+            "GPT_OSS_120B_INDEXED_IN0_BLOCK_PAIRS", "0"
+        ) == "1" and "in0_block_pairs (bool, optional)" in (ttnn.sparse_matmul.__doc__ or "")
         # Indexed prefill matmul blocking: (in0_block_w, out_block_h,
         # out_subblock_h, out_subblock_w) in tiles.  out_block_h > 1 makes the
         # kernel reuse each weight block across several slab tile rows instead
@@ -2138,6 +2142,7 @@ class _ActiveExpertTPMLP(MLP):
             dtype=self.expert_intermediate_dtype,
             **({"bias": self.indexed_gate_up_bias_tiled} if fused_bias else {}),
             **({"in0_senders": 2} if self.indexed_prefill_in0_senders == 2 else {}),
+            **({"in0_block_pairs": True} if self.indexed_prefill_in0_block_pairs else {}),
         )
         slab_tiled.deallocate(True)
         _t = self._stage_mark("g.gate_up_mm", _t)
@@ -2185,6 +2190,7 @@ class _ActiveExpertTPMLP(MLP):
             compute_kernel_config=self.expert_compute_kernel_config,
             dtype=self.expert_intermediate_dtype,
             **({"in0_senders": 2} if self.indexed_prefill_in0_senders == 2 else {}),
+            **({"in0_block_pairs": True} if self.indexed_prefill_in0_block_pairs else {}),
         )
         down_input.deallocate(True)
         member_ids.deallocate(True)

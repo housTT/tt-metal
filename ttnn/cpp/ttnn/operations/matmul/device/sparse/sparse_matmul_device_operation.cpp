@@ -298,6 +298,9 @@ void SparseMatmulDeviceOperation::validate_on_program_cache_miss(
     TT_FATAL(
         operation_attributes.in0_senders == 1 || operation_attributes.use_indices,
         "in0_senders=2 requires indexed/gather mode (pass `indices`)");
+    TT_FATAL(
+        !operation_attributes.in0_block_pairs || operation_attributes.use_indices,
+        "in0_block_pairs requires indexed/gather mode (pass `indices`)");
     if (operation_attributes.use_bias) {
         TT_FATAL(
             operation_attributes.use_indices,
@@ -568,7 +571,8 @@ std::tuple<SparseMatmulParams, SparseMatmulInputs> sparse_matmul_build_operation
     const std::optional<tt::tt_metal::SubDeviceId>& sub_device_id,
     const std::optional<Tensor>& indices,
     const std::optional<Tensor>& bias,
-    uint32_t in0_senders) {
+    uint32_t in0_senders,
+    bool in0_block_pairs) {
     auto sparse_matmul_attributes = SparseMatmulParams{
         nnz,
         is_input_a_sparse,
@@ -576,6 +580,7 @@ std::tuple<SparseMatmulParams, SparseMatmulInputs> sparse_matmul_build_operation
         indices.has_value(),  // use_indices
         bias.has_value(),     // use_bias
         in0_senders,
+        in0_block_pairs,
         program_config,
         memory_config.has_value() ? memory_config.value() : ttnn::DRAM_MEMORY_CONFIG,
         dtype,
@@ -624,7 +629,8 @@ SparseMatmulDeviceOperation::tensor_return_value_t sparse_matmul(
     const std::optional<tt::tt_metal::SubDeviceId>& sub_device_id,
     const std::optional<Tensor>& indices,
     const std::optional<Tensor>& bias,
-    uint32_t in0_senders) {
+    uint32_t in0_senders,
+    bool in0_block_pairs) {
     auto [params, inputs] = sparse_matmul_build_operation_args(
         input_tensor_a,
         input_tensor_b,
@@ -643,7 +649,8 @@ SparseMatmulDeviceOperation::tensor_return_value_t sparse_matmul(
         sub_device_id,
         indices,
         bias,
-        in0_senders);
+        in0_senders,
+        in0_block_pairs);
     return ttnn::device_operation::launch<SparseMatmulDeviceOperation>(params, inputs);
 }
 
@@ -682,6 +689,7 @@ SparseMatmulParams create_sparse_matmul_attributes(
         parameters.use_indices,
         parameters.use_bias,
         parameters.in0_senders,
+        parameters.in0_block_pairs,
         matmul_struct.program_config,
         matmul_struct.output_mem_config,
         matmul_struct.output_dtype,

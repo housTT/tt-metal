@@ -76,7 +76,18 @@ void kernel_main() {
         for (uint32_t bh = 0; bh < num_blocks_h_dim; ++bh) {
             for (uint32_t bw = 0; bw < num_blocks_w_dim; ++bw) {
                 for (uint32_t block = 0; block < num_blocks_inner_dim; ++block) {
-                    // Operand 0
+#ifdef IN0_BLOCK_PAIRS
+                    // One acknowledgement and one flag per two K blocks (see the sender).
+                    const uint32_t blocks_now = (block + 1 < num_blocks_inner_dim) ? 2u : 1u;
+                    dfb_in0.reserve_back(blocks_now * in0_block_num_tiles);
+                    receiver_sem.set(INVALID);
+                    sender_sem.up(noc, in0_mcast_sender_noc_x, in0_mcast_sender_noc_y, 1);
+                    receiver_sem.wait(VALID);
+                    dfb_in0.push_back(blocks_now * in0_block_num_tiles);
+                    block += blocks_now - 1;
+                    continue;
+#endif  // IN0_BLOCK_PAIRS
+        // Operand 0
                     dfb_in0.reserve_back(in0_block_num_tiles);
 
                     // Set in0 semaphore value to INVALID

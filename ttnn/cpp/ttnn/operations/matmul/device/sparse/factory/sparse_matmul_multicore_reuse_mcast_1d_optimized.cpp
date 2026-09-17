@@ -99,6 +99,12 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
     const auto in1_tile = get_matmul_tile(b, /*transpose=*/false);
     // cannot use the output tensor tile directly as that might be changed by user override
     const auto output_tile = tt::tt_metal::Tile({in0_tile.get_height(), in1_tile.get_width()});
+    // Two K blocks per in0 synchronisation (indexed mode, `in0_block_pairs`): the in0 CB holds four blocks
+    // and the sender/receiver kernels exchange one acknowledgement and one flag per pair. Needs a
+    // tile-aligned K (no padded last K tile) and the single-sender protocol.
+    const bool in0_block_pairs =
+        operation_attributes.in0_block_pairs && use_indices && operation_attributes.in0_senders != 2 &&
+        (get_matmul_tensor_logical_shape(a, /*transpose=*/false)[-1] % in0_tile.get_width() == 0);
 
     // CB dataformats
     const auto in0_data_format = tt_metal::datatype_to_dataformat_converter(a.dtype());
@@ -215,7 +221,10 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
 
     uint32_t in0_block_tiles = in0_block_h * in0_block_w;
     uint32_t in0_CB_tiles = in0_block_tiles;
-    if (batchA * batchB * num_blocks > 1) {
+    if (in0_block_pairs) {
+        // Block pairs: two blocks in flight per synchronisation plus two for the compute kernel.
+        in0_CB_tiles *= 4;
+    } else if (batchA * batchB * num_blocks > 1) {
         in0_CB_tiles *= ttnn::operations::matmul::utilities::MCAST_INPUT_BUFFERING_DEPTH;
     }
     uint32_t in0_CB_size = in0_CB_tiles * in0_aligned_tile_size;
@@ -481,6 +490,10 @@ SparseMatmulMultiCoreReuseMcast1DProgramFactory::create(
     if (two_in0_senders) {
         mm_kernel_in0_sender_writer_defines["IN0_TWO_SENDERS"] = "1";
         mm_kernel_in0_receiver_defines["IN0_TWO_SENDERS"] = "1";
+    }
+    if (in0_block_pairs) {
+        mm_kernel_in0_sender_writer_defines["IN0_BLOCK_PAIRS"] = "1";
+        mm_kernel_in0_receiver_defines["IN0_BLOCK_PAIRS"] = "1";
     }
     if (use_bias) {
         // FUSE_BIAS selects the shared kernels' fused-bias path; BIAS_PER_GROUP makes the reader fetch
