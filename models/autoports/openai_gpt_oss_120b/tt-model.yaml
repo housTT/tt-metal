@@ -179,15 +179,19 @@ card:
 
     How to read the long-context rows. Prompts above 2,048 tokens are prefilled one
     at a time, so TTFT at N users is about N times the single-user prefill (the
-    last user of a wave waits for every prefill before it). The KV pool holds
-    262,144 tokens: 15 sequences at 16k, 7 at 32k, 3 at 64k and one at 128k, so
-    the rest of a wave waits for admission (that wait lands in TTFT), and each
-    new prompt's prefill stalls the decode steps of the users already
-    generating, which is why per-user decode falls to 7 to 12 tok/s at 8 or more
-    users from 16k upward. The 130,816-token rows are the context boundary
-    (max_model_len - 256): only one such sequence fits the pool, so the server
-    handles those requests strictly one at a time (30.3 s prefill, then 5.1 s of
-    decode at 20 ms per token). The decode column stays at 50 tok/s per user at
+    last user of a wave waits for every prefill before it). vLLM admits
+    148,480 tokens of context across the running requests (the plugin's 4,640 KV
+    blocks are split equally between the full-attention and the sliding-window
+    layer groups, and the full-attention group's 2,320 blocks of 64 tokens set
+    the limit; the server logs this as "maximum concurrency 1.13x at 131,072
+    tokens"): 8 sequences at 16k, 4 at 32k, 2 at 64k and one at 128k. The rest of
+    a wave waits for admission (that wait lands in TTFT), and each new prompt's
+    prefill stalls the decode steps of the users already generating, which is why
+    per-user decode drops sharply past those counts (16k at 16 users, 32k at 8,
+    64k at 4). The 130,816-token rows are the context boundary (max_model_len -
+    256): only one such sequence fits, so the server handles those requests
+    strictly one at a time (30.3 s prefill, then 5.1 s of decode at 20 ms per
+    token). The decode column stays at 50 tok/s per user at
     every concurrency there because it is the undisturbed single-sequence rate;
     the concurrency cost is entirely in TTFT (about 35 s per request ahead in the
     queue) and in the 7 tok/s total output rate.
