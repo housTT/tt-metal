@@ -34,6 +34,7 @@ runtime:
     wheel: /home/ttuser/dev/gpt-oss-120b/container/hf/build-inputs/vllm-0.26.0.dev2+g53b3c0128-cp310-cp310-linux_x86_64.whl
   plugin:
     path: /home/ttuser/dev/gpt-oss-120b/vllm-tt-plugin
+    repo: https://github.com/housTT/vllm-tt-plugin
   wheels:
     - /home/ttuser/dev/gpt-oss-120b/container/hf/build-inputs/pytest-9.0.3-py3-none-any.whl
     - /home/ttuser/dev/gpt-oss-120b/container/hf/build-inputs/torch-2.11.0+cpu-cp310-cp310-manylinux_2_28_x86_64.whl
@@ -87,6 +88,30 @@ card:
 
     The first start compiles kernels and model tensors into the persistent package
     cache. The previously validated cold start took 14m25s; a warm restart took 6m50s.
+
+    ### Source
+
+    Every line of code in this image is on a public branch. The Provenance table at
+    the end of this card links the exact commits the image was built from.
+
+    - tt-metal: branch [`hous/gpt-oss-120b-p150x4`](https://github.com/housTT/tt-metal/tree/hous/gpt-oss-120b-p150x4)
+      on the housTT fork, about 70 commits over upstream `main` at `6127e496`: the
+      GPT-OSS 120B autoport (batched decode, batched and indexed MoE prefill, chunked
+      131k prefill, sharded decode norms), the `ttnn.sparse_matmul` extensions (fused
+      per-group bias, optional second in0 sender, two-block synchronisation), the
+      allocator tracker fix, and this card.
+    - vLLM: branch [`tt/gpt-oss-serving`](https://github.com/housTT/vllm/tree/tt/gpt-oss-serving)
+      on the housTT fork, commit
+      [`53b3c0128`](https://github.com/housTT/vllm/commit/53b3c0128fe84c4b0d4bb7ecbea2acf91418922c)
+      on top of upstream `54dea57d9`: the Harmony parser recovers from an off-grammar
+      token mid-stream instead of failing the request. The image installs the wheel
+      `vllm-0.26.0.dev2+g53b3c0128` built from that commit with
+      `VLLM_TARGET_DEVICE=empty` (no CUDA; the Tenstorrent plugin supplies the platform).
+    - vllm-tt-plugin: branch [`hous/gpt-oss-120b-serving`](https://github.com/housTT/vllm-tt-plugin/tree/hous/gpt-oss-120b-serving)
+      on the housTT fork, commit
+      [`176a8c5`](https://github.com/housTT/vllm-tt-plugin/commit/176a8c5865d9abe82d2d8a04a25b5920e78f3fcb)
+      on top of `053c078`: capability-gated tensor sampling parameters and host-state
+      versions for decode, used by this autoport.
 
     ### Measured P150x4 latency (sweep v24, 2026-09-17: every planned row, 1 to 32 users at every input length up to the 131,072-token context)
 
