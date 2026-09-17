@@ -91,62 +91,66 @@ card:
     ### Measured P150x4 latency (sweep v24, 2026-09-17: every planned row, 1 to 32 users at every input length up to the 131,072-token context)
 
     Measured on this package by the bench-sweeps harness (`/home/ttuser/dev/bench-sweeps`,
-    `tt-model serve` from a cold start): random-token prompts of exactly the input
-    length, `ignore_eos`, output pinned to the output length, N = 4 x users prompts
-    per row up to 4,096 input tokens, 2 x users at 16,384, then one per user, held
-    open as a closed loop. The harness rule that used to stop multi-user rows once
-    concurrency wrecked end-to-end latency is off for this table, so the long-context
-    rows show the real client experience at each concurrency. Decode runs one
-    grouped expert pass per step with trace buckets at 1, 4, 8, 16 and 32 users;
-    new requests that arrive in the same scheduler step and share a padded prompt
-    length (up to 2,048 tokens) are prefilled together; the expert gate/up bias is
-    fused into the indexed sparse matmul. Aggregate is the harness's total output
-    tokens per second across users over the row's wall time.
+    `tt-model serve` from a cold start): random-token prompts of exactly ISL tokens,
+    `ignore_eos`, output pinned to OSL tokens, Users concurrent requests held open
+    as a closed loop, N requests per row in total (4 per user up to 4,096 input
+    tokens, 2 per user at 16,384, then 1 per user). TTFT is the time to the first
+    streamed token; TPOT = (E2EL - TTFT) / (OSL - 1) per request; prefill tok/s/u =
+    ISL / TTFT; decode tok/s/u = 1 / TPOT; E2EL is the end-to-end latency of one
+    request; Out tok/s total is the harness's total output tokens per second across
+    all users over the row's wall time. Every value is the mean over the row's N
+    requests. The harness rule that used to stop multi-user rows once concurrency
+    wrecked end-to-end latency is off for this table, so the long-context rows show
+    the real client experience at each concurrency. Decode runs one grouped expert
+    pass per step with trace buckets at 1, 4, 8, 16 and 32 users; new requests that
+    arrive in the same scheduler step and share a padded prompt length (up to 2,048
+    tokens) are prefilled together; the expert gate/up bias is fused into the
+    indexed sparse matmul.
 
-    | input | output | users | TTFT | TPOT | decode tok/s/user | aggregate tok/s |
-    | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-    | 128 | 128 | 1 | 0.26 s | 15.2 ms | 66 | 58 |
-    | 128 | 128 | 2 | 0.50 s | 21.8 ms | 46 | 78 |
-    | 128 | 128 | 4 | 0.58 s | 21.8 ms | 46 | 153 |
-    | 128 | 128 | 8 | 0.56 s | 32.6 ms | 31 | 218 |
-    | 128 | 128 | 16 | 0.83 s | 42.4 ms | 24 | 330 |
-    | 128 | 128 | 32 | 1.02 s | 50.0 ms | 20 | 556 |
-    | 1,024 | 256 | 1 | 0.35 s | 15.5 ms | 65 | 60 |
-    | 1,024 | 256 | 2 | 0.62 s | 22.1 ms | 45 | 82 |
-    | 1,024 | 256 | 4 | 1.05 s | 22.1 ms | 45 | 153 |
-    | 1,024 | 256 | 8 | 1.58 s | 32.9 ms | 30 | 205 |
-    | 1,024 | 256 | 16 | 2.72 s | 42.9 ms | 23 | 300 |
-    | 1,024 | 256 | 32 | 5.08 s | 50.3 ms | 20 | 458 |
-    | 4,096 | 256 | 1 | 0.75 s | 15.7 ms | 64 | 54 |
-    | 4,096 | 256 | 2 | 1.48 s | 22.3 ms | 45 | 71 |
-    | 4,096 | 256 | 4 | 2.87 s | 22.3 ms | 45 | 119 |
-    | 4,096 | 256 | 8 | 5.92 s | 33.4 ms | 30 | 142 |
-    | 4,096 | 256 | 16 | 11.8 s | 43.5 ms | 23 | 179 |
-    | 4,096 | 256 | 32 | 23.1 s | 50.4 ms | 20 | 228 |
-    | 16,384 | 256 | 1 | 2.43 s | 16.1 ms | 62 | 39 |
-    | 16,384 | 256 | 2 | 4.91 s | 23.2 ms | 43 | 47 |
-    | 16,384 | 256 | 4 | 9.73 s | 23.2 ms | 43 | 65 |
-    | 16,384 | 256 | 8 | 19.4 s | 35.0 ms | 29 | 72 |
-    | 16,384 | 256 | 16 | 21.9 s | 113.8 ms | 9 | 80 |
-    | 16,384 | 256 | 32 | 57.8 s | 137.2 ms | 7 | 80 |
-    | 32,768 | 256 | 1 | 5.21 s | 16.7 ms | 60 | 27 |
-    | 32,768 | 256 | 2 | 10.4 s | 24.4 ms | 41 | 31 |
-    | 32,768 | 256 | 4 | 20.8 s | 24.4 ms | 41 | 38 |
-    | 32,768 | 256 | 8 | 27.2 s | 93.6 ms | 11 | 40 |
-    | 32,768 | 256 | 16 | 51.8 s | 118.9 ms | 8 | 40 |
-    | 32,768 | 256 | 32 | 102 s | 132.7 ms | 8 | 40 |
-    | 65,536 | 256 | 1 | 11.9 s | 17.8 ms | 56 | 16 |
-    | 65,536 | 256 | 2 | 23.8 s | 26.7 ms | 37 | 17 |
-    | 65,536 | 256 | 4 | 34.5 s | 59.6 ms | 17 | 17 |
-    | 65,536 | 256 | 8 | 62.3 s | 86.4 ms | 12 | 17 |
-    | 65,536 | 256 | 16 | 118 s | 102.0 ms | 10 | 18 |
-    | 65,536 | 256 | 32 | 230 s | 111.3 ms | 9 | 18 |
-    | 130,816 | 256 | 1 | 30.3 s | 20.0 ms | 50 | 7 |
-    | 130,816 | 256 | 2 | 48.2 s | 20.0 ms | 50 | 7 |
-    | 130,816 | 256 | 4 | 83.3 s | 20.0 ms | 50 | 7 |
-    | 130,816 | 256 | 8 | 155 s | 20.0 ms | 50 | 7 |
-    | 130,816 | 256 | 16 | 292 s | 20.0 ms | 50 | 7 |
-    | 130,816 | 256 | 32 | 573 s | 20.0 ms | 50 | 7 |
+    | ISL | OSL | Users | N | TTFT (ms) | Prefill (tok/s/u) | TPOT (ms) | Decode (tok/s/u) | E2EL (s) | Out (tok/s total) |
+    | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+    | 128 | 128 | 1 | 4 | 261 | 490 | 15.2 | 65.7 | 2.19 | 58 |
+    | 128 | 128 | 2 | 8 | 496 | 258 | 21.8 | 45.8 | 3.27 | 78 |
+    | 128 | 128 | 4 | 16 | 584 | 219 | 21.8 | 45.8 | 3.35 | 153 |
+    | 128 | 128 | 8 | 32 | 559 | 229 | 32.6 | 30.6 | 4.70 | 218 |
+    | 128 | 128 | 16 | 64 | 826 | 155 | 42.4 | 23.6 | 6.21 | 330 |
+    | 128 | 128 | 32 | 128 | 1,025 | 125 | 50.0 | 20.0 | 7.37 | 556 |
+    | 1,024 | 256 | 1 | 4 | 347 | 2,950 | 15.5 | 64.6 | 4.29 | 60 |
+    | 1,024 | 256 | 2 | 8 | 620 | 1,651 | 22.1 | 45.3 | 6.25 | 82 |
+    | 1,024 | 256 | 4 | 16 | 1,049 | 976 | 22.1 | 45.2 | 6.69 | 153 |
+    | 1,024 | 256 | 8 | 32 | 1,583 | 647 | 32.9 | 30.4 | 9.98 | 205 |
+    | 1,024 | 256 | 16 | 64 | 2,716 | 377 | 42.9 | 23.3 | 13.65 | 300 |
+    | 1,024 | 256 | 32 | 128 | 5,079 | 202 | 50.3 | 19.9 | 17.90 | 458 |
+    | 4,096 | 256 | 1 | 4 | 747 | 5,482 | 15.7 | 63.8 | 4.75 | 54 |
+    | 4,096 | 256 | 2 | 8 | 1,481 | 2,766 | 22.3 | 44.8 | 7.17 | 71 |
+    | 4,096 | 256 | 4 | 16 | 2,873 | 1,426 | 22.3 | 44.8 | 8.57 | 119 |
+    | 4,096 | 256 | 8 | 32 | 5,920 | 692 | 33.4 | 30.0 | 14.43 | 142 |
+    | 4,096 | 256 | 16 | 64 | 11,763 | 348 | 43.5 | 23.0 | 22.87 | 179 |
+    | 4,096 | 256 | 32 | 128 | 23,125 | 177 | 50.4 | 19.8 | 35.99 | 228 |
+    | 16,384 | 256 | 1 | 2 | 2,435 | 6,730 | 16.1 | 62.1 | 6.54 | 39 |
+    | 16,384 | 256 | 2 | 4 | 4,908 | 3,338 | 23.2 | 43.1 | 10.83 | 47 |
+    | 16,384 | 256 | 4 | 8 | 9,735 | 1,683 | 23.2 | 43.1 | 15.66 | 65 |
+    | 16,384 | 256 | 8 | 16 | 19,439 | 843 | 35.0 | 28.5 | 28.38 | 72 |
+    | 16,384 | 256 | 16 | 32 | 21,949 | 746 | 113.8 | 8.8 | 50.98 | 80 |
+    | 16,384 | 256 | 32 | 64 | 57,790 | 284 | 137.2 | 7.3 | 92.77 | 80 |
+    | 32,768 | 256 | 1 | 1 | 5,206 | 6,294 | 16.7 | 59.9 | 9.46 | 27 |
+    | 32,768 | 256 | 2 | 2 | 10,380 | 3,157 | 24.4 | 40.9 | 16.61 | 31 |
+    | 32,768 | 256 | 4 | 4 | 20,824 | 1,574 | 24.4 | 41.0 | 27.04 | 38 |
+    | 32,768 | 256 | 8 | 8 | 27,247 | 1,203 | 93.6 | 10.7 | 51.11 | 40 |
+    | 32,768 | 256 | 16 | 16 | 51,835 | 632 | 118.9 | 8.4 | 82.16 | 40 |
+    | 32,768 | 256 | 32 | 32 | 102,279 | 320 | 132.7 | 7.5 | 136.13 | 40 |
+    | 65,536 | 256 | 1 | 1 | 11,926 | 5,495 | 17.8 | 56.2 | 16.47 | 16 |
+    | 65,536 | 256 | 2 | 2 | 23,836 | 2,749 | 26.7 | 37.4 | 30.65 | 17 |
+    | 65,536 | 256 | 4 | 4 | 34,481 | 1,901 | 59.6 | 16.8 | 49.69 | 17 |
+    | 65,536 | 256 | 8 | 8 | 62,304 | 1,052 | 86.4 | 11.6 | 84.34 | 17 |
+    | 65,536 | 256 | 16 | 16 | 117,556 | 557 | 102.0 | 9.8 | 143.58 | 18 |
+    | 65,536 | 256 | 32 | 32 | 230,250 | 285 | 111.3 | 9.0 | 258.64 | 18 |
+    | 130,816 | 256 | 1 | 1 | 30,315 | 4,315 | 20.0 | 49.9 | 35.42 | 7 |
+    | 130,816 | 256 | 2 | 2 | 48,150 | 2,717 | 20.0 | 49.9 | 53.26 | 7 |
+    | 130,816 | 256 | 4 | 4 | 83,329 | 1,570 | 20.0 | 50.0 | 88.43 | 7 |
+    | 130,816 | 256 | 8 | 8 | 155,008 | 844 | 20.0 | 50.0 | 160.11 | 7 |
+    | 130,816 | 256 | 16 | 16 | 291,563 | 449 | 20.0 | 50.0 | 296.66 | 7 |
+    | 130,816 | 256 | 32 | 32 | 572,871 | 228 | 20.0 | 50.0 | 577.97 | 7 |
 
     How to read the long-context rows. Prompts above 2,048 tokens are prefilled one
     at a time, so TTFT at N users is about N times the single-user prefill (the
@@ -161,7 +165,7 @@ card:
     decode at 20 ms per token). That is why the decode column stays at 50 tok/s
     per user at every concurrency there: it is the undisturbed single-sequence
     rate, and the concurrency cost is entirely in TTFT (about 35 s per request
-    ahead in the queue) and in the 7 tok/s aggregate.
+    ahead in the queue) and in the 7 tok/s total output rate.
 
     Known serving issues seen during these measurements. (1) At 32 concurrent chat
     requests about 0.4% of responses fail with HTTP 500 from the Harmony output
