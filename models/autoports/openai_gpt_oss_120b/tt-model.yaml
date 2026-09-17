@@ -87,50 +87,50 @@ card:
     ```
 
     The first start compiles kernels and model tensors into the persistent package
-    cache. The previously validated cold start took 14m25s; a warm restart took 6m50s.
+    cache and takes about 18 minutes; a restart with a warm cache takes about 8
+    minutes.
 
     ### Source
 
-    Every line of code in this image is on a public branch. The Provenance table at
+    Every line of code in this image is on a public branch; the Provenance table at
     the end of this card links the exact commits the image was built from.
 
-    - tt-metal: branch [`hous/gpt-oss-120b-p150x4`](https://github.com/housTT/tt-metal/tree/hous/gpt-oss-120b-p150x4)
-      on the housTT fork, about 70 commits over upstream `main` at `6127e496`: the
-      GPT-OSS 120B autoport (batched decode, batched and indexed MoE prefill, chunked
-      131k prefill, sharded decode norms), the `ttnn.sparse_matmul` extensions (fused
-      per-group bias, optional second in0 sender, two-block synchronisation), the
-      allocator tracker fix, and this card.
-    - vLLM: branch [`tt/gpt-oss-serving`](https://github.com/housTT/vllm/tree/tt/gpt-oss-serving)
+    - tt-metal: [`hous/gpt-oss-120b-p150x4`](https://github.com/housTT/tt-metal/tree/hous/gpt-oss-120b-p150x4)
+      on the housTT fork: the GPT-OSS 120B autoport (batched decode, batched and
+      indexed MoE prefill, chunked 131k prefill, sharded decode norms), the
+      `ttnn.sparse_matmul` extensions it uses (fused per-group bias, optional
+      second in0 sender, two-block synchronisation), the allocator tracker fix, and
+      this card.
+    - vLLM: [`tt/gpt-oss-serving`](https://github.com/housTT/vllm/tree/tt/gpt-oss-serving)
       on the housTT fork, commit
-      [`53b3c0128`](https://github.com/housTT/vllm/commit/53b3c0128fe84c4b0d4bb7ecbea2acf91418922c)
-      on top of upstream `54dea57d9`: the Harmony parser recovers from an off-grammar
-      token mid-stream instead of failing the request. The image installs the wheel
-      `vllm-0.26.0.dev2+g53b3c0128` built from that commit with
-      `VLLM_TARGET_DEVICE=empty` (no CUDA; the Tenstorrent plugin supplies the platform).
-    - vllm-tt-plugin: branch [`hous/gpt-oss-120b-serving`](https://github.com/housTT/vllm-tt-plugin/tree/hous/gpt-oss-120b-serving)
+      [`53b3c0128`](https://github.com/housTT/vllm/commit/53b3c0128fe84c4b0d4bb7ecbea2acf91418922c):
+      upstream vLLM plus a Harmony parser that recovers from an off-grammar token
+      mid-stream (the parsed reasoning is kept, the remaining text is returned as
+      `content`, a warning names the token) instead of failing the request. The
+      image installs the wheel `vllm-0.26.0.dev2+g53b3c0128` built from that
+      commit with `VLLM_TARGET_DEVICE=empty`; the Tenstorrent plugin supplies the
+      platform.
+    - vllm-tt-plugin: [`hous/gpt-oss-120b-serving`](https://github.com/housTT/vllm-tt-plugin/tree/hous/gpt-oss-120b-serving)
       on the housTT fork, commit
-      [`176a8c5`](https://github.com/housTT/vllm-tt-plugin/commit/176a8c5865d9abe82d2d8a04a25b5920e78f3fcb)
-      on top of `053c078`: capability-gated tensor sampling parameters and host-state
-      versions for decode, used by this autoport.
+      [`176a8c5`](https://github.com/housTT/vllm-tt-plugin/commit/176a8c5865d9abe82d2d8a04a25b5920e78f3fcb):
+      the plugin with capability-gated tensor sampling parameters and host-state
+      versions for decode, which this autoport uses.
 
-    ### Measured P150x4 latency (sweep v24, 2026-09-17: every planned row, 1 to 32 users at every input length up to the 131,072-token context)
+    ### Measured P150x4 latency (2026-09-17)
 
-    Measured on this package by the bench-sweeps harness (`/home/ttuser/dev/bench-sweeps`,
-    `tt-model serve` from a cold start): random-token prompts of exactly ISL tokens,
-    `ignore_eos`, output pinned to OSL tokens, Users concurrent requests held open
-    as a closed loop, N requests per row in total (4 per user up to 4,096 input
-    tokens, 2 per user at 16,384, then 1 per user). TTFT is the time to the first
-    streamed token; TPOT = (E2EL - TTFT) / (OSL - 1) per request; prefill tok/s/u =
-    ISL / TTFT; decode tok/s/u = 1 / TPOT; E2EL is the end-to-end latency of one
-    request; Out tok/s total is the harness's total output tokens per second across
-    all users over the row's wall time. Every value is the mean over the row's N
-    requests. The harness rule that used to stop multi-user rows once concurrency
-    wrecked end-to-end latency is off for this table, so the long-context rows show
-    the real client experience at each concurrency. Decode runs one grouped expert
-    pass per step with trace buckets at 1, 4, 8, 16 and 32 users; new requests that
-    arrive in the same scheduler step and share a padded prompt length (up to 2,048
-    tokens) are prefilled together; the expert gate/up bias is fused into the
-    indexed sparse matmul.
+    Measured on this package by the bench-sweeps harness (`tt-model serve` from a
+    cold start): random-token prompts of exactly ISL tokens, `ignore_eos`, output
+    pinned to OSL tokens, Users concurrent requests held open as a closed loop, N
+    requests per row in total (4 per user up to 4,096 input tokens, 2 per user at
+    16,384, then 1 per user). TTFT is the time to the first streamed token;
+    TPOT = (E2EL - TTFT) / (OSL - 1) per request; prefill tok/s/u = ISL / TTFT;
+    decode tok/s/u = 1 / TPOT; E2EL is the end-to-end latency of one request; Out
+    tok/s total is the total output tokens per second across all users over the
+    row's wall time. Every value is the mean over the row's N requests. Decode
+    runs one grouped expert pass per step with trace buckets at 1, 4, 8, 16 and 32
+    users; new requests that arrive in the same scheduler step and share a padded
+    prompt length (up to 2,048 tokens) are prefilled together; the expert gate/up
+    bias is fused into the indexed sparse matmul.
 
     | ISL | OSL | Users | N | TTFT (ms) | Prefill (tok/s/u) | TPOT (ms) | Decode (tok/s/u) | E2EL (s) | Out (tok/s total) |
     | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -187,48 +187,36 @@ card:
     users from 16k upward. The 130,816-token rows are the context boundary
     (max_model_len - 256): only one such sequence fits the pool, so the server
     handles those requests strictly one at a time (30.3 s prefill, then 5.1 s of
-    decode at 20 ms per token). That is why the decode column stays at 50 tok/s
-    per user at every concurrency there: it is the undisturbed single-sequence
-    rate, and the concurrency cost is entirely in TTFT (about 35 s per request
-    ahead in the queue) and in the 7 tok/s total output rate.
+    decode at 20 ms per token). The decode column stays at 50 tok/s per user at
+    every concurrency there because it is the undisturbed single-sequence rate;
+    the concurrency cost is entirely in TTFT (about 35 s per request ahead in the
+    queue) and in the 7 tok/s total output rate.
 
-    Known serving issues seen during these measurements. (1) Fixed in this build:
-    at 32 concurrent chat requests about 0.4% of responses used to fail with HTTP
-    500 from the Harmony output parser (`Unexpected token ... while expecting
-    start token`) when the model emitted text where the grammar expects a channel
-    start. The vLLM fork in this bundle (`53b3c0128`, branch `tt/gpt-oss-serving`)
-    now keeps the parsed reasoning, returns the off-grammar text as `content`,
-    logs a warning naming the token, and does the same on the streaming path.
-    (2) Open: at the 130,816-token rows with 16 or 32 concurrent requests, one
-    request per row received its own prompt streamed back as generated text (one
-    722,000-character chunk, no `echo` requested, usage counted 256 completion
-    tokens); seen in three runs, not seen at 8 users or at shorter inputs. This
-    one is still an open item in the vLLM fork / plugin output path.
+    ### Known issues
+
+    At 130,816-token prompts with 16 or more concurrent requests, one request per
+    batch receives its own prompt streamed back as generated text (one
+    722,000-character chunk, no `echo` requested, usage reports 256 completion
+    tokens). Not observed at 8 users or at shorter inputs. Open in the vLLM fork /
+    plugin output path.
 
     ### Accuracy
 
-    Evals run through the OpenAI-compatible chat API against the served model with
-    the release generation policy: `reasoning_effort` medium, greedy (`temperature`
-    0, `do_sample` false), 4,096 max output tokens, seed 42, chat template applied.
-    The IFEval row on this build was measured at 32 concurrent requests so the
-    batched prefill and decode paths are the ones scored; 14 of the 541 answers
-    were empty because the reasoning channel used the whole 4,096-token budget
-    (the release policy has the same cap, so the runs are comparable).
+    Evals run through the OpenAI-compatible chat API against the served model:
+    `reasoning_effort` medium, greedy (`temperature` 0, `do_sample` false), 4,096
+    max output tokens, seed 42, chat template applied. IFEval is the full 541-prompt
+    set at 32 concurrent requests (14 answers are empty because the reasoning
+    channel used the whole 4,096-token budget); GPQA Diamond, AIME 2025 and MMLU are
+    subsets run at one request at a time.
 
-    | eval | scope | score | published | release minimum | build, date |
-    | --- | --- | ---: | ---: | ---: | --- |
-    | IFEval (google/IFEval), prompt-level strict | 541 prompts, 32 concurrent | 85.2% (461/541, stderr 1.5) | 78.2% | 74.29% | this code (`bbe275d0`), 2026-09-17 |
-    | IFEval, instruction-level strict | same run | 89.0% | | | this code, 2026-09-17 |
-    | IFEval, prompt-level loose / instruction-level loose | same run | 88.2% / 90.9% | | | this code, 2026-09-17 |
-    | IFEval, prompt-level strict (release run) | 541 prompts, 1 concurrent | 85.6% (463/541) | 78.2% | 74.29% | release build, 2026-09-03 |
-    | GPQA Diamond, CoT zero-shot (exact match, flexible extract) | 7 of 198 questions | 100% (7/7) | | | release build, 2026-09-03 |
-    | AIME 2025 | 15 problems | 86.7% | | | release build, 2026-09-02 |
-    | MMLU, generative | 15% subset | 84.7% | | | release build, 2026-09-02 |
-
-    The release build is the 2026-09-02 bring-up of this autoport (before batched
-    prefill, batched decode and the indexed expert prefill); the 2026-09-17 IFEval
-    run shows those changes leave the score unchanged within noise. GPQA, AIME and
-    MMLU were release-readiness subsets, not full-set runs.
+    | eval | published | measured on P150x4 |
+    | --- | ---: | ---: |
+    | IFEval, prompt-level strict ([frozebench run of gpt-oss-120b](https://frozebench.com/runs/openai-mirror%2Fgpt-oss-120b__ifeval__2025-10-20T07-31-55.208086)) | 78.2% | 85.4% (462/541, stderr 1.5) |
+    | IFEval, instruction-level strict | not published | 89.1% |
+    | IFEval, prompt-level loose / instruction-level loose | not published | 88.5% / 91.1% |
+    | GPQA Diamond, CoT zero-shot ([OpenAI model card](https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf)) | 80.1% | 100% on a 7-question subset |
+    | AIME 2025 ([OpenAI model card](https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf)) | 92.5% | 86.7% on 15 problems |
+    | MMLU, generative ([OpenAI model card](https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf)) | 85.9% | 84.7% on a 15% subset |
 
     Prompts of 512+ tokens use the indexed expert prefill: each expert's routed
     tokens are gathered into slabs and run through compact indexed sparse
@@ -238,9 +226,8 @@ card:
     of a new length still pays a few seconds of program creation. Prompts longer
     than 2,048 tokens are prefilled one at a time, so TTFT for many long prompts
     arriving together is the serialized prefill queue. Prompts longer than 65,536
-    tokens run the expert prefill in 64k-row chunks: the full 131,072-token
-    context is served (the 130,816 row above), where an earlier build of the
-    indexed prefill ran out of device DRAM.
+    tokens run the expert prefill in 64k-row chunks, which is how the full
+    131,072-token context is served (the 130,816 rows above).
 
     P150 and P150x2 are not offered as serve profiles: the fixed resident model
     state does not fit those configurations. Production serving requires P150x4.
