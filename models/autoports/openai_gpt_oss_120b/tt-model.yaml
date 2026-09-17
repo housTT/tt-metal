@@ -88,32 +88,44 @@ card:
     The first start compiles kernels and model tensors into the persistent package
     cache. The previously validated cold start took 14m25s; a warm restart took 6m50s.
 
-    ### Measured P150x4 latency (2026-09-16 evening: batched decode, batched indexed prefill, sharded 32-row norms)
+    ### Measured P150x4 latency (sweep v23, 2026-09-17: batched decode, batched indexed prefill with the fused expert bias, sharded 32-row norms)
 
-    Warmed server, random-token prompts of exactly the input length, `ignore_eos`,
-    output pinned to the output length, `bench_client.py` from
-    `/home/ttuser/dev/bench-sweeps`, N = 4 x users prompts per row. Decode runs one
-    grouped expert pass per step with trace buckets at 1, 4, 8, 16 and 32 users;
-    new requests that arrive in the same scheduler step and share a padded prompt
-    length (up to 2,048 tokens) are prefilled together. Aggregate is the harness's
-    total output tokens per second across users.
+    Measured on this package by the bench-sweeps harness (`/home/ttuser/dev/bench-sweeps`,
+    `tt-model serve` from a cold start): random-token prompts of exactly the input
+    length, `ignore_eos`, output pinned to the output length, N = 4 x users prompts
+    per row up to 4,096 input tokens and 2 x users at 16,384, then one per user.
+    Decode runs one grouped expert pass per step with trace buckets at 1, 4, 8, 16
+    and 32 users; new requests that arrive in the same scheduler step and share a
+    padded prompt length (up to 2,048 tokens) are prefilled together; the expert
+    gate/up bias is fused into the indexed sparse matmul. Aggregate is the
+    harness's total output tokens per second across users.
 
     | input | output | users | TTFT | TPOT | decode tok/s/user | aggregate tok/s |
     | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
     | 128 | 128 | 1 | 0.25 s | 15.3 ms | 65 | 58 |
-    | 128 | 128 | 8 | 0.62 s | 32.6 ms | 31 | 215 |
-    | 128 | 128 | 32 | 1.05 s | 49.4 ms | 20 | 561 |
-    | 1,024 | 256 | 8 | 1.65 s | 32.9 ms | 30 | 204 |
-    | 1,024 | 256 | 16 | 2.76 s | 42.4 ms | 24 | 297 |
-    | 1,024 | 256 | 32 | 5.23 s | 51.0 ms | 20 | 453 |
-    | 4,096 | 256 | 1 | 0.79 s | 15.7 ms | 64 | 52 |
-    | 4,096 | 256 | 8 | 6.0 s | 33.4 ms | 30 | 141 |
-    | 4,096 | 256 | 16 | 11.5 s | 42.1 ms | 24 | 184 |
-    | 4,096 | 256 | 32 | 23.9 s | 50.7 ms | 20 | 223 |
+    | 128 | 128 | 8 | 0.56 s | 32.6 ms | 31 | 217 |
+    | 128 | 128 | 32 | 0.99 s | 50.0 ms | 20 | 558 |
+    | 1,024 | 256 | 8 | 1.60 s | 32.9 ms | 30 | 205 |
+    | 1,024 | 256 | 16 | 2.68 s | 42.7 ms | 23 | 302 |
+    | 1,024 | 256 | 32 | 5.10 s | 50.3 ms | 20 | 457 |
+    | 4,096 | 256 | 1 | 0.82 s | 15.7 ms | 64 | 53 |
+    | 4,096 | 256 | 8 | 5.9 s | 33.4 ms | 30 | 142 |
+    | 4,096 | 256 | 16 | 11.5 s | 43.3 ms | 23 | 182 |
+    | 4,096 | 256 | 32 | 22.9 s | 50.4 ms | 20 | 229 |
     | 16,384 | 256 | 1 | 2.5 s | 16.1 ms | 62 | 39 |
     | 32,768 | 256 | 1 | 5.2 s | 16.7 ms | 60 | 27 |
-    | 65,536 | 256 | 1 | 12.2 s | 17.8 ms | 56 | 15 |
+    | 65,536 | 256 | 1 | 11.9 s | 17.8 ms | 56 | 16 |
     | 130,816 | 16 | 1 | 30.8 s | 14.6 ms | 68 | 1 |
+
+    The 130,816-token row is from the local server on the 2026-09-16 build (the
+    harness does not plan a row with input + 256 > max_model_len).
+
+    Accuracy re-check on this build (2026-09-17, release generation policy:
+    `reasoning_effort` medium, greedy, 4,096 max output tokens, 32 concurrent
+    requests): IFEval prompt-level strict 85.2% (461/541; the 2026-09-03 release
+    run scored 85.6%), instruction-level strict 89.0%, prompt-level loose 88.2%.
+    Earlier release evals on the 2026-09-02 build: AIME25 86.7% (15 samples),
+    GPQA Diamond CoT 100% (7 samples), MMLU generative 84.7% (15% subset).
 
     Prompts of 512+ tokens use the indexed expert prefill: each expert's routed
     tokens are gathered into slabs and run through compact indexed sparse
