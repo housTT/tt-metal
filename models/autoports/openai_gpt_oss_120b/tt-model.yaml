@@ -120,12 +120,30 @@ card:
     The 130,816-token row is from the local server on the 2026-09-16 build (the
     harness does not plan a row with input + 256 > max_model_len).
 
-    Accuracy re-check on this build (2026-09-17, release generation policy:
-    `reasoning_effort` medium, greedy, 4,096 max output tokens, 32 concurrent
-    requests): IFEval prompt-level strict 85.2% (461/541; the 2026-09-03 release
-    run scored 85.6%), instruction-level strict 89.0%, prompt-level loose 88.2%.
-    Earlier release evals on the 2026-09-02 build: AIME25 86.7% (15 samples),
-    GPQA Diamond CoT 100% (7 samples), MMLU generative 84.7% (15% subset).
+    ### Accuracy
+
+    Evals run through the OpenAI-compatible chat API against the served model with
+    the release generation policy: `reasoning_effort` medium, greedy (`temperature`
+    0, `do_sample` false), 4,096 max output tokens, seed 42, chat template applied.
+    The IFEval row on this build was measured at 32 concurrent requests so the
+    batched prefill and decode paths are the ones scored; 14 of the 541 answers
+    were empty because the reasoning channel used the whole 4,096-token budget
+    (the release policy has the same cap, so the runs are comparable).
+
+    | eval | scope | score | published | release minimum | build, date |
+    | --- | --- | ---: | ---: | ---: | --- |
+    | IFEval (google/IFEval), prompt-level strict | 541 prompts, 32 concurrent | 85.2% (461/541, stderr 1.5) | 78.2% | 74.29% | this code (`bbe275d0`), 2026-09-17 |
+    | IFEval, instruction-level strict | same run | 89.0% | | | this code, 2026-09-17 |
+    | IFEval, prompt-level loose / instruction-level loose | same run | 88.2% / 90.9% | | | this code, 2026-09-17 |
+    | IFEval, prompt-level strict (release run) | 541 prompts, 1 concurrent | 85.6% (463/541) | 78.2% | 74.29% | release build, 2026-09-03 |
+    | GPQA Diamond, CoT zero-shot (exact match, flexible extract) | 7 of 198 questions | 100% (7/7) | | | release build, 2026-09-03 |
+    | AIME 2025 | 15 problems | 86.7% | | | release build, 2026-09-02 |
+    | MMLU, generative | 15% subset | 84.7% | | | release build, 2026-09-02 |
+
+    The release build is the 2026-09-02 bring-up of this autoport (before batched
+    prefill, batched decode and the indexed expert prefill); the 2026-09-17 IFEval
+    run shows those changes leave the score unchanged within noise. GPQA, AIME and
+    MMLU were release-readiness subsets, not full-set runs.
 
     Prompts of 512+ tokens use the indexed expert prefill: each expert's routed
     tokens are gathered into slabs and run through compact indexed sparse
