@@ -360,7 +360,14 @@ note the bare `python_env` resolves `vllm` to the gpt-oss-20b mirror
 checkout). The bundle ships the fork as a prebuilt wheel
 (`runtime.vllm.wheel` in `tt-model.yaml`), rebuilt with
 `VLLM_TARGET_DEVICE=empty VLLM_VERSION_OVERRIDE=0.26.0.dev2+g53b3c0128 uv
-build --wheel --python 3.10` from the fork checkout.
+build --wheel --python 3.10` from the fork checkout. Two build gotchas: run
+with `CARGO=/bin/false` (and cargo off `PATH`) so the optional Rust frontend
+is skipped as it was in the original wheel (a host with rustup otherwise adds
+`_rust_tool_parser.abi3.so` and a 42 MB `vllm-rs` binary, inert unless
+`VLLM_USE_RUST_FRONTEND=1` but a 3x larger wheel), and `rm -rf build` first,
+because setuptools reuses `build/lib...` and would re-package artifacts from
+an earlier build. The result differs from the previous wheel only in
+`vllm/parser/harmony.py` and `vllm/_version.py`.
 
 ### Sparse matmul kernel work (2026-09-16 evening)
 
