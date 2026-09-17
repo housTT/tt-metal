@@ -151,13 +151,17 @@ card:
     How to read the long-context rows. Prompts above 2,048 tokens are prefilled one
     at a time, so TTFT at N users is about N times the single-user prefill (the
     last user of a wave waits for every prefill before it). The KV pool holds
-    262,144 tokens: 15 sequences at 16k, 7 at 32k, 3 at 64k and 2 at 128k, so the
-    rest of a wave waits for admission (that wait lands in TTFT), and each new
-    prompt's prefill stalls the decode steps of the users already generating,
-    which is why per-user decode falls to 7 to 12 tok/s at 8 or more users from
-    16k upward. The 130,816-token rows are the context boundary
-    (max_model_len - 256); at that length two sequences decode at a time and the
-    row's throughput is the serialized prefill rate.
+    262,144 tokens: 15 sequences at 16k, 7 at 32k, 3 at 64k and one at 128k, so
+    the rest of a wave waits for admission (that wait lands in TTFT), and each
+    new prompt's prefill stalls the decode steps of the users already
+    generating, which is why per-user decode falls to 7 to 12 tok/s at 8 or more
+    users from 16k upward. The 130,816-token rows are the context boundary
+    (max_model_len - 256): only one such sequence fits the pool, so the server
+    handles those requests strictly one at a time (30.3 s prefill, then 5.1 s of
+    decode at 20 ms per token). That is why the decode column stays at 50 tok/s
+    per user at every concurrency there: it is the undisturbed single-sequence
+    rate, and the concurrency cost is entirely in TTFT (about 35 s per request
+    ahead in the queue) and in the 7 tok/s aggregate.
 
     Known serving issues seen during these measurements. (1) At 32 concurrent chat
     requests about 0.4% of responses fail with HTTP 500 from the Harmony output
