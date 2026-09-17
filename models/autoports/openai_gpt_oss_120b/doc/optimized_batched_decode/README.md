@@ -310,6 +310,36 @@ sparse expert matmul), v22 in parentheses: 128/128 at 32 users TTFT 0.99 s
 32 users 22.9 s (24.3); 16k 2.51 s (2.58); 32k 5.15 s (5.29); 64k 11.88 s
 (12.01); decode rows unchanged; every row measured, zero failures.
 
+### Accuracy re-check: IFEval (2026-09-17 01:20 to 01:42 UTC, package bbe275d0)
+
+None of the changes above had an accuracy re-check, so IFEval (google/IFEval,
+541 prompts) was re-run against the local server with the release generation
+policy (chat API, `reasoning_effort` medium, greedy, `max_gen_toks` 4096, seed
+42, chat template applied) but at 32 concurrent requests, so the batched
+prefill, the 32-user decode trace and the indexed MoE prefill with the fused
+bias are the paths exercised. Harness: the TT lm-evaluation-harness fork
+(`evals-common`) in `.venv_evals`; `lm-eval[api,ifeval]` needs `transformers`
+and `tokenizers` added for the Hugging Face tokenizer backend.
+
+| metric | 2026-09-17 (this package) | 2026-09-03 release run | published | release minimum |
+|---|---:|---:|---:|---:|
+| prompt-level strict | 85.2% (461/541, stderr 1.5) | 85.6% (463/541) | 78.2% | 74.29% |
+| instruction-level strict | 89.0% | not recorded | | |
+| prompt-level loose | 88.2% | not recorded | | |
+| instruction-level loose | 90.9% | not recorded | | |
+
+Unchanged within noise. 14 of 541 answers are empty (the reasoning channel
+used the whole 4096-token budget, as under the release policy). Two of 543
+chat requests returned HTTP 500 from the vLLM Harmony parser
+(`HarmonyError: Unexpected token 392 while expecting start token 200006`: the
+model emitted text where the parser expected `<|start|>`, and the
+non-streaming chat path has no fallback); the harness retried both
+successfully. About 0.4% of requests at 32 users; the random-token sweeps
+cannot see it because they do not parse the output. Fix belongs in the vLLM
+fork (catch the parser error, return the raw text). Results and samples:
+`/home/ttuser/dev/gpt-oss-120b/benchmarks/perf_plan/phase4/ifeval_v23/`,
+chain script `benchmarks/perf_plan/phase4/ifeval_chain2.sh`.
+
 ### Sparse matmul kernel work (2026-09-16 evening)
 
 - Per-group fused bias: `ttnn.sparse_matmul(..., indices=..., bias=...)` adds group
