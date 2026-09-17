@@ -304,6 +304,12 @@ at 30.8 s TTFT on the local server; the harness stops at 64k).
 Batch-32 layer-0 traced decode with the sharded norms: 1.262 ms sliding,
 1.384 ms full attention (was 1.326 / 1.454 ms).
 
+Sweep v23 (2026-09-17 01:00 UTC, package bbe275d0, gate/up bias fused into the
+sparse expert matmul), v22 in parentheses: 128/128 at 32 users TTFT 0.99 s
+(1.14), 558 tok/s (552); 1k at 32 users 5.09 s (5.22), 457 tok/s (447); 4k at
+32 users 22.9 s (24.3); 16k 2.51 s (2.58); 32k 5.15 s (5.29); 64k 11.88 s
+(12.01); decode rows unchanged; every row measured, zero failures.
+
 ### Sparse matmul kernel work (2026-09-16 evening)
 
 - Per-group fused bias: `ttnn.sparse_matmul(..., indices=..., bias=...)` adds group
