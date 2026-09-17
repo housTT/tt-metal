@@ -325,6 +325,15 @@ Batch-32 layer-0 traced decode with the sharded norms: 1.262 ms sliding,
   lever is fewer synchronisations per byte: larger blocks when the L1 budget
   allows, or one acknowledgement per two blocks with a deeper in0 CB.
   Option kept, default 1 (`GPT_OSS_120B_INDEXED_IN0_SENDERS=2` to enable).
+- Two K blocks per in0 synchronisation (`in0_block_pairs=True`, four-block in0
+  CB, one acknowledgement and one flag per pair): bit-identical, gate/up stage
+  16.8 -> 15.6 ms at 16k (-7%), 5.23 -> 5.08 ms at 4k, down matmul unchanged,
+  whole-layer time within noise. So halving the synchronisations is worth about
+  1 ms per 16k layer; together with the second-sender result this leaves the
+  in1 (weight) reads and the compute pipeline as the remaining candidates, to
+  be settled with a device profile (`run_safe_pytest.sh --profile`). Option
+  kept, default off (`GPT_OSS_120B_INDEXED_IN0_BLOCK_PAIRS=1`): it doubles the
+  in0 L1 footprint to 480 KB, which the serving budget is unlikely to afford.
 - Still open from item 6: the gate/up slice copies (2.5 to 3 ms per 16k layer)
   need a two-output writer in the sparse matmul or an in-place SwiGLU.
 
