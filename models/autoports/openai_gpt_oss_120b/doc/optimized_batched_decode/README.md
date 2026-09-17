@@ -340,6 +340,28 @@ fork (catch the parser error, return the raw text). Results and samples:
 `/home/ttuser/dev/gpt-oss-120b/benchmarks/perf_plan/phase4/ifeval_v23/`,
 chain script `benchmarks/perf_plan/phase4/ifeval_chain2.sh`.
 
+### Serving fix: Harmony parser recovery (2026-09-17, vLLM fork 53b3c0128)
+
+The IFEval re-check surfaced 2 HTTP 500s in 543 chat completions at 32
+concurrent requests: the model emitted a plain text token where the Harmony
+grammar expects `<|start|>` after `<|end|>`, `openai_harmony` raised
+`HarmonyError: Unexpected token ... while expecting start token 200006` from
+`vllm/parser/harmony.py::process_chunk`, and the non-streaming chat path had
+no handler, so the client got an opaque 500 (the streaming path died
+mid-stream). The fork already recovered when the stream *ended* in a
+non-terminal state (`flush`); commit 53b3c0128 on branch `tt/gpt-oss-serving`
+extends that to a token rejected mid-stream: completed messages are kept, the
+current message and everything after it are surfaced as final-channel
+`content`, a warning names the offending token, and the strict parser is not
+fed again for that turn. Unit test:
+`benchmarks/perf_plan/phase4/test_harmony_fallback.py` (run with
+`PYTHONPATH=/home/ttuser/dev/gpt-oss-120b/vllm tt-metal/python_env/bin/python`;
+note the bare `python_env` resolves `vllm` to the gpt-oss-20b mirror
+checkout). The bundle ships the fork as a prebuilt wheel
+(`runtime.vllm.wheel` in `tt-model.yaml`), rebuilt with
+`VLLM_TARGET_DEVICE=empty VLLM_VERSION_OVERRIDE=0.26.0.dev2+g53b3c0128 uv
+build --wheel --python 3.10` from the fork checkout.
+
 ### Sparse matmul kernel work (2026-09-16 evening)
 
 - Per-group fused bias: `ttnn.sparse_matmul(..., indices=..., bias=...)` adds group
