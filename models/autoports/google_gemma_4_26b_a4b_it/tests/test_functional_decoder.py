@@ -1901,9 +1901,18 @@ def test_sparse_moe_canonical_hot_path_audit():
 
     assert decode_source.count("ttnn.sparse_matmul") == 3
     assert decode_source.count("compute_kernel_config=self.correctness_compute_config") == 1
+    # nnz is data dependent (BF16 routing scores flush to zero); a static count deadlocks the op.
+    assert decode_source.count("nnz=None") == 3
+    assert "nnz=TOP_K_EXPERTS" not in decode_source
     decode_batch_source = inspect.getsource(FunctionalDecoder._moe_decode)
-    assert "ttnn.slice" in decode_batch_source
-    assert "ttnn.concat(outputs, dim=2" in decode_batch_source
+    # A multi-user batch runs one fixed-shape chain over the union of its expert sets,
+    # not one serialized chain per row.
+    assert "union_expert_sparsity(routing_weights)" in decode_batch_source
+    assert "ttnn.slice" not in decode_batch_source
+    assert "ttnn.concat(" not in decode_batch_source
+    union_source = inspect.getsource(decoder_module.union_expert_sparsity)
+    assert "ttnn.max(ttnn.abs(routing_weights), dim=2, keepdim=True)" in union_source
+    assert "ttnn.ROW_MAJOR_LAYOUT" in union_source
     assert "ttnn.sparse_matmul" in inspect.getsource(
         decoder_module.sparse_expert_prefill.__globals__["_process_prefill_chunk"]
     )

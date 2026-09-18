@@ -479,12 +479,15 @@ class FusedDecoder(FunctionalDecoder):
         self,
         hidden_states: ttnn.Tensor,
         routing_weights: ttnn.Tensor,
+        *,
+        sparsity: ttnn.Tensor | None = None,
     ) -> ttnn.Tensor:
         if not self.use_packed_expert_gate_up:
-            return super()._moe_decode_single_user(hidden_states, routing_weights)
+            return super()._moe_decode_single_user(hidden_states, routing_weights, sparsity=sparsity)
         self.fusion_path_counts["packed_expert_gate_up_decode"] += 1
         batch = hidden_states.shape[2]
-        sparsity = ttnn.to_layout(routing_weights, ttnn.ROW_MAJOR_LAYOUT)
+        if sparsity is None:
+            sparsity = ttnn.to_layout(routing_weights, ttnn.ROW_MAJOR_LAYOUT)
         output_tile = ttnn.Tile([TILE_SIZE, TILE_SIZE])
         gate_up_config = _build_sparse_matmul_config(
             batch,
@@ -497,14 +500,16 @@ class FusedDecoder(FunctionalDecoder):
             hidden_states,
             self.packed_expert_gate_up,
             sparsity=sparsity,
-            nnz=TOP_K_EXPERTS,
+            nnz=None,
             memory_config=ttnn.L1_MEMORY_CONFIG,
             output_tile=output_tile,
             program_config=gate_up_config,
             dtype=self.activation_dtype,
             compute_kernel_config=self.correctness_compute_config,
         )
-        gate_up = ttnn.reshape(gate_up, (batch, NUM_EXPERTS, 1, self.packed_expert_width))
+        # sparse_matmul emits [1, 1, 1, E, batch, N] (expert-major); bring the
+        # rows in front so every row owns a contiguous [E, N] block.
+        gate_up = ttnn.reshape(gate_up, (1, NUM_EXPERTS, batch, self.packed_expert_width))
         gate_up = ttnn.transpose(gate_up, 1, 2)
         gate_up = ttnn.reshape(gate_up, (batch, NUM_EXPERTS, self.packed_expert_width))
         down_input = self._packed_expert_activation(gate_up)
@@ -514,7 +519,7 @@ class FusedDecoder(FunctionalDecoder):
             down_input,
             self.folded_expert_down if self.use_folded_expert_scale else self.weights.expert_down,
             sparsity=sparsity,
-            nnz=TOP_K_EXPERTS,
+            nnz=None,
             memory_config=ttnn.L1_MEMORY_CONFIG,
             output_tile=output_tile,
             program_config=down_config,

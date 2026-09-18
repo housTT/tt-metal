@@ -41,6 +41,7 @@ from models.autoports.google_gemma_4_26b_a4b_it.tt.functional_decoder import (
     _prefill_attention_path,
     _text_config,
     _validate_text_config,
+    union_expert_sparsity,
 )
 from models.autoports.google_gemma_4_26b_a4b_it.tt.optimized_decoder import (
     OptimizedDecoder,
@@ -1816,45 +1817,16 @@ class MultichipDecoder(OptimizedDecoder):
                     compact_route_scores=self.decode_compact_route_scores,
                 )
             else:
-                outputs = []
-                for batch_index in range(batch):
-                    hidden_row = ttnn.slice(
-                        hidden_states,
-                        [0, 0, batch_index, 0],
-                        [1, 1, batch_index + 1, HIDDEN_SIZE],
-                        memory_config=ttnn.L1_MEMORY_CONFIG,
-                    )
-                    routing_row = ttnn.slice(
-                        routing_weights,
-                        [0, 0, batch_index, 0],
-                        [1, 1, batch_index + 1, NUM_EXPERTS],
-                        memory_config=ttnn.L1_MEMORY_CONFIG,
-                    )
-                    route_indices = None
-                    compact_route_scores = None
-                    if self.indexed_expert_decode:
-                        route_indices = ttnn.slice(
-                            self.decode_route_indices,
-                            [0, 0, batch_index, 0],
-                            [1, 1, batch_index + 1, TOP_K_EXPERTS],
-                            memory_config=ttnn.DRAM_MEMORY_CONFIG,
-                        )
-                        compact_route_scores = ttnn.slice(
-                            self.decode_compact_route_scores,
-                            [0, 0, batch_index, 0],
-                            [1, 1, batch_index + 1, TOP_K_EXPERTS],
-                            memory_config=ttnn.DRAM_MEMORY_CONFIG,
-                        )
-                    outputs.append(
-                        self._moe_decode_single_user(
-                            hidden_row,
-                            routing_row,
-                            use_batch32_policy=True,
-                            route_indices=route_indices,
-                            compact_route_scores=compact_route_scores,
-                        )
-                    )
-                local = ttnn.concat(outputs, dim=2, memory_config=ttnn.L1_MEMORY_CONFIG)
+                # One fixed-shape chain over every decode row with the union of
+                # the rows' expert sets; indexed mode needs a static active
+                # count, so the multi-user chain uses the runtime sparsity scan.
+                self.optimized_path_counters["expert_decode_batched"] += 1
+                local = self._moe_decode_single_user(
+                    hidden_states,
+                    routing_weights,
+                    use_batch32_policy=True,
+                    sparsity=union_expert_sparsity(routing_weights),
+                )
             return self._all_reduce_hidden(local)
         return self._all_reduce_hidden(super()._moe_decode(hidden_states, routing_weights))
 
@@ -1866,14 +1838,20 @@ class MultichipDecoder(OptimizedDecoder):
         use_batch32_policy: bool = False,
         route_indices: ttnn.Tensor | None = None,
         compact_route_scores: ttnn.Tensor | None = None,
+        sparsity: ttnn.Tensor | None = None,
     ) -> ttnn.Tensor:
-        """Run the packed optimized expert path with a TP-local packed width."""
+        """Run the packed optimized expert path with a TP-local packed width.
+
+        ``sparsity`` names a precomputed row-major expert mask (the union over a
+        multi-user decode batch); it is exclusive with the indexed batch-1 mode.
+        """
 
         if not self.packed_expert_decode_gate_up:
             return super()._moe_decode_single_user(
                 hidden_states,
                 routing_weights,
                 use_batch32_policy=use_batch32_policy,
+                sparsity=sparsity,
             )
 
         self.optimized_path_counters["expert_decode"] += 1
@@ -1881,8 +1859,11 @@ class MultichipDecoder(OptimizedDecoder):
         batch = hidden_states.shape[2]
         if self.expert_decode_input_l1:
             hidden_states = ttnn.to_memory_config(hidden_states, ttnn.L1_MEMORY_CONFIG, dtype=hidden_states.dtype)
-        row_major_routing = self.routing_row_major and not use_batch32_policy
-        if row_major_routing:
+        row_major_routing = self.routing_row_major and not use_batch32_policy and sparsity is None
+        if sparsity is not None:
+            if route_indices is not None or compact_route_scores is not None:
+                raise ValueError("a precomputed expert mask is exclusive with indexed expert decode")
+        elif row_major_routing:
             if routing_weights.layout != ttnn.ROW_MAJOR_LAYOUT:
                 raise AssertionError("selected routing candidate did not supply row-major sparse metadata")
             sparsity = routing_weights
@@ -1943,7 +1924,9 @@ class MultichipDecoder(OptimizedDecoder):
             next_states = ttnn.sum(next_states, dim=1)
             next_states = ttnn.unsqueeze_to_4D(next_states)
             return ttnn.reshape(next_states, (1, 1, 1, HIDDEN_SIZE), (1, 1, TILE_SIZE, HIDDEN_SIZE))
-        gate_up = ttnn.reshape(gate_up, (batch, NUM_EXPERTS, 1, packed_width))
+        # sparse_matmul emits [1, 1, 1, E, batch, N] (expert-major); bring the
+        # rows in front so every row owns a contiguous [E, N] block.
+        gate_up = ttnn.reshape(gate_up, (1, NUM_EXPERTS, batch, packed_width))
         gate_up = ttnn.transpose(gate_up, 1, 2)
         gate_up = ttnn.reshape(gate_up, (batch, NUM_EXPERTS, packed_width))
         down_input = self._packed_expert_activation(gate_up)

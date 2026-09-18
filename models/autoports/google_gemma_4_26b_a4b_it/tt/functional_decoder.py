@@ -85,6 +85,20 @@ PREFILL_FULL_CHUNK_SIZE = 8192
 PREFILL_SLIDING_CHUNK_SIZE = 30720
 
 
+def union_expert_sparsity(routing_weights: ttnn.Tensor) -> ttnn.Tensor:
+    """Row-major ``[1, 1, 1, NUM_EXPERTS]`` mask of every expert routed by any decode row.
+
+    ``ttnn.sparse_matmul`` selects one expert set per call, so a multi-user decode
+    batch runs the union of its rows' top-k sets in a single fixed-shape chain;
+    the per-token routing scores applied afterwards zero every expert a row did
+    not select (skipped experts are zero-filled by the op), so each row's result
+    matches its own top-k expert sum. The count of non-zero entries is data
+    dependent, so callers must leave ``nnz`` unset (runtime inferred).
+    """
+    union = ttnn.max(ttnn.abs(routing_weights), dim=2, keepdim=True)
+    return ttnn.to_layout(union, ttnn.ROW_MAJOR_LAYOUT)
+
+
 def _prefill_attention_path(
     seq_len: int,
     *,
@@ -1045,35 +1059,30 @@ class FunctionalDecoder(LightweightModule):
         return ttnn.reshape(routing, [1, 1, tokens, NUM_EXPERTS])
 
     def _moe_decode(self, hidden_states: ttnn.Tensor, routing_weights: ttnn.Tensor) -> ttnn.Tensor:
-        """Run sparse experts for each independent decode routing mask.
+        """Run sparse experts for the whole decode batch in one fixed-shape chain.
 
-        sparse_matmul's expert-weight batch is 128, so one invocation accepts
-        one 128-entry sparsity row. Decode batches are serialized as TTNN
-        slices and concatenated on device; all calls remain trace-capturable.
+        sparse_matmul's expert-weight batch is 128 and one invocation accepts one
+        128-entry sparsity row, so a multi-user batch runs the union of its rows'
+        expert sets (``union_expert_sparsity``) with every row in the matmul's M
+        axis; the sparse decode configs already compute a full 32-row tile for a
+        single user, so the batched call costs no extra compute per expert. The
+        per-token routing scores applied afterwards keep each row's own top-k sum.
         """
         batch = hidden_states.shape[2]
         if batch == 1:
             return self._moe_decode_single_user(hidden_states, routing_weights)
-
-        outputs = []
-        for batch_index in range(batch):
-            hidden_row = ttnn.slice(
-                hidden_states,
-                [0, 0, batch_index, 0],
-                [1, 1, batch_index + 1, HIDDEN_SIZE],
-            )
-            routing_row = ttnn.slice(
-                routing_weights,
-                [0, 0, batch_index, 0],
-                [1, 1, batch_index + 1, NUM_EXPERTS],
-            )
-            outputs.append(self._moe_decode_single_user(hidden_row, routing_row))
-        return ttnn.concat(outputs, dim=2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        return self._moe_decode_single_user(
+            hidden_states,
+            routing_weights,
+            sparsity=union_expert_sparsity(routing_weights),
+        )
 
     def _moe_decode_single_user(
         self,
         hidden_states: ttnn.Tensor,
         routing_weights: ttnn.Tensor,
+        *,
+        sparsity: ttnn.Tensor | None = None,
     ) -> ttnn.Tensor:
         """Run top-k sparse experts, with high accumulation only on gate-proj.
 
@@ -1081,9 +1090,17 @@ class FunctionalDecoder(LightweightModule):
         loss to sparse expert accumulation. A down-only high-accumulation
         control worsened PCC, so up/down retain framework defaults; the gate
         projection alone uses the decoder's recorded correctness config.
+
+        ``sparsity`` may name a precomputed row-major ``[1, 1, 1, NUM_EXPERTS]``
+        expert mask (the union over a multi-user batch); by default the single
+        row's own routing scores select the experts. ``nnz`` is left to the
+        kernel's runtime scan in both cases: routing scores can flush to zero in
+        BF16, and a static count that differs from the actual non-zero count
+        deadlocks the op on device.
         """
         batch = hidden_states.shape[2]
-        sparsity = ttnn.to_layout(routing_weights, ttnn.ROW_MAJOR_LAYOUT)
+        if sparsity is None:
+            sparsity = ttnn.to_layout(routing_weights, ttnn.ROW_MAJOR_LAYOUT)
         output_tile = ttnn.Tile([TILE_SIZE, TILE_SIZE])
         gate_up_config = _build_sparse_matmul_config(batch, MOE_INTERMEDIATE_SIZE)
         down_config = _build_sparse_matmul_config(batch, HIDDEN_SIZE)
@@ -1092,7 +1109,7 @@ class FunctionalDecoder(LightweightModule):
             hidden_states,
             self.weights.expert_gate,
             sparsity=sparsity,
-            nnz=TOP_K_EXPERTS,
+            nnz=None,
             memory_config=ttnn.L1_MEMORY_CONFIG,
             output_tile=output_tile,
             program_config=gate_up_config,
@@ -1100,7 +1117,9 @@ class FunctionalDecoder(LightweightModule):
             compute_kernel_config=self.correctness_compute_config,
         )
         sparse_intermediate = gate.shape[-1]
-        gate = ttnn.reshape(gate, (batch, NUM_EXPERTS, 1, sparse_intermediate))
+        # sparse_matmul emits [1, 1, 1, E, batch, N] (expert-major); bring the
+        # rows in front so every row owns a contiguous [E, N] block.
+        gate = ttnn.reshape(gate, (1, NUM_EXPERTS, batch, sparse_intermediate))
         gate = ttnn.transpose(gate, 1, 2)
         gate = ttnn.reshape(gate, (batch, NUM_EXPERTS, sparse_intermediate))
 
@@ -1108,13 +1127,13 @@ class FunctionalDecoder(LightweightModule):
             hidden_states,
             self.weights.expert_up,
             sparsity=sparsity,
-            nnz=TOP_K_EXPERTS,
+            nnz=None,
             memory_config=ttnn.L1_MEMORY_CONFIG,
             output_tile=output_tile,
             program_config=gate_up_config,
             dtype=self.activation_dtype,
         )
-        up = ttnn.reshape(up, (batch, NUM_EXPERTS, 1, sparse_intermediate))
+        up = ttnn.reshape(up, (1, NUM_EXPERTS, batch, sparse_intermediate))
         up = ttnn.transpose(up, 1, 2)
         up = ttnn.reshape(up, (batch, NUM_EXPERTS, sparse_intermediate))
         down_input = apply_geglu(gate, up)
@@ -1125,7 +1144,7 @@ class FunctionalDecoder(LightweightModule):
             down_input,
             self.weights.expert_down,
             sparsity=sparsity,
-            nnz=TOP_K_EXPERTS,
+            nnz=None,
             memory_config=ttnn.L1_MEMORY_CONFIG,
             output_tile=output_tile,
             program_config=down_config,

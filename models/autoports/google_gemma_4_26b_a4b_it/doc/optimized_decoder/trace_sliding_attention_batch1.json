@@ -5,13 +5,13 @@
   ],
   "eager_vs_trace_replay_pcc": 1.0,
   "eager_vs_trace_replay_threshold": 0.9999,
-  "hf_vs_trace_replay_pcc": 0.9967189984637882,
+  "hf_vs_trace_replay_pcc": 0.9967120981914098,
   "hf_vs_trace_replay_threshold": 0.995,
   "layer_idx": 0,
   "layer_type": "sliding_attention",
   "model_id": "google/gemma-4-26B-A4B-it",
   "optimized_stage_provenance": {
-    "checkout_git_sha": "6e67efeb6251e655cb27c39153db5af1da90d68b",
+    "checkout_git_sha": "42444b8ecf43ff372e375d33899b39dcb959767d",
     "exact_command": "pytest -q models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py::test_optimized_traced_decode_batch_contract[blackhole-batch1-sliding_attention-device_params0-mesh_device0]",
     "exercised_candidate_paths": {
       "sliding_attention": {
@@ -27,6 +27,7 @@
           "decode_attention": 2,
           "dense_mlp": 2,
           "expert_decode": 2,
+          "expert_decode_batched": 0,
           "expert_input": 2,
           "expert_output": 2,
           "expert_prefill": 0,
@@ -64,7 +65,7 @@
         "prefill_attention_runtime": {},
         "r22_projection_runtime": {
           "mlp_down": {
-            "actual_compute_kernel_config": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x79190540ba50>",
+            "actual_compute_kernel_config": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x70e8ac8a45a0>",
             "actual_input_dtype": "DataType.BFLOAT16",
             "actual_input_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}], shape=[32, 96], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[32, 96],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
             "actual_logical_output_shape": [
@@ -104,7 +105,7 @@
             "weight_storage_width": 2816
           },
           "o_proj": {
-            "actual_compute_kernel_config": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x79190540b480>",
+            "actual_compute_kernel_config": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x70e8ac8a70c0>",
             "actual_input_dtype": "DataType.BFLOAT16",
             "actual_input_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}], shape=[32, 512], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[32, 512],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":0}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
             "actual_logical_output_shape": [
@@ -144,7 +145,7 @@
             "weight_storage_width": 2816
           },
           "packed_dense_split": {
-            "compute_kernel_config": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x79190540ba50>",
+            "compute_kernel_config": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x70e8ac8a45a0>",
             "gate_up_weight_dtype": "DataType.BFLOAT8_B",
             "half_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}], shape=[32, 96], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[32, 96],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
             "host_dispatch_count": 2,
@@ -159,7 +160,7 @@
             "split_implementation": "two tile-aligned sharded slices for decode M < 64"
           },
           "packed_mlp_gate_up": {
-            "actual_compute_kernel_config": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x79190540ba50>",
+            "actual_compute_kernel_config": "<ttnn._ttnn.operations.core.WormholeComputeKernelConfig object at 0x70e8ac8a45a0>",
             "actual_input_dtype": "DataType.BFLOAT16",
             "actual_input_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}], shape=[32, 128], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec={\"shard_shape\":[32, 128],\"grid\":[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":10,\"y\":1}}],\"orientation\":\"ShardOrientation::ROW_MAJOR\",\"shard_distribution_strategy\":\"ShardDistributionStrategy::ROUND_ROBIN_1D\"},created_with_nd_shard_spec=0,per_core_allocation=0)",
             "actual_logical_output_shape": [
@@ -202,7 +203,8 @@
         "routing_runtime": {
           "host_dispatch_count": 2,
           "logical_tokens": 1,
-          "nnz": 8,
+          "nnz": null,
+          "nnz_policy": "runtime_inferred",
           "scatter_base_layout": "Layout.ROW_MAJOR",
           "scatter_output_layout": "Layout.ROW_MAJOR",
           "scatter_output_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
@@ -296,9 +298,9 @@
     },
     "hardware": {
       "arch": "Blackhole P300C",
-      "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.39"
+      "platform": "Linux-7.0.0-31-generic-x86_64-with-glibc2.39"
     },
-    "optimized_decoder_sha256": "feebc8cb2f20ad9ba81c7d0f50f8323694d6d91ebb31cb9072e18b0f6b0a9c45",
+    "optimized_decoder_sha256": "6a6e1484270e46ae5470ff8db379955875b553260ae65fbdd80f27f58cd93f55",
     "optimized_test_sha256": "01ed0de36451891c6c41968baeeae34f1cb77acf4e3c6db0c322506fb83bd349",
     "resolved_policy": {
       "attention_batch32_runtime_geometry": {
@@ -531,9 +533,7 @@
         "tensor_cache_path": "None",
         "weight_dtype": "DataType.BFLOAT16"
       },
-      "environment_overrides": {
-        "GEMMA4_OPT_CANDIDATE_ID": "final_reviewfix2_default_suite_v6"
-      }
+      "environment_overrides": {}
     }
   },
   "page_table_shape": [

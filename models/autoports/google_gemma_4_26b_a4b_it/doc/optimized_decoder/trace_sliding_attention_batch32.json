@@ -70,48 +70,48 @@
   ],
   "eager_vs_trace_replay_pcc": 1.0,
   "eager_vs_trace_replay_threshold": 0.9999,
-  "hf_vs_trace_replay_min_user_pcc": 0.9958020512414821,
-  "hf_vs_trace_replay_pcc": 0.9993002201065602,
+  "hf_vs_trace_replay_min_user_pcc": 0.9958650886482638,
+  "hf_vs_trace_replay_pcc": 0.99931551567213,
   "hf_vs_trace_replay_per_user_pcc": [
-    0.9991160359796242,
-    0.9985385859209535,
-    0.9992891161915145,
-    0.9958020512414821,
-    0.9997549405952841,
-    0.9994025847421374,
-    0.9990777805882458,
-    0.9996504412390794,
-    0.9995471493729386,
-    0.9992565268187931,
-    0.999144920695143,
-    0.9998226951553336,
-    0.99976509308595,
-    0.9997594409241597,
-    0.999886285666455,
-    0.999708532435713,
-    0.9992074760016786,
-    0.9994501679563148,
-    0.9995564812716989,
-    0.9996636333108313,
-    0.9998617261374269,
-    0.9997779868177692,
-    0.9997332521850087,
-    0.9996382921488872,
-    0.9994706304656048,
-    0.9986058390606544,
-    0.9990114106495145,
-    0.999167757477686,
-    0.9991442160149383,
-    0.999269566247052,
-    0.9992253879723305,
-    0.9994673920129473
+    0.9991523839212042,
+    0.9984669665432566,
+    0.9994282558029877,
+    0.9958650886482638,
+    0.9997699489070561,
+    0.9994230768610985,
+    0.9991063844883977,
+    0.9996614354120832,
+    0.9995995261137148,
+    0.9992726735991101,
+    0.9992043832212352,
+    0.9998338154158212,
+    0.999783013537122,
+    0.9997926297237512,
+    0.999884960611833,
+    0.999689410505918,
+    0.9992772118029382,
+    0.9994377200475145,
+    0.999537285535719,
+    0.999679275627071,
+    0.999859482327112,
+    0.9997862718903716,
+    0.9996801341250773,
+    0.999681532187344,
+    0.9994706061303774,
+    0.9986598176769925,
+    0.999087324309457,
+    0.9991352230581515,
+    0.9991329555005548,
+    0.9992070744754684,
+    0.9992246473657944,
+    0.9994433394912683
   ],
   "hf_vs_trace_replay_threshold": 0.995,
   "layer_idx": 0,
   "layer_type": "sliding_attention",
   "model_id": "google/gemma-4-26B-A4B-it",
   "optimized_stage_provenance": {
-    "checkout_git_sha": "6e67efeb6251e655cb27c39153db5af1da90d68b",
+    "checkout_git_sha": "42444b8ecf43ff372e375d33899b39dcb959767d",
     "exact_command": "pytest -q models/autoports/google_gemma_4_26b_a4b_it/tests/test_optimized_decoder.py::test_optimized_traced_decode_batch_contract[blackhole-batch32-sliding_attention-device_params0-mesh_device0]",
     "exercised_candidate_paths": {
       "sliding_attention": {
@@ -126,14 +126,15 @@
           "attention_sdpa_output": 2,
           "decode_attention": 2,
           "dense_mlp": 2,
-          "expert_decode": 64,
+          "expert_decode": 2,
+          "expert_decode_batched": 2,
           "expert_input": 2,
           "expert_output": 2,
           "expert_prefill": 0,
           "folded_expert_scale": 2,
           "folded_router_projection": 2,
           "fused_final_scalar": 2,
-          "packed_expert_decode": 64,
+          "packed_expert_decode": 2,
           "packed_expert_prefill": 0,
           "prefill_2d_o_proj": 0,
           "prefill_2d_qkv": 0,
@@ -543,9 +544,9 @@
     },
     "hardware": {
       "arch": "Blackhole P300C",
-      "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.39"
+      "platform": "Linux-7.0.0-31-generic-x86_64-with-glibc2.39"
     },
-    "optimized_decoder_sha256": "feebc8cb2f20ad9ba81c7d0f50f8323694d6d91ebb31cb9072e18b0f6b0a9c45",
+    "optimized_decoder_sha256": "6a6e1484270e46ae5470ff8db379955875b553260ae65fbdd80f27f58cd93f55",
     "optimized_test_sha256": "01ed0de36451891c6c41968baeeae34f1cb77acf4e3c6db0c322506fb83bd349",
     "resolved_policy": {
       "attention_batch32_runtime_geometry": {
@@ -778,9 +779,7 @@
         "tensor_cache_path": "None",
         "weight_dtype": "DataType.BFLOAT16"
       },
-      "environment_overrides": {
-        "GEMMA4_OPT_CANDIDATE_ID": "final_reviewfix2_default_suite_v6"
-      }
+      "environment_overrides": {}
     }
   },
   "page_table_shape": [
@@ -790,7 +789,7 @@
   "pcc_results": [
     {
       "passed": true,
-      "pcc": 0.9993002201065602,
+      "pcc": 0.99931551567213,
       "threshold": 0.995
     },
     {

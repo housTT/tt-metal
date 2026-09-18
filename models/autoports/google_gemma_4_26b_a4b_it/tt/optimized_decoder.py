@@ -37,6 +37,7 @@ from models.autoports.google_gemma_4_26b_a4b_it.tt.functional_decoder import (
     _make_decode_rope_memory_config,
     _make_single_user_cache_update_memory_config,
     _replicate_mapper,
+    union_expert_sparsity,
 )
 from models.common.modules.mlp.mlp_1d import (
     _create_dram_sharded_mem_config,
@@ -958,6 +959,7 @@ class OptimizedDecoder(FunctionalDecoder):
             "decode_attention": 0,
             "dense_mlp": 0,
             "expert_decode": 0,
+            "expert_decode_batched": 0,
             "expert_prefill": 0,
             "packed_expert_decode": 0,
             "packed_expert_prefill": 0,
@@ -3138,23 +3140,16 @@ class OptimizedDecoder(FunctionalDecoder):
         batch = hidden_states.shape[2]
         if batch == 1:
             return self._moe_decode_single_user(hidden_states, routing_weights)
-
-        outputs = []
-        for batch_index in range(batch):
-            hidden_row = ttnn.slice(
-                hidden_states,
-                [0, 0, batch_index, 0],
-                [1, 1, batch_index + 1, HIDDEN_SIZE],
-                memory_config=ttnn.L1_MEMORY_CONFIG,
-            )
-            routing_row = ttnn.slice(
-                routing_weights,
-                [0, 0, batch_index, 0],
-                [1, 1, batch_index + 1, NUM_EXPERTS],
-                memory_config=ttnn.L1_MEMORY_CONFIG,
-            )
-            outputs.append(self._moe_decode_single_user(hidden_row, routing_row, use_batch32_policy=True))
-        return ttnn.concat(outputs, dim=2, memory_config=ttnn.L1_MEMORY_CONFIG)
+        # One fixed-shape chain over every decode row: the batch-32 policy
+        # weights/configs already compute a 32-row tile per expert, so the union
+        # of the rows' expert sets replaces 32 serialized single-user chains.
+        self.optimized_path_counters["expert_decode_batched"] += 1
+        return self._moe_decode_single_user(
+            hidden_states,
+            routing_weights,
+            use_batch32_policy=True,
+            sparsity=union_expert_sparsity(routing_weights),
+        )
 
     def _moe_decode_single_user(
         self,
@@ -3162,13 +3157,16 @@ class OptimizedDecoder(FunctionalDecoder):
         routing_weights: ttnn.Tensor,
         *,
         use_batch32_policy: bool = False,
+        sparsity: ttnn.Tensor | None = None,
     ) -> ttnn.Tensor:
         self.optimized_path_counters["expert_decode"] += 1
         batch = hidden_states.shape[2]
         if self.expert_decode_input_l1:
             hidden_states = ttnn.to_memory_config(hidden_states, ttnn.L1_MEMORY_CONFIG, dtype=hidden_states.dtype)
-        row_major_routing = self.routing_row_major and not use_batch32_policy
-        if row_major_routing:
+        row_major_routing = self.routing_row_major and not use_batch32_policy and sparsity is None
+        if sparsity is not None:
+            pass  # precomputed expert mask (union over the decode batch)
+        elif row_major_routing:
             if routing_weights.layout != ttnn.ROW_MAJOR_LAYOUT:
                 raise AssertionError("selected routing candidate did not supply row-major sparse metadata")
             sparsity = routing_weights
@@ -3212,7 +3210,9 @@ class OptimizedDecoder(FunctionalDecoder):
                 compute_kernel_config=self.expert_gate_compute_config,
                 **common,
             )
-            gate_up = ttnn.reshape(gate_up, (batch, NUM_EXPERTS, 1, _PACKED_EXPERT_WIDTH))
+            # sparse_matmul emits [1, 1, 1, E, batch, N] (expert-major); bring
+            # the rows in front so every row owns a contiguous [E, N] block.
+            gate_up = ttnn.reshape(gate_up, (1, NUM_EXPERTS, batch, _PACKED_EXPERT_WIDTH))
             gate_up = ttnn.transpose(gate_up, 1, 2)
             gate_up = ttnn.reshape(gate_up, (batch, NUM_EXPERTS, _PACKED_EXPERT_WIDTH))
             down_input = self._packed_expert_activation(gate_up)
@@ -3227,7 +3227,7 @@ class OptimizedDecoder(FunctionalDecoder):
                 **common,
             )
             sparse_intermediate = gate.shape[-1]
-            gate = ttnn.reshape(gate, (batch, NUM_EXPERTS, 1, sparse_intermediate))
+            gate = ttnn.reshape(gate, (1, NUM_EXPERTS, batch, sparse_intermediate))
             gate = ttnn.transpose(gate, 1, 2)
             gate = ttnn.reshape(gate, (batch, NUM_EXPERTS, sparse_intermediate))
             up = ttnn.sparse_matmul(
@@ -3237,7 +3237,7 @@ class OptimizedDecoder(FunctionalDecoder):
                 compute_kernel_config=self.expert_gate_compute_config,
                 **common,
             )
-            up = ttnn.reshape(up, (batch, NUM_EXPERTS, 1, sparse_intermediate))
+            up = ttnn.reshape(up, (1, NUM_EXPERTS, batch, sparse_intermediate))
             up = ttnn.transpose(up, 1, 2)
             up = ttnn.reshape(up, (batch, NUM_EXPERTS, sparse_intermediate))
             down_input = ttnn.mul(
