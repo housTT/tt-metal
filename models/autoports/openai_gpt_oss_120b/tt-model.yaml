@@ -31,7 +31,7 @@ source:
 
 runtime:
   vllm:
-    wheel: /home/ttuser/dev/gpt-oss-120b/container/hf/build-inputs/vllm-0.26.0.dev2+g53b3c0128-cp310-cp310-linux_x86_64.whl
+    wheel: /home/ttuser/dev/gpt-oss-120b/container/hf/build-inputs/vllm-0.26.0.dev3+g98adf2b5b-cp310-cp310-linux_x86_64.whl
   plugin:
     path: /home/ttuser/dev/gpt-oss-120b/vllm-tt-plugin
     repo: https://github.com/housTT/vllm-tt-plugin
@@ -66,6 +66,9 @@ serve:
     TT_METAL_SHM_TRACKING_DISABLED: "1"
     VLLM_RPC_TIMEOUT: "900000"
     VLLM_SYSTEM_START_DATE: "2026-08-31"
+    # Final-channel reserve for chat completions: 0 = automatic
+    # (clamp(max_tokens // 8, 128, 1024) tokens kept for the answer), -1 = off.
+    VLLM_HARMONY_FINAL_RESERVE_TOKENS: "0"
   args:
     - --async-scheduling
     - --disable-log-stats
@@ -196,6 +199,22 @@ card:
     the concurrency cost is entirely in TTFT (about 35 s per request ahead in the
     queue) and in the 7 tok/s total output rate.
 
+    ### Output budget and reasoning
+
+    gpt-oss reasons in the Harmony `analysis` channel before it answers in the
+    `final` channel, and `max_tokens` covers both. The server keeps part of every
+    chat completion's budget for the answer: `clamp(max_tokens // 8, 128, 1024)`
+    tokens (256 at 2,048, 512 at 4,096). If the reasoning is still running when
+    the rest of the budget is used, the server closes the analysis channel, opens
+    the final channel and lets the model answer with the reserved tokens (one
+    extra prefill of prompt plus reasoning, about 12 s at 64k). `content` is
+    therefore not null on `finish_reason: "length"` unless the budget is below
+    256 tokens. `usage.completion_tokens_details.reasoning_tokens` reports the
+    reasoning tokens; `thinking_token_budget` on a request caps them. Requests
+    with `n` above 1, logprobs, `ignore_eos` or a required tool call are served
+    without the reserve. `VLLM_HARMONY_FINAL_RESERVE_TOKENS=-1` in the serve
+    environment turns it off.
+
     ### Known issues
 
     At 130,816-token prompts with 16 or more concurrent requests, one request per
@@ -209,15 +228,14 @@ card:
     Evals run through the OpenAI-compatible chat API against the served model:
     `reasoning_effort` medium, greedy (`temperature` 0, `do_sample` false), 4,096
     max output tokens, seed 42, chat template applied. IFEval is the full 541-prompt
-    set at 32 concurrent requests (14 answers are empty because the reasoning
-    channel used the whole 4,096-token budget); GPQA Diamond, AIME 2025 and MMLU are
-    subsets run at one request at a time.
+    set at 32 concurrent requests; GPQA Diamond, AIME 2025 and MMLU are subsets run
+    at one request at a time.
 
     | eval | published | measured on P150x4 |
     | --- | ---: | ---: |
-    | IFEval, prompt-level strict ([frozebench run of gpt-oss-120b](https://frozebench.com/runs/openai-mirror%2Fgpt-oss-120b__ifeval__2025-10-20T07-31-55.208086)) | 78.2% | 85.4% (462/541, stderr 1.5) |
-    | IFEval, instruction-level strict | not published | 89.1% |
-    | IFEval, prompt-level loose / instruction-level loose | not published | 88.5% / 91.1% |
+    | IFEval, prompt-level strict ([frozebench run of gpt-oss-120b](https://frozebench.com/runs/openai-mirror%2Fgpt-oss-120b__ifeval__2025-10-20T07-31-55.208086)) | 78.2% | 85.8% (464/541, stderr 1.5) |
+    | IFEval, instruction-level strict | not published | 90.2% |
+    | IFEval, prompt-level loose / instruction-level loose | not published | 88.9% / 92.2% |
     | GPQA Diamond, CoT zero-shot ([OpenAI model card](https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf)) | 80.1% | 100% on a 7-question subset |
     | AIME 2025 ([OpenAI model card](https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf)) | 92.5% | 86.7% on 15 problems |
     | MMLU, generative ([OpenAI model card](https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf)) | 85.9% | 84.7% on a 15% subset |
