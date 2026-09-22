@@ -33,13 +33,21 @@ source:
 
 runtime:
   vllm: {version: "0.24.0"}
-  # Clean, pushed revision containing the MuseGlimmer architecture registration
-  # and the fabric_packet_payload_bytes setting required before mesh creation.
-  # Pinning it avoids shipping the unrelated Qwen work and uncommitted changes in
-  # the host's current plugin checkout.
+  # A local checkout, because the pushed ref cannot serve this model's headline
+  # feature. 106744c0 carries the MuseGlimmer architecture registration and the
+  # fabric_packet_payload_bytes setting required before mesh creation, but it
+  # predates `supports_prefix_caching_with_sliding_window` -- so a container built
+  # from it logs "Automatic prefix caching is disabled" and the resumed-prefill path
+  # in tt/ is dead code. Verified: a build on the pushed ref reported exactly that.
+  #
+  # wt-plugin-apc is a git worktree pinned at 106744c0 with ONE hunk applied, the
+  # prefix-caching capability gate. It deliberately does NOT carry the unrelated
+  # Qwen autoport work that is uncommitted in the host's main plugin checkout, which
+  # is what the previous `ref:` pin existed to avoid; taking the hunk rather than the
+  # working tree keeps that guarantee. Revert to `repo:`/`ref:` once the gate is
+  # pushed.
   plugin:
-    repo: https://github.com/housTT/vllm-tt-plugin.git
-    ref: 106744c01de96825ed8c81226f4fa043e8e929f4
+    path: /home/ttuser/dev/muse-glimmer/wt-plugin-apc
   # Seeded from the validated venv (`uv pip freeze` of muse-glimmer_pyenv), minus the
   # editable tt-metal/plugin installs and vllm+empty (the build provides those), minus
   # fiftyone*/voxel51-eta (its sse-starlette<1 pin contradicts the installed 3.4.8) and
