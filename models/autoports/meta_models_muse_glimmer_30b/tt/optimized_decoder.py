@@ -106,6 +106,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import torch
+from loguru import logger
 
 import ttnn
 from models.autoports.meta_models_muse_glimmer_30b.tt.functional_decoder import (
@@ -629,6 +630,10 @@ DECODE_FUSED_ACTIVATION = False
 #: other legal count and it measured 1.5781 (+2.6 %).
 DECODE_SWIGLU_MUL_CORES: int | None = 80
 
+#: Core counts already reported as not dividing the local intermediate width, so the
+#: fallback warns once per process instead of once per decoded token.
+_SWIGLU_RESHARD_SKIPPED: set[int] = set()
+
 #: Row count up to which the four hidden-size prefill RMSNorms run width-sharded
 #: in L1 instead of DRAM interleaved, and the core count they use.
 #:
@@ -954,11 +959,28 @@ class _OptimizedMLP(LightweightModule):
             # where it is relied on.
             width_tiles = int(gate.shape[-1]) // ttnn.TILE_SIZE
             if width_tiles % wide:
-                raise ValueError(
-                    f"DECODE_SWIGLU_MUL_CORES={wide} must divide the local intermediate width in "
-                    f"tiles ({width_tiles} for shape {tuple(gate.shape)}); an uneven width shard "
-                    "is silently wrong rather than an error. Pick a divisor or set it to None."
-                )
+                # 80 divides the *4-chip* local width (4992 padded to 5120, 160 tiles) and
+                # nothing else this port runs: single-chip is the unsharded 19968, i.e. 624
+                # tiles, which 80 does not divide.  This used to raise, which made every
+                # single-chip decode test fail from the commit that added the check
+                # (2026-08-14) onwards -- two days after the suite's recorded baseline, so
+                # the breakage went unseen because the shipped path is 4-chip.
+                #
+                # Skipping the reshard is safe: it is the pre-optimization path, measured at
+                # PCC 1.000000 against the resharded one, and it costs the 0.83 % the wider
+                # SFPU grid buys.  The hazard the original check guarded -- proceeding with
+                # an *uneven* shard -- cannot occur here, because no reshard happens at all.
+                # Warned once per process rather than per token.
+                if wide not in _SWIGLU_RESHARD_SKIPPED:
+                    _SWIGLU_RESHARD_SKIPPED.add(wide)
+                    logger.warning(
+                        f"DECODE_SWIGLU_MUL_CORES={wide} does not divide the local intermediate "
+                        f"width of {width_tiles} tiles; skipping the SwiGLU reshard for this "
+                        "configuration (correct, ~0.83% slower decode). This is expected on a "
+                        "single-chip build and unexpected on the 4-chip shipped mesh."
+                    )
+                wide = None
+        if wide is not None:
             wide_memcfg = dec._sharded_memcfg(rows, int(gate.shape[-1]), wide)
             gate_w = ttnn.to_memory_config(gate, wide_memcfg)
             ttnn.deallocate(gate)

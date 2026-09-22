@@ -399,9 +399,8 @@ def test_multi_chunk_prefill_page_table_bound(mesh_device, decoder_cache, refere
     )
 
 
-@pytest.mark.timeout(1800)
-@pytest.mark.parametrize("kind", LAYER_KINDS)
 @pytest.mark.timeout(900)
+@pytest.mark.parametrize("kind", LAYER_KINDS)
 @pytest.mark.parametrize("start_pos", (2048, 4096))
 def test_paged_prefix_read_matches_the_tail_handoff(mesh_device, decoder_cache, reference_layers, kind, start_pos):
     """The paged window read, on the class that actually ships.
@@ -487,6 +486,8 @@ def test_paged_prefix_read_matches_the_tail_handoff(mesh_device, decoder_cache, 
     )
 
 
+@pytest.mark.timeout(1800)
+@pytest.mark.parametrize("kind", LAYER_KINDS)
 @pytest.mark.parametrize("first_len,second_len", CONTINUATION_SPLITS)
 def test_continuation_prefill_pcc(mesh_device, decoder_cache, reference_layers, kind, first_len, second_len):
     """Caller-chunked prefill: two ``start_pos``-separated calls == one call."""
