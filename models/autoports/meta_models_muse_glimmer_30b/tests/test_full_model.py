@@ -480,9 +480,15 @@ def test_the_api_guards_refuse_what_they_cannot_do(generator, expect_error):
     an ordinary non-continuation prefill with no error — while README limitation 2
     advertised the sliding-tail hand-off as "implemented and exposed".
 
-    ``start_pos`` is the exception: the serving prefill signature in
+    ``start_pos`` is the exception, twice over.  The serving prefill signature in
     ``models/common/readiness_check/contract_vllm.py`` makes it *required*, and 0 is what
-    a single-chunk caller passes, so 0 must be accepted rather than refused.
+    a single-chunk caller passes, so 0 must be accepted.  A non-zero value now means a
+    **resumed** prefill -- a vLLM prefix-cache hit, or a preemption resume -- so it is
+    accepted too.  What is refused is a non-zero value that cannot be honoured, and each
+    of those would otherwise be silent rather than loud: an unaligned offset makes
+    ``paged_fill_cache`` write from the wrong virtual block, an offset at or past the
+    prompt leaves an empty chunk whose logits row is arbitrary, and ``return_all_logits``
+    has no meaning for a chunk that is only part of the prompt.
     """
     prompt = _prompt(32)
     with expect_error(ValueError, "cache slot 0 only"):
@@ -495,13 +501,35 @@ def test_the_api_guards_refuse_what_they_cannot_do(generator, expect_error):
             prompt_lens=[len(prompt)],
             continuation=True,
         )
-    with expect_error(NotImplementedError, "start_pos"):
+    # Not a multiple of the 64-token page block: paged_fill_cache would write from the
+    # wrong virtual block.
+    with expect_error(ValueError, "multiple of the page block size"):
+        generator.prefill_forward(
+            tokens=torch.tensor([prompt], dtype=torch.long),
+            page_table=None,
+            kv_cache=None,
+            prompt_lens=[len(prompt)],
+            start_pos=63,
+        )
+    # Aligned, but at or past the prompt: the chunk would be empty.
+    with expect_error(ValueError, "inside the prompt"):
         generator.prefill_forward(
             tokens=torch.tensor([prompt], dtype=torch.long),
             page_table=None,
             kv_cache=None,
             prompt_lens=[len(prompt)],
             start_pos=64,
+        )
+    # return_all_logits describes the whole prompt, which a resumed chunk is not.
+    long_prompt = _prompt(128)
+    with expect_error(ValueError, "return_all_logits"):
+        generator.prefill_forward(
+            tokens=torch.tensor([long_prompt], dtype=torch.long),
+            page_table=None,
+            kv_cache=None,
+            prompt_lens=[len(long_prompt)],
+            start_pos=64,
+            return_all_logits=True,
         )
     # start_pos=0 is the serving contract's ordinary case and must work.
     generator.reset()

@@ -69,6 +69,11 @@ def near(a: float, b: float, tol: float) -> bool:
     return abs(a - b) <= tol
 
 
+#: The stage this checker belongs to, used to tell "the top level still mirrors us"
+#: from "the top level has moved on to a later stage".
+STAGE_NAME = "optimized_multichip_decoder"
+
+
 def expect(ok: bool, where: str, detail: str) -> None:
     global checks
     checks += 1
@@ -139,31 +144,143 @@ def numbers(cell: str) -> list[float]:
     return [float(v) for v in re.findall(r"-?\d+\.\d+|(?<![\d.])-?\d+(?![\d.])", cell.replace("−", "-"))]
 
 
-
 #: Figures that are structural rather than measured -- shapes, counts, sizes,
 #: identifiers, bars and thresholds.  Each is a property of the model, the mesh or
 #: a deliberate policy, not a number read off a run, so no artifact can carry it.
 STRUCTURAL = {
     # shapes and counts
-    6656, 4608, 4096, 1664, 1280, 1024, 5120, 19968, 4992, 2304, 10240, 131072, 130073,
-    32, 64, 128, 208, 256, 512, 2048, 2049, 4097, 8192, 8193, 12345, 16, 8, 4, 2, 1, 0,
-    52, 26, 13, 10, 5, 3, 6, 7, 12, 14, 20, 22, 24, 30, 33, 34, 35, 36, 38, 45, 46, 48,
-    100, 104, 108, 110, 112, 160, 200, 300, 400, 1e-6,
+    6656,
+    4608,
+    4096,
+    1664,
+    1280,
+    1024,
+    5120,
+    19968,
+    4992,
+    2304,
+    10240,
+    131072,
+    130073,
+    32,
+    64,
+    128,
+    208,
+    256,
+    512,
+    2048,
+    2049,
+    4097,
+    8192,
+    8193,
+    12345,
+    16,
+    8,
+    4,
+    2,
+    1,
+    0,
+    52,
+    26,
+    13,
+    10,
+    5,
+    3,
+    6,
+    7,
+    12,
+    14,
+    20,
+    22,
+    24,
+    30,
+    33,
+    34,
+    35,
+    36,
+    38,
+    45,
+    46,
+    48,
+    100,
+    104,
+    108,
+    110,
+    112,
+    160,
+    200,
+    300,
+    400,
+    1e-6,
     # NOT 40: "40 KB" was a wrong decode payload size (it is 416 KB), and listing
     # 40 here defeated the unit-carrying-integer rule that exists to catch it.
     # bars, thresholds and tolerances
-    0.999, 0.995, 0.99, 0.96, 0.9998, 0.9999, 0.9,
+    0.999,
+    0.995,
+    0.99,
+    0.96,
+    0.9998,
+    0.9999,
+    0.9,
     # byte sizes and addresses quoted from runtime messages
-    1792, 2560, 1536, 6144, 3072, 4352, 7168, 7296, 8192, 32768, 425984, 1461376, 1572864,
-    1592192, 1137536, 1139584, 1039872,
+    1792,
+    2560,
+    1536,
+    6144,
+    3072,
+    4352,
+    7168,
+    7296,
+    8192,
+    32768,
+    425984,
+    1461376,
+    1572864,
+    1592192,
+    1137536,
+    1139584,
+    1039872,
     # Byte budgets: products of shapes and bytes-per-element (e.g. 6656 x 1280 x
     # 1.0625 for a BFLOAT8_B weight).  Arithmetic over structural constants, and
     # each is written next to its formula in the contract.
-    81043456, 314802176, 324173824, 967835648, 57933824, 425984, 16777216, 4194304,
-    81788928, 71303168, 35651584, 134217728, 224280576, 90521600, 19169280, 9052160,
-    7241728, 67108864, 1434048, 316544, 1137536,
+    81043456,
+    314802176,
+    324173824,
+    967835648,
+    57933824,
+    425984,
+    16777216,
+    4194304,
+    81788928,
+    71303168,
+    35651584,
+    134217728,
+    224280576,
+    90521600,
+    19169280,
+    9052160,
+    7241728,
+    67108864,
+    1434048,
+    316544,
+    1137536,
     # source line numbers, issue ids, versions
-    16667, 45943, 45958, 45052, 45969, 1305, 2222, 197, 240, 269, 41, 45, 56, 72, 95, 123,
+    16667,
+    45943,
+    45958,
+    45052,
+    45969,
+    1305,
+    2222,
+    197,
+    240,
+    269,
+    41,
+    45,
+    56,
+    72,
+    95,
+    123,
 }
 
 #: Values a document may state that are *derived*, with the operation named.  The
@@ -224,8 +341,7 @@ def check_derived() -> None:
         else:  # pragma: no cover - a typo in the table
             expect(False, f"derived {literal}", f"unknown operation {how!r}")
             continue
-        expect(abs(got - value) <= tol, f"derived {literal} ({how})",
-               f"its stated inputs give {got:.4f}")
+        expect(abs(got - value) <= tol, f"derived {literal} ({how})", f"its stated inputs give {got:.4f}")
 
 
 DERIVED_VALUES = {float(literal) for literal, _, _ in DERIVED}
@@ -234,9 +350,12 @@ DERIVED_VALUES = {float(literal) for literal, _, _ in DERIVED}
 #: ``tracy/sliding/decode_2048_perf_report.csv`` for one matmul shape.  These are
 #: the OPT-013 dtype-policy table's bandwidth and percent-of-peak columns.
 CAPTURE_MEANS = (
-    ("388.8", "DRAM", "32 x 6656 x 1280"), ("75.9", "DRAM %", "32 x 6656 x 1280"),
-    ("349.9", "DRAM", "32 x 6656 x 1024"), ("68.3", "DRAM %", "32 x 6656 x 1024"),
-    ("320.1", "DRAM", "32 x 1024 x 6656"), ("62.5", "DRAM %", "32 x 1024 x 6656"),
+    ("388.8", "DRAM", "32 x 6656 x 1280"),
+    ("75.9", "DRAM %", "32 x 6656 x 1280"),
+    ("349.9", "DRAM", "32 x 6656 x 1024"),
+    ("68.3", "DRAM %", "32 x 6656 x 1024"),
+    ("320.1", "DRAM", "32 x 1024 x 6656"),
+    ("62.5", "DRAM %", "32 x 1024 x 6656"),
 )
 
 
@@ -260,16 +379,21 @@ def check_capture_means(work_log: str) -> None:
         if values:
             got = sum(values) / len(values)
             places = len(literal.split(".")[1])
-            expect(abs(got - float(literal)) <= 0.5 * 10.0 ** (-places) * 2,
-                   f"capture mean {literal} ({column}, {shape})", f"the capture's {len(values)} rows mean {got:.3f}")
-            row = next((line for line in work_log.splitlines()
-                        if line.strip().startswith("|") and shape in line), None)
-            expect(row is not None and any(abs(v - got) <= 0.5 * 10.0 ** (-places) * 2 for v in numbers(row)),
-                   f"work_log.md dtype row for {shape} ({column})",
-                   f"no cell equals the capture's {got:.3f}")
+            expect(
+                abs(got - float(literal)) <= 0.5 * 10.0 ** (-places) * 2,
+                f"capture mean {literal} ({column}, {shape})",
+                f"the capture's {len(values)} rows mean {got:.3f}",
+            )
+            row = next((line for line in work_log.splitlines() if line.strip().startswith("|") and shape in line), None)
+            expect(
+                row is not None and any(abs(v - got) <= 0.5 * 10.0 ** (-places) * 2 for v in numbers(row)),
+                f"work_log.md dtype row for {shape} ({column})",
+                f"no cell equals the capture's {got:.3f}",
+            )
 
 
 CAPTURE_MEAN_VALUES = {float(literal) for literal, _, _ in CAPTURE_MEANS}
+
 
 def artifact_corpus():
     """Every number a committed artifact contains, and the aggregates over them.
@@ -389,20 +513,47 @@ def main() -> int:
     work_log = (DOC / "work_log.md").read_text()
     contract = json.loads((DOC.parent / "context_contract.json").read_text())
     stage = contract["optimized_multichip_decoder"]
-    # The contract carries this stage's facts twice: at the top level, which is
-    # what a reader sees first, and nested under the stage name, which is what the
-    # next stage's own block will nest in turn.  Both are checked, and they are
-    # required to agree -- editing one and not the other is exactly how the
-    # top-level block went stale two rounds ago.
-    for field in ("performance", "tests"):
-        expect(contract[field] == stage[field], f"contract top-level {field}",
-               "differs from optimized_multichip_decoder." + field)
+    # The contract carries a stage's facts twice: at the top level, which is what a
+    # reader sees first, and nested under the stage name, which is what the next
+    # stage's own block will nest in turn.  Requiring the two to agree caught a
+    # stale top-level block when *this* stage was the newest one.
+    #
+    # It is no longer the newest.  ``contract["stage"]`` is now ``datatype_sweep``,
+    # two stages on, so the top level legitimately describes something else: its
+    # ``performance`` and ``tested`` both differ from this stage's and it carries no
+    # ``tests`` key at all.  The unconditional comparison therefore raised
+    # ``KeyError: 'tests'`` and failed this gate for a reason that had nothing to do
+    # with any figure.  Compare only while the top level still is this stage, so the
+    # check re-arms by itself if it ever points back here.
+    expect(
+        stage.get("stage") == STAGE_NAME,
+        "contract stage block",
+        f"optimized_multichip_decoder.stage is {stage.get('stage')!r}, expected {STAGE_NAME!r}",
+    )
+    mirrors_top_level = contract.get("stage") == STAGE_NAME
+    if mirrors_top_level:
+        for field in ("performance", "tests"):
+            expect(
+                contract.get(field) == stage.get(field),
+                f"contract top-level {field}",
+                "differs from optimized_multichip_decoder." + field,
+            )
+
+    #: Performance blocks to check figures against.  The top-level one is included only
+    #: while it still describes this stage; see the note above.
+    perf_blocks = [("stage", stage["performance"])]
+    if mirrors_top_level:
+        perf_blocks.append(("top-level", contract["performance"]))
 
     # ---------------------------------------------------------------- device time
     dev: dict[tuple[str, str], tuple] = {}
     for kind in ("sliding", "full"):
-        for tag, replays in (("decode_2048", DECODE_REPLAYS), ("decode_131071", DECODE_REPLAYS),
-                             ("prefill_128", 1), ("prefill_8192", 1)):
+        for tag, replays in (
+            ("decode_2048", DECODE_REPLAYS),
+            ("decode_131071", DECODE_REPLAYS),
+            ("prefill_128", 1),
+            ("prefill_8192", 1),
+        ):
             after, after_ops, after_n = capture(DOC, kind, tag, replays)
             before, before_ops, before_n = capture(BASELINE, kind, tag, replays)
             dev[(kind, tag)] = (before, after, before_n, after_n, before_ops, after_ops)
@@ -423,31 +574,55 @@ def main() -> int:
             before_s, after_s, delta_s = numbers(cells[1]), numbers(cells[2]), numbers(cells[3])
             for i, kind in enumerate(("sliding", "full")):
                 b, a, bn, an, _, _ = dev[(kind, tag)]
-                expect(len(before_s) > i and near(before_s[i], b, 0.15), f"{doc_name} '{label}' before[{kind}]",
-                       f"says {before_s[i:i+1]}, CSV gives {b:.1f}")
-                expect(len(after_s) > i and near(after_s[i], a, 0.15), f"{doc_name} '{label}' after[{kind}]",
-                       f"says {after_s[i:i+1]}, CSV gives {a:.1f}")
+                expect(
+                    len(before_s) > i and near(before_s[i], b, 0.15),
+                    f"{doc_name} '{label}' before[{kind}]",
+                    f"says {before_s[i:i+1]}, CSV gives {b:.1f}",
+                )
+                expect(
+                    len(after_s) > i and near(after_s[i], a, 0.15),
+                    f"{doc_name} '{label}' after[{kind}]",
+                    f"says {after_s[i:i+1]}, CSV gives {a:.1f}",
+                )
                 pct = 100.0 * (a - b) / b
-                expect(len(delta_s) > i and near(delta_s[i], pct, 0.02), f"{doc_name} '{label}' delta[{kind}]",
-                       f"says {delta_s[i:i+1]}, CSV gives {pct:+.2f} %")
+                expect(
+                    len(delta_s) > i and near(delta_s[i], pct, 0.02),
+                    f"{doc_name} '{label}' delta[{kind}]",
+                    f"says {delta_s[i:i+1]}, CSV gives {pct:+.2f} %",
+                )
                 if has_ops and len(cells) > 4:
                     ops = numbers(cells[4])
                     if len(ops) >= 2 * (i + 1) and "unchanged" not in cells[4]:
-                        expect(near(ops[2 * i], bn, 0.5) and near(ops[2 * i + 1], an, 0.5),
-                               f"{doc_name} '{label}' ops[{kind}]", f"says {ops[2*i:2*i+2]}, CSV gives {bn}->{an}")
+                        expect(
+                            near(ops[2 * i], bn, 0.5) and near(ops[2 * i + 1], an, 0.5),
+                            f"{doc_name} '{label}' ops[{kind}]",
+                            f"says {ops[2*i:2*i+2]}, CSV gives {bn}->{an}",
+                        )
 
-    for field, kind, tag in (("sliding@2048", "sliding", "decode_2048"), ("full@2048", "full", "decode_2048"),
-                             ("sliding@131071", "sliding", "decode_131071"), ("full@131071", "full", "decode_131071")):
-        for where, block in (("stage", stage["performance"]), ("top-level", contract["performance"])):
-            expect(near(block["traced_decode_us_device"][field], dev[(kind, tag)][1], 0.05),
-                   f"contract {where} traced_decode_us_device[{field}]",
-                   f"says {block['traced_decode_us_device'][field]}, CSV gives {dev[(kind, tag)][1]:.1f}")
-    for field, kind, tag in (("8192_sliding", "sliding", "prefill_8192"), ("8192_full", "full", "prefill_8192"),
-                             ("128_sliding", "sliding", "prefill_128"), ("128_full", "full", "prefill_128")):
-        for where, block in (("stage", stage["performance"]), ("top-level", contract["performance"])):
-            expect(near(block["prefill_us_device"][field], dev[(kind, tag)][1], 0.05),
-                   f"contract {where} prefill_us_device[{field}]",
-                   f"says {block['prefill_us_device'][field]}, CSV gives {dev[(kind, tag)][1]:.1f}")
+    for field, kind, tag in (
+        ("sliding@2048", "sliding", "decode_2048"),
+        ("full@2048", "full", "decode_2048"),
+        ("sliding@131071", "sliding", "decode_131071"),
+        ("full@131071", "full", "decode_131071"),
+    ):
+        for where, block in perf_blocks:
+            expect(
+                near(block["traced_decode_us_device"][field], dev[(kind, tag)][1], 0.05),
+                f"contract {where} traced_decode_us_device[{field}]",
+                f"says {block['traced_decode_us_device'][field]}, CSV gives {dev[(kind, tag)][1]:.1f}",
+            )
+    for field, kind, tag in (
+        ("8192_sliding", "sliding", "prefill_8192"),
+        ("8192_full", "full", "prefill_8192"),
+        ("128_sliding", "sliding", "prefill_128"),
+        ("128_full", "full", "prefill_128"),
+    ):
+        for where, block in perf_blocks:
+            expect(
+                near(block["prefill_us_device"][field], dev[(kind, tag)][1], 0.05),
+                f"contract {where} prefill_us_device[{field}]",
+                f"says {block['prefill_us_device'][field]}, CSV gives {dev[(kind, tag)][1]:.1f}",
+            )
 
     # ------------------------------------------- the fractured-norm accounting
     _, before_ops, _ = capture(BASELINE, "sliding", "prefill_8192")
@@ -474,12 +649,21 @@ def main() -> int:
                 expect(False, f"{doc_name} '{label}'", f"no row labelled any of {aliases[label]}")
                 continue
             got_before, got_after = numbers(cells[1]), numbers(cells[2])
-            expect(bool(got_before) and near(got_before[0], before, 0.15), f"{doc_name} '{cells[0]}' before",
-                   f"says {got_before[:1]}, CSV gives {before:.1f}")
-            expect(bool(got_after) and near(got_after[0], after, 0.15), f"{doc_name} '{cells[0]}' after",
-                   f"says {got_after[:1]}, CSV gives {after:.1f}")
-    expect(near(stage["performance"]["prefill_norm_us_device"]["8192_sliding"], totals["six RMSNorms"][1], 0.15),
-           "contract prefill_norm_us_device", f"CSV gives {totals['six RMSNorms'][1]:.1f}")
+            expect(
+                bool(got_before) and near(got_before[0], before, 0.15),
+                f"{doc_name} '{cells[0]}' before",
+                f"says {got_before[:1]}, CSV gives {before:.1f}",
+            )
+            expect(
+                bool(got_after) and near(got_after[0], after, 0.15),
+                f"{doc_name} '{cells[0]}' after",
+                f"says {got_after[:1]}, CSV gives {after:.1f}",
+            )
+    expect(
+        near(stage["performance"]["prefill_norm_us_device"]["8192_sliding"], totals["six RMSNorms"][1], 0.15),
+        "contract prefill_norm_us_device",
+        f"CSV gives {totals['six RMSNorms'][1]:.1f}",
+    )
 
     # ------------------------------------------------------------ the whole-layer A/B
     ab = ab_rows(DOC / "logs" / "final_layer_ab.log")
@@ -494,23 +678,41 @@ def main() -> int:
             continue
         before_vals, after_vals = numbers(cells[1]), numbers(cells[2])
         for candidate, vals in (("before", before_vals), ("tp4", after_vals)):
-            got = [ab[(n, kind)][field] for n in (("before", "beforeb") if candidate == "before" else ("tp4", "tp4b", "tp4c")) if (n, kind) in ab]
-            expect(sorted(round(v, 4) for v in vals) == sorted(round(v, 4) for v in got),
-                   f"README.md '{label}' {candidate}", f"says {sorted(vals)}, log gives {sorted(got)}")
+            got = [
+                ab[(n, kind)][field]
+                for n in (("before", "beforeb") if candidate == "before" else ("tp4", "tp4b", "tp4c"))
+                if (n, kind) in ab
+            ]
+            expect(
+                sorted(round(v, 4) for v in vals) == sorted(round(v, 4) for v in got),
+                f"README.md '{label}' {candidate}",
+                f"says {sorted(vals)}, log gives {sorted(got)}",
+            )
         mean_before = sum(ab[(n, kind)][field] for n in ("before", "beforeb")) / 2
         mean_after = sum(ab[(n, kind)][field] for n in ("tp4", "tp4b", "tp4c")) / 3
         pct = 100.0 * (mean_after - mean_before) / mean_before
-        expect(bool(numbers(cells[3])) and near(numbers(cells[3])[0], pct, 0.02), f"README.md '{label}' delta",
-               f"says {numbers(cells[3])[:1]}, log gives {pct:+.2f} %")
+        expect(
+            bool(numbers(cells[3])) and near(numbers(cells[3])[0], pct, 0.02),
+            f"README.md '{label}' delta",
+            f"says {numbers(cells[3])[:1]}, log gives {pct:+.2f} %",
+        )
     for field, name, kind in (("sliding@2048", "tp4", "sliding"), ("full@2048", "tp4", "full")):
-        expect(near(stage["performance"]["traced_decode_ms_per_token_e2e"][field], ab[(name, kind)]["decode_ms"], 5e-4),
-               f"contract traced_decode_ms_per_token_e2e[{field}]", f"log gives {ab[(name, kind)]['decode_ms']}")
+        expect(
+            near(stage["performance"]["traced_decode_ms_per_token_e2e"][field], ab[(name, kind)]["decode_ms"], 5e-4),
+            f"contract traced_decode_ms_per_token_e2e[{field}]",
+            f"log gives {ab[(name, kind)]['decode_ms']}",
+        )
     for field, kind in (("traced_decode_sliding@2048", "sliding"), ("traced_decode_full@2048", "full")):
-        expect(near(stage["performance"]["single_chip_baseline_e2e"][field], single[("single", kind)]["decode_ms"], 5e-4),
-               f"contract single_chip_baseline_e2e[{field}]", f"log gives {single[('single', kind)]['decode_ms']}")
+        expect(
+            near(stage["performance"]["single_chip_baseline_e2e"][field], single[("single", kind)]["decode_ms"], 5e-4),
+            f"contract single_chip_baseline_e2e[{field}]",
+            f"log gives {single[('single', kind)]['decode_ms']}",
+        )
 
     # -------------------------------------------------------------- correctness
-    worst = dict(re.findall(r"worst\[([^\]]+)\]: ([\d.]+)", (DOC / "logs" / "vs_single_chip_run.log").read_text(errors="ignore")))
+    worst = dict(
+        re.findall(r"worst\[([^\]]+)\]: ([\d.]+)", (DOC / "logs" / "vs_single_chip_run.log").read_text(errors="ignore"))
+    )
     label_of = {
         "sliding seq_len=2049 batch=1": "sliding, 2049, batch 1",
         "full seq_len=2049 batch=1": "full, 2049, batch 1",
@@ -521,39 +723,59 @@ def main() -> int:
         cells = row_cells(readme, label_of[log_label], "README.md")
         if cells is None:
             continue
-        expect(bool(numbers(cells[1])) and near(numbers(cells[1])[0], float(value), 5e-7),
-               f"README.md vs-single-chip '{label_of[log_label]}'", f"says {numbers(cells[1])[:1]}, log gives {value}")
+        expect(
+            bool(numbers(cells[1])) and near(numbers(cells[1])[0], float(value), 5e-7),
+            f"README.md vs-single-chip '{label_of[log_label]}'",
+            f"says {numbers(cells[1])[:1]}, log gives {value}",
+        )
     # The baseline's values are legitimate in a "before" column and in prose that
     # names them as the baseline's; what must not happen is one of them appearing
     # as *this stage's* worst value, which is the first cell of those rows.
     for log_label, value in worst.items():
         cells = row_cells(readme, label_of[log_label], "README.md")
         if cells and len(cells) > 2:
-            expect(numbers(cells[1])[0] != numbers(cells[2])[0] or log_label.startswith("full seq_len=12345"),
-                   f"README.md vs-single-chip '{label_of[log_label]}'",
-                   "this stage's value equals the baseline's; only the decode row should")
+            expect(
+                numbers(cells[1])[0] != numbers(cells[2])[0] or log_label.startswith("full seq_len=12345"),
+                f"README.md vs-single-chip '{label_of[log_label]}'",
+                "this stage's value equals the baseline's; only the decode row should",
+            )
 
     suite = (DOC / "logs" / "full_test_run.log").read_text(errors="ignore")
     passed = re.search(r"(\d+) passed", suite)
     expect(passed is not None, "suite log", "no pass count")
     if passed:
         for doc_name, text in (("README.md", readme), ("work_log.md", work_log)):
-            expect(f"**{passed.group(1)} passed**" in text, f"{doc_name} suite pass count",
-                   f"'{passed.group(1)} passed' not stated")
-        expect(stage["tests"]["passed"] == int(passed.group(1)) + 4, "contract tests.passed",
-               f"says {stage['tests']['passed']}, logs give {int(passed.group(1)) + 4}")
+            expect(
+                f"**{passed.group(1)} passed**" in text,
+                f"{doc_name} suite pass count",
+                f"'{passed.group(1)} passed' not stated",
+            )
+        expect(
+            stage["tests"]["passed"] == int(passed.group(1)) + 4,
+            "contract tests.passed",
+            f"says {stage['tests']['passed']}, logs give {int(passed.group(1)) + 4}",
+        )
 
     # --------------------------------- probe figures: in their log and in the docs
     named = (
-        ("1348.0", "prefill_ccl_probe.log"), ("1588.7", "prefill_ccl_probe.log"),
-        ("2606.3", "prefill_ccl_probe.log"), ("2086.6", "prefill_ccl_probe.log"),
-        ("4443.9", "fractured_prefill_probe.log"), ("5902.1", "fractured_prefill_probe.log"),
-        ("44.91", "fused_ccl_probe.log"), ("87.47", "fused_ccl_probe.log"),
-        ("64.74", "fused_ccl_gathered_input.log"), ("65.84", "fused_ccl_gathered_input.log"),
-        ("40.50", "packing_probe.log"), ("41.05", "packing_probe.log"),
-        ("142.96", "packing_probe.log"), ("145.66", "packing_probe.log"),
-        ("0.739526", "regression_bisect.log"), ("0.774936", "regression_bisect.log"),
-        ("1.34", "ab_frac_norm_gate.log"), ("1.18", "ab_frac_norm_gate.log"),
+        ("1348.0", "prefill_ccl_probe.log"),
+        ("1588.7", "prefill_ccl_probe.log"),
+        ("2606.3", "prefill_ccl_probe.log"),
+        ("2086.6", "prefill_ccl_probe.log"),
+        ("4443.9", "fractured_prefill_probe.log"),
+        ("5902.1", "fractured_prefill_probe.log"),
+        ("44.91", "fused_ccl_probe.log"),
+        ("87.47", "fused_ccl_probe.log"),
+        ("64.74", "fused_ccl_gathered_input.log"),
+        ("65.84", "fused_ccl_gathered_input.log"),
+        ("40.50", "packing_probe.log"),
+        ("41.05", "packing_probe.log"),
+        ("142.96", "packing_probe.log"),
+        ("145.66", "packing_probe.log"),
+        ("0.739526", "regression_bisect.log"),
+        ("0.774936", "regression_bisect.log"),
+        ("1.34", "ab_frac_norm_gate.log"),
+        ("1.18", "ab_frac_norm_gate.log"),
     )
     for value, log_name in named:
         body = (DOC / "logs" / log_name).read_text(errors="ignore")
@@ -561,7 +783,10 @@ def main() -> int:
         expect(value in readme or value in work_log, f"probe figure {value}", "not quoted in either document")
 
     # ------------------ no figure quoted in shipped source may lack an artifact
-    for source in (DOC.parent.parent / "tt" / "multichip_decoder.py", DOC.parent.parent / "tests" / "test_multichip_decoder.py"):
+    for source in (
+        DOC.parent.parent / "tt" / "multichip_decoder.py",
+        DOC.parent.parent / "tests" / "test_multichip_decoder.py",
+    ):
         text = source.read_text()
         # Inherited docstrings legitimately quote the multichip stage's own
         # measurements, so its logs count as artifacts here too.
@@ -587,27 +812,42 @@ def main() -> int:
         # (5 cells: 1 chip / 4 chips / speedup / was) share row labels.
         result_row = next((c for c in rows if len(c) == 4), None)
         speedup_row = next((c for c in rows if len(c) == 5), None)
-        expect(result_row is not None and speedup_row is not None, f"README.md '{label}'",
-               f"expected a 4-cell Result row and a 5-cell speedup row, found {[len(c) for c in rows]}")
+        expect(
+            result_row is not None and speedup_row is not None,
+            f"README.md '{label}'",
+            f"expected a 4-cell Result row and a 5-cell speedup row, found {[len(c) for c in rows]}",
+        )
         shipped = [ab[(n, kind)][field] for n in ("tp4", "tp4b", "tp4c") if (n, kind) in ab]
         before = [ab[(n, kind)][field] for n in ("before", "beforeb") if (n, kind) in ab]
         mean = sum(shipped) / len(shipped)
         if result_row:
             for cell, want, what in ((result_row[1], before, "before"), (result_row[2], shipped, "after")):
                 got = numbers(cell)
-                expect(sorted(round(v, 4) for v in got) == sorted(round(v, 4) for v in want),
-                       f"README.md '{label}' Result {what}", f"says {sorted(got)}, log gives {sorted(want)}")
+                expect(
+                    sorted(round(v, 4) for v in got) == sorted(round(v, 4) for v in want),
+                    f"README.md '{label}' Result {what}",
+                    f"says {sorted(got)}, log gives {sorted(want)}",
+                )
             pct = 100.0 * (mean - sum(before) / len(before)) / (sum(before) / len(before))
             got = numbers(result_row[3])
-            expect(bool(got) and near(got[0], pct, 0.06), f"README.md '{label}' Result delta",
-                   f"says {got[:1]}, log gives {pct:+.2f} %")
+            expect(
+                bool(got) and near(got[0], pct, 0.06),
+                f"README.md '{label}' Result delta",
+                f"says {got[:1]}, log gives {pct:+.2f} %",
+            )
         if speedup_row and ("single", kind) in single:
             base = single[("single", kind)][field]
-            for idx, want, what, tol in ((1, base, "1-chip", 5e-4), (2, mean, "4-chip", 6e-3),
-                                         (3, base / mean, "speedup", 0.006)):
+            for idx, want, what, tol in (
+                (1, base, "1-chip", 5e-4),
+                (2, mean, "4-chip", 6e-3),
+                (3, base / mean, "speedup", 0.006),
+            ):
                 got = numbers(speedup_row[idx])
-                expect(bool(got) and near(got[0], want, tol), f"README.md '{label}' {what}",
-                       f"says {got[:1]}, log gives {want:.4f}")
+                expect(
+                    bool(got) and near(got[0], want, tol),
+                    f"README.md '{label}' {what}",
+                    f"says {got[:1]}, log gives {want:.4f}",
+                )
 
     # ------------------------------------------------------------- provenance
     # The anchored checks above cover about ten table families.  Five rounds of
@@ -626,17 +866,25 @@ def main() -> int:
     check_capture_means(work_log)
     derived_checks = checks - derived_checks
     anchored = checks
-    for name, text in (("README.md", readme), ("work_log.md", work_log),
-                       ("context_contract.json", (DOC.parent / "context_contract.json").read_text()),
-                       ("tt/multichip_decoder.py", (DOC.parent.parent / "tt" / "multichip_decoder.py").read_text()),
-                       ("tests/test_multichip_decoder.py", (DOC.parent.parent / "tests" / "test_multichip_decoder.py").read_text())):
+    for name, text in (
+        ("README.md", readme),
+        ("work_log.md", work_log),
+        ("context_contract.json", (DOC.parent / "context_contract.json").read_text()),
+        ("tt/multichip_decoder.py", (DOC.parent.parent / "tt" / "multichip_decoder.py").read_text()),
+        ("tests/test_multichip_decoder.py", (DOC.parent.parent / "tests" / "test_multichip_decoder.py").read_text()),
+    ):
         for value, line_no in quoted_figures(text):
-            expect(has_provenance(value, corpus, aggregates, rounded), f"{name}:{line_no} figure {value}",
-                   "appears in no committed artifact and is not derivable from two that do")
+            expect(
+                has_provenance(value, corpus, aggregates, rounded),
+                f"{name}:{line_no} figure {value}",
+                "appears in no committed artifact and is not derivable from two that do",
+            )
 
-    print(f"checked {anchored - derived_checks} anchored claims (re-derived at their own table row), "
-          f"{derived_checks} derived/capture figures (recomputed from their inputs), "
-          f"and swept {checks - anchored} figures for provenance")
+    print(
+        f"checked {anchored - derived_checks} anchored claims (re-derived at their own table row), "
+        f"{derived_checks} derived/capture figures (recomputed from their inputs), "
+        f"and swept {checks - anchored} figures for provenance"
+    )
     for failure in failures:
         print(f"  STALE  {failure}")
     if failures:
