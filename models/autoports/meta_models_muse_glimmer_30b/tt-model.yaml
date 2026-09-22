@@ -72,10 +72,21 @@ serve:
   # shim appended — 0.24's --tool-parser-plugin flow expects the file to register
   # itself). Parse + channel-scoping behavior verified in the validated venv; the
   # end-to-end tool-call serve is NOT yet hardware-validated.
+  #
+  # The paired reasoning parser moves the model's `to=self` channel out of
+  # user-visible content. Without it the analysis channel IS the answer: a
+  # container built from this manifest returned
+  #   "to=self ... Probably 4 ... So output \"4\". No extra text."
+  # as message.content, and aime25 scored 0.00 against a recorded 90.00 purely
+  # because no extractor can find an answer in a wall of reasoning. Added to the
+  # manifest on another branch (9cf88af) and missing here, so every container
+  # built from this file was silently wrong on every scored task.
   capabilities:
     tool_parser: muse_glimmer
+    reasoning_parser: muse_glimmer
   args:
     - [--tool-parser-plugin, /opt/tt-metal/models/autoports/meta_models_muse_glimmer_30b/tt/muse_glimmer_tool_parser.py]
+    - [--reasoning-parser-plugin, /opt/tt-metal/models/autoports/meta_models_muse_glimmer_30b/tt/reasoning_parser.py]
   additional_config:
     tt:
       sample_on_device_mode: all
@@ -98,6 +109,7 @@ verify:
   # the backported ATEM tool parser ships and registers under the name the
   # capabilities block launches with
   - "import vllm; import importlib.util; s = importlib.util.spec_from_file_location('mgtp', '/opt/tt-metal/models/autoports/meta_models_muse_glimmer_30b/tt/muse_glimmer_tool_parser.py'); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); from vllm.tool_parsers import ToolParserManager; assert 'muse_glimmer' in ToolParserManager.tool_parsers, 'ATEM tool parser did not register'"
+  - "import vllm; import importlib.util; s = importlib.util.spec_from_file_location('mgrp', '/opt/tt-metal/models/autoports/meta_models_muse_glimmer_30b/tt/reasoning_parser.py'); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); from vllm.reasoning import ReasoningParserManager; assert 'muse_glimmer' in ReasoningParserManager.reasoning_parsers, 'reasoning parser did not register'"
 
 card:
   quickstart: |
