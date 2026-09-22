@@ -401,6 +401,92 @@ def test_multi_chunk_prefill_page_table_bound(mesh_device, decoder_cache, refere
 
 @pytest.mark.timeout(1800)
 @pytest.mark.parametrize("kind", LAYER_KINDS)
+@pytest.mark.timeout(900)
+@pytest.mark.parametrize("start_pos", (2048, 4096))
+def test_paged_prefix_read_matches_the_tail_handoff(mesh_device, decoder_cache, reference_layers, kind, start_pos):
+    """The paged window read, on the class that actually ships.
+
+    ``MuseGlimmerDecoder`` is ``MultichipDecoder(OptimizedDecoder)`` and this stage
+    re-spells ``_prefill_attention`` rather than inheriting it, so the branch that
+    selects the paged read exists twice.  The fused suite covers the parametrisation
+    breadth; this covers the copy that serves real requests.
+
+    Three comparisons in one test: against the HF reference, against the proven tail
+    hand-off, and against a page table whose prefix entries point at blocks nothing
+    wrote.  The third is the one that proves the window really comes from the donor's
+    blocks rather than from somewhere incidental.
+    """
+    layer_idx, layer = reference_layers[kind]
+    decoder = build_optimized(mesh_device, decoder_cache, kind)
+    second_len = 256
+    blocks_per_seq = SHORT_MAX_SEQ // PAGE_BLOCK_SIZE
+    prefix_blocks = start_pos // PAGE_BLOCK_SIZE
+
+    hidden = R.synthetic_hidden_states(1, start_pos + second_len, seed=8080 + start_pos)
+    expected, _ = R.reference_prefill(layer, layer_idx, hidden)
+    expected_tail = expected[:, start_pos:]
+
+    generator = torch.Generator().manual_seed(1717)
+    good = torch.randperm(blocks_per_seq, generator=generator)
+    bad = good.clone()
+    bad[:prefix_blocks] = good[blocks_per_seq // 2 : blocks_per_seq // 2 + prefix_blocks]
+
+    def to_pt(rows):
+        return ttnn.from_torch(
+            rows.reshape(1, blocks_per_seq).to(torch.int32),
+            device=mesh_device,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            dtype=ttnn.int32,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+
+    pt_good = to_pt(good)
+    _, tail = decoder.prefill_forward(
+        to_device_hidden(mesh_device, hidden[:, :start_pos]),
+        page_table=pt_good,
+        user_id=0,
+        return_sliding_kv_tail=True,
+    )
+
+    def resume(page_table, **kw):
+        out = decoder.prefill_forward(
+            to_device_hidden(mesh_device, hidden[:, start_pos:]),
+            page_table=page_table,
+            user_id=0,
+            start_pos=start_pos,
+            **kw,
+        )
+        host = ttnn.to_torch(out).reshape(1, second_len, -1)
+        ttnn.deallocate(out)
+        return host
+
+    arm_t = resume(pt_good, sliding_kv_tail=tail)
+    arm_p = resume(pt_good, prefix_in_cache=True)
+    arm_zero = resume(to_pt(bad), prefix_in_cache=True)
+
+    def correlation(reference, actual):
+        pair = torch.stack([reference.float().flatten(), actual.float().flatten()])
+        return float(torch.corrcoef(pair)[0, 1])
+
+    assert_pcc(f"optimized paged-prefix prefill[{kind}] start_pos={start_pos}", expected_tail, arm_p)
+    assert_pcc(
+        f"optimized paged-prefix vs tail hand-off[{kind}] start_pos={start_pos}",
+        arm_t,
+        arm_p,
+        threshold=0.999,
+    )
+    good_value, zero_value = correlation(expected_tail, arm_p), correlation(expected_tail, arm_zero)
+    logger.info(
+        f"optimized paged-prefix cache control[{kind}] start_pos={start_pos}: "
+        f"good={good_value:.6f}, zeroed-prefix={zero_value:.6f}"
+    )
+    assert good_value > zero_value + 1e-3, (
+        f"remapping the prefix onto unwritten blocks barely changed the result "
+        f"(good={good_value}, zeroed={zero_value}); the paged read is not consulting "
+        "the donor's blocks through the page table"
+    )
+
+
 @pytest.mark.parametrize("first_len,second_len", CONTINUATION_SPLITS)
 def test_continuation_prefill_pcc(mesh_device, decoder_cache, reference_layers, kind, first_len, second_len):
     """Caller-chunked prefill: two ``start_pos``-separated calls == one call."""

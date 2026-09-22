@@ -1365,6 +1365,7 @@ class MuseGlimmerModel(LightweightModule):
         start_pos: int = 0,
         continuation: bool = False,
         keep_sliding_tails: bool = False,
+        prefix_in_cache: bool = False,
     ) -> ttnn.Tensor:
         """Run the layer stack over a prompt; returns the final hidden state.
 
@@ -1375,6 +1376,15 @@ class MuseGlimmerModel(LightweightModule):
         by this model, so a caller doing chunked prefill only has to say whether
         this call continues the last one.
         """
+        if prefix_in_cache and continuation:
+            raise ValueError(
+                "pass either continuation or prefix_in_cache: the first threads sliding tails "
+                "from this process's previous call, the second reads the window from the cache"
+            )
+        if prefix_in_cache and start_pos == 0:
+            raise ValueError("prefix_in_cache=True is meaningless at start_pos=0: there is no prefix")
+        if prefix_in_cache and keep_sliding_tails:
+            raise ValueError("prefix_in_cache does not build sliding tails, so it cannot keep them")
         if continuation and start_pos == 0:
             raise ValueError("continuation prefill needs start_pos > 0")
         if continuation and self._sliding_tails is None:
@@ -1398,6 +1408,7 @@ class MuseGlimmerModel(LightweightModule):
                 start_pos=start_pos,
                 sliding_kv_tail=tails[position] if sliding else None,
                 return_sliding_kv_tail=want_tail,
+                prefix_in_cache=prefix_in_cache,
             )
             if want_tail:
                 out, next_tails[position] = result
@@ -1421,6 +1432,16 @@ class MuseGlimmerModel(LightweightModule):
         not on the prompt: at 202752 vocab columns a whole-prompt projection is
         the largest matmul in the model and nothing in a token-out path needs it.
         """
+        rows = int(hidden.shape[-2])
+        if not 0 <= last_token_index < rows:
+            # ``_slice_rows`` clamps ``end`` to ``rows``, so an absolute index handed in
+            # for a chunk-local hidden state would return some other tile row and sample
+            # a plausible wrong token instead of failing.  A resumed prefill makes that
+            # an easy mistake: the index is relative to the chunk, not to the prompt.
+            raise ValueError(
+                f"last_token_index={last_token_index} outside the {rows} hidden rows; for a "
+                "resumed prefill pass the chunk-relative index (prompt_len - start_pos - 1)"
+            )
         row = self._slice_rows(hidden, last_token_index)
         normed = self.final_norm.forward(row)
         ttnn.deallocate(row)

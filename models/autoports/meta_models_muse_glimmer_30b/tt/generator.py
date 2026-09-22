@@ -733,6 +733,7 @@ class MuseGlimmerGenerator(Generator):
         user_id: int,
         page_table: torch.Tensor,
         return_all_logits: bool = False,
+        start_pos: int = 0,
     ):
         """Embed + 52 layers + terminal path for one user's prompt.
 
@@ -741,6 +742,13 @@ class MuseGlimmerGenerator(Generator):
         masks the padded tail and slices its output back, so a prompt length that
         is not a multiple of the tile, the page block or the prefill chunk is an
         ordinary input.
+
+        ``start_pos > 0`` is a **resumed** prefill: the K/V for ``[0, start_pos)``
+        is already in the paged cache, so only ``token_ids[start_pos:]`` is
+        computed and the sliding layers read their window back out of the cache.
+        That is what a vLLM prefix-cache hit asks for, and what a preemption
+        resume asks for.  ``token_ids`` is still the **whole** prompt; this method
+        does the slicing, because the logits row is then unambiguous.
         """
         model = self.model
         config = model.config
@@ -758,6 +766,30 @@ class MuseGlimmerGenerator(Generator):
         if not 0 <= int(user_id) < int(config.max_batch_size):
             raise ValueError(f"user_id={user_id} outside max_batch_size={config.max_batch_size}")
 
+        start_pos = int(start_pos)
+        block_size = config.page_block_size
+        if start_pos:
+            # Every one of these would otherwise be silent.  A non-block-aligned offset
+            # makes ``paged_fill_cache`` write from the wrong virtual block; an offset at
+            # or past the prompt leaves an empty chunk whose logits row is garbage; and a
+            # stale sliding tail left over from a caller-chunked prefill would be
+            # consumed in preference to the cache.
+            if start_pos % block_size:
+                raise ValueError(
+                    f"resumed prefill start_pos={start_pos} must be a multiple of the page " f"block size {block_size}"
+                )
+            if not 0 < start_pos < prompt_len:
+                raise ValueError(
+                    f"resumed prefill start_pos={start_pos} must lie inside the prompt " f"(0, {prompt_len})"
+                )
+            if model._sliding_tails is not None:
+                raise RuntimeError(
+                    "a resumed prefill cannot run while this process holds sliding K/V tails "
+                    "from a caller-chunked prefill; release them first"
+                )
+            if return_all_logits:
+                raise ValueError("return_all_logits is not supported on a resumed prefill")
+
         # The generator owns prompt padding: the ids are padded to a tile boundary
         # with the zero-embedding pad id, so the layer stack sees an aligned prompt
         # (its own internal pad is a no-op) and every padded row is exactly zero
@@ -770,25 +802,45 @@ class MuseGlimmerGenerator(Generator):
         # one per slot, and one prefill trace that serves every slot rather than only
         # slot 0.
         slot_row = model.page_table_row(page_table, user_id)
-        if self.gen_config.prefill_trace and not return_all_logits and prompt_len <= config.prefill_chunk_size:
+        if (
+            self.gen_config.prefill_trace
+            and not return_all_logits
+            and not start_pos
+            and prompt_len <= config.prefill_chunk_size
+        ):
+            # The captured graph bakes in ``start_pos=0`` along with the padded row
+            # count and ``user_id=0``, so replaying it for a resumed prefill would use
+            # the wrong RoPE offset and fill the wrong blocks.  Skip it rather than
+            # invalidate the trace: a resumed prefill is the short chunk, so it has
+            # the least to gain from the capture.
             traced = self._prefill_traced(token_ids, page_rows=slot_row)
             if traced is not None:
                 return traced
 
-        tt_tokens, padded_len = model.prefill_tokens_to_device(token_ids)
+        chunk_ids = token_ids[start_pos:] if start_pos else token_ids
+        chunk_len = len(chunk_ids)
+        tt_tokens, padded_len = model.prefill_tokens_to_device(chunk_ids)
         tt_page_table = model.page_table_row_to_device(slot_row)
         embedded = model.embed_prefill(tt_tokens)
         ttnn.deallocate(tt_tokens)
-        hidden = model.prefill_forward(embedded, page_table=tt_page_table, user_id=0)
+        hidden = model.prefill_forward(
+            embedded,
+            page_table=tt_page_table,
+            user_id=0,
+            start_pos=start_pos,
+            prefix_in_cache=bool(start_pos),
+        )
         if return_all_logits:
             rows = model.prefill_all_logits(hidden, prompt_len=prompt_len)
             ttnn.deallocate(hidden)
             ttnn.deallocate(tt_page_table)
             return rows
-        logits = model.prefill_logits(hidden, last_token_index=prompt_len - 1)
+        # Chunk-relative: ``hidden`` covers ``[start_pos, prompt_len)`` only.
+        last_row = chunk_len - 1
+        logits = model.prefill_logits(hidden, last_token_index=last_row)
         ttnn.deallocate(hidden)
         ttnn.deallocate(tt_page_table)
-        return logits, model.row_within_tile(prompt_len - 1)
+        return logits, model.row_within_tile(last_row)
 
     # --------------------------------------------------- the opt-in prefill trace
 
@@ -844,8 +896,13 @@ class MuseGlimmerGenerator(Generator):
             f"max_padded_len={self.gen_config.prefill_trace_max_padded_len})"
         )
 
-    def _prefill_traced(self, token_ids: Sequence[int], *, page_rows: torch.Tensor):
+    def _prefill_traced(self, token_ids: Sequence[int], *, page_rows: torch.Tensor, start_pos: int = 0):
         """``(logits, row_in_tile)`` from a replayed prefill trace, or ``None``.
+
+        ``start_pos`` exists only to be refused.  The captured graph bakes the offset
+        in, so replaying it for a resumed prefill would use the wrong RoPE rows and
+        fill the wrong blocks -- silently.  The caller already skips the trace in that
+        case; this keeps a future caller from re-entering it by accident.
 
         Returns ``None`` -- so the caller takes the eager path -- when this padded
         length is past :attr:`GeneratorConfig.prefill_trace_max_padded_len`, or when
@@ -873,6 +930,11 @@ class MuseGlimmerGenerator(Generator):
         deallocate what ``_prefill_user`` hands them, and handing over a buffer the next
         replay writes into would be a use-after-free waiting for a second request.
         """
+        if start_pos:
+            raise NotImplementedError(
+                f"the prefill trace bakes in start_pos=0 and cannot serve a resumed prefill "
+                f"(got start_pos={start_pos}); take the eager path instead"
+            )
         model = self.model
         length = len(token_ids)
         padded_len = ((length + TILE_SIZE - 1) // TILE_SIZE) * TILE_SIZE
@@ -1490,12 +1552,20 @@ class MuseGlimmerGenerator(Generator):
         # single-chunk case passes 0 -- which is exactly what ``_prefill_user`` does. So
         # 0 is accepted; only a non-zero value, which would mean chunked continuation,
         # is refused.
+        # A non-zero value now means a *resumed* prefill: the K/V for ``[0, start_pos)``
+        # is already in the paged cache, which is what a vLLM prefix-cache hit and a
+        # preemption resume both produce.  It is per user, because vLLM schedules a
+        # batch whose members can have different cache hits.
         start_pos = kwargs.pop("start_pos", 0)
-        if start_pos:
-            raise NotImplementedError(
-                f"prefill_forward() starts every user at position 0, got start_pos={start_pos}; "
-                "drive MuseGlimmerModel.prefill_forward directly for chunked continuation"
-            )
+        if start_pos is None:
+            starts = [0] * batch
+        elif isinstance(start_pos, int):
+            starts = [int(start_pos)] * batch
+        else:
+            flat = torch.as_tensor(start_pos).reshape(-1).tolist()
+            if len(flat) < batch:
+                raise ValueError(f"start_pos has {len(flat)} entries for a batch of {batch}")
+            starts = [int(p) for p in flat[:batch]]
         for owned in ("continuation", "keep_sliding_tails"):
             if owned in kwargs:
                 raise NotImplementedError(
@@ -1516,7 +1586,7 @@ class MuseGlimmerGenerator(Generator):
                     request_index=user,
                     slot=slot,
                 )
-                logits, row_in_tile = self._prefill_user(ids, user_id=slot, page_table=table)
+                logits, row_in_tile = self._prefill_user(ids, user_id=slot, page_table=table, start_pos=starts[user])
                 # ``into_tokens=False``: the sampler samples all 32 rows of the tile the
                 # LM head was given, and the prompt's last token is row ``row_in_tile``
                 # of it -- writing that whole vector into the decode token buffer would
@@ -1533,13 +1603,15 @@ class MuseGlimmerGenerator(Generator):
             ids = tokens[user, : prompt_lens[user]].tolist()
             slot = int(user_ids[user]) if user_ids is not None else user
             if return_all_logits:
-                rows = self._prefill_user(ids, user_id=slot, page_table=table, return_all_logits=True)
+                rows = self._prefill_user(
+                    ids, user_id=slot, page_table=table, return_all_logits=True, start_pos=starts[user]
+                )
                 host_rows = [self.model.logits_to_torch(row) for row in rows]
                 for row in rows:
                     ttnn.deallocate(row)
                 outputs.append(torch.cat(host_rows, dim=0)[: prompt_lens[user]].unsqueeze(0))
             else:
-                logits, row_in_tile = self._prefill_user(ids, user_id=slot, page_table=table)
+                logits, row_in_tile = self._prefill_user(ids, user_id=slot, page_table=table, start_pos=starts[user])
                 host = self.model.logits_to_torch(logits)
                 ttnn.deallocate(logits)
                 outputs.append(host[row_in_tile : row_in_tile + 1].unsqueeze(0))

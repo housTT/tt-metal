@@ -70,6 +70,22 @@ opposed to omitting the hook) also keeps the plugin from deriving a
 ``FullAttentionSpec(sliding_window=2048)`` from the HF config, which would put
 vLLM's block manager into exactly the sliding-window mode this model cannot
 consume.
+
+The uniform spec is now **load-bearing for prefix caching**, not merely a memory
+trade.  One physical block id indexes all 52 per-layer cache tensors, so a block
+filled by one request carries valid K/V for the sliding layers too -- which is
+what lets a later request resume from it.  A hybrid spec would split the pool per
+attention type and break that, on top of the absolute-position hazard above.
+``FullAttentionSpec`` also routes vLLM to ``FullAttentionManager``, which retains
+every block; windowed layers need strictly fewer blocks than full-attention ones,
+so retaining all of them is conservative rather than merely adequate.
+
+Prefix caching across requests is sound here for one non-obvious reason: vLLM's
+block hashes are *prefix chains*, so a cached block always corresponds to the
+same absolute token positions.  That is what makes this port's absolute-position
+RoPE and absolute-position cache writes safe to share between requests -- the
+positions baked into a donor's K/V are exactly the positions the consumer wants.
+A content-addressed cache without the prefix chain would not have that property.
 """
 
 from __future__ import annotations
@@ -317,10 +333,23 @@ class MuseGlimmerForConditionalGeneration:
     #: adapter never restages tokens or positions from host -- see
     #: :meth:`decode_forward`.
     #:
-    #: ``supports_prefix_caching`` stays False: nothing in this port implements or
-    #: tests prefix reuse, and 39 of the 52 layers are sliding-window anyway.
+    #: ``supports_prefix_caching`` is True because a resumed prefill is implemented:
+    #: the 13 full-attention layers read the donor's blocks through the paged reader
+    #: they already used for continuation, and the 39 sliding layers read their window
+    #: out of the same blocks with a page-table row shifted to the window origin (see
+    #: ``FusedDecoder._prefill_sdpa_sliding_paged``).  The uniform ``FullAttentionSpec``
+    #: is what makes that legal -- one block id indexes all 52 per-layer caches.
+    #:
+    #: ``supports_prefix_caching_with_sliding_window`` is a *separate* declaration on
+    #: purpose.  The plugin refuses prefix caching for any model whose config reports a
+    #: sliding window, because the usual pairing (absolute cache positions plus vLLM's
+    #: zero-padded sliding page table) corrupts silently.  Several models declare
+    #: ``supports_prefix_caching`` and rely on that refusal to protect them, so the key
+    #: to relax must be one only a model that has actually implemented a windowed
+    #: resume sets -- not the generic one.
     model_capabilities = {
-        "supports_prefix_caching": False,
+        "supports_prefix_caching": True,
+        "supports_prefix_caching_with_sliding_window": True,
         "supports_async_decode": True,
         "supports_sample_on_device": True,
     }
@@ -805,14 +834,31 @@ class MuseGlimmerForConditionalGeneration:
         """
         self._reject_per_layer_page_tables(page_tables_per_layer)
         lens = [int(length) for length in prompt_lens]
+        offsets: list[int] = [0] * len(lens)
         if start_pos is not None:
-            offsets = {int(p) for p in torch.as_tensor(start_pos).reshape(-1).tolist()}
-            if offsets - {0}:
-                raise NotImplementedError(
-                    f"serving prefill starts every request at position 0; vLLM asked for {sorted(offsets)}. "
-                    "Chunked prefill is disabled by the TT platform, and this port does not expose the "
-                    "layer stack's continuation prefill through the serving path."
-                )
+            offsets = [int(p) for p in torch.as_tensor(start_pos).reshape(-1).tolist()[: len(lens)]]
+            block_size = self.generator.model.config.page_block_size
+            for index, (offset, length) in enumerate(zip(offsets, lens)):
+                # vLLM only ever reports a block-aligned hit
+                # (``vllm/v1/core/kv_cache_manager.py`` says so outright), and an
+                # unaligned one would make ``paged_fill_cache`` write from the wrong
+                # virtual block without complaining. Check rather than trust.
+                if offset % block_size:
+                    raise ValueError(
+                        f"request {index}: prefix-cache offset {offset} is not a multiple of the "
+                        f"page block size {block_size}"
+                    )
+                if not 0 <= offset < length:
+                    raise ValueError(f"request {index}: prefix-cache offset {offset} outside the prompt [0, {length})")
+        if kwargs.get("intermediate_prefill_mask"):
+            # Swallowed by ``**kwargs`` before this guard existed. It marks a chunk that
+            # is not the prompt's last, so sampling its logits emits a token mid-prefill.
+            # Cannot fire while chunked prefill is disabled; becomes live the moment it
+            # is enabled, and would be silent.
+            raise NotImplementedError(
+                "intermediate_prefill_mask is not supported: this adapter samples every prefill "
+                "chunk as if it were the prompt's last"
+            )
         out = self.generator.prefill_forward(
             tokens,
             page_table=page_table,
@@ -821,6 +867,7 @@ class MuseGlimmerForConditionalGeneration:
             sample_on_device=sampling_params is not None,
             sampling_params=sampling_params,
             user_ids=list(empty_slots) if empty_slots is not None else None,
+            start_pos=offsets,
         )
         # A prefill leaves the persistent decode inputs untouched, so whatever the
         # device held is now stale with respect to the requests vLLM is running.

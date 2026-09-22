@@ -670,8 +670,18 @@ class FunctionalDecoder(LightweightModule):
         start_pos: int,
         sliding_tail: tuple[ttnn.Tensor, ttnn.Tensor] | None,
         need_tail: bool,
+        prefix_in_cache: bool,
     ) -> tuple[ttnn.Tensor, tuple[ttnn.Tensor, ttnn.Tensor] | None]:
         cfg = self.config
+        if prefix_in_cache and cfg.is_sliding:
+            # The paged window read lives on FusedDecoder and above, because it needs
+            # that stage's ``chunked_sdpa_chunk_size`` retune.  This base layer would
+            # otherwise fall through to the tail-less square SDPA below, which attends
+            # far too few keys and returns fluent nonsense.  Refuse instead.
+            raise NotImplementedError(
+                "prefix_in_cache needs FusedDecoder's paged sliding-window read; "
+                f"{type(self).__name__} has no tuned chunked SDPA path"
+            )
         seq_len = normed.shape[-2]
         head_dim = cfg.head_dim
         n_heads = cfg.num_attention_heads
@@ -948,6 +958,7 @@ class FunctionalDecoder(LightweightModule):
         start_pos: int,
         sliding_tail: tuple[ttnn.Tensor, ttnn.Tensor] | None,
         need_tail: bool,
+        prefix_in_cache: bool,
     ) -> tuple[ttnn.Tensor, tuple[ttnn.Tensor, ttnn.Tensor] | None]:
         residual = hidden_states
         normed = self.input_layernorm(residual)
@@ -958,6 +969,7 @@ class FunctionalDecoder(LightweightModule):
             start_pos=start_pos,
             sliding_tail=sliding_tail,
             need_tail=need_tail,
+            prefix_in_cache=prefix_in_cache,
         )
         ttnn.deallocate(normed)
         attn = self.post_attention_layernorm(attn)
@@ -979,6 +991,29 @@ class FunctionalDecoder(LightweightModule):
             return 0
         return min(self.config.sliding_window, start_pos)
 
+    def sliding_window_origin(self, start_pos: int) -> int:
+        """Absolute position a shifted page-table row must start at, for a paged window read.
+
+        ``chunked_scaled_dot_product_attention`` builds its mask from the
+        chunk-shifted Q index, so a sliding layer can read its window straight out
+        of the paged cache instead of being handed a tail -- provided the row it is
+        given *starts* at the window rather than at token 0.  The shift is about
+        cost, not tidiness: this port runs ``fp32_dest_acc_en=True``, so the
+        non-streaming K loop starts at ``k_chunk = 0`` unconditionally and an
+        unshifted row would read the entire prefix only to mask it off.
+
+        Aligned down to the page block, because ``paged_fill_cache`` and the SDPA
+        chunk rule both count in blocks.  Whenever ``start_pos`` is itself block
+        aligned -- which is what a vLLM prefix-cache hit produces -- and the window
+        is a block multiple, ``start_pos - origin`` is exactly ``sliding_window``,
+        so every sliding layer compiles one SDPA program at any offset.
+        """
+        if not self.config.is_sliding:
+            return 0
+        block_size = self.config.paged_attention_config.block_size
+        origin = max(0, start_pos - self.config.sliding_window)
+        return origin - (origin % block_size)
+
     def prefill_forward(
         self,
         hidden_states: ttnn.Tensor,
@@ -988,8 +1023,16 @@ class FunctionalDecoder(LightweightModule):
         start_pos: int = 0,
         sliding_kv_tail: tuple[ttnn.Tensor, ttnn.Tensor] | None = None,
         return_sliding_kv_tail: bool = False,
+        prefix_in_cache: bool = False,
     ) -> ttnn.Tensor | tuple[ttnn.Tensor, tuple[ttnn.Tensor, ttnn.Tensor] | None]:
-        """Paged prefill for one user; see the module docstring for the contract."""
+        """Paged prefill for one user; see the module docstring for the contract.
+
+        ``prefix_in_cache`` says the K/V for ``[0, start_pos)`` is already in the
+        paged cache -- which is what a vLLM prefix-cache hit means -- so a sliding
+        layer reads its window from the cache instead of from a handed-over tail.
+        It is the only way to resume a sliding layer when the caller did not
+        prefill the prefix in this same process.
+        """
         cfg = self.config
         seq_len = int(hidden_states.shape[-2])
         if hidden_states.shape[-1] != cfg.hidden_size:
@@ -1011,11 +1054,24 @@ class FunctionalDecoder(LightweightModule):
         required_tail = self.sliding_kv_tail_len(start_pos)
         if sliding_kv_tail is not None and not cfg.is_sliding:
             raise ValueError("sliding_kv_tail is only meaningful on sliding-window layers")
-        if cfg.is_sliding and start_pos > 0 and sliding_kv_tail is None:
+        if cfg.is_sliding and start_pos > 0 and sliding_kv_tail is None and not prefix_in_cache:
             raise ValueError(
                 f"continuation prefill at start_pos={start_pos} on a sliding-window layer needs "
                 f"sliding_kv_tail: the previous call's last {required_tail} K/V rows. Get it by "
-                "passing return_sliding_kv_tail=True to the previous prefill_forward call."
+                "passing return_sliding_kv_tail=True to the previous prefill_forward call, or "
+                "prefix_in_cache=True if [0, start_pos) is already in the paged cache."
+            )
+        if prefix_in_cache and sliding_kv_tail is not None:
+            raise ValueError("pass either sliding_kv_tail or prefix_in_cache, not both")
+        if prefix_in_cache and start_pos == 0:
+            raise ValueError("prefix_in_cache=True is meaningless at start_pos=0: there is no prefix")
+        if prefix_in_cache and return_sliding_kv_tail:
+            # The paged read never builds a tail, so honouring this would hand back
+            # None and the caller's next continuation would take the tail-less square
+            # SDPA path.  Refuse rather than return a silently useless tail.
+            raise ValueError(
+                "prefix_in_cache cannot return a sliding tail: the paged window read makes the "
+                "tail unnecessary, so pass prefix_in_cache=True on the next call too"
             )
         if sliding_kv_tail is not None:
             for name, tensor in zip(("k", "v"), sliding_kv_tail):
@@ -1056,6 +1112,7 @@ class FunctionalDecoder(LightweightModule):
                 # The tail is only worth building for the next internal chunk or
                 # for the caller's next continuation call.
                 need_tail=return_sliding_kv_tail or not is_last_chunk,
+                prefix_in_cache=prefix_in_cache,
             )
             if piece is not padded_input:
                 ttnn.deallocate(piece)

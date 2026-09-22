@@ -56,7 +56,11 @@ from models.autoports.meta_models_muse_glimmer_30b.tests.test_functional_decoder
     signpost,
     to_device_hidden,
 )
-from models.autoports.meta_models_muse_glimmer_30b.tt.functional_decoder import LAYER_KIND_SLIDING, FunctionalDecoder
+from models.autoports.meta_models_muse_glimmer_30b.tt.functional_decoder import (
+    LAYER_KIND_SLIDING,
+    FunctionalDecoder,
+    _as_float32,
+)
 from models.autoports.meta_models_muse_glimmer_30b.tt.fused_decoder import (
     MINIMAL_MATMUL_BLOCKS,
     MINIMAL_MATMUL_MIN_ROWS,
@@ -347,6 +351,287 @@ def test_continuation_prefill_pcc(mesh_device, decoder_cache, reference_layers, 
         expected_decode,
         ttnn.to_torch(tt_out).reshape(1, 1, -1),
     )
+
+
+@pytest.mark.timeout(600)
+@pytest.mark.parametrize("shift", (64, 2048, 2112))
+def test_chunked_sdpa_sliding_window_semantics(mesh_device, shift):
+    """Direct control: does *chunked* SDPA actually apply ``sliding_window_size``?
+
+    The paged window read stands or falls on this composing, and for most of this
+    port's life it did not: ``sdpa.cpp`` passed ``std::nullopt`` for
+    ``sliding_window_size`` in the chunked overloads, commented "not supported yet",
+    while the kernels supported it.  On such a build the keyword is accepted through
+    nanobind and **silently ignored**, and the layer attends the whole prefix -- with
+    no error and output fluent enough that end-to-end PCC barely moves.
+
+    So this asserts two things against an explicit torch band mask over a randomly
+    permuted paged cache: that the windowed result matches the band, and that it does
+    **not** match the plain causal reference.  The second is the one that fails on a
+    build without the pass-through.
+    """
+    text_config = R.text_config()
+    window = text_config.sliding_window
+    head_dim = text_config.head_dim
+    block = PAGE_BLOCK_SIZE
+    q_len = 256
+    kv_len = ((shift + q_len + block - 1) // block) * block
+    blocks = kv_len // block
+
+    generator = torch.Generator().manual_seed(5150)
+    query = torch.randn(1, 1, q_len, head_dim, generator=generator) / 3
+    keys = torch.randn(1, 1, kv_len, head_dim, generator=generator) / 3
+    values = torch.randn(1, 1, kv_len, head_dim, generator=generator) / 3
+    permutation = torch.randperm(blocks, generator=generator)
+
+    def paged(source):
+        out = torch.zeros(blocks, 1, block, head_dim)
+        for logical in range(blocks):
+            out[permutation[logical]] = source[0, :, logical * block : (logical + 1) * block, :]
+        return out
+
+    def to_dev(tensor, layout=ttnn.TILE_LAYOUT, dtype=ttnn.bfloat16):
+        return ttnn.from_torch(
+            tensor, device=mesh_device, layout=layout, dtype=dtype, memory_config=ttnn.DRAM_MEMORY_CONFIG
+        )
+
+    chunk = 64 if shift % 256 else 256
+    # Must be exactly representable as float32: the chunked binding declares scale as
+    # ``std::optional<float>`` with ``.noconvert()``, so a Python double that is not
+    # float32-exact is rejected as a signature mismatch rather than rounded.  This is
+    # the same reason ``FunctionalDecoderConfig.sdpa_scale`` rounds.
+    scale = _as_float32(0.342063)
+    page_table = to_dev(permutation.reshape(1, blocks).to(torch.int32), ttnn.ROW_MAJOR_LAYOUT, ttnn.int32)
+
+    def run(sliding):
+        kwargs = {"sliding_window_size": window} if sliding else {}
+        out = ttnn.transformer.chunked_scaled_dot_product_attention(
+            to_dev(query.to(torch.bfloat16)),
+            to_dev(paged(keys).to(torch.bfloat16)),
+            to_dev(paged(values).to(torch.bfloat16)),
+            page_table,
+            shift,
+            scale=scale,
+            program_config=ttnn.SDPAProgramConfig(
+                compute_with_storage_grid_size=mesh_device.compute_with_storage_grid_size(),
+                q_chunk_size=chunk,
+                k_chunk_size=chunk,
+                exp_approx_mode=False,
+            ),
+            **kwargs,
+        )
+        host = ttnn.to_torch(out).reshape(q_len, head_dim).float()
+        ttnn.deallocate(out)
+        return host
+
+    def reference(sliding):
+        index = torch.arange(kv_len).view(1, -1)
+        q_pos = (shift + torch.arange(q_len)).view(-1, 1)
+        mask = index <= q_pos
+        if sliding:
+            mask = mask & (index > q_pos - window)
+        scores = (query[0, 0].float() @ keys[0, 0].float().T) * scale
+        scores = scores.masked_fill(~mask, float("-inf"))
+        return torch.softmax(scores, dim=-1) @ values[0, 0].float()
+
+    actual = run(sliding=True)
+    assert_pcc(
+        f"chunked SDPA sliding-window control shift={shift} (window={window})",
+        reference(sliding=True),
+        actual,
+        threshold=0.999,
+    )
+    if shift > window:
+        # Below the window the two references coincide, so the control says nothing.
+        passed, message = comp_pcc(reference(sliding=False).float(), actual, 0.999)
+        logger.info(f"chunked SDPA vs UNWINDOWED reference shift={shift}: {message}")
+        assert not passed, (
+            "the windowed chunked SDPA matches an unwindowed reference to within 0.999, so "
+            "sliding_window_size is being ignored: rebuild tt-metal with the pass-through in "
+            "ttnn/cpp/ttnn/operations/transformer/sdpa/sdpa.cpp's chunked overloads"
+        )
+
+
+#: ``start_pos`` values for the paged window read.  64 is below the window (so the
+#: origin clamps to 0), 2048 is exactly the window, 2112 is block- but not
+#: 256-aligned (so the SDPA halving loop runs), and 4096 is comfortably past it.
+PAGED_PREFIX_STARTS = (64, 2048, 2112, 4096)
+
+
+@pytest.mark.timeout(1200)
+@pytest.mark.parametrize("kind", LAYER_KINDS)
+@pytest.mark.parametrize("start_pos", PAGED_PREFIX_STARTS)
+def test_paged_prefix_read_matches_the_tail_handoff(mesh_device, decoder_cache, reference_layers, kind, start_pos):
+    """``prefix_in_cache=True`` == the proven tail hand-off, and == the HF reference.
+
+    This is the correctness gate for resuming a prefill whose prefix was written by
+    somebody else -- a vLLM prefix-cache hit.  The sliding layers cannot be handed a
+    tail in that case, so they read their window back out of the paged cache with a
+    page-table row shifted to the window origin.
+
+    Three comparisons, and the middle one is the load-bearing one:
+
+    * paged vs the HF reference catches an outright wrong window;
+    * **paged vs the tail hand-off** is the tight one.  Both arms run identical
+      weights over identical tokens; the only difference is that the window's K/V
+      arrives from the BFP8 cache instead of BF16 activations.  So anything below
+      0.999 means the *mask* is wrong, not the dtype -- which is a distinction
+      end-to-end PCC cannot make;
+    That the window is applied *at all* is proved separately and directly by
+    :func:`test_chunked_sdpa_sliding_window_semantics`, which is golden-independent.
+    """
+    layer_idx, layer = reference_layers[kind]
+    decoder = build_fused(mesh_device, decoder_cache, kind)
+    second_len = 256
+    total = start_pos + second_len
+    hidden = R.synthetic_hidden_states(1, total, seed=7700 + start_pos)
+    expected, _ = R.reference_prefill(layer, layer_idx, hidden)
+    expected_tail = expected[:, start_pos:]
+
+    page_table = make_page_table(mesh_device, 1, SHORT_MAX_SEQ, seed=909)
+
+    # The prefix, and the tail the proven path would hand over.
+    _, tail = decoder.prefill_forward(
+        to_device_hidden(mesh_device, hidden[:, :start_pos]),
+        page_table=page_table,
+        user_id=0,
+        return_sliding_kv_tail=True,
+    )
+
+    # Arm T: the tail hand-off.
+    arm_t = decoder.prefill_forward(
+        to_device_hidden(mesh_device, hidden[:, start_pos:]),
+        page_table=page_table,
+        user_id=0,
+        start_pos=start_pos,
+        sliding_kv_tail=tail,
+    )
+    arm_t_host = ttnn.to_torch(arm_t).reshape(1, second_len, -1)
+    ttnn.deallocate(arm_t)
+
+    # Arm P: read the window out of the cache instead.
+    arm_p = decoder.prefill_forward(
+        to_device_hidden(mesh_device, hidden[:, start_pos:]),
+        page_table=page_table,
+        user_id=0,
+        start_pos=start_pos,
+        prefix_in_cache=True,
+    )
+    arm_p_host = ttnn.to_torch(arm_p).reshape(1, second_len, -1)
+    ttnn.deallocate(arm_p)
+
+    assert_pcc(f"fused paged-prefix prefill[{kind}] start_pos={start_pos}", expected_tail, arm_p_host)
+    assert_pcc(
+        f"fused paged-prefix vs tail hand-off[{kind}] start_pos={start_pos}",
+        arm_t_host,
+        arm_p_host,
+        threshold=0.999,
+    )
+
+
+@pytest.mark.timeout(900)
+@pytest.mark.parametrize("kind", LAYER_KINDS)
+def test_paged_prefix_read_really_reads_the_cache(mesh_device, decoder_cache, reference_layers, kind):
+    """Negative control: point the prefix at unwritten blocks and the answer must move.
+
+    Every positive assertion in
+    :func:`test_paged_prefix_read_matches_the_tail_handoff` would still hold if the
+    paged read quietly got its window from somewhere other than the donor's blocks --
+    a stale tail, or an op that ignored the shifted page-table row.  This is the test
+    that rules that out: same weights, same tokens, same ``start_pos``, but the
+    prefix entries of the page table are remapped onto physical blocks nothing ever
+    wrote.  Those blocks are zeros, so a read that really goes through the page table
+    must produce a *different* and worse answer.
+
+    Without this, the suite passes on a build whose chunked SDPA drops
+    ``sliding_window_size`` and on one that never consults the cache at all.
+    """
+    layer_idx, layer = reference_layers[kind]
+    decoder = build_fused(mesh_device, decoder_cache, kind)
+    start_pos, second_len = 4096, 256
+    blocks_per_seq = SHORT_MAX_SEQ // PAGE_BLOCK_SIZE
+    prefix_blocks = start_pos // PAGE_BLOCK_SIZE
+
+    hidden = R.synthetic_hidden_states(1, start_pos + second_len, seed=31337)
+    expected, _ = R.reference_prefill(layer, layer_idx, hidden)
+    expected_tail = expected[:, start_pos:]
+
+    generator = torch.Generator().manual_seed(24601)
+    good = torch.randperm(blocks_per_seq, generator=generator)
+    # Physical blocks the prompt never touches: it spans only the first
+    # ``prefix_blocks + ceil(second_len / block)`` logical blocks.
+    untouched = good[blocks_per_seq // 2 : blocks_per_seq // 2 + prefix_blocks]
+    bad = good.clone()
+    bad[:prefix_blocks] = untouched
+
+    def to_pt(rows):
+        return ttnn.from_torch(
+            rows.reshape(1, blocks_per_seq).to(torch.int32),
+            device=mesh_device,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            dtype=ttnn.int32,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+
+    pt_good = to_pt(good)
+    decoder.prefill_forward(to_device_hidden(mesh_device, hidden[:, :start_pos]), page_table=pt_good, user_id=0)
+
+    def resume(page_table):
+        out = decoder.prefill_forward(
+            to_device_hidden(mesh_device, hidden[:, start_pos:]),
+            page_table=page_table,
+            user_id=0,
+            start_pos=start_pos,
+            prefix_in_cache=True,
+        )
+        host = ttnn.to_torch(out).reshape(1, second_len, -1)
+        ttnn.deallocate(out)
+        return host
+
+    def correlation(reference: torch.Tensor, actual: torch.Tensor) -> float:
+        # Computed here rather than through ``comp_pcc``, whose second return value is
+        # a float on some paths and a formatted message on others.
+        pair = torch.stack([reference.float().flatten(), actual.float().flatten()])
+        return float(torch.corrcoef(pair)[0, 1])
+
+    good_value = correlation(expected_tail, resume(pt_good))
+    bad_value = correlation(expected_tail, resume(to_pt(bad)))
+    logger.info(f"paged-prefix cache control[{kind}]: good={good_value:.6f}, zeroed-prefix={bad_value:.6f}")
+
+    assert good_value > bad_value + 1e-3, (
+        f"remapping the prefix onto unwritten blocks barely changed the result "
+        f"(good={good_value}, zeroed={bad_value}); the paged read is not actually "
+        "consulting the donor's blocks through the page table"
+    )
+
+
+@pytest.mark.timeout(600)
+def test_paged_prefix_read_refuses_contradictory_inputs(mesh_device, decoder_cache, expect_error):
+    """The new escape hatch must not overlap the old one, and must not fake a tail."""
+    decoder = build_fused(mesh_device, decoder_cache, LAYER_KIND_SLIDING)
+    page_table = make_page_table(mesh_device, 1, SHORT_MAX_SEQ, seed=910)
+    hidden = to_device_hidden(mesh_device, R.synthetic_hidden_states(1, 128, seed=7))
+
+    with expect_error(ValueError, "prefix_in_cache"):
+        decoder.prefill_forward(hidden, page_table=page_table, user_id=0, start_pos=0, prefix_in_cache=True)
+    with expect_error(ValueError, "either"):
+        decoder.prefill_forward(
+            hidden,
+            page_table=page_table,
+            user_id=0,
+            start_pos=64,
+            prefix_in_cache=True,
+            sliding_kv_tail=(hidden, hidden),
+        )
+    with expect_error(ValueError, "tail"):
+        decoder.prefill_forward(
+            hidden,
+            page_table=page_table,
+            user_id=0,
+            start_pos=64,
+            prefix_in_cache=True,
+            return_sliding_kv_tail=True,
+        )
 
 
 @pytest.mark.timeout(600)

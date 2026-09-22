@@ -1524,6 +1524,7 @@ class OptimizedDecoder(FusedDecoder):
         start_pos: int,
         sliding_tail: tuple[ttnn.Tensor, ttnn.Tensor] | None,
         need_tail: bool,
+        prefix_in_cache: bool,
     ) -> tuple[ttnn.Tensor, tuple[ttnn.Tensor, ttnn.Tensor] | None]:
         """Prefill attention.
 
@@ -1589,7 +1590,13 @@ class OptimizedDecoder(FusedDecoder):
             ttnn.deallocate(v_fill)
 
         next_tail: tuple[ttnn.Tensor, ttnn.Tensor] | None = None
-        if cfg.is_sliding:
+        if cfg.is_sliding and prefix_in_cache:
+            # This chunk's own K/V went into the cache just above and the prefix was
+            # put there by whoever prefilled it, so the whole window is readable.
+            # Inherited from FusedDecoder; see that method for why recomputing the
+            # tail instead would be wrong rather than merely slow.
+            attn = self._prefill_sdpa_sliding_paged(q, page_table, user_id, start_pos)
+        elif cfg.is_sliding:
             attn, next_tail = self._prefill_sdpa_sliding(q, k, v, sliding_tail, need_tail)
         else:
             attn = self._prefill_sdpa_full(q, k, v, page_table, user_id, start_pos)
@@ -1665,6 +1672,7 @@ class OptimizedDecoder(FusedDecoder):
         start_pos: int,
         sliding_tail: tuple[ttnn.Tensor, ttnn.Tensor] | None,
         need_tail: bool,
+        prefix_in_cache: bool,
     ) -> tuple[ttnn.Tensor, tuple[ttnn.Tensor, ttnn.Tensor] | None]:
         """As ``FunctionalDecoder._prefill_chunk``, with the four norms routed
         through :meth:`_prefill_norm`.
@@ -1681,6 +1689,7 @@ class OptimizedDecoder(FusedDecoder):
             start_pos=start_pos,
             sliding_tail=sliding_tail,
             need_tail=need_tail,
+            prefix_in_cache=prefix_in_cache,
         )
         ttnn.deallocate(normed)
         attn = self._prefill_norm(self.post_attention_layernorm, attn)

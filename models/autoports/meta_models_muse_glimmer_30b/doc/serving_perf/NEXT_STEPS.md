@@ -89,57 +89,75 @@ conversation length.
    `user_ids=empty_slots` (`generator_vllm.py:820`, `:823`). Nothing in the port
    forces one request per prefill call.
 
-6. Prefix caching is **per-model opt-in**, not a backend limitation.
-   `generator_vllm.py:323` declares `"supports_prefix_caching": False`, and
-   `platform.py:1191` disables it on that basis.
-7. Flipping that flag alone is not enough. `platform.py:1199-1207` then disables
-   prefix caching for **any** model whose config reports a sliding window, and
-   that check is not model-gated.
-8. The root cause of 7 is one line. `get_kv_cache_spec` reads `layer_types`
-   (39 `sliding_attention`, 13 `full_attention`), validates each kind, and then
-   emits `FullAttentionSpec` for every layer regardless
-   (`generator_vllm.py:515-519`). The sliding distinction is parsed and
-   discarded, which is also why `_HYBRID_KV_CACHE_GROUPS_ENABLED = False`
-   (`generator_vllm.py:331`) is correct as written.
+6. Prefix caching was **per-model opt-in**, not a backend limitation
+   (`platform.py:1191`), plus a second refusal for any model reporting a sliding
+   window (`platform.py:1199-1207`). Both are addressed in P0.
+7. The uniform `FullAttentionSpec` (`generator_vllm.py:515-519`) is **not** the
+   obstacle it looks like. An earlier revision of this document called it the
+   root cause of 6; that was wrong. It is what makes cross-request block reuse
+   legal here, because one block id indexes all 52 per-layer cache tensors. What
+   it costs is memory, which is P5.
+8. What was genuinely missing was a *resumed* prefill. The sliding layers read
+   their window from a handed-over tail, which only exists when the same process
+   prefilled the prefix; a prefix-cache hit has no such call. That is what
+   `FusedDecoder._prefill_sdpa_sliding_paged` now supplies.
 
-The gap is between the scheduler and the serving adapter, not in the layer stack.
+The gap was between the scheduler and the serving adapter, not in the layer stack.
 
 ## 3. Ranked work
 
-### P0 — Bounded sliding-window KV cache, which unlocks prefix caching
+### P0 — Prefix caching (implemented)
 
-39 of the 52 layers attend within a 2,048-token window. Every one of them is
-allocated the full 131,072-token cache. That single defect causes the KV
-over-allocation *and* blocks prefix caching, so one change returns both.
+Prefix caching does **not** need a bounded sliding KV cache, and the earlier claim
+in this document that it did was wrong. The two are independent:
 
-```
-current  token-layers/user   6,815,744   52 x 131,072
-bounded  token-layers/user   1,783,808   13 x 131,072 + 39 x 2,048
-over-allocation                   3.82x
-```
+* Prefix caching needs a *resumed* prefill ``[start_pos, prompt_len)`` whose prefix
+  K/V is already in the paged cache. The uniform ``FullAttentionSpec`` is what makes
+  that work rather than what blocks it: one block id indexes all 52 per-layer cache
+  tensors, so a donor request's blocks carry valid K/V for the sliding layers too,
+  and vLLM's ``FullAttentionManager`` retains every block, which is conservative for
+  layers that read fewer.
+* The bounded cache is a *memory* change, and it is the one the absolute-position
+  hazard blocks. It is now P5 below.
 
-Work, in order:
+What it took:
 
-1. Emit `SlidingWindowSpec` for the 39 sliding layers in `get_kv_cache_spec`
-   instead of `FullAttentionSpec`, and set
-   `_HYBRID_KV_CACHE_GROUPS_ENABLED = True`.
-2. Implement a bounded (ring) KV cache for sliding layers in the layer stack,
-   with the page-table arithmetic to match.
-3. Set `"supports_prefix_caching": True`.
-4. Narrow `platform.py:1199-1207` so it refuses prefix caching only when the
-   spec is uniform, not whenever a sliding window exists.
-5. Implement continuation prefill — shared with P1, below.
+1. **tt-metal host plumbing.** The kernels already composed chunked prefill with a
+   sliding mask, but ``sdpa.cpp:125`` passed ``std::nullopt`` for
+   ``sliding_window_size`` in the chunked overloads, commented "not supported yet".
+   Forward-ported to both overloads plus the nanobind arg.
+2. **A paged window read**, ``FusedDecoder._prefill_sdpa_sliding_paged``. A sliding
+   layer reads its window out of the cache with a page-table row shifted to
+   ``sliding_window_origin(start_pos)``, so ``chunk_start_idx`` is exactly
+   ``sliding_window`` at any offset and one SDPA program serves every request.
+   Recomputing the window instead does not work: a tail-less chunk runs the square
+   SDPA where query row ``j`` sees ``j+1`` keys, and the error compounds with depth
+   to roughly ``39 x 2048`` tokens of required recomputation.
+3. **Resumed prefill** threaded through ``model.py`` and ``generator.py``, with the
+   prefill trace skipped (it bakes ``start_pos=0``) and the logits row made
+   chunk-relative.
+4. **``prefix_in_cache`` as a required keyword** on ``_prefill_chunk`` /
+   ``_prefill_attention``, so an overriding decoder class that misses it raises
+   ``TypeError`` instead of silently taking the tail-less path.
+5. **A separate plugin capability**, ``supports_prefix_caching_with_sliding_window``.
+   The plugin refuses prefix caching for any model reporting a sliding window, and
+   several models (``mistral_7b``, ``phi4``) declare ``supports_prefix_caching`` and
+   depend on that refusal. Relaxing the generic key would have enabled prefix
+   caching for them silently, so the new key is what the plugin now consults.
 
-Expected, all three from the same change:
+Evidence:
 
-| | today | bounded |
-| --- | ---: | ---: |
-| KV at full context, batch 1 | 1.85 GB/device | 0.49 GB/device |
-| concurrency at 131,072 | 8 | 30, then capped at 32 by `DECODE_ROWS` |
-| prefill on a 32-turn agent loop | 215.0 s | 14.0 s |
+| check | result |
+| --- | --- |
+| chunked SDPA vs torch band mask, permuted paged cache | 0.99976 — 0.99982 |
+| the same, vs an **unwindowed** reference | 0.9487, i.e. correctly worse |
+| paged read vs HF reference (shipping class) | 0.99185 — 0.99338 |
+| paged read vs the proven tail hand-off | 0.99976 — 1.0 |
+| prefix remapped onto unwritten blocks | 0.59 — 0.66, i.e. the read really goes through the page table |
 
-Risk: the same sliding-window correctness trap as P1. A bounded cache that drops
-a tail the window still needs returns fluent, wrong text. Gate on PCC.
+The last row is the load-bearing one. Every other assertion would still hold if the
+window came from somewhere incidental; that one only passes if the read follows the
+donor's page table.
 
 ### P1 — Chunked prefill
 
@@ -196,7 +214,31 @@ Deployments that care about TTFT more than aggregate throughput can lower
 `--max-num-seqs`. Table B shows the trade directly. Document per-workload
 profiles rather than one default.
 
-## 4. Operating guidance until P0 and P1 land
+### P5 — Bounded sliding-window KV cache
+
+Still worth doing, and still blocked by what this port already documented twice
+(``tt/generator_vllm.py:60-66``, ``doc/vllm_integration/stage_review.md:223-227``):
+decode passes absolute positions, while vLLM's ``SlidingWindowSpec`` zero-pads a
+sliding group's page table, so positions past the window collapse onto physical
+block 0. No ring or modulo cache indexing exists anywhere in the port.
+
+It buys memory and concurrency, not prefill latency:
+
+```
+current  token-layers/user   6,815,744   52 x 131,072
+bounded  token-layers/user   1,783,808   13 x 131,072 + 39 x 2,048
+over-allocation                   3.82x
+```
+
+| | today | bounded |
+| --- | ---: | ---: |
+| KV at full context, batch 1 | 1.85 GB/device | 0.49 GB/device |
+| concurrency at 131,072 | 8 | 30, then capped at 32 by ``DECODE_ROWS`` |
+
+``models/demos/gemma4`` is the reference port for the pieces it needs: per-layer
+page-table routing, ``allocate_kv_cache_per_layer``, and hybrid KV groups.
+
+## 4. Operating guidance
 
 * Interactive and agentic coding — long ISL, short OSL. Cap concurrency well
   below 32. TTFT is set by the queue ahead of the request.

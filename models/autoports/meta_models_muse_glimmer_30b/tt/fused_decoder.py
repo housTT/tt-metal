@@ -137,6 +137,101 @@ __all__ = [
 #: ``doc/fused_decoder/logs/sdpa_chunk_sweep.log``.
 PREFILL_SDPA_CHUNK = 256
 
+#: Devices whose ``chunked_scaled_dot_product_attention`` has been proven to honour
+#: ``sliding_window_size``.  Keyed by device id; see
+#: :func:`_assert_chunked_sliding_window_composes`.
+_CHUNKED_SLIDING_PROBED: dict[int, bool] = {}
+
+
+def _assert_chunked_sliding_window_composes(device, compute_kernel_config) -> None:
+    """Refuse the paged sliding read unless the op really applies the window.
+
+    This check is not paranoia about a typo.  Until the host plumbing was added,
+    ``ttnn/cpp/ttnn/operations/transformer/sdpa/sdpa.cpp`` passed ``std::nullopt``
+    for ``sliding_window_size`` in the chunked overloads with the comment "not
+    supported yet", while the *kernels* supported it.  A build without that fix
+    accepts the keyword through nanobind and silently returns un-windowed
+    attention -- fluent output over far too many keys, with no error anywhere.
+
+    So a signature check proves nothing and only a numeric one will do: run the
+    same inputs with and without a window and require the results to differ.  That
+    is deliberately a liveness check rather than a correctness check; correctness
+    is gated by the PCC suites, which compare against the HF reference and against
+    the proven tail hand-off path.  Cached per device, so it costs one small
+    dispatch per process.
+    """
+    key = id(device)
+    if _CHUNKED_SLIDING_PROBED.get(key):
+        return
+
+    tile, heads, head_dim = TILE_SIZE, 1, TILE_SIZE
+    block_size, num_blocks = tile, 8
+    torch.manual_seed(0)
+    q = ttnn.from_torch(
+        torch.randn(1, heads, tile, head_dim),
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+    )
+    cache = lambda: ttnn.from_torch(  # noqa: E731 - local shorthand, two uses
+        torch.randn(num_blocks, heads, block_size, head_dim),
+        dtype=ttnn.bfloat16,
+        layout=ttnn.TILE_LAYOUT,
+        device=device,
+    )
+    k_c, v_c = cache(), cache()
+    page_table = ttnn.from_torch(
+        torch.arange(num_blocks, dtype=torch.int32).reshape(1, num_blocks),
+        dtype=ttnn.int32,
+        layout=ttnn.ROW_MAJOR_LAYOUT,
+        device=device,
+    )
+    program_config = ttnn.SDPAProgramConfig(
+        compute_with_storage_grid_size=device.compute_with_storage_grid_size(),
+        q_chunk_size=tile,
+        k_chunk_size=tile,
+        exp_approx_mode=False,
+    )
+
+    def run(window):
+        kwargs = {} if window is None else {"sliding_window_size": window}
+        out = ttnn.transformer.chunked_scaled_dot_product_attention(
+            q,
+            k_c,
+            v_c,
+            page_table,
+            2 * tile,
+            program_config=program_config,
+            compute_kernel_config=compute_kernel_config,
+            **kwargs,
+        )
+        host = ttnn.to_torch(out)
+        ttnn.deallocate(out)
+        return host
+
+    try:
+        unwindowed = run(None)
+        windowed = run(tile)
+    except TypeError as exc:
+        raise RuntimeError(
+            "this ttnn build's chunked_scaled_dot_product_attention does not accept "
+            "sliding_window_size, so a paged sliding-window read is impossible; rebuild "
+            "tt-metal with the host plumbing in ttnn/cpp/ttnn/operations/transformer/sdpa/"
+        ) from exc
+    finally:
+        for tensor in (q, k_c, v_c, page_table):
+            ttnn.deallocate(tensor)
+
+    if torch.equal(windowed, unwindowed):
+        raise RuntimeError(
+            "chunked_scaled_dot_product_attention ignored sliding_window_size: windowed and "
+            "un-windowed results are identical, so the window would be silently dropped and "
+            "every sliding layer would attend the whole prefix. Rebuild tt-metal with the "
+            "sliding_window_size pass-through in sdpa.cpp's chunked overloads."
+        )
+    _CHUNKED_SLIDING_PROBED[key] = True
+
+
 #: Largest ``subblock_w`` the sharded LayerNorm program config will use.
 MAX_NORM_SUBBLOCK_W = 4
 
@@ -922,6 +1017,107 @@ class FusedDecoder(FunctionalDecoder):
             out = trimmed
         return out
 
+    def _prefill_sdpa_sliding_paged(
+        self,
+        q: ttnn.Tensor,
+        page_table: ttnn.Tensor,
+        user_id: int,
+        start_pos: int,
+    ) -> ttnn.Tensor:
+        """Sliding-window prefill SDPA that reads its window out of the paged cache.
+
+        The alternative -- and what every other continuation path here does -- is to
+        be handed the previous call's last ``sliding_window`` K/V rows.  That only
+        works when the same process prefilled the prefix.  A vLLM prefix-cache hit
+        has no such previous call: the blocks were filled by a *different* request,
+        so the tail exists only in the cache.
+
+        Recomputing it is not an option.  A tail-less chunk over ``[start_pos - W,
+        start_pos)`` would run the square SDPA at
+        :meth:`FunctionalDecoder._prefill_sdpa_sliding`, where query row ``j`` sees
+        ``j + 1`` keys instead of ``W``; the error then compounds with depth, so an
+        exact tail at the deepest sliding layer would need roughly
+        ``num_sliding_layers * W`` tokens of recomputation -- the prefix itself.
+
+        So read it instead.  The page-table row is shifted to
+        :meth:`sliding_window_origin`, which makes virtual block 0 the window start,
+        and ``chunk_start_idx`` becomes the offset *within that shifted frame*.  In
+        shifted coordinates query row ``i`` sits at ``shift + i`` and key ``j`` at
+        ``origin + j``, so causal-plus-window admits absolute keys
+        ``[start_pos + i - W + 1, start_pos + i]`` -- the reference window, clamped
+        at 0 by the ``max(0, ...)`` in ``sliding_window_origin`` when the prefix is
+        shorter than the window.
+
+        The shift is load-bearing for cost.  ``fp32_dest_acc_en=True`` disables the
+        streaming compute path, so the non-streaming K loop starts at ``k_chunk = 0``
+        unconditionally: an unshifted row would read the entire prefix and mask it
+        off, which at an 80k prefix is seconds per resumed prefill rather than tens
+        of milliseconds.  Shifted, ``shift`` is exactly ``sliding_window`` whenever
+        ``start_pos`` is block aligned, so all sliding layers share one program.
+        """
+        cfg = self.config
+        window = cfg.sliding_window
+        if not cfg.is_sliding or window is None:
+            raise ValueError("_prefill_sdpa_sliding_paged is only valid on a sliding-window layer")
+        _assert_chunked_sliding_window_composes(self.k_cache.device(), self.sdpa_compute_kernel_config)
+
+        block_size = cfg.paged_attention_config.block_size
+        n_heads = cfg.num_attention_heads
+        head_dim = cfg.head_dim
+        seq_len = q.shape[-2]
+
+        origin = self.sliding_window_origin(start_pos)
+        shift = start_pos - origin
+        # Guards, not comments: a shift that is too small truncates the window, and a
+        # truncated window returns fluent, wrong text rather than raising.
+        if origin % block_size or shift % block_size:
+            raise ValueError(
+                f"paged sliding read needs block-aligned origin/shift, got origin={origin}, "
+                f"shift={shift} at block_size={block_size}"
+            )
+        if shift != min(window, start_pos):
+            raise ValueError(
+                f"paged sliding read shift={shift} does not cover the window: expected "
+                f"{min(window, start_pos)} at start_pos={start_pos}, window={window}"
+            )
+        first_block = origin // block_size
+        width = int(page_table.shape[-1]) - first_block
+        if width < 1:
+            raise ValueError(f"page table has no blocks at or past origin={origin}")
+
+        chunked_q = self.chunked_sdpa_chunk_size(shift, seq_len, width)
+        pad = (-seq_len) % chunked_q
+        q_in = q
+        if pad:
+            q_in = ttnn.pad(q, [(0, 0), (0, 0), (0, pad), (0, 0)], value=0.0)
+        user_pt, owns_user_pt = self._page_table_row(page_table, user_id, first_block, int(page_table.shape[-1]))
+        out = ttnn.transformer.chunked_scaled_dot_product_attention(
+            q_in,
+            self.k_cache,
+            self.v_cache,
+            user_pt,
+            shift,  # chunk_start_idx, in the shifted frame; positional-only in the binding
+            scale=cfg.sdpa_scale,
+            program_config=ttnn.SDPAProgramConfig(
+                compute_with_storage_grid_size=self.prefill_sdpa_grid,
+                # q_chunk_size must equal k_chunk_size: q == 2*k silently mis-masks the
+                # sliding window (doc/functional_decoder/sdpa_sliding_window_chunk_repro.py).
+                q_chunk_size=chunked_q,
+                k_chunk_size=chunked_q,
+                exp_approx_mode=False,
+            ),
+            sliding_window_size=window,
+            compute_kernel_config=self.sdpa_compute_kernel_config,
+        )
+        if owns_user_pt:
+            ttnn.deallocate(user_pt)
+        if pad:
+            ttnn.deallocate(q_in)
+            trimmed = ttnn.slice(out, [0, 0, 0, 0], [1, n_heads, seq_len, head_dim])
+            ttnn.deallocate(out)
+            out = trimmed
+        return out
+
     # The QKV projection and the attention output-gate projection share their
     # left-hand side (the input_layernorm output), so they are the two halves of
     # a possible shared-LHS packing.  Keeping them behind these two seams is what
@@ -961,6 +1157,7 @@ class FusedDecoder(FunctionalDecoder):
         start_pos: int,
         sliding_tail: tuple[ttnn.Tensor, ttnn.Tensor] | None,
         need_tail: bool,
+        prefix_in_cache: bool,
     ) -> tuple[ttnn.Tensor, tuple[ttnn.Tensor, ttnn.Tensor] | None]:
         cfg = self.config
         n_heads = cfg.num_attention_heads
@@ -1014,7 +1211,14 @@ class FusedDecoder(FunctionalDecoder):
             ttnn.deallocate(v_fill)
 
         next_tail: tuple[ttnn.Tensor, ttnn.Tensor] | None = None
-        if cfg.is_sliding:
+        if cfg.is_sliding and prefix_in_cache:
+            # This chunk's own K/V went into the cache just above, and the prefix was
+            # put there by whoever prefilled it, so the whole window is readable.  No
+            # tail is produced: every later internal chunk takes this same path, and
+            # ``prefill_forward`` refuses ``return_sliding_kv_tail`` alongside
+            # ``prefix_in_cache`` so nobody can be handed the ``None``.
+            attn = self._prefill_sdpa_sliding_paged(q, page_table, user_id, start_pos)
+        elif cfg.is_sliding:
             attn, next_tail = self._prefill_sdpa_sliding(q, k, v, sliding_tail, need_tail)
         else:
             attn = self._prefill_sdpa_full(q, k, v, page_table, user_id, start_pos)
