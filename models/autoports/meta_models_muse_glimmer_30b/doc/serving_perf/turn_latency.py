@@ -13,11 +13,14 @@ per prefill shape; without the warmup the first call at a new length absorbs
 compilation and TTFT is meaningless.
 """
 import json
+import os
 import time
 
 import requests
 
-URL = "http://127.0.0.1:20000/v1/chat/completions"
+PORT = int(os.environ.get("MUSE_PORT", "20000"))
+URL = f"http://127.0.0.1:{PORT}/v1/chat/completions"
+OUT = os.environ.get("MUSE_TURN_LATENCY_OUT", "/home/ttuser/dev/muse-glimmer/logs/turn_latency.json")
 MODEL = "meta-models/Muse-Glimmer-30B"
 ROUNDS = [1, 2, 4, 8, 16, 32]
 
@@ -93,6 +96,10 @@ def one(msgs, timed: bool):
                 if delta.get("content") or delta.get("reasoning_content"):
                     ttft = time.perf_counter() - t0
     total = time.perf_counter() - t0
+    if prompt_tokens is None:
+        # No usage chunk means the request did not complete normally. Say so, rather
+        # than letting a None fall through into the row formatter as a TypeError.
+        raise RuntimeError("no usage chunk in the stream: the request failed or the server closed it early")
     return ttft, total, prompt_tokens
 
 
@@ -115,7 +122,7 @@ def main():
             dict(rounds=r, prompt_tokens=ptok, ttft_ms=ttft * 1000, total_ms=total * 1000, ms_per_1k=per1k * 1000)
         )
         print(f"{r:>7} {ptok:>11,} {ttft*1000:>10,.1f} {total*1000:>10,.1f} {per1k*1000:>10.1f}", flush=True)
-    out = "/home/ttuser/dev/muse-glimmer/logs/turn_latency.json"
+    out = OUT
     json.dump(rows, open(out, "w"), indent=2)
     print(f"\nwrote {out}", flush=True)
     if len(rows) >= 2:

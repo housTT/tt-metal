@@ -205,7 +205,12 @@ def _assert_chunked_sliding_window_composes(device, compute_kernel_config) -> No
             compute_kernel_config=compute_kernel_config,
             **kwargs,
         )
-        host = ttnn.to_torch(out)
+        # ``get_device_tensors(...)[0]`` rather than a bare ``to_torch``: on the 4-chip
+        # serving mesh the output is replicated, and ``to_torch`` refuses a distributed
+        # tensor without a composer -- which crashed the engine the first time this probe
+        # ran outside the single-chip tests.  Every device holds the same data here, so
+        # the first shard is the whole answer.  Mirrors ``MuseGlimmerModel.logits_to_torch``.
+        host = ttnn.to_torch(ttnn.get_device_tensors(out)[0])
         ttnn.deallocate(out)
         return host
 
@@ -217,6 +222,14 @@ def _assert_chunked_sliding_window_composes(device, compute_kernel_config) -> No
             "this ttnn build's chunked_scaled_dot_product_attention does not accept "
             "sliding_window_size, so a paged sliding-window read is impossible; rebuild "
             "tt-metal with the host plumbing in ttnn/cpp/ttnn/operations/transformer/sdpa/"
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - re-raised immediately, with provenance
+        # The probe runs inside a request, so an unexplained failure here reads as a
+        # model failure and takes the engine down with it.  Say whose fault it is.
+        raise RuntimeError(
+            f"the chunked sliding-window capability probe itself failed ({type(exc).__name__}: "
+            f"{exc}); this is a fault in the probe or the device, not evidence about "
+            "sliding_window_size"
         ) from exc
     finally:
         for tensor in (q, k_c, v_c, page_table):

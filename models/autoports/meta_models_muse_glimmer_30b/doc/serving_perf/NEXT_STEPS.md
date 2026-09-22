@@ -159,6 +159,36 @@ The last row is the load-bearing one. Every other assertion would still hold if 
 window came from somewhere incidental; that one only passes if the read follows the
 donor's page table.
 
+### Measured end to end, served
+
+vLLM with `--enable-prefix-caching` on the 4-chip mesh, same agent-shaped transcript
+as section 1, warm server:
+
+| rounds | prompt tok | TTFT, APC off | TTFT, APC on | speedup |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 2,949 | 357.7 ms | 85.3 ms | 4.2x |
+| 2 | 5,515 | 682.9 ms | 106.8 ms | 6.4x |
+| 4 | 10,647 | 1,416.4 ms | 109.2 ms | 13.0x |
+| 8 | 20,911 | 2,807.8 ms | 128.0 ms | 21.9x |
+| 16 | 41,439 | 6,190.3 ms | 142.1 ms | 43.6x |
+| 32 | 82,495 | 14,020.2 ms | 353.6 ms | 39.6x |
+
+Cumulative TTFT across the six shapes: **25.5 s to 0.9 s**. The shape is the point:
+TTFT no longer tracks total conversation length.
+
+Two honest qualifications.
+
+The harness sends each shape twice and times the second, so the timed call is a
+**100 % prefix hit**. A real agent turn adds new tokens, so its saving sits between
+these numbers and the APC-off column — but much nearer this one, because the new
+tokens per turn are small against the history.
+
+The *first* pass over a cold server was far slower (2.56 s at 1 round, 1.33 s at 32)
+because each distinct resume offset compiles its own SDPA program. That is the
+program-cache growth noted under *Known follow-up*; it is one-time per offset, and
+the table above is the warm steady state. Worth fixing before this is relied on for
+first-request latency.
+
 ### P1 — Chunked prefill
 
 Split a long prefill across scheduler steps so other requests decode in between.
