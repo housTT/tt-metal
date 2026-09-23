@@ -109,7 +109,14 @@ verify:
   # the backported ATEM tool parser ships and registers under the name the
   # capabilities block launches with
   - "import vllm; import importlib.util; s = importlib.util.spec_from_file_location('mgtp', '/opt/tt-metal/models/autoports/meta_models_muse_glimmer_30b/tt/muse_glimmer_tool_parser.py'); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); from vllm.tool_parsers import ToolParserManager; assert 'muse_glimmer' in ToolParserManager.tool_parsers, 'ATEM tool parser did not register'"
-  - "import vllm; import importlib.util; s = importlib.util.spec_from_file_location('mgrp', '/opt/tt-metal/models/autoports/meta_models_muse_glimmer_30b/tt/reasoning_parser.py'); m = importlib.util.module_from_spec(s); s.loader.exec_module(m); from vllm.reasoning import ReasoningParserManager; assert 'muse_glimmer' in ReasoningParserManager.reasoning_parsers, 'reasoning parser did not register'"
+  # Loaded through vLLM's own plugin loader, not importlib. ReasoningParserManager
+  # registers lazily: register_module records a *module path* and imports it on
+  # demand, so a file loaded as spec_from_file_location('mgrp', ...) registers an
+  # entry pointing at a module named 'mgrp' that can never be imported again, and
+  # the class never lands in `reasoning_parsers` at all. That check fails on a
+  # parser that works perfectly. `import_reasoning_parser` + `list_registered()`
+  # is what the server itself does.
+  - "import vllm; from vllm.reasoning import ReasoningParserManager as RM; RM.import_reasoning_parser('/opt/tt-metal/models/autoports/meta_models_muse_glimmer_30b/tt/reasoning_parser.py'); assert 'muse_glimmer' in RM.list_registered(), 'reasoning parser did not register'; RM.get_reasoning_parser('muse_glimmer')"
 
 card:
   quickstart: |
