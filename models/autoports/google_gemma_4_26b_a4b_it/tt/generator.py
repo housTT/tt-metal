@@ -19,6 +19,11 @@ from models.autoports.google_gemma_4_26b_a4b_it.tt.model import DECODE_SLOT_COUN
 from models.common.modules.sampling.sampling_1d import Sampling1D
 from models.common.modules.sampling.seed_manager_1d import MAX_UINT32
 
+# Device sampler top-k ceiling. The model card's sampling recipe is top_k 64; the TTTv2
+# sampler takes its top-k per vocabulary chunk, and 64 keeps the candidate row at two
+# tiles. Requests above this ceiling fall back to host sampling in the vLLM plugin.
+DEVICE_MAX_TOP_K = 64
+
 # The autonomous readiness package was removed from the source tree after this
 # autoport was seeded.  Keep the exact interface when that optional harness is
 # on PYTHONPATH, while remaining importable in the current checkout.
@@ -114,7 +119,7 @@ class Gemma4Generator(Generator):
             # Sampling always consumes the fixed 32-row terminal tile even
             # when model compute is sliced to a smaller logical batch.
             max_batch_size=DECODE_SLOT_COUNT,
-            max_top_k=32,
+            max_top_k=DEVICE_MAX_TOP_K,
             allow_force_argmax=False,
             pad_to_power_of_2=True,
             num_gather_links=2 if model.tp_size == 4 else 1,
@@ -338,8 +343,8 @@ class Gemma4Generator(Generator):
         ks = self._expand_sampling_value(top_k, batch_size, int, "top_k")
         ps = self._expand_sampling_value(top_p, batch_size, float, "top_p")
         seed_values = self._expand_sampling_value(seeds, batch_size, int, "seeds")
-        if any(value < 1 or value > 32 for value in ks):
-            raise ValueError("top_k must be in [1, 32]")
+        if any(value < 1 or value > DEVICE_MAX_TOP_K for value in ks):
+            raise ValueError(f"top_k must be in [1, {DEVICE_MAX_TOP_K}]")
         if any(value < 0.0 or value > 1.0 for value in ps):
             raise ValueError("top_p must be in [0, 1]")
         if any(value < 0 or value >= MAX_UINT32 for value in seed_values):

@@ -15,17 +15,18 @@ from models.common.sampling import SamplingParams
 
 
 def test_capabilities_and_context_contract():
-    assert Gemma4ForCausalLM.get_max_tokens_all_users(num_devices=1) == 50_624
+    assert Gemma4ForCausalLM.get_max_tokens_all_users(num_devices=1) == 131_072
     assert Gemma4ForCausalLM.get_max_tokens_all_users(num_devices=2) == 262_144
     assert Gemma4ForCausalLM.get_max_tokens_all_users(num_devices=4) == 262_144
     assert Gemma4ForCausalLM.model_capabilities == {
-        "supports_prefix_caching": False,
+        "supports_prefix_caching": True,
+        "supports_prefix_caching_sliding_window": True,
         "supports_async_decode": True,
         "supports_async_decode_overlap": True,
         "supports_sample_on_device": True,
         "supports_device_penalties": False,
         "supports_device_seeded_sampling": False,
-        "max_device_top_k": 32,
+        "max_device_top_k": 64,
         "state_slots_are_stateless": True,
     }
 

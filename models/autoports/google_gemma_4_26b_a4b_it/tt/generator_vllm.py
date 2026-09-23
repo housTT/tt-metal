@@ -18,7 +18,7 @@ import torch
 from torch import nn
 
 import ttnn
-from models.autoports.google_gemma_4_26b_a4b_it.tt.generator import Gemma4Generator, build_generator
+from models.autoports.google_gemma_4_26b_a4b_it.tt.generator import DEVICE_MAX_TOP_K, Gemma4Generator, build_generator
 from models.autoports.google_gemma_4_26b_a4b_it.tt.model import DECODE_SLOT_COUNT, SLIDING_CACHE_TOKENS, FullModelState
 from models.common.sampling import format_sampling_params
 
@@ -26,7 +26,16 @@ MODEL_ROOT = Path(__file__).resolve().parents[1]
 PRECISION_CONFIG = MODEL_ROOT / "doc" / "datatype_sweep" / "selected_precision_config.json"
 MAX_MODEL_LEN = 262_144
 MAX_TOKENS_ALL_USERS = 262_144
-PROFILE_MAX_MODEL_LEN = {1: 50_624, 2: 262_144, 4: 262_144}
+PROFILE_MAX_MODEL_LEN = {1: 131_072, 2: 262_144, 4: 262_144}
+# Single-chip KV pool: sized from the DRAM left after the weights load instead of
+# from one context in 64-token blocks. Under vLLM's hybrid manager every block is
+# 2.5 MiB (5 shared K/V tensors x 131,072 elements x BF16), the sliding layers hold
+# only their 1,024-token window and the full-attention layers use 128-token blocks,
+# so one 131,072-token request needs about 1,110 blocks, not 2,048. Measured on a
+# QuietBox 2 P150 chip 2026-09-23: 31.63 GiB total, 26.21 GiB after weights, 5.42 GiB
+# free; a 98,304-token pool of 1,568 blocks served, a 2,080-block pool did not.
+KV_POOL_DRAM_RESERVE_BYTES = int(os.getenv("GEMMA4_KV_POOL_DRAM_RESERVE_BYTES", str(1536 * 1024 * 1024)))
+KV_POOL_TOKENS_OVERRIDE = os.getenv("GEMMA4_KV_POOL_TOKENS")
 
 
 class Gemma4ForCausalLM(nn.Module):
@@ -35,13 +44,19 @@ class Gemma4ForCausalLM(nn.Module):
     decode_input_update_contract = 1
     supports_original_prompt_lens = True
     model_capabilities = {
-        "supports_prefix_caching": False,
+        # Automatic prefix caching: a cache hit reaches ``prefill_forward`` as a
+        # continuation (``start_pos`` = cached tokens) over the request's own
+        # page table, which is the same contract as a chunked-prefill
+        # continuation. The sliding layers rebuild their 1,024-token history
+        # from the retained pages before appending the new chunk.
+        "supports_prefix_caching": True,
+        "supports_prefix_caching_sliding_window": True,
         "supports_async_decode": True,
         "supports_async_decode_overlap": True,
         "supports_sample_on_device": True,
         "supports_device_penalties": False,
         "supports_device_seeded_sampling": False,
-        "max_device_top_k": 32,
+        "max_device_top_k": DEVICE_MAX_TOP_K,
         "state_slots_are_stateless": True,
     }
 
@@ -80,14 +95,31 @@ class Gemma4ForCausalLM(nn.Module):
         raise NotImplementedError("TT Gemma4 terminal logits are produced by Gemma4Generator")
 
     @classmethod
-    def get_max_tokens_all_users(cls, *, num_devices: int = 4, **_: Any) -> int:
-        # This is the aggregate scheduler-owned KV budget, not a per-slot
-        # allocation.  The full-model context contract proves a smaller hard
-        # physical limit for TP1; TP2 and TP4 retain the checkpoint maximum.
+    def get_max_tokens_all_users(
+        cls, *, num_devices: int = 4, max_model_len: int | None = None, max_num_seqs: int | None = None, **_: Any
+    ) -> int:
+        # This is the aggregate scheduler-owned KV budget in 64-token blocks, not a
+        # per-slot allocation. The plugin adds block_size x max_num_seqs on top.
         try:
-            return PROFILE_MAX_MODEL_LEN[int(num_devices)]
+            profile_max = PROFILE_MAX_MODEL_LEN[int(num_devices)]
         except KeyError as error:
             raise ValueError(f"unsupported Gemma4 serving mesh size {num_devices}") from error
+        if KV_POOL_TOKENS_OVERRIDE:
+            return int(KV_POOL_TOKENS_OVERRIDE)
+        if int(num_devices) != 1 or cls._dram_free_bytes_after_load is None or not cls._kv_block_bytes:
+            return profile_max
+        # Single chip: spend the DRAM left after the weights, minus a reserve for
+        # prefill activations and traces, on KV blocks. Never go below what one
+        # request at max_model_len needs (the plugin's capacity guard checks that).
+        batch = int(max_num_seqs or DECODE_SLOT_COUNT)
+        budget = cls._dram_free_bytes_after_load - KV_POOL_DRAM_RESERVE_BYTES
+        blocks = max(0, budget // cls._kv_block_bytes) - batch  # the plugin adds one block per user
+        # One request at max_model_len occupies ceil(len / 128) full-attention blocks
+        # plus, per sliding group, the window's blocks and one in flight.
+        context = int(max_model_len or profile_max)
+        sliding_groups = 5
+        floor_blocks = math.ceil(context / 128) + sliding_groups * (math.ceil(SLIDING_CACHE_TOKENS / 64) + 1)
+        return max(blocks, floor_blocks) * 64
 
     @classmethod
     def get_kv_cache_spec(cls, vllm_config):
@@ -157,7 +189,27 @@ class Gemma4ForCausalLM(nn.Module):
             precision_config_path=os.getenv("GEMMA4_PRECISION_CONFIG") or PRECISION_CONFIG,
             create_kv_cache=False,
         )
+        cls._record_dram_after_load(mesh_device, generator)
         return cls(generator=generator)
+
+    _dram_free_bytes_after_load: int | None = None
+    _kv_block_bytes: int | None = None
+
+    @classmethod
+    def _record_dram_after_load(cls, mesh_device, generator) -> None:
+        """Remember the DRAM left after the weights so the KV pool can be sized to it."""
+        try:
+            view = ttnn.get_memory_view(mesh_device, ttnn.BufferType.DRAM)
+            cls._dram_free_bytes_after_load = int(view.total_bytes_free_per_bank) * int(view.num_banks)
+        except Exception:  # pragma: no cover - older ttnn builds without the view
+            cls._dram_free_bytes_after_load = None
+        specs = generator.model.cache_specs
+        layer_counts: dict[str, int] = {}
+        for spec in specs:
+            layer_counts[spec.layer_type] = layer_counts.get(spec.layer_type, 0) + 1
+        shared_tensors = min(layer_counts.values())  # vLLM's hybrid manager packs one buffer per layer-of-group
+        block_elements = max(spec.local_kv_heads * spec.block_size * spec.head_dim for spec in specs)
+        cls._kv_block_bytes = shared_tensors * 2 * block_elements * 2  # K and V, BF16
 
     def _require_generator(self) -> Gemma4Generator:
         if self.generator is None:
@@ -246,7 +298,7 @@ class Gemma4ForCausalLM(nn.Module):
     def _sampling_values(sampling_params, batch_size: int, *, unseeded_epoch: int = 0) -> dict[str, Any]:
         if sampling_params is None:
             return {}
-        params = format_sampling_params(sampling_params, DECODE_SLOT_COUNT)
+        params = format_sampling_params(sampling_params, DECODE_SLOT_COUNT, max_top_k=DEVICE_MAX_TOP_K)
         # The common formatter encodes greedy rows as k=1,p=0,temp=1.
         # Restore the generator's all-greedy sentinel so request seeds do not
         # enter the semantic trace key for deterministic sampling.

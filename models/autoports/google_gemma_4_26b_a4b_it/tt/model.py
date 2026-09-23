@@ -48,7 +48,7 @@ MODEL_ID = "google/gemma-4-26B-A4B-it"
 DEFAULT_MAX_CONTEXT = 262_144
 SLIDING_CACHE_TOKENS = 1_024
 DECODE_SLOT_COUNT = 32
-PROFILE_CONTEXT_LIMITS = {1: 50_624, 2: DEFAULT_MAX_CONTEXT, 4: DEFAULT_MAX_CONTEXT}
+PROFILE_CONTEXT_LIMITS = {1: 131_072, 2: DEFAULT_MAX_CONTEXT, 4: DEFAULT_MAX_CONTEXT}
 PROFILE_EMBEDDING_STORAGE = {tp_size: "bf16_row_major" for tp_size in SUPPORTED_TP_SIZES}
 
 
@@ -689,7 +689,7 @@ class Gemma4FullModel:
         return SimpleNamespace(
             mesh_device=self.mesh_device,
             max_batch_size=max_batch_size,
-            max_top_k=32,
+            max_top_k=64,
             vocab_size=262_144,
             padded_vocab_size=262_144,
             num_devices=self.tp_size,

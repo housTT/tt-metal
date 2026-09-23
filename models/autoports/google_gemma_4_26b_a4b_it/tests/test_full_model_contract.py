@@ -70,7 +70,7 @@ def test_full_model_architecture_and_cache_geometry_contract():
 
 @pytest.mark.parametrize(
     "tp_size,expected_context,sliding_heads,full_heads",
-    [(1, 50_624, 8, 2), (2, 262_144, 4, 1), (4, 262_144, 2, 1)],
+    [(1, 131_072, 8, 2), (2, 262_144, 4, 1), (4, 262_144, 2, 1)],
 )
 def test_full_model_profile_context_and_cache_geometry(tp_size, expected_context, sliding_heads, full_heads):
     config = _config()
@@ -253,8 +253,11 @@ def test_sampling_specs_are_validated_and_trace_distinct(expect_error):
     assert sampled.temperature == (0.8,)
     assert sampled.seeds == (42,)
     assert greedy.key != sampled.key
+    # The model card's recipe (top_k 64) is the device ceiling; 65 must fall back to the host.
+    card = generator._sampling_spec(1, top_k=64, top_p=0.95, temperature=1.0)
+    assert card.top_k == (64,)
     with expect_error(ValueError, "top_k"):
-        generator._sampling_spec(1, top_k=33, top_p=0.9, temperature=1.0)
+        generator._sampling_spec(1, top_k=65, top_p=0.9, temperature=1.0)
     with expect_error(ValueError, "top_p"):
         generator._sampling_spec(1, top_k=8, top_p=1.1, temperature=1.0)
     with expect_error(ValueError, "seeds"):
@@ -269,7 +272,7 @@ def test_sampler_choice_is_semantically_greedy_split_topk():
     trace_source = inspect.getsource(Gemma4Generator._get_or_capture_decode_trace)
     assert "ttnn.copy(input_a=seed_skip, input_b=seed_tensor)" in trace_source
     assert "MAX_UINT32" in trace_source
-    assert "max_top_k=32" in init
+    assert "max_top_k=DEVICE_MAX_TOP_K" in init
     assert "ag_topology=ttnn.Topology.Ring if model.tp_size == 4 else ttnn.Topology.Linear" in init
     assert "Sampling1D" in init
 
@@ -876,7 +879,7 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
             vocab_size=model.vocab_size,
             mesh_device=target_mesh,
             max_batch_size=32,
-            max_top_k=32,
+            max_top_k=64,
             allow_force_argmax=True,
             pad_to_power_of_2=True,
             num_gather_links=2 if tp_size == 4 else 1,

@@ -471,7 +471,7 @@ class SamplingGenerator:
         return tt_out
 
 
-def format_sampling_params(sampling_params, max_batch_size):
+def format_sampling_params(sampling_params, max_batch_size, max_top_k=32):
     """
     Format sampling parameters for on-device use.
 
@@ -604,12 +604,13 @@ def format_sampling_params(sampling_params, max_batch_size):
         else:
             temperature[i] = 1 / temperature[i]
 
-        # top_k contract: TT sampling supports up to 32 today.
-        # k < 1 means "no restriction" → max (32); k > 32 → capped to 32.
+        # top_k contract: the device sampler supports up to ``max_top_k`` (32 by
+        # default; a model that builds its sampler with a wider top-k passes it).
+        # k < 1 means "no restriction" → max; k > max → capped to max.
         if top_k[i] < 1:
-            top_k[i] = 32
-        if top_k[i] > 32:
-            top_k[i] = 32
+            top_k[i] = max_top_k
+        if top_k[i] > max_top_k:
+            top_k[i] = max_top_k
 
         if repetition_penalty[i] == 0:
             repetition_penalty[i] = defaults["repetition_penalty"]
