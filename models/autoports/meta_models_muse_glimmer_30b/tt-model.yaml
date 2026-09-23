@@ -176,3 +176,61 @@ card:
     Serve one request at a time: concurrency at long context is admission-limited
     by the KV cache. The release passed the bounded latency gate: 2% per metric,
     plus a 5 ms absolute TTFT allowance for short-input measurement variance.
+
+    ## Prefix caching
+
+    Measured with vLLM's own `prefix_repetition` benchmark, the standard dataset
+    for this feature. Eight distinct 4,096-token prefixes, each reused across
+    eight requests, 64 requests at concurrency 1 -- the same package served twice,
+    one flag apart.
+
+    ```
+    vllm bench serve --model meta-models/Muse-Glimmer-30B \
+      --dataset-name prefix_repetition \
+      --prefix-repetition-prefix-len 4096 --prefix-repetition-suffix-len 128 \
+      --prefix-repetition-num-prefixes 8 --prefix-repetition-output-len 32 \
+      --num-prompts 64 --max-concurrency 1 --ignore-eos --seed 1234
+    ```
+
+    | metric | caching off | caching on |
+    |---|---:|---:|
+    | mean TTFT | 497.00 ms | 168.04 ms |
+    | median TTFT | 495.82 ms | 98.18 ms |
+    | p99 TTFT | 525.84 ms | 952.04 ms |
+    | benchmark duration | 80.14 s | 59.14 s |
+    | output throughput | 25.56 tok/s | 34.63 tok/s |
+    | prefix cache hit rate | 0 | 54.7% |
+
+    The distribution is the evidence, not the mean. With caching off every request
+    pays the full 4,096-token prefill and TTFT is flat at 496/497/526. With it on
+    the distribution splits: 98 ms median for the 56 requests that hit, 952 ms at
+    p99 for the 8 cold prefixes.
+
+    Note the p99 moves the wrong way, 526 ms to 952 ms. A cold prefix now compiles
+    its own SDPA program for its resume offset, so the first request at any
+    previously unseen offset is slower than it was. Median improves 5x; the tail
+    regresses 1.8x. Workloads that reuse a small set of prefixes gain; workloads
+    whose offsets keep changing may not.
+
+    ## Evaluations
+
+    Run through tt-inference-server's eval workflow -- its lm-eval command, venv
+    and scoring -- against this package at 131,072 context. Sampling is this
+    card's recipe: temperature 1.0, top_p 0.95, top_k 64.
+
+    | task | samples | metric | score | reference |
+    |---|---:|---|---:|---:|
+    | `gpqa_diamond_cot_zeroshot` | 198 | exact_match, flexible-extract | 77.27 | 72.8 |
+    | `ifeval` | 541 | prompt_level_strict_acc | 88.72 | 77.0 |
+    | `aime25` | 30 | exact_match | not valid, see below | 94.7 |
+
+    The GPQA reference is the GPU reference score for `openai/gpt-oss-20b`, the
+    closest configured analogue. This model had no GPQA row before this run, while
+    every other reasoning model of its size in the catalogue has one. The `ifeval`
+    reference is an IFBench floor, not an equivalence target.
+
+    `aime25` is not reported as a score. 18 of its 30 responses contained no
+    extractable answer and one ran to 294,912 characters, while the same problems
+    put to the server directly return correct boxed answers -- so the figure
+    measures the eval path, not the model. 30 of the 198 GPQA responses show the
+    same pathology, which makes 77.27 a lower bound rather than a point estimate.
