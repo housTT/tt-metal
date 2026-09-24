@@ -1,0 +1,236 @@
+<title>Muse-Glimmer-30B QB2 Scorecard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root { --ground:#F5F7F6; --panel:#FFFFFF; --ink:#161A1F; --muted:#5B6570; --line:#DCE1E0; --line-strong:#B9C2C0; --this:#0E7C74; --this-soft:#DDF1EE; --rel:#B7791F; --good:#1E7F3C; --bad:#B42323; --flat:#5B6570; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ground:#0F1316; --panel:#161B20; --ink:#E7EAEC; --muted:#9AA4AE; --line:#263038; --line-strong:#3A4750; --this:#3BC7BA; --this-soft:#123A37; --rel:#E0A84A; --good:#4CC17A; --bad:#F07373; --flat:#9AA4AE; } }
+:root[data-theme="dark"] { --ground:#0F1316; --panel:#161B20; --ink:#E7EAEC; --muted:#9AA4AE; --line:#263038; --line-strong:#3A4750; --this:#3BC7BA; --this-soft:#123A37; --rel:#E0A84A; --good:#4CC17A; --bad:#F07373; --flat:#9AA4AE; }
+body { background:var(--ground); color:var(--ink); font:15px/1.5 "IBM Plex Sans", system-ui, sans-serif; padding-inline:16px; padding-block:24px 48px; }
+.wrap { max-width:1040px; margin:0 auto; display:flex; flex-direction:column; gap:28px; }
+h1,h2 { font-family:"IBM Plex Sans Condensed","IBM Plex Sans",system-ui,sans-serif; text-wrap:balance; margin:0; }
+h1 { font-size:30px; font-weight:600; letter-spacing:-0.01em; } h2 { font-size:19px; font-weight:600; }
+.mono, .num { font-family:"IBM Plex Mono", ui-monospace, monospace; font-variant-numeric:tabular-nums; }
+header { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:12px 24px; padding-bottom:14px; border-bottom:2px solid var(--line-strong); }
+.lede { color:var(--muted); margin:6px 0 0; max-width:66ch; }
+.stamp { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; }
+.stamp b { display:block; color:var(--ink); font-weight:500; text-transform:none; letter-spacing:0; font-size:14px; }
+.legend { display:flex; gap:18px; flex-wrap:wrap; font-size:13px; color:var(--muted); }
+.legend span::before { content:""; display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; vertical-align:-1px; }
+.legend .l-this::before { background:var(--this); } .legend .l-rel::before { background:var(--rel); }
+section { display:flex; flex-direction:column; gap:12px; }
+.head { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+.scroll { overflow-x:auto; }
+table { border-collapse:collapse; width:100%; background:var(--panel); border:1px solid var(--line); }
+thead th { font-size:12px; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); font-weight:500; text-align:left; padding:10px 12px; border-bottom:1px solid var(--line-strong); white-space:nowrap; }
+thead th.num, td.num { text-align:right; }
+tbody th, td { padding:11px 12px; border-bottom:1px solid var(--line); vertical-align:top; text-align:left; font-weight:400; }
+tbody tr:last-child th, tbody tr:last-child td { border-bottom:none; }
+tbody tr.group th, tbody tr.group td { border-top:2px solid var(--line-strong); }
+tbody th { font-weight:600; min-width:14ch; }
+.acc td.num { font-size:22px; line-height:1.15; }
+.acc td.this { color:var(--this); font-weight:500; background:var(--this-soft); } .acc td.rel { color:var(--rel); font-weight:500; }
+td.this { color:var(--this); font-weight:500; }
+.sub { font-size:12px; color:var(--muted); font-weight:400; margin-top:4px; line-height:1.35; max-width:34ch; }
+.pos { color:var(--good); } .neg { color:var(--bad); } .flat { color:var(--flat); }
+.note { font-size:13px; color:var(--muted); margin:0; max-width:84ch; }
+.stat { margin:0; font-size:15px; } .stat b { font-family:"IBM Plex Mono", ui-monospace, monospace; font-variant-numeric:tabular-nums; font-weight:500; color:var(--this); }
+.kv td:first-child { color:var(--muted); width:10em; } .kv td { font-size:14px; }
+code { font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:0.92em; }
+footer { font-size:13px; color:var(--muted); border-top:1px solid var(--line); padding-top:12px; }
+a { color:var(--this); }
+</style>
+<div class="wrap">
+<header>
+  <div>
+    <h1>Muse-Glimmer-30B on QuietBox 2</h1>
+    <p class="lede">Current state of the <span class="mono">tt-hous/muse-glimmer-30b</span> package: accuracy under the tt-inference-server <code>evals</code> workflow against the numbers on the <span class="mono">meta-models/Muse-Glimmer-30B</span> model card, and its latency sweep.</p>
+  </div>
+  <div class="stamp">Updated<b>2026-09-25 1:12 AM ET</b></div>
+</header>
+
+<section class="acc">
+  <div class="head"><h2>Accuracy</h2><div class="legend"><span class="l-this">this build</span><span class="l-rel">HF model card</span></div></div>
+  <div class="scroll"><table>
+    <thead><tr><th>Task</th><th class="num">This build</th><th class="num">Model card</th><th class="num">Δ (pts)</th><th class="num">Harness check</th></tr></thead>
+    <tbody><tr>
+      <th scope="row">AIME 2026<div class="sub mono">aime26 · exact_match,none · lm-eval task cloned from aime25 over math-ai/aime26 · reasoning strength high · max gen 98,304 tokens · 30 questions</div></th>
+      <td class="num this">91.67<div class="sub">mean of 4 runs · sd 1.92; per run: 90.00 / 93.33 / 93.33 / 90.00 (seeds 42/43/44/45); correct 27, 28, 28, 27 / 30; 0 empty answers; total 1 h 41 min</div></td>
+      <td class="num rel">94.7<div class="sub">AIME 2026</div></td>
+      <td class="num neg">-3.03</td>
+      <td class="num pos">PASS<div class="sub">bar 85.23 (10% of card) · 4/4 runs ≥ bar</div></td>
+    </tr><tr>
+      <th scope="row">AIME 2025<div class="sub mono">aime25 · exact_match,none · reasoning strength high · max gen 98,304 tokens · 30 questions</div></th>
+      <td class="num this">88.33<div class="sub">mean of 4 runs · sd 4.30; per run: 86.67 / 93.33 / 83.33 / 90.00 (seeds 42/43/44/45); correct 26, 28, 25, 27 / 30; 0 empty answers; total 2 h 35 min; not on the model card; the tt-inference-server workflow task</div></td>
+      <td class="num rel">—<div class="sub">not on the model card</div></td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr>
+      <th scope="row">GPQA Diamond (CoT, zero-shot)<div class="sub mono">gpqa_diamond_cot_zeroshot · exact_match,flexible-extract · max gen 32,768 tokens · 198 questions</div></th>
+      <td class="num this">81.06<div class="sub">mean of 4 runs · sd 1.34; per run: 79.29 / 80.81 / 81.82 / 82.32 (seeds 42/43/44/45); correct 157, 160, 162, 163 / 198; 0 empty answers; total 2 h 57 min</div></td>
+      <td class="num rel">83.5<div class="sub">GPQA Diamond (AA)</div></td>
+      <td class="num neg">-2.44</td>
+      <td class="num pos">PASS<div class="sub">bar 79.33 (5% of card) · 3/4 runs ≥ bar</div></td>
+    </tr><tr>
+      <th scope="row">IFBench<div class="sub mono">IFBench_test · prompt-level loose accuracy · allenai/IFBench run_eval · max gen 32,768 tokens · 300 prompts</div></th>
+      <td class="num this">78.44<div class="sub">mean of 3 runs · sd 1.07; per run: 78.00 / 79.67 / 77.67 (seeds 42/43/44); correct 234, 239, 233 / 300; 0 empty answers; total 59 min; paper protocol, temperature 0: 73.67 (21 hit the token cap, 0 empty)</div></td>
+      <td class="num rel">77.0<div class="sub">IFBench</div></td>
+      <td class="num pos">+1.44</td>
+      <td class="num pos">PASS<div class="sub">bar 73.15 (5% of card) · 3/3 runs ≥ bar</div></td>
+    </tr><tr>
+      <th scope="row">IFEval<div class="sub mono">ifeval · prompt_level_strict_acc,none · max gen 32,768 tokens · 541 prompts</div></th>
+      <td class="num this">94.41<div class="sub">mean of 4 runs · sd 1.27; per run: 93.72 / 92.98 / 95.56 / 95.38 (seeds 42/43/44/45); correct 507, 503, 517, 516 / 541; 0 empty answers; total 1 h 34 min; not on the model card; the tt-inference-server workflow task</div></td>
+      <td class="num rel">—<div class="sub">not on the model card</div></td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr class="group">
+      <th scope="row">MCP Atlas (Public)<div class="sub mono">General Agentic</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">sandboxed multi-hour agent harness; not runnable in a single-server overnight window</div></td>
+      <td class="num rel">75.5</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr>
+      <th scope="row">DeepSearch QA<div class="sub mono">General Agentic</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">sandboxed multi-hour agent harness; not runnable in a single-server overnight window</div></td>
+      <td class="num rel">74.6</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr>
+      <th scope="row">τ3-Banking<div class="sub mono">General Agentic</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">sandboxed multi-hour agent harness; not runnable in a single-server overnight window</div></td>
+      <td class="num rel">23.5</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr>
+      <th scope="row">WildClawBench<div class="sub mono">General Agentic</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">sandboxed multi-hour agent harness; not runnable in a single-server overnight window</div></td>
+      <td class="num rel">47.6</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr>
+      <th scope="row">GDPVal-AA v2<div class="sub mono">General Agentic</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">sandboxed multi-hour agent harness; not runnable in a single-server overnight window</div></td>
+      <td class="num rel">953</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr>
+      <th scope="row">Gaia2<div class="sub mono">General Agentic</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">sandboxed multi-hour agent harness; not runnable in a single-server overnight window</div></td>
+      <td class="num rel">43.3</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr>
+      <th scope="row">SkillsBench (with skills)<div class="sub mono">General Agentic</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">sandboxed multi-hour agent harness; not runnable in a single-server overnight window</div></td>
+      <td class="num rel">44.3</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr>
+      <th scope="row">OSWorld-Verified<div class="sub mono">General Agentic</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">sandboxed multi-hour agent harness; not runnable in a single-server overnight window</div></td>
+      <td class="num rel">65.9</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr class="group">
+      <th scope="row">SWE-Bench Pro<div class="sub mono">Agentic Coding</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">sandboxed multi-hour agent harness; not runnable in a single-server overnight window</div></td>
+      <td class="num rel">51.2</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr>
+      <th scope="row">SWE-Bench Verified<div class="sub mono">Agentic Coding</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">sandboxed multi-hour agent harness; not runnable in a single-server overnight window</div></td>
+      <td class="num rel">76.0</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr>
+      <th scope="row">TerminalBench 2.1 (with terminus2)<div class="sub mono">Agentic Coding</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">sandboxed multi-hour agent harness; not runnable in a single-server overnight window</div></td>
+      <td class="num rel">51.7</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr>
+      <th scope="row">SciCode<div class="sub mono">Agentic Coding</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">sandboxed multi-hour agent harness; not runnable in a single-server overnight window</div></td>
+      <td class="num rel">43.6</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr class="group">
+      <th scope="row">Charxiv Reasoning<div class="sub mono">Multimodal</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">not runnable: this port serves the text decoder only (tt/generator_vllm.py:321)</div></td>
+      <td class="num rel">78.8</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr>
+      <th scope="row">ScreenSpot Pro<div class="sub mono">Multimodal</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">not runnable: this port serves the text decoder only (tt/generator_vllm.py:321)</div></td>
+      <td class="num rel">75.4</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr>
+      <th scope="row">OmniDocBench v1.5<div class="sub mono">Multimodal</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">not runnable: this port serves the text decoder only (tt/generator_vllm.py:321)</div></td>
+      <td class="num rel">75.8</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr>
+      <th scope="row">MMMU Pro<div class="sub mono">Multimodal</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">not runnable: this port serves the text decoder only (tt/generator_vllm.py:321)</div></td>
+      <td class="num rel">74</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr class="group">
+      <th scope="row">CI Memories<div class="sub mono">Security and Privacy</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">not runnable here: agent harness with tool calling; AgentDojo&#x27;s CLI has no custom base_url and this package&#x27;s tool-call serving is not hardware-validated</div></td>
+      <td class="num rel">Violation (↓) 26.4 · Coverage 64.8</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr>
+      <th scope="row">Siren AgentDojo<div class="sub mono">Security and Privacy</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">not runnable here: agent harness with tool calling; AgentDojo&#x27;s CLI has no custom base_url and this package&#x27;s tool-call serving is not hardware-validated</div></td>
+      <td class="num rel">Attack Success Rate (↓) 28.4 · Utility 94.2</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr><tr class="group">
+      <th scope="row">HLE Text (AA)<div class="sub mono">General Capabilities and Reasoning</div></th>
+      <td class="num"><span class="mono">not run</span><div class="sub">not runnable here: official grading uses an o3-mini judge (cais/hle model_graded_fact); no OpenAI/Anthropic API key on this host</div></td>
+      <td class="num rel">22.0</td>
+      <td class="num flat">—</td>
+      <td class="num flat">—</td>
+    </tr></tbody>
+  </table></div>
+  <p class="note">Percent correct, one sample per question per run, scored by the tt-inference-server evals workflow (lm-evaluation-harness, chat completions API) with its Muse-Glimmer-30B configuration: temperature 1.0, top_p 0.95, top_k 64, seed 42, reasoning strength high; AIME 2025 with 98,304 max output tokens, GPQA Diamond and IFEval with 32,768; client concurrency 32 (GPQA 16). Model card = the "Muse-Glimmer-30B High Reasoning" column of the meta-models/Muse-Glimmer-30B model card. No Tenstorrent GPU reference run exists for this checkpoint. Rows with more than one run show the mean over independent harness runs (request seeds 42, 43, …; per-run values in the cell); Δ and the harness check use the mean. AIME 2026 is a local lm-eval task cloned from aime25 (same prompt and scorer) over math-ai/aime26. IFBench is generated against the same chat endpoint with the same sampling recipe and scored by allenai/IFBench run_eval, prompt-level loose accuracy (the paper's headline metric); its cell also carries one run under the paper's temperature-0 protocol. Harness check = the eval_config tolerance against the model-card value (AIME 10% because a 30-question set moves in 3.33-point steps; the others 5%). Every model-card task not measured is listed as not run with the reason.</p>
+</section>
+
+<section>
+  <h2>Latency, batch 1 (single user)</h2>
+
+  <div class="scroll"><table>
+    <thead><tr><th class="num">Input tokens</th><th class="num">Output tokens</th><th class="num">TTFT (ms)</th><th class="num">Prefill tok/s</th><th class="num">TPOT (ms)</th><th class="num">Decode tok/s</th><th class="num">E2EL (s)</th></tr></thead>
+    <tbody><tr><td class="num">128</td><td class="num">128</td><td class="num this">81</td><td class="num">1,589</td><td class="num">23.0</td><td class="num this">43.5</td><td class="num">3.00</td></tr><tr><td class="num">1,024</td><td class="num">256</td><td class="num this">151</td><td class="num">6,801</td><td class="num">23.8</td><td class="num this">42.0</td><td class="num">6.23</td></tr><tr><td class="num">4,096</td><td class="num">256</td><td class="num this">476</td><td class="num">8,611</td><td class="num">24.4</td><td class="num this">40.9</td><td class="num">6.71</td></tr><tr><td class="num">16,384</td><td class="num">256</td><td class="num this">2,140</td><td class="num">7,657</td><td class="num">25.9</td><td class="num this">38.6</td><td class="num">8.74</td></tr><tr><td class="num">32,768</td><td class="num">256</td><td class="num this">4,647</td><td class="num">7,051</td><td class="num">27.7</td><td class="num this">36.1</td><td class="num">11.72</td></tr><tr><td class="num">65,536</td><td class="num">256</td><td class="num this">10,589</td><td class="num">6,189</td><td class="num">31.6</td><td class="num this">31.7</td><td class="num">18.64</td></tr><tr><td class="num">130,816</td><td class="num">256</td><td class="num this">26,118</td><td class="num">5,009</td><td class="num">39.1</td><td class="num this">25.6</td><td class="num">36.09</td></tr></tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Concurrency</h2>
+  <p class="stat">Peak aggregate output: <b>805 tok/s</b> at 128 input / 128 output tokens, 32 concurrent users.</p>
+  <div class="scroll"><table>
+    <thead><tr><th class="num">Input tokens</th><th class="num">Output tokens</th><th class="num">Users</th><th class="num">N</th><th class="num">TTFT (ms)</th><th class="num">TPOT (ms)</th><th class="num">Decode tok/s/user</th><th class="num">Total out tok/s</th><th class="num">E2EL (s)</th></tr></thead>
+    <tbody><tr><td class="num">128</td><td class="num">128</td><td class="num">1</td><td class="num">4</td><td class="num">81</td><td class="num">23.0</td><td class="num">43.5</td><td class="num this">43</td><td class="num">3.00</td></tr><tr><td class="num">128</td><td class="num">128</td><td class="num">2</td><td class="num">8</td><td class="num">141</td><td class="num">23.0</td><td class="num">43.4</td><td class="num this">84</td><td class="num">3.06</td></tr><tr><td class="num">128</td><td class="num">128</td><td class="num">4</td><td class="num">16</td><td class="num">281</td><td class="num">23.0</td><td class="num">43.4</td><td class="num this">160</td><td class="num">3.21</td></tr><tr><td class="num">128</td><td class="num">128</td><td class="num">8</td><td class="num">32</td><td class="num">551</td><td class="num">23.0</td><td class="num">43.4</td><td class="num this">295</td><td class="num">3.47</td></tr><tr><td class="num">128</td><td class="num">128</td><td class="num">16</td><td class="num">64</td><td class="num">1,086</td><td class="num">23.1</td><td class="num">43.3</td><td class="num this">509</td><td class="num">4.02</td></tr><tr><td class="num">128</td><td class="num">128</td><td class="num">32</td><td class="num">128</td><td class="num">2,159</td><td class="num">23.1</td><td class="num">43.4</td><td class="num this">805</td><td class="num">5.09</td></tr><tr class="group"><td class="num">1,024</td><td class="num">256</td><td class="num">1</td><td class="num">4</td><td class="num">151</td><td class="num">23.8</td><td class="num">42.0</td><td class="num this">41</td><td class="num">6.23</td></tr><tr><td class="num">1,024</td><td class="num">256</td><td class="num">2</td><td class="num">8</td><td class="num">295</td><td class="num">23.9</td><td class="num">41.9</td><td class="num this">80</td><td class="num">6.38</td></tr><tr><td class="num">1,024</td><td class="num">256</td><td class="num">4</td><td class="num">16</td><td class="num">583</td><td class="num">23.8</td><td class="num">41.9</td><td class="num this">154</td><td class="num">6.66</td></tr><tr><td class="num">1,024</td><td class="num">256</td><td class="num">8</td><td class="num">32</td><td class="num">1,155</td><td class="num">23.8</td><td class="num">41.9</td><td class="num this">283</td><td class="num">7.24</td></tr><tr><td class="num">1,024</td><td class="num">256</td><td class="num">16</td><td class="num">64</td><td class="num">2,294</td><td class="num">24.0</td><td class="num">41.6</td><td class="num this">486</td><td class="num">8.43</td></tr><tr><td class="num">1,024</td><td class="num">256</td><td class="num">32</td><td class="num">128</td><td class="num">4,627</td><td class="num">24.7</td><td class="num">40.5</td><td class="num this">749</td><td class="num">10.93</td></tr><tr class="group"><td class="num">4,096</td><td class="num">256</td><td class="num">1</td><td class="num">4</td><td class="num">476</td><td class="num">24.4</td><td class="num">40.9</td><td class="num this">38</td><td class="num">6.71</td></tr><tr><td class="num">4,096</td><td class="num">256</td><td class="num">2</td><td class="num">8</td><td class="num">930</td><td class="num">24.5</td><td class="num">40.9</td><td class="num this">71</td><td class="num">7.17</td></tr><tr><td class="num">4,096</td><td class="num">256</td><td class="num">4</td><td class="num">16</td><td class="num">1,850</td><td class="num">24.5</td><td class="num">40.9</td><td class="num this">127</td><td class="num">8.09</td></tr><tr><td class="num">4,096</td><td class="num">256</td><td class="num">8</td><td class="num">32</td><td class="num">3,694</td><td class="num">24.5</td><td class="num">40.9</td><td class="num this">206</td><td class="num">9.94</td></tr><tr><td class="num">4,096</td><td class="num">256</td><td class="num">16</td><td class="num">64</td><td class="num">7,379</td><td class="num">24.8</td><td class="num">40.3</td><td class="num this">299</td><td class="num">13.70</td></tr><tr><td class="num">4,096</td><td class="num">256</td><td class="num">32</td><td class="num">128</td><td class="num">14,809</td><td class="num">26.3</td><td class="num">38.0</td><td class="num this">381</td><td class="num">21.53</td></tr><tr class="group"><td class="num">16,384</td><td class="num">256</td><td class="num">1</td><td class="num">2</td><td class="num">2,140</td><td class="num">25.9</td><td class="num">38.6</td><td class="num this">29</td><td class="num">8.74</td></tr><tr><td class="num">16,384</td><td class="num">256</td><td class="num">2</td><td class="num">4</td><td class="num">4,218</td><td class="num">25.9</td><td class="num">38.6</td><td class="num this">47</td><td class="num">10.83</td></tr><tr><td class="num">16,384</td><td class="num">256</td><td class="num">4</td><td class="num">8</td><td class="num">8,418</td><td class="num">25.8</td><td class="num">38.7</td><td class="num this">68</td><td class="num">15.01</td></tr><tr><td class="num">16,384</td><td class="num">256</td><td class="num">8</td><td class="num">16</td><td class="num">16,803</td><td class="num">25.9</td><td class="num">38.7</td><td class="num this">88</td><td class="num">23.40</td></tr><tr><td class="num">16,384</td><td class="num">256</td><td class="num">16</td><td class="num">32</td><td class="num">32,711</td><td class="num">30.1</td><td class="num">33.2</td><td class="num this">101</td><td class="num">40.39</td></tr><tr><td class="num">16,384</td><td class="num">256</td><td class="num">32</td><td class="num">64</td><td class="num">54,357</td><td class="num">81.4</td><td class="num">12.3</td><td class="num this">109</td><td class="num">75.11</td></tr><tr class="group"><td class="num">32,768</td><td class="num">256</td><td class="num">1</td><td class="num">1</td><td class="num">4,647</td><td class="num">27.7</td><td class="num">36.1</td><td class="num this">22</td><td class="num">11.72</td></tr><tr><td class="num">32,768</td><td class="num">256</td><td class="num">2</td><td class="num">2</td><td class="num">9,204</td><td class="num">27.7</td><td class="num">36.0</td><td class="num this">31</td><td class="num">16.28</td></tr><tr><td class="num">32,768</td><td class="num">256</td><td class="num">4</td><td class="num">4</td><td class="num">18,392</td><td class="num">27.7</td><td class="num">36.1</td><td class="num this">40</td><td class="num">25.45</td></tr><tr><td class="num">32,768</td><td class="num">256</td><td class="num">8</td><td class="num">8</td><td class="num">34,941</td><td class="num">34.3</td><td class="num">29.1</td><td class="num this">47</td><td class="num">43.69</td></tr><tr><td class="num">32,768</td><td class="num">256</td><td class="num">16</td><td class="num">16</td><td class="num">58,717</td><td class="num">86.3</td><td class="num">11.6</td><td class="num this">51</td><td class="num">80.72</td></tr><tr><td class="num">32,768</td><td class="num">256</td><td class="num">32</td><td class="num">32</td><td class="num">98,159</td><td class="num">226.9</td><td class="num">4.4</td><td class="num this">48</td><td class="num">156.03</td></tr><tr class="group"><td class="num">65,536</td><td class="num">256</td><td class="num">1</td><td class="num">1</td><td class="num">10,589</td><td class="num">31.6</td><td class="num">31.7</td><td class="num this">14</td><td class="num">18.64</td></tr><tr><td class="num">65,536</td><td class="num">256</td><td class="num">2</td><td class="num">2</td><td class="num">21,075</td><td class="num">31.5</td><td class="num">31.7</td><td class="num this">18</td><td class="num">29.11</td></tr><tr><td class="num">65,536</td><td class="num">256</td><td class="num">4</td><td class="num">4</td><td class="num">39,364</td><td class="num">41.7</td><td class="num">24.0</td><td class="num this">20</td><td class="num">50.00</td></tr><tr><td class="num">65,536</td><td class="num">256</td><td class="num">8</td><td class="num">8</td><td class="num">66,750</td><td class="num">98.4</td><td class="num">10.2</td><td class="num this">22</td><td class="num">91.83</td></tr><tr><td class="num">65,536</td><td class="num">256</td><td class="num">16</td><td class="num">16</td><td class="num">111,825</td><td class="num">256.4</td><td class="num">3.9</td><td class="num this">21</td><td class="num">177.21</td></tr><tr class="group"><td class="num">130,816</td><td class="num">256</td><td class="num">1</td><td class="num">1</td><td class="num">26,118</td><td class="num">39.1</td><td class="num">25.6</td><td class="num this">7</td><td class="num">36.09</td></tr><tr><td class="num">130,816</td><td class="num">256</td><td class="num">2</td><td class="num">2</td><td class="num">51,937</td><td class="num">39.0</td><td class="num">25.6</td><td class="num this">8</td><td class="num">61.89</td></tr><tr><td class="num">130,816</td><td class="num">256</td><td class="num">4</td><td class="num">4</td><td class="num">84,129</td><td class="num">115.0</td><td class="num">8.7</td><td class="num this">9</td><td class="num">113.45</td></tr><tr><td class="num">130,816</td><td class="num">256</td><td class="num">8</td><td class="num">8</td><td class="num">139,169</td><td class="num">305.7</td><td class="num">3.3</td><td class="num this">9</td><td class="num">217.13</td></tr></tbody>
+  </table></div>
+  <p class="note">Reading the table: the KV cache holds 1,048,576 tokens, so 8 sequences of 130,816 tokens are resident at once and the 32-row decode graph serves every user count; concurrency is bounded by max_num_seqs 32, not by cache.</p>
+  <p class="note">Random-token prompts of exactly the input length, output pinned with ignore_eos, greedy, streamed; users are concurrent requests held open as a closed loop, N is total requests in the row. TTFT is time to the first streamed token; TPOT = (E2EL − TTFT)/(output − 1); prefill tok/s = input/TTFT; decode tok/s = 1/TPOT; means over the row. One unrecorded warm-up per row, a distinct random seed per row, and prefix caching disabled for the sweep only — with it on, the seeded random prompts recur across warm-ups and rows and TTFT measures cache hits (a first pass showed a flat 1.9 s TTFT from 32,768 to 130,816 tokens and was discarded). 130,816 is the context boundary (131,072 − 256). Rows whose end-to-end latency exceeds 300 s end their input-length group. Measured 2026-09-24 on this build with both fixes applied, no other traffic on the server. Rows not measured: 65,536/32 users, 130,816/16 users, 130,816/32 users (predicted end-to-end > 300 s or beyond the measured envelope).</p>
+</section>
+
+<section>
+  <h2>Build</h2>
+  <div class="scroll"><table class="kv"><tbody>
+    <tr><td>package</td><td>tt-hous/muse-glimmer-30b, image c715693dd614 (HF revision 8f5a56a9), weights meta-models/Muse-Glimmer-30B @ f84ecc3a</td></tr>
+    <tr><td>serving stack</td><td>tt-metal b4afb272e56 (models/autoports/meta_models_muse_glimmer_30b, branch agentic-research/hous/muse-glimmer-30b-toolcalling; image built from 367a370de64) · vLLM 0.24.0 · vllm-tt-plugin 0911fa6</td></tr>
+    <tr><td>fixes in this build</td><td>1) tt/generator.py: the prefill page table is indexed by batch row, not device slot — under concurrent arrivals every request but the last in a straddled prefill batch wrote its K/V through the last request's blocks (aime25 at concurrency 32 was 3.3–13.3%); a guard now refuses a prefill batch whose rows would write the same block (b4afb272e56). 2) tt/generator_vllm.py: bool() on a per-request tensor crashed any batch of two or more (965c5745a24). Served from the fixed source tree over the package's stack; the fixed image has not been rebuilt or pushed yet.</td></tr>
+    <tr><td>serve config</td><td>MESH_DEVICE=P300x2 on 2× p300c (mesh (1,4)), --max-num-seqs 32, --max-model-len 131072, --block-size 64, --max-num-batched-tokens 131072, sample_on_device_mode all, FABRIC_1D_RING, trace_region_size 400000000, trace_mode decode_only, --reasoning-parser muse_glimmer, --tool-call-parser muse_glimmer with --enable-auto-tool-choice, prefix caching on</td></tr>
+    <tr><td>host</td><td>tt-quietbox · QuietBox 2, 2× p300c (4 Blackhole chips) · TT-KMD 2.10.0 · firmware bundle 19.13.1.0 · Ubuntu 24.04.4</td></tr>
+  </tbody></table></div>
+</section>
+
+<footer>Sources: tt-inference-server <code>reference_config/evals/eval_config.py</code> (Muse-Glimmer-30B entry, GPQA reference set to the model card), meta-models/Muse-Glimmer-30B model card (published), vllm bench serve (sweep). Raw results and logs: <code>/tmp/claude-1000/-home-ttuser-dev-muse-glimmer/86562100-a910-4009-9d96-9c0c923aca30/scratchpad/scorecard/</code>. Package: <a href="https://huggingface.co/tt-hous/muse-glimmer-30b">huggingface.co/tt-hous/muse-glimmer-30b</a>.</footer>
+</div>

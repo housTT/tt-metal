@@ -1,0 +1,159 @@
+<title>Muse-Glimmer Concurrency Regression</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --ground:#f4f6f7; --surface:#ffffff; --surface-2:#eceff1;
+    --ink:#131a1f; --ink-2:#3d4a55; --muted:#65727e; --rule:#d5dbe0;
+    --accent:#0e6b76; --accent-soft:#d7eaec;
+    --crit:#a51f17; --crit-soft:#f7dedc;
+    --warn:#7d5200; --warn-soft:#f8ecd2;
+    --ok:#1a6238; --ok-soft:#d9eee2;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ground:#0e1317; --surface:#161d23; --surface-2:#1e262d;
+      --ink:#e7edf1; --ink-2:#bcc8d1; --muted:#8d9aa6; --rule:#2a343d;
+      --accent:#54c2ce; --accent-soft:#12343a;
+      --crit:#f08a80; --crit-soft:#3a1714;
+      --warn:#e5b45c; --warn-soft:#332404;
+      --ok:#74ca9a; --ok-soft:#0f2c1d;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#0e1317; --surface:#161d23; --surface-2:#1e262d;
+    --ink:#e7edf1; --ink-2:#bcc8d1; --muted:#8d9aa6; --rule:#2a343d;
+    --accent:#54c2ce; --accent-soft:#12343a;
+    --crit:#f08a80; --crit-soft:#3a1714;
+    --warn:#e5b45c; --warn-soft:#332404;
+    --ok:#74ca9a; --ok-soft:#0f2c1d;
+  }
+  body{background:var(--ground); color:var(--ink); font-family:"IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+       font-size:15px; line-height:1.6; padding-block:0 64px; padding-left:16px; padding-right:16px;}
+  .wrap{max-width:860px; margin:0 auto;}
+  code, .mono, th, td.num{font-family:"IBM Plex Mono", ui-monospace, Menlo, monospace;}
+  .num{font-variant-numeric:tabular-nums;}
+  header.masthead{display:flex; flex-direction:column; gap:10px; padding-block:40px 26px; border-bottom:2px solid var(--ink);}
+  .eyebrow{font-family:"IBM Plex Mono", monospace; font-size:11.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); font-weight:600;}
+  h1{font-size:clamp(28px,6vw,42px); line-height:1.1; margin:0; font-weight:600; letter-spacing:-.02em; text-wrap:balance;}
+  .standfirst{font-size:17px; color:var(--ink-2); margin:4px 0 0; max-width:62ch;}
+  .meta{display:flex; flex-wrap:wrap; gap:6px 18px; margin-top:8px; font-family:"IBM Plex Mono", monospace; font-size:12px; color:var(--muted);}
+  h2{font-size:13px; letter-spacing:.11em; text-transform:uppercase; font-weight:600; color:var(--accent); margin:0 0 4px; font-family:"IBM Plex Mono", monospace;}
+  section{padding-block:32px; border-bottom:1px solid var(--rule);}
+  section:last-of-type{border-bottom:none;}
+  .lede{font-size:19px; line-height:1.45; margin:0 0 16px; max-width:58ch; font-weight:500; text-wrap:balance;}
+  p{margin:0 0 12px; max-width:70ch;} p:last-child{margin-bottom:0;}
+  .verdict{background:var(--ok-soft); border-left:3px solid var(--ok); padding:16px 18px; margin:18px 0 0;}
+  .verdict p{margin:0; max-width:none;}
+  .tablewrap{overflow-x:auto; margin:16px 0 0;}
+  table{border-collapse:collapse; width:100%; min-width:520px; font-size:13.5px;}
+  caption{text-align:left; font-family:"IBM Plex Mono", monospace; font-size:11.5px; color:var(--muted); padding-bottom:8px; letter-spacing:.04em;}
+  th{text-align:left; font-size:11px; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); font-weight:600; padding:0 12px 7px 0; border-bottom:1px solid var(--rule); white-space:nowrap;}
+  th.r, td.r{text-align:right;}
+  td{padding:9px 12px 9px 0; border-bottom:1px solid var(--rule); vertical-align:top;}
+  tr.hi td{background:var(--ok-soft);} tr.hi td:first-child{box-shadow:inset 3px 0 0 var(--ok); padding-left:9px;}
+  tr.lo td{background:var(--crit-soft);} tr.lo td:first-child{box-shadow:inset 3px 0 0 var(--crit); padding-left:9px;}
+  .big{font-weight:600; font-size:15px;} .bad{color:var(--crit);} .good{color:var(--ok);} .mid{color:var(--warn);}
+  .chip{display:inline-block; font-family:"IBM Plex Mono", monospace; font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; font-weight:600; padding:2px 7px; border-radius:2px; white-space:nowrap;}
+  .chip.fixed{background:var(--ok-soft); color:var(--ok);} .chip.open{background:var(--warn-soft); color:var(--warn);} .chip.dead{background:var(--surface-2); color:var(--muted);}
+  pre{background:var(--surface-2); border:1px solid var(--rule); padding:12px 14px; overflow-x:auto; font-size:12.5px; line-height:1.55; margin:10px 0 0;}
+  .note{font-size:13.5px; color:var(--muted); font-style:italic;}
+  ul{margin:0 0 12px; padding-left:20px; max-width:70ch;} li{margin-bottom:6px;}
+  footer{padding-block:28px 0; font-size:12.5px; color:var(--muted); font-family:"IBM Plex Mono", monospace;}
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <div class="eyebrow">Blackhole P300&#95;X2 &middot; 4 dies &middot; vLLM 0.24.0</div>
+  <h1>Muse-Glimmer Concurrency Regression</h1>
+  <p class="standfirst">A prefill batch's page table was indexed by device slot instead of by row. Under concurrent arrivals every request but the last wrote its KV through the last request's blocks. Fixed; verified at concurrency 32.</p>
+  <div class="meta"><span>found 2026-09-23</span><span>fixed 2026-09-24</span><span>aime25 &middot; lm-eval &middot; 30 problems</span></div>
+</header>
+
+<section>
+  <h2>Result</h2>
+  <div class="tablewrap">
+    <table>
+      <caption>Same host server, same eval command, concurrency 32. Only the model code differs.</caption>
+      <thead><tr><th></th><th class="r">Before fix</th><th class="r">After fix</th><th class="r">August baseline</th></tr></thead>
+      <tbody>
+        <tr><td>Requests that open the reply correctly, burst of 30</td><td class="r num big bad">11%</td><td class="r num big good">100%</td><td class="r num">&mdash;</td></tr>
+        <tr><td>aime25 exact match</td><td class="r num big bad">3.3&ndash;13.3%</td><td class="r num big good">86.7%</td><td class="r num">90.0%</td></tr>
+        <tr><td>Replies with no <code>\boxed{}</code> answer</td><td class="r num bad">22&ndash;25 / 30</td><td class="r num good">0 / 30</td><td class="r num">0 / 30</td></tr>
+        <tr><td>Replies stuck in a one-token loop</td><td class="r num bad">11&ndash;20 / 30</td><td class="r num good">0 / 30</td><td class="r num">0 / 30</td></tr>
+        <tr><td>Shipped config (reasoning parser on), aime25 @32</td><td class="r num">&mdash;</td><td class="r num big good">86.7%</td><td class="r num">90.0%</td></tr>
+        <tr><td>Shipped config, reply length, median / p90 / max chars</td><td class="r num">&mdash;</td><td class="r num">710 / 1,118 / 1,179</td><td class="r num">697 / 1,148 / 1,287</td></tr>
+        <tr><td>Generations over 8,192 tokens, low vs high concurrency</td><td class="r num bad">25% (conc 1) vs 62&ndash;77% (conc 32)</td><td class="r num">47% (conc 8) vs 42% (conc 32)</td><td class="r num">&mdash;</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note" style="margin-top:12px">Reply lengths are the model's own reasoning length: with the fix they no longer depend on concurrency (47% at conc 8 vs 42% at conc 32, against 25% at conc 1 vs 62&ndash;77% at conc 32 before), every reply reaches an answer, and the parser-on content lengths match August to within a few percent.</p>
+  <div class="verdict"><p><strong>Root cause:</strong> <code>generator.prefill_forward</code> indexed the prefill page table with each request's device <em>slot</em>. The vLLM plugin builds that table with one row per <em>prefilling request</em> and hands slots separately. The moment any request is already decoding, a new batch's slots exceed its row count; <code>normalize_page_table</code> aliases the overflow onto the last row, so those users write K/V through the last user's blocks. Last writer wins. Fix: index by batch row; slot steers sampler state only.</p></div>
+</section>
+
+<section>
+  <h2>Why it looked bimodal</h2>
+  <p class="lede">A burst that lands in one engine step is clean. A burst that straddles two steps collapses. Arrival timing decides.</p>
+  <p>The first step's requests get slots 0&hellip;k&minus;1 that equal their rows. Requests arriving one step later get slots k&hellip;N&minus;1 against a table with only N&minus;k rows. Thirty near-simultaneous HTTP requests split across steps unpredictably, so identical runs scored 86.7% or 3.3%. The August release plugin carries the same slot machinery; its 90.0% was a lucky landing, which is why the August artifact reproduces the failure today.</p>
+  <div class="tablewrap">
+    <table>
+      <caption>First-token probe: 64-token replies, classified by whether they open the analysis channel (` to=self`). Before the fix.</caption>
+      <thead><tr><th>Arrival pattern</th><th class="r">Requests</th><th class="r">Correct opens</th><th>Who survives</th></tr></thead>
+      <tbody>
+        <tr class="hi"><td>Staggered, 1.5 s apart</td><td class="r num">90</td><td class="r num big good">100%</td><td>everyone (1 row, 1 slot)</td></tr>
+        <tr class="hi"><td>Burst of 2</td><td class="r num">8</td><td class="r num big good">100%</td><td>fits one step</td></tr>
+        <tr class="lo"><td>Burst of 4</td><td class="r num">16</td><td class="r num big bad">44%</td><td rowspan="4" style="vertical-align:middle">the <strong>last</strong> request of each batch, plus whoever landed in step one</td></tr>
+        <tr class="lo"><td>Burst of 8</td><td class="r num">32</td><td class="r num big bad">22%</td></tr>
+        <tr class="lo"><td>Burst of 16</td><td class="r num">64</td><td class="r num big bad">11%</td></tr>
+        <tr class="lo"><td>Burst of 30</td><td class="r num">150</td><td class="r num big bad">11%</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="margin-top:14px">Launch order 29 of 30 was correct in 5 of 5 trials; order 7 of 8 in 3 of 4. A guard added to the pre-fix server caught it live on the first straddled burst:</p>
+  <pre>RuntimeError: prefill batch rows share block 10: user 1 and user 2 (slots 2,3);
+table[:, :6]=[[5, 6, 7, 4, 0, 0], [8, 9, 0, 0, 0, 0], [10, 11, 0, 0, 0, 0]]</pre>
+  <p class="note" style="margin-top:10px">Three rows, slots 2 and 3: user 1 indexed row 2, user 2 aliased onto row 2. Both wrote through blocks 10&ndash;11.</p>
+</section>
+
+<section>
+  <h2>The fix</h2>
+  <pre>-  logits, row_in_tile = self._prefill_user(ids, user_id=slot, page_table=table, start_pos=starts[user])
++  logits, row_in_tile = self._prefill_user(ids, user_id=user, page_table=table, start_pos=starts[user])</pre>
+  <ul style="margin-top:12px">
+    <li>Three call sites in <code>tt/generator.py</code>: <code>user_id=slot &rarr; user_id=user</code>. The slot still reaches <code>apply_prefill_sampling_state</code>, which is the only thing it legitimately steers.</li>
+    <li>A permanent guard: the blocks a prefill batch <em>writes</em> must be disjoint across rows. Prefix-cache hits share their cached prefix and never write it, so only the range from <code>start_pos</code> onward is checked.</li>
+    <li>Regression test <code>test_batched_prefill_indexes_the_page_table_by_row_not_slot</code>: same two prompts, same two-row table, prefilled with slots <code>[2, 3]</code> vs <code>None</code>; first-decode host logits must be identical. Fails before, passes after.</li>
+  </ul>
+  <p class="note">The same <code>user_id = empty_slots[i]</code> pattern appears in <code>models/demos/deepseek_v3/tt/generator_vllm.py:165</code>. Not examined here.</p>
+</section>
+
+<section>
+  <h2>What was wrong on the way here</h2>
+  <p class="lede">Eight hypotheses were &ldquo;ruled out&rdquo; on single 30-problem runs of a bimodal metric. None of that was evidence.</p>
+  <p>The measurement that found the bug was a 20-second probe on first tokens only &mdash; 150&ndash;240 samples per arm instead of one noisy score per hour. Things that were tested properly and are innocent: the on-device sampler (0.771 vs 0.740 host, ~96 trials each), the plugin build, the kernel cache, the tt-metal binaries, the weights, the rendered prompt, device reset, and the layer math (194 PCC checks bit-identical to baseline). Prefix caching was never the cause; it only exposed the guard's first draft.</p>
+</section>
+
+<section>
+  <h2>Other defects found</h2>
+  <ul class="findings">
+    <li><span class="chip fixed">fixed</span> <code>generator_vllm.py:853</code> called <code>bool()</code> on a per-request tensor &mdash; crashed any batch of two or more when the plugin passes <code>intermediate_prefill_mask</code>. Commit <code>965c5745a24</code>.</li>
+    <li><span class="chip open">open</span> The reasoning parser returns an empty <code>reasoning_content</code>; the analysis channel is discarded rather than routed.</li>
+    <li><span class="chip open">open</span> <code>temperature=0</code> runs to the token cap and leaks <code>to=self&lt;|message|&gt;</code> into <code>content</code>.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>GPQA reference</h2>
+  <p><code>reference_config/evals/eval_config.py</code> now scores GPQA Diamond against the model card's <strong>83.5</strong> at 5% tolerance (bar <strong>79.325</strong>) instead of gpt-oss-20b's 72.8. The measured 77.27 fails that bar. It was measured at concurrency 16 before the fix and should be re-run.</p>
+</section>
+
+<section>
+  <h2>Status of published numbers</h2>
+  <p>Every eval score currently on the <code>tt-hous/muse-glimmer-30b</code> model card was measured with this bug live at concurrency 16&ndash;32. They describe the failure, not the model. The package needs rebuilding from the fixed code and re-evaluating before it carries scores or a concurrency-32 serving profile.</p>
+</section>
+
+<footer>
+  aime25 via lm-eval &middot; temperature 1.0, top_p 0.95, top_k 64 &middot; max_gen_toks 98304 &middot; KV pool 1,048,576 tokens &middot; max_num_seqs 32 &middot; block_size 64 &middot; MESH_DEVICE P300x2
+</footer>
+
+</div>

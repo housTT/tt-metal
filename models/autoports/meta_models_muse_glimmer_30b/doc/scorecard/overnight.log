@@ -1,0 +1,102 @@
+waiting for sweep2 (SWEEP2_DONE marker)...
+waiting for sweep2 (SWEEP2_DONE marker)...
+NIGHT START 2026-09-24 16:33:22 EDT  tt-metal b4afb272e56
+READY 240s
+######## preflight_aime26  16:37:12 ########
+      "process_results": "def process_results(doc: dict, results: List[str]) -> Dict[str, int]:\n    retval = 0\n    response = results[0]\n\n    # Try to extract answer from $...$ format first\n    indices = [pos for pos, char in enumerate(response) if char == \"$\"]\n    if len(indices) <= 1:\n        answer = response\n    else:\n        answer = response[indices[0] + 1 : indices[-1]]\n\n    # Extract from \\\\boxed{} if present\n    boxed_answer = last_boxed_only_string(response)\n    if boxed_answer is not None:\n        try:\n            boxed_content = remove_boxed(boxed_answer)\n            if boxed_content is not None:\n                answer = boxed_content\n        except (AssertionError, IndexError):\n            pass\n\n    # Check if answer matches target\n    answer_key = next(k for k in doc.keys() if k.lower() == \"answer\")\n    target = str(doc[answer_key])\n    if is_equiv(answer, target):\n        retval = 1\n\n    return {\"exact_match\": retval}\n",
+|aime26|      0|none  |     0|exact_match|↑  |    1|±  |     0|
+DONE preflight_aime26 80
+######## preflight_ifbench  16:38:32 ########
+IFBENCH_GEN {"n": 3, "seed": 42, "temperature": 1.0, "max_tokens": 32768, "empty": 0, "capped": 0, "errors": 0, "median_completion_tokens": 3894, "seconds": 104.7}
+/tmp/claude-1000/-home-ttuser-dev-muse-glimmer/86562100-a910-4009-9d96-9c0c923aca30/scratchpad/scorecard/ifbench_preflight/eval/responses-eval_results_strict.jsonl Accuracy Scores:
+prompt-level: 1.0
+instruction-level: 1.0
+/tmp/claude-1000/-home-ttuser-dev-muse-glimmer/86562100-a910-4009-9d96-9c0c923aca30/scratchpad/scorecard/ifbench_preflight/eval/responses-eval_results_loose.jsonl Accuracy Scores:
+prompt-level: 1.0
+instruction-level: 1.0
+DONE preflight_ifbench 105
+######## ifbench_seed42  16:40:17 ########
+IFBENCH_GEN {"n": 300, "seed": 42, "temperature": 1.0, "max_tokens": 32768, "empty": 0, "capped": 0, "errors": 0, "median_completion_tokens": 2199, "seconds": 1355.7}
+/tmp/claude-1000/-home-ttuser-dev-muse-glimmer/86562100-a910-4009-9d96-9c0c923aca30/scratchpad/scorecard/ifbench_seed42/eval/responses-eval_results_strict.jsonl Accuracy Scores:
+prompt-level: 0.7633333333333333
+instruction-level: 0.7819767441860465
+/tmp/claude-1000/-home-ttuser-dev-muse-glimmer/86562100-a910-4009-9d96-9c0c923aca30/scratchpad/scorecard/ifbench_seed42/eval/responses-eval_results_loose.jsonl Accuracy Scores:
+prompt-level: 0.78
+instruction-level: 0.7965116279069767
+DONE ifbench_seed42 1356
+######## aime26_seed42  17:02:53 ########
+      "process_results": "def process_results(doc: dict, results: List[str]) -> Dict[str, int]:\n    retval = 0\n    response = results[0]\n\n    # Try to extract answer from $...$ format first\n    indices = [pos for pos, char in enumerate(response) if char == \"$\"]\n    if len(indices) <= 1:\n        answer = response\n    else:\n        answer = response[indices[0] + 1 : indices[-1]]\n\n    # Extract from \\\\boxed{} if present\n    boxed_answer = last_boxed_only_string(response)\n    if boxed_answer is not None:\n        try:\n            boxed_content = remove_boxed(boxed_answer)\n            if boxed_content is not None:\n                answer = boxed_content\n        except (AssertionError, IndexError):\n            pass\n\n    # Check if answer matches target\n    answer_key = next(k for k in doc.keys() if k.lower() == \"answer\")\n    target = str(doc[answer_key])\n    if is_equiv(answer, target):\n        retval = 1\n\n    return {\"exact_match\": retval}\n",
+|aime26|      0|none  |     0|exact_match|↑  |  0.9|±  |0.0557|
+DONE aime26_seed42 1059
+######## aime25_seed43  17:20:32 ########
+      "process_results": "def process_results(doc: dict, results: List[str]) -> Dict[str, int]:\n    retval = 0\n    response = results[0]\n\n    # Try to extract answer from $...$ format first\n    indices = [pos for pos, char in enumerate(response) if char == \"$\"]\n    if len(indices) <= 1:\n        answer = response\n    else:\n        answer = response[indices[0] + 1 : indices[-1]]\n\n    # Extract from \\\\boxed{} if present\n    boxed_answer = last_boxed_only_string(response)\n    if boxed_answer is not None:\n        try:\n            boxed_content = remove_boxed(boxed_answer)\n            if boxed_content is not None:\n                answer = boxed_content\n        except (AssertionError, IndexError):\n            pass\n\n    # Check if answer matches target\n    answer_key = next(k for k in doc.keys() if k.lower() == \"answer\")\n    target = str(doc[answer_key])\n    if is_equiv(answer, target):\n        retval = 1\n\n    return {\"exact_match\": retval}\n",
+|aime25|      0|none  |     0|exact_match|↑  |0.9333|±  |0.0463|
+DONE aime25_seed43 2583
+######## aime25_seed44  18:03:35 ########
+      "process_results": "def process_results(doc: dict, results: List[str]) -> Dict[str, int]:\n    retval = 0\n    response = results[0]\n\n    # Try to extract answer from $...$ format first\n    indices = [pos for pos, char in enumerate(response) if char == \"$\"]\n    if len(indices) <= 1:\n        answer = response\n    else:\n        answer = response[indices[0] + 1 : indices[-1]]\n\n    # Extract from \\\\boxed{} if present\n    boxed_answer = last_boxed_only_string(response)\n    if boxed_answer is not None:\n        try:\n            boxed_content = remove_boxed(boxed_answer)\n            if boxed_content is not None:\n                answer = boxed_content\n        except (AssertionError, IndexError):\n            pass\n\n    # Check if answer matches target\n    answer_key = next(k for k in doc.keys() if k.lower() == \"answer\")\n    target = str(doc[answer_key])\n    if is_equiv(answer, target):\n        retval = 1\n\n    return {\"exact_match\": retval}\n",
+|aime25|      0|none  |     0|exact_match|↑  |0.8333|±  |0.0692|
+DONE aime25_seed44 2950
+######## aime25_seed45  18:52:45 ########
+      "process_results": "def process_results(doc: dict, results: List[str]) -> Dict[str, int]:\n    retval = 0\n    response = results[0]\n\n    # Try to extract answer from $...$ format first\n    indices = [pos for pos, char in enumerate(response) if char == \"$\"]\n    if len(indices) <= 1:\n        answer = response\n    else:\n        answer = response[indices[0] + 1 : indices[-1]]\n\n    # Extract from \\\\boxed{} if present\n    boxed_answer = last_boxed_only_string(response)\n    if boxed_answer is not None:\n        try:\n            boxed_content = remove_boxed(boxed_answer)\n            if boxed_content is not None:\n                answer = boxed_content\n        except (AssertionError, IndexError):\n            pass\n\n    # Check if answer matches target\n    answer_key = next(k for k in doc.keys() if k.lower() == \"answer\")\n    target = str(doc[answer_key])\n    if is_equiv(answer, target):\n        retval = 1\n\n    return {\"exact_match\": retval}\n",
+|aime25|      0|none  |     0|exact_match|↑  |  0.9|±  |0.0557|
+DONE aime25_seed45 1427
+######## aime26_seed43  19:16:32 ########
+      "process_results": "def process_results(doc: dict, results: List[str]) -> Dict[str, int]:\n    retval = 0\n    response = results[0]\n\n    # Try to extract answer from $...$ format first\n    indices = [pos for pos, char in enumerate(response) if char == \"$\"]\n    if len(indices) <= 1:\n        answer = response\n    else:\n        answer = response[indices[0] + 1 : indices[-1]]\n\n    # Extract from \\\\boxed{} if present\n    boxed_answer = last_boxed_only_string(response)\n    if boxed_answer is not None:\n        try:\n            boxed_content = remove_boxed(boxed_answer)\n            if boxed_content is not None:\n                answer = boxed_content\n        except (AssertionError, IndexError):\n            pass\n\n    # Check if answer matches target\n    answer_key = next(k for k in doc.keys() if k.lower() == \"answer\")\n    target = str(doc[answer_key])\n    if is_equiv(answer, target):\n        retval = 1\n\n    return {\"exact_match\": retval}\n",
+|aime26|      0|none  |     0|exact_match|↑  |0.9333|±  |0.0463|
+DONE aime26_seed43 1996
+######## aime26_seed44  19:49:48 ########
+      "process_results": "def process_results(doc: dict, results: List[str]) -> Dict[str, int]:\n    retval = 0\n    response = results[0]\n\n    # Try to extract answer from $...$ format first\n    indices = [pos for pos, char in enumerate(response) if char == \"$\"]\n    if len(indices) <= 1:\n        answer = response\n    else:\n        answer = response[indices[0] + 1 : indices[-1]]\n\n    # Extract from \\\\boxed{} if present\n    boxed_answer = last_boxed_only_string(response)\n    if boxed_answer is not None:\n        try:\n            boxed_content = remove_boxed(boxed_answer)\n            if boxed_content is not None:\n                answer = boxed_content\n        except (AssertionError, IndexError):\n            pass\n\n    # Check if answer matches target\n    answer_key = next(k for k in doc.keys() if k.lower() == \"answer\")\n    target = str(doc[answer_key])\n    if is_equiv(answer, target):\n        retval = 1\n\n    return {\"exact_match\": retval}\n",
+|aime26|      0|none  |     0|exact_match|↑  |0.9333|±  |0.0463|
+DONE aime26_seed44 784
+######## aime26_seed45  20:02:52 ########
+      "process_results": "def process_results(doc: dict, results: List[str]) -> Dict[str, int]:\n    retval = 0\n    response = results[0]\n\n    # Try to extract answer from $...$ format first\n    indices = [pos for pos, char in enumerate(response) if char == \"$\"]\n    if len(indices) <= 1:\n        answer = response\n    else:\n        answer = response[indices[0] + 1 : indices[-1]]\n\n    # Extract from \\\\boxed{} if present\n    boxed_answer = last_boxed_only_string(response)\n    if boxed_answer is not None:\n        try:\n            boxed_content = remove_boxed(boxed_answer)\n            if boxed_content is not None:\n                answer = boxed_content\n        except (AssertionError, IndexError):\n            pass\n\n    # Check if answer matches target\n    answer_key = next(k for k in doc.keys() if k.lower() == \"answer\")\n    target = str(doc[answer_key])\n    if is_equiv(answer, target):\n        retval = 1\n\n    return {\"exact_match\": retval}\n",
+|aime26|      0|none  |     0|exact_match|↑  |  0.9|±  |0.0557|
+DONE aime26_seed45 2269
+######## gpqa_seed43  20:40:41 ########
+|gpqa_diamond_cot_zeroshot|      1|flexible-extract|     0|exact_match|↑  |0.8081|±  |0.0281|
+DONE gpqa_seed43 2548
+######## gpqa_seed44  21:23:09 ########
+|gpqa_diamond_cot_zeroshot|      1|flexible-extract|     0|exact_match|↑  |0.8182|±  |0.0275|
+DONE gpqa_seed44 2650
+######## gpqa_seed45  22:07:19 ########
+|gpqa_diamond_cot_zeroshot|      1|flexible-extract|     0|exact_match|↑  |0.8232|±  |0.0272|
+DONE gpqa_seed45 2591
+######## ifeval_seed43  22:50:30 ########
+|ifeval|      4|none  |     0|inst_level_loose_acc   |↑  |0.9664|±  |   N/A|
+DONE ifeval_seed43 1484
+######## ifeval_seed44  23:15:14 ########
+|ifeval|      4|none  |     0|inst_level_loose_acc   |↑  |0.9772|±  |   N/A|
+DONE ifeval_seed44 1464
+######## ifeval_seed45  23:39:38 ########
+|ifeval|      4|none  |     0|inst_level_loose_acc   |↑  |0.9748|±  |   N/A|
+DONE ifeval_seed45 1382
+######## ifbench_seed43  00:02:40 ########
+IFBENCH_GEN {"n": 300, "seed": 43, "temperature": 1.0, "max_tokens": 32768, "empty": 0, "capped": 0, "errors": 0, "median_completion_tokens": 2369, "seconds": 1009.2}
+/tmp/claude-1000/-home-ttuser-dev-muse-glimmer/86562100-a910-4009-9d96-9c0c923aca30/scratchpad/scorecard/ifbench_seed43/eval/responses-eval_results_strict.jsonl Accuracy Scores:
+prompt-level: 0.7633333333333333
+instruction-level: 0.7877906976744186
+/tmp/claude-1000/-home-ttuser-dev-muse-glimmer/86562100-a910-4009-9d96-9c0c923aca30/scratchpad/scorecard/ifbench_seed43/eval/responses-eval_results_loose.jsonl Accuracy Scores:
+prompt-level: 0.7966666666666666
+instruction-level: 0.8168604651162791
+DONE ifbench_seed43 1010
+######## ifbench_seed44  00:19:30 ########
+IFBENCH_GEN {"n": 300, "seed": 44, "temperature": 1.0, "max_tokens": 32768, "empty": 0, "capped": 0, "errors": 0, "median_completion_tokens": 2291, "seconds": 1178.1}
+/tmp/claude-1000/-home-ttuser-dev-muse-glimmer/86562100-a910-4009-9d96-9c0c923aca30/scratchpad/scorecard/ifbench_seed44/eval/responses-eval_results_strict.jsonl Accuracy Scores:
+prompt-level: 0.76
+instruction-level: 0.7848837209302325
+/tmp/claude-1000/-home-ttuser-dev-muse-glimmer/86562100-a910-4009-9d96-9c0c923aca30/scratchpad/scorecard/ifbench_seed44/eval/responses-eval_results_loose.jsonl Accuracy Scores:
+prompt-level: 0.7766666666666666
+instruction-level: 0.7994186046511628
+DONE ifbench_seed44 1178
+######## ifbench_temp0  00:39:08 ########
+IFBENCH_GEN {"n": 300, "seed": 42, "temperature": 0.0, "max_tokens": 32768, "empty": 0, "capped": 21, "errors": 0, "median_completion_tokens": 2320, "seconds": 1982.6}
+/tmp/claude-1000/-home-ttuser-dev-muse-glimmer/86562100-a910-4009-9d96-9c0c923aca30/scratchpad/scorecard/ifbench_temp0/eval/responses-eval_results_strict.jsonl Accuracy Scores:
+prompt-level: 0.7066666666666667
+instruction-level: 0.7267441860465116
+/tmp/claude-1000/-home-ttuser-dev-muse-glimmer/86562100-a910-4009-9d96-9c0c923aca30/scratchpad/scorecard/ifbench_temp0/eval/responses-eval_results_loose.jsonl Accuracy Scores:
+prompt-level: 0.7366666666666667
+instruction-level: 0.7587209302325582
+DONE ifbench_temp0 1986
+server: 500s=0 guard_raises=0
+NIGHT END 2026-09-25 01:12:14 EDT
+NIGHT_DONE
