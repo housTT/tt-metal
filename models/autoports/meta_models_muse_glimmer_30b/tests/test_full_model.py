@@ -809,6 +809,57 @@ def test_batched_prefill_and_decode_with_mixed_lengths(mesh, batch):
         generator.teardown()
 
 
+def test_batched_prefill_indexes_the_page_table_by_row_not_slot(mesh):
+    """A prefill batch's page table has one row per *prefilling* request; device slots
+    may be anything.  Indexing the table by slot instead of row is silent at the API
+    and was the cause of the serving collapse at concurrency 32.
+
+    vLLM's plugin hands ``prefill_forward`` a table built by
+    ``block_tables_for_rows(req_indices, ...)`` -- rows are batch positions -- together
+    with ``empty_slots``, each request's device slot.  Once any request is already
+    decoding, a later prefill batch's slots no longer start at 0, so a slot-indexed
+    lookup runs past the table and ``normalize_page_table`` aliases it onto the LAST
+    row: every such user writes its K/V through the last user's blocks, and only that
+    user decodes correctly.  Measured as "the last of a burst survives, the rest loop".
+
+    Host logits with ``sample_on_device=False`` so the slot cannot reach the result any
+    other way: the only thing the slot may legitimately steer is sampler state.
+    """
+    generator = build_generator(MODEL_DIR, mesh, max_seq_len=1024, max_batch_size=4, layer_indices=REDUCED_LAYERS)
+    try:
+        lengths = [200, 264]
+        width = max(lengths)
+        tokens = torch.zeros(2, width, dtype=torch.long)
+        for user, length in enumerate(lengths):
+            tokens[user, :length] = torch.tensor(_prompt(length, seed=300 + user))
+        # Two rows of distinct blocks, exactly what the plugin builds for a 2-request
+        # prefill step -- regardless of which device slots those requests hold.
+        table = generator.model.normalize_page_table(None)[:2].clone()
+        assert not set(table[0].tolist()) & set(table[1].tolist())
+        start = torch.tensor(lengths, dtype=torch.int32)
+        step = torch.tensor([[int(tokens[u, lengths[u] - 1])] for u in range(2)], dtype=torch.long)
+
+        def prefill_then_first_decode_logits(user_ids):
+            generator.reset()
+            generator.prefill_forward(
+                tokens=tokens, page_table=table, kv_cache=None, prompt_lens=lengths, user_ids=user_ids
+            )
+            return generator.decode_forward(
+                tokens=step, start_pos=start, page_table=table, kv_cache=None, sample_on_device=False
+            )
+
+        reference = prefill_then_first_decode_logits(None)  # slots == rows
+        shifted = prefill_then_first_decode_logits([2, 3])  # slots != rows, same table
+        for user in range(2):
+            assert torch.equal(shifted[user], reference[user]), (
+                f"row {user}: prefilling with device slot {[2, 3][user]} changed the first decode "
+                f"logits (max abs diff {float((shifted[user] - reference[user]).abs().max())}); the page "
+                "table must be indexed by batch row, not by slot"
+            )
+    finally:
+        generator.teardown()
+
+
 # --------------------------------------------------------------- all layers
 
 

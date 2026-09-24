@@ -1573,6 +1573,26 @@ class MuseGlimmerGenerator(Generator):
                     "drive MuseGlimmerModel.prefill_forward directly for chunked continuation"
                 )
 
+        # The blocks this batch WRITES must be disjoint across rows.  Two users writing
+        # the same block means the later fill overwrites the earlier user's K/V and only
+        # the last user in the loop decodes correctly; that is silent at the API, so it is
+        # refused here.  Only the written range counts: a prefix-cache hit legitimately
+        # shares its first ``start_pos // block_size`` blocks with other requests and
+        # never writes them.  Indexed by batch row -- the table has one row per
+        # prefilling request -- never by device slot.
+        if batch > 1:
+            block_size = self.model.config.page_block_size
+            owner: dict[int, int] = {}
+            for u in range(batch):
+                first = starts[u] // block_size
+                last = (prompt_lens[u] + block_size - 1) // block_size
+                for b in table[u, first:last].tolist():
+                    if owner.setdefault(b, u) != u:
+                        raise RuntimeError(
+                            f"prefill batch rows {owner[b]} and {u} both write block {b}; "
+                            f"table[:, :6]={table[:batch, :6].tolist()}"
+                        )
+
         if sample_on_device:
             if return_all_logits:
                 raise ValueError("return_all_logits and sample_on_device are mutually exclusive")
@@ -1586,7 +1606,17 @@ class MuseGlimmerGenerator(Generator):
                     request_index=user,
                     slot=slot,
                 )
-                logits, row_in_tile = self._prefill_user(ids, user_id=slot, page_table=table, start_pos=starts[user])
+                # ``user`` (the batch row) indexes the page table; ``slot`` names device
+                # state only.  vLLM builds a prefill step's table with one row per
+                # *prefilling* request (``block_tables_for_rows(req_indices, ...)``) while
+                # ``empty_slots`` names each request's device slot, and the two diverge as
+                # soon as any other request is already decoding: a burst that lands across
+                # two engine steps gives the second step rows 0..m-1 and slots k..k+m-1.
+                # Indexing the m-row table with a slot >= m hit ``normalize_page_table``'s
+                # alias-onto-the-last-row rule, so every such user wrote its K/V through the
+                # LAST user's blocks and only that user decoded correctly -- the measured
+                # "last one survives" burst signature behind the aime25 collapse.
+                logits, row_in_tile = self._prefill_user(ids, user_id=user, page_table=table, start_pos=starts[user])
                 # ``into_tokens=False``: the sampler samples all 32 rows of the tile the
                 # LM head was given, and the prompt's last token is row ``row_in_tile``
                 # of it -- writing that whole vector into the decode token buffer would
@@ -1601,17 +1631,16 @@ class MuseGlimmerGenerator(Generator):
         outputs: list[torch.Tensor] = []
         for user in range(batch):
             ids = tokens[user, : prompt_lens[user]].tolist()
-            slot = int(user_ids[user]) if user_ids is not None else user
             if return_all_logits:
                 rows = self._prefill_user(
-                    ids, user_id=slot, page_table=table, return_all_logits=True, start_pos=starts[user]
+                    ids, user_id=user, page_table=table, return_all_logits=True, start_pos=starts[user]
                 )
                 host_rows = [self.model.logits_to_torch(row) for row in rows]
                 for row in rows:
                     ttnn.deallocate(row)
                 outputs.append(torch.cat(host_rows, dim=0)[: prompt_lens[user]].unsqueeze(0))
             else:
-                logits, row_in_tile = self._prefill_user(ids, user_id=slot, page_table=table, start_pos=starts[user])
+                logits, row_in_tile = self._prefill_user(ids, user_id=user, page_table=table, start_pos=starts[user])
                 host = self.model.logits_to_torch(logits)
                 ttnn.deallocate(logits)
                 outputs.append(host[row_in_tile : row_in_tile + 1].unsqueeze(0))
