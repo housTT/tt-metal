@@ -850,11 +850,18 @@ class MuseGlimmerForConditionalGeneration:
                     )
                 if not 0 <= offset < length:
                     raise ValueError(f"request {index}: prefix-cache offset {offset} outside the prompt [0, {length})")
-        if kwargs.get("intermediate_prefill_mask"):
+        intermediate_mask = kwargs.get("intermediate_prefill_mask")
+        if intermediate_mask is not None and bool(torch.as_tensor(intermediate_mask).any()):
             # Swallowed by ``**kwargs`` before this guard existed. It marks a chunk that
             # is not the prompt's last, so sampling its logits emits a token mid-prefill.
             # Cannot fire while chunked prefill is disabled; becomes live the moment it
             # is enabled, and would be silent.
+            #
+            # ``.any()``, not truthiness: the plugin builds this as one bool PER REQUEST
+            # (``model_runner.py`` -- ``prompt_lens < num_tokens``), so ``bool(tensor)``
+            # raises "Boolean value of Tensor with more than one value is ambiguous" on
+            # every batch of two or more.  That turned a guard meant to catch a silent
+            # bug into a crash on any concurrent prefill.
             raise NotImplementedError(
                 "intermediate_prefill_mask is not supported: this adapter samples every prefill "
                 "chunk as if it were the prompt's last"
