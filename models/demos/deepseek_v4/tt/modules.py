@@ -154,6 +154,52 @@ def fused_experts(x, gate_up_T, down_T, interm, device, limit=10.0):
     return out
 
 
+def grouped_experts_decode(x_row, gu_list, dn_list, interm, device, limit=10.0, weight_dtype=ttnn.bfloat16):
+    """Batched decode MoE (N==1): run E experts on the single token via ONE grouped matmul each.
+
+    (a) The E selected experts' weights are STACKED (gu [E,H,2I], dn [E,I,H]) and uploaded ONCE
+    each, then a batched matmul runs all E experts together — collapsing the ~12 per-layer expert
+    ops (upload+matmul ×E×2) into 2 uploads + 2 grouped matmuls. (b) Weights upload as bfloat8_b
+    (½ the DMA + tilize of bf16). Returns per-expert outputs to HOST [E, H]; the caller does the
+    fp32 weighted sum (on-device bf16 accumulation flips the argmax — must stay host-fp32).
+
+    x_row: host [1, H]. gu_list: E host [H, 2I]. dn_list: E host [I, H]."""
+    E = len(gu_list)
+    GU = torch.stack(gu_list, 0)  # [E, H, 2I]
+    DN = torch.stack(dn_list, 0)  # [E, I, H]
+    tx = _to_dev(x_row.reshape(1, -1).expand(E, -1).reshape(E, 1, -1).contiguous(), device)  # [E,1,H]
+    tgu = _to_dev(GU, device, dtype=weight_dtype)  # [E,H,2I]
+    tdn = _to_dev(DN, device, dtype=weight_dtype)  # [E,I,H]
+    gu = ttnn.matmul(tx, tgu)  # [E,1,2I]
+    gate = ttnn.clamp(gu[..., :interm], max=limit)
+    up = ttnn.clamp(gu[..., interm:], min=-limit, max=limit)
+    act = ttnn.multiply(ttnn.silu(gate), up)  # [E,1,I]
+    y = ttnn.matmul(act, tdn)  # [E,1,H]
+    out = _from_dev(y, device)  # host [E,1,H] (single-chip decode)
+    for t in (tx, tgu, tdn, gu, gate, up, act, y):
+        ttnn.deallocate(t)
+    return out.reshape(E, -1)  # [E, H]
+
+
+def fused_expert_ondevice(tx, gate_up_T, down_T, interm, device, limit=10.0):
+    """One clamped-SwiGLU expert that RETURNS ITS RESULT ON DEVICE (no read-back).
+
+    `tx` is the activation ALREADY on device [n, H]; `gate_up_T` [H, 2I] and `down_T` [I, H] are
+    host weights (uploaded + freed here). Returns a device tensor [n, H] — the caller accumulates
+    on device and reads back ONCE per layer, instead of a host round-trip per expert (the ~258
+    per-token round-trips that dominate decode; see tt/model.py::sparse_moe_streaming)."""
+    tgu = _to_dev(gate_up_T, device)
+    tdn = _to_dev(down_T, device)
+    gu = ttnn.matmul(tx, tgu)  # [n, 2I]
+    gate = ttnn.clamp(gu[..., :interm], max=limit)
+    up = ttnn.clamp(gu[..., interm:], min=-limit, max=limit)
+    act = ttnn.multiply(ttnn.silu(gate), up)  # [n, I]
+    y = ttnn.matmul(act, tdn)  # [n, H] on device
+    for t in (tgu, tdn, gu, gate, up, act):
+        ttnn.deallocate(t)
+    return y
+
+
 def linear_dev(x, tw_T, device):
     """Linear with a RESIDENT device weight `tw_T` [in, out] (pre-transposed, on device). Only
     the activation crosses host->device. y = x @ tw_T."""

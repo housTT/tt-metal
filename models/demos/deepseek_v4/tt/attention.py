@@ -38,7 +38,8 @@ def apply_rope(x, cos, sin, unsqueeze_dim=1):
 
 
 def mla_attention(
-    hidden_states, attn, cos, sin, causal_mask, cfg, device, weight_dtype=None, position_ids=None, resident=None
+    hidden_states, attn, cos, sin, causal_mask, cfg, device, weight_dtype=None, position_ids=None, resident=None,
+    return_kv=False,
 ):
     """hidden_states: [B,S,H] (already input_layernorm'd). `attn` = HF DeepseekV4Attention
     (source of weights + `sinks` + optional `compressor`). Returns [B,S,H]. `weight_dtype`
@@ -79,6 +80,7 @@ def mla_attention(
     kv = M.rms_norm(kv, attn.kv_norm.weight.data, device, eps=cfg.rms_norm_eps)
     kv = kv.view(B, S, 1, hd).transpose(1, 2)  # [B,1,S,hd]
     kv = apply_rope(kv, cos, sin)
+    main_kv = kv  # post-RoPE main K==V (before compressor concat) — seeds the incremental KV cache
 
     # --- optional compressed long-range KV (CSA / HCA) ---
     mask = causal_mask[..., :S, :S].float() if causal_mask is not None else torch.zeros(1, 1, S, S)
@@ -121,4 +123,6 @@ def mla_attention(
         grouped = M.grouped_linear(gflat, attn.o_a_proj.weight.data, cfg.o_groups, device)
     grouped = grouped.reshape(B, S, -1)  # flatten(2) -> [B,S,g*rank]
     output = lin(grouped, attn.o_b_proj.weight.data, "o_b")  # [B,S,H]
+    if return_kv:
+        return output, main_kv
     return output

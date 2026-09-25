@@ -9,6 +9,23 @@ Honest status of what is ready to wire into tt-inference-server's evals + benchm
 remains. No overclaiming: "production ready" here means **correct, servable inference + the
 standard perf/spec surfaces**, with the throughput-serving path explicitly scoped as remaining.
 
+## UPDATE 2026-07-13 (see ../../../REPORT_9.md + memory deepseek-v4-vllm-serving-gap.md)
+
+- **tt-inference-server `benchmarks` workflow: WORKING end-to-end.** `run.py --workflow server/benchmarks
+  --local-server --tt-device p300x2` brings the vLLM server up on the mesh, `/health`→200, and both
+  `/v1/completions`→" Paris" and `/v1/chat/completions` return correct on-device output; the standard
+  `vllm bench serve` client runs against it. Requires `.env` HF_TOKEN (any value), `--disable-metal-timeout`,
+  and the P300/P300X2 + chat-template spec entries (in tt-inference-server model_spec.py) + `deepseek_v4_chat_template.jinja`.
+- **KV-cache decode delivered + validated:** `tt/kv_cache_decode.py` (`KVDecoder`) — correct incremental
+  MLA-v4 decode, tokens == full-recompute reference (" Paris."), **6.8 s/tok vs 40.9 s/tok recompute (~6×)**.
+- **MoE decode floor characterized (5 measured experiments):** the ~8–12 s/token MoE is host tilize+DMA of
+  ~13 GB bf16 expert weights/token (data-volume-bound). Per-expert non-resident is the BEST; resident-sharded,
+  on-device-accumulate (broke argmax), batched-bf16 (13–16 s), and batched-bf8 (58 s) were all ≥ or worse.
+  Model is 149 GB > 128 GB so it can't be weight-resident here. **Ceiling ~15–25 tok/s needs NATIVE fp4/fp8
+  movement (upload quantized bytes, dequant on-device) or more chips** — a deep build, not a quick change.
+- **Next low-risk win:** wire `KVDecoder` into `generator_vllm.decode_forward` (currently the recompute path)
+  for correct ~6.8 s/tok vLLM serving.
+
 ## Ready now
 
 | Piece | Artifact | State |

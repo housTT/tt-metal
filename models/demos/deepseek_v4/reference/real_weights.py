@@ -64,6 +64,26 @@ def _dequant_mxfp4(blk: torch.Tensor, scale: torch.Tensor, dtype=torch.bfloat16)
     return out.reshape(R, G * 2 * B).contiguous()  # [R, 2*Cp] = [interm, hidden] etc.
 
 
+def _dequant_nvfp4(blk: torch.Tensor, wscale: torch.Tensor, gscale, dtype=torch.bfloat16) -> torch.Tensor:
+    """Dequantize an NVFP4 (fp4 e2m1, group 16) packed weight (nvidia/DeepSeek-V4-Flash-NVFP4).
+    `blk` uint8 [R, Cp] (2 e2m1 nibbles/byte, low = even col, high = odd); `wscale`
+    `float8_e4m3fn` [R, G] per-group block scales (group = 2*Cp/G = 16, a real float, NOT an
+    e8m0 exponent); `gscale` fp32 per-tensor global scale. value = FP4_VALUES[nibble] *
+    float(wscale_group) * gscale. Returns bf16 [R, 2*Cp]."""
+    lut = torch.tensor(FP4_VALUES, dtype=dtype)
+    b = blk.to(torch.uint8)
+    R, Cp = b.shape
+    G = wscale.shape[1]
+    B = Cp // G  # bytes per group (8 -> 16 nibbles = group size 16)
+    b = b.reshape(R, G, B)
+    out = torch.empty(R, G, 2 * B, dtype=dtype)
+    out[..., 0::2] = lut[(b & 0x0F).long()]
+    out[..., 1::2] = lut[(b >> 4).long()]
+    out = out * wscale.float().reshape(R, G, 1).to(dtype)  # e4m3 per-group block scale
+    out = out.reshape(R, G * 2 * B) * float(gscale)  # per-tensor global scale
+    return out.contiguous()  # [R, 2*Cp] = [interm, hidden] etc.
+
+
 # HF (per-layer, prefix stripped) -> native (per-layer, prefix stripped). 1:1 weight tensors.
 LAYER_MAP = {
     "self_attn.q_a_proj.weight": "attn.wq_a.weight",
@@ -151,8 +171,14 @@ class RealWeightStore:
         if cacheable and key in self._deq_cache:
             return self._deq_cache[key]
         w = self.raw(key)
-        scale_key = key[: -len(".weight")] + ".scale" if key.endswith(".weight") else key + ".scale"
-        if w.dtype == torch.float8_e4m3fn and self.has(scale_key):
+        base = key[: -len(".weight")] if key.endswith(".weight") else key
+        scale_key = base + ".scale"
+        wscale_key = base + ".weight_scale"  # NVFP4 per-group block scale
+        wscale2_key = base + ".weight_scale_2"  # NVFP4 per-tensor global scale
+        if w.dtype == torch.uint8 and self.has(wscale_key):
+            g = self.raw(wscale2_key) if self.has(wscale2_key) else 1.0  # NVFP4 routed experts
+            out = _dequant_nvfp4(w, self.raw(wscale_key), g)
+        elif w.dtype == torch.float8_e4m3fn and self.has(scale_key):
             out = dequantize_weight_tensor(w, self.raw(scale_key), BLOCK)
         elif w.dtype == torch.int8 and self.has(scale_key):
             out = _dequant_mxfp4(w, self.raw(scale_key))
@@ -388,9 +414,15 @@ def dev_grouped(store, device, key, w, n_groups, dtype=None):
     return tw
 
 
-def find_snapshot():
-    base = os.path.expanduser("~/.cache/huggingface/hub/models--deepseek-ai--DeepSeek-V4-Flash/snapshots")
+def find_snapshot(repo: str | None = None):
+    """Locate a local HF snapshot dir. `repo` (or env DEEPSEEK_V4_MODEL) selects the checkpoint;
+    defaults to the base fp8/MXFP4 model. Set DEEPSEEK_V4_MODEL=nvidia/DeepSeek-V4-Flash-NVFP4 to
+    use the NVFP4 (native-fp4 routed-expert) checkpoint — same architecture, only the routed
+    experts differ (NVFP4 group-16 vs MXFP4 group-32); deq() handles both."""
+    repo = repo or os.environ.get("DEEPSEEK_V4_MODEL", "deepseek-ai/DeepSeek-V4-Flash")
+    cache_dir = "models--" + repo.replace("/", "--")
+    base = os.path.expanduser(f"~/.cache/huggingface/hub/{cache_dir}/snapshots")
     snaps = sorted(glob.glob(os.path.join(base, "*")))
     if not snaps:
-        raise FileNotFoundError(f"no DeepSeek-V4-Flash snapshot under {base}")
+        raise FileNotFoundError(f"no {repo} snapshot under {base}")
     return snaps[-1] + "/"

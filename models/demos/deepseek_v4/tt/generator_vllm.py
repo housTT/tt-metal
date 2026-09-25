@@ -71,20 +71,22 @@ class DeepseekV4ForCausalLM:
         num_layers = int(
             os.environ.get("DEEPSEEK_V4_NUM_LAYERS", n_layers or hf_config.num_hidden_layers)
         )
-        # The correctness forward is single-device (its from_torch/to_torch expect one buffer).
-        # vLLM hands us the full mesh (e.g. (1,4)); run on a (1,1) submesh so device tensors
-        # have buffers.size()==1. The remaining chips idle until the sharded fast path lands.
+        # The fast on-device decode path (FastDecoder) is mesh-aware: attention/mHC/compressor
+        # weights REPLICATE across all chips and the MoE experts are TP-SHARDED + streamed in
+        # parallel over every chip's PCIe (moe_device_fp4_mesh) — this is the multi-chip
+        # expert-parallel throughput path, so we keep the FULL mesh vLLM handed us (e.g. (1,4)).
+        # Set DEEPSEEK_V4_FORCE_SUBMESH=1 to fall back to a single-chip (1,1) submesh (the old
+        # correctness-only behaviour, e.g. for the batch>1 recompute fallback).
         device = mesh_device
-        try:
-            import ttnn
+        if os.environ.get("DEEPSEEK_V4_FORCE_SUBMESH", "0") == "1":
+            try:
+                import ttnn
 
-            if tuple(mesh_device.shape) != (1, 1):
-                device = mesh_device.create_submesh(ttnn.MeshShape(1, 1))
-        except Exception as exc:  # pragma: no cover - fall back to the mesh as-is
-            from loguru import logger
-
-            logger.warning("Could not create (1,1) submesh ({}); using mesh as-is.", exc)
-            device = mesh_device
+                if tuple(mesh_device.shape) != (1, 1):
+                    device = mesh_device.create_submesh(ttnn.MeshShape(1, 1))
+            except Exception as exc:  # pragma: no cover - fall back to the mesh as-is
+                logger.warning("Could not create (1,1) submesh ({}); using mesh as-is.", exc)
+                device = mesh_device
         gen = DeepSeekV4Generator(device, num_layers=num_layers)
         obj = cls(gen, max_seq_len=max_seq_len)
         obj._submesh = device  # keep a reference so it isn't collected
@@ -138,16 +140,17 @@ class DeepseekV4ForCausalLM:
                 batch,
             )
 
+        # KV-cached path: prefill seeds the per-layer KV cache and returns only the last-token
+        # logits (the runner slices [:, -1, :]); the earlier positions are padded with that row.
+        # This replaces the full-recompute _logits path so decode can then advance one token at
+        # a time (~6x faster, validated-identical tokens — see tt/kv_cache_decode.py).
         rows = []
         for i in range(batch):
             plen = int(prompt_lens[i]) if prompt_lens is not None else seqlen
             ids = tokens[i, :plen].unsqueeze(0)
-            logits = self.generator._logits(ids)[0]  # [plen, V]
-            # Track the active context so subsequent decode steps attend over it (batch=1).
+            last = self.generator.prefill_fast(ids)[0]  # [V]  (fast on-device; seeds KV/hbuf)
             self._ctx = ids[0].clone()
-            if plen < seqlen:  # right-pad logits back to S with the last row
-                pad = logits[-1:].expand(seqlen - plen, -1)
-                logits = torch.cat([logits, pad], dim=0)
+            logits = last.unsqueeze(0).expand(seqlen, -1)  # [S, V]; only row -1 is read
             rows.append(logits)
         return torch.stack(rows, dim=0)  # [B, S, V]
 
@@ -161,13 +164,14 @@ class DeepseekV4ForCausalLM:
         vocab = self.hf_config.vocab_size
 
         if batch == 1 and self._ctx is not None:
-            # Faithful path: append the new token and recompute over the full context.
+            # KV-cached incremental decode: advance exactly ONE token through the per-layer KV
+            # cache seeded at prefill (top-6 experts/layer, not the union over all positions).
+            new_tok = int(tokens[0, -1])
             self._ctx = torch.cat([self._ctx, tokens[0].to(self._ctx.dtype)], dim=0)
-            ids = self._ctx.unsqueeze(0)
-            logits = self.generator._logits(ids)[0, -1, :]  # [V]
+            logits = self.generator.decode_fast(new_tok)[0]  # [V]  (fast on-device fp4 path)
             return logits.reshape(1, 1, vocab)
 
-        # Fallback (batch>1 or no tracked context): shape-correct logits from the given token(s).
+        # Fallback (batch>1 or no tracked context): shape-correct logits via full recompute.
         rows = []
         for i in range(batch):
             ids = tokens[i : i + 1]

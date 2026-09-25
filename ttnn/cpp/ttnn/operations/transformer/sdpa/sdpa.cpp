@@ -105,7 +105,8 @@ ttnn::Tensor chunked_scaled_dot_product_attention(
     std::optional<float> scale,
     const std::optional<MemoryConfig>& memory_config,
     std::optional<ttnn::operations::transformer::SDPAProgramConfig> program_config,
-    std::optional<DeviceComputeKernelConfig> compute_kernel_config) {
+    std::optional<DeviceComputeKernelConfig> compute_kernel_config,
+    std::optional<uint32_t> sliding_window_size) {
     [[maybe_unused]] auto arch = input_tensor_q.storage_type() == StorageType::DEVICE
                                      ? input_tensor_q.device()->arch()
                                      : ttnn::GetDefaultDevice()->arch();
@@ -121,7 +122,7 @@ ttnn::Tensor chunked_scaled_dot_product_attention(
         std::nullopt,        // attention_sink
         /*is_causal=*/true,  // Always causal for chunked version
         scale,
-        std::nullopt,  // sliding_window_size (not supported yet)
+        sliding_window_size,  // sliding_window_size (composes with chunked prefill)
         chunk_start_idx,
         std::nullopt,  // chunk_start_idx_tensor
         false,         // use_mla
@@ -141,7 +142,8 @@ ttnn::Tensor chunked_scaled_dot_product_attention(
     std::optional<float> scale,
     const std::optional<MemoryConfig>& memory_config,
     std::optional<ttnn::operations::transformer::SDPAProgramConfig> program_config,
-    std::optional<DeviceComputeKernelConfig> compute_kernel_config) {
+    std::optional<DeviceComputeKernelConfig> compute_kernel_config,
+    std::optional<uint32_t> sliding_window_size) {
     [[maybe_unused]] auto arch = input_tensor_q.storage_type() == StorageType::DEVICE
                                      ? input_tensor_q.device()->arch()
                                      : ttnn::GetDefaultDevice()->arch();
@@ -157,7 +159,7 @@ ttnn::Tensor chunked_scaled_dot_product_attention(
         std::nullopt,       // attention_sink
         /*is_causal=*/true,
         scale,
-        std::nullopt,  // sliding_window_size
+        sliding_window_size,  // sliding_window_size (composes with chunked prefill)
         std::nullopt,
         chunk_start_idx_tensor,
         false,         // use_mla

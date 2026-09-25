@@ -124,6 +124,46 @@ class DeepSeekV4Generator:
         (Correctness path re-runs the sequence; the paged-KV decode is the throughput upgrade.)"""
         return self._logits(context_ids)[:, -1, :]
 
+    # ---- KV-cached incremental decode (the correct, ~6x-faster serving path) ----
+    # decode_forward previously recomputed the whole context per token (~40 s/tok). The
+    # KVDecoder keeps a per-layer KV cache so a decode step processes only the ONE new token
+    # (top-6 experts/layer instead of the union over all positions) — validated identical
+    # tokens vs recompute, ~6x faster (see tt/kv_cache_decode.py). This is the surface the
+    # vLLM adapter drives.
+    def _ensure_kv(self):
+        if getattr(self, "_kv", None) is None:
+            from models.demos.deepseek_v4.tt.kv_cache_decode import KVDecoder
+
+            self._kv = KVDecoder(
+                self.scratch, self.store, self.layer_types, self.mlp_types, self.device, self.num_layers
+            )
+        return self._kv
+
+    def prefill_kv(self, input_ids: torch.Tensor) -> torch.Tensor:
+        """Prefill the prompt, seeding the per-layer KV cache -> next-token logits [1, vocab]."""
+        return self._ensure_kv().prefill(input_ids)
+
+    def decode_kv(self, token_id: int, profile: bool = False) -> torch.Tensor:
+        """Advance ONE token using the KV cache -> next-token logits [1, vocab]."""
+        return self._ensure_kv().decode_step(int(token_id), profile=profile)
+
+    # ---- FAST all-on-device fp4 decode (the throughput path: 43 resident layers + streamed
+    # fp4 experts, ~10x faster than the bf16 KVDecoder — see tt/fast_decode.py). ----
+    def _ensure_fast(self):
+        if getattr(self, "_fast", None) is None:
+            from models.demos.deepseek_v4.tt.fast_decode import FastDecoder
+
+            self._fast = FastDecoder(self.device, self.store, self.cfg, self.scratch, self.num_layers)
+        return self._fast
+
+    def prefill_fast(self, input_ids: torch.Tensor) -> torch.Tensor:
+        """Prefill via the fast on-device decoder, seeding per-layer KV/hbuf -> logits [1, vocab]."""
+        return self._ensure_fast().prefill(input_ids)
+
+    def decode_fast(self, token_id: int) -> torch.Tensor:
+        """One decode step via the fast on-device fp4 path -> logits [1, vocab]."""
+        return self._ensure_fast().decode_step(int(token_id))
+
 
 if __name__ == "__main__":
     import argparse

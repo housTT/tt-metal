@@ -90,26 +90,37 @@ def sparse_moe_streaming(collapsed_ln, layer_idx, layer, store, cfg, device, inp
     weights = scores.gather(1, indices)
     weights = weights / (weights.sum(dim=-1, keepdim=True) + 1e-20) * cfg.routed_scaling_factor
 
-    # Run only the routed experts (union across tokens) with RESIDENT, tensor-parallel-SHARDED
-    # expert weights on the mesh (REPORT_7): each expert's gate/up column-sharded + down
-    # row-sharded across the C chips, uploaded ONCE and reused every token (no per-token weight
-    # transfer — the ~20 GB/token that dominated the streaming path). The touched-expert working
-    # set (~29/layer) sharded /C fits (~15.6 GB/chip). On a single device C=1 -> plain resident.
+    # Run only the routed experts (union across tokens), NON-RESIDENT: each expert's weights are
+    # dequantized on the host (bounded host cache) and transferred per call, then FREED on device.
+    # NB (profiled 2026-07-13): resident-sharding the experts did NOT speed decode up — the sharded
+    # weight upload is fast (~0.09 s/expert) and the ~8-14 s/token MoE cost is dominated by the ~258
+    # per-expert host<->device round-trips (activation upload + TP-reduce read-back + host
+    # accumulate), NOT weight movement. Removing that needs an ALL-DEVICE MoE (accumulate on device,
+    # one read/layer) so the decode step is device-only and Metal-Trace-able — the real fast path.
+    # Per-expert non-resident path (the measured BEST). Each touched expert's weights are
+    # dequantized on host (bounded cache) + transferred per call + freed. NB (5 experiments,
+    # 2026-07-13): this beat resident-sharded (8-14s), on-device-accumulate (broke argmax),
+    # batched-bf16 grouped-matmul (13-16s), and batched-bf8 (58s — host requant cost). The
+    # ~8-12s/token MoE is host tilize + DMA of ~13GB bf16 expert weights/token (data-volume-bound);
+    # no software restructuring cut it. Reducing it needs native fp4/fp8 movement (upload quantized
+    # bytes, dequant on device — avoids host bf16 tilize) or more chips (model resident). See memory.
     uniq = torch.unique(indices).tolist()
+    interm = cfg.moe_intermediate_size
     out = torch.zeros(N, H, dtype=torch.float32)
     for e in uniq:
         sel = indices == e
         rows = sel.any(dim=-1).nonzero().flatten()
         if rows.numel() == 0:
             continue
-        tgate, tup, tdown = RW.expert_sharded_dev(store, device, layer_idx, e)  # resident sharded
-        y = M.swiglu_sharded(flat[rows], tgate, tup, tdown, device, limit=cfg.swiglu_limit)
+        gate_up_T, down_T = RW.expert_fused(store, layer_idx, e)  # host bf16 (cached)
+        y = M.fused_experts(flat[rows], gate_up_T, down_T, interm, device, limit=cfg.swiglu_limit)
         w_e = (weights * sel).sum(dim=-1)[rows].float()
         out[rows] += w_e.unsqueeze(-1) * y.float()
-
-    # shared expert: resident sharded, reused every token
-    tsg, tsu, tsd = RW.shared_sharded_dev(store, device, layer_idx, layer.mlp.shared_experts)
-    shared = M.swiglu_sharded(flat, tsg, tsu, tsd, device, limit=cfg.swiglu_limit).reshape(B, S, H)
+    se = layer.mlp.shared_experts
+    shared = M.clamped_swiglu_mlp(
+        flat, se.gate_proj.weight.data, se.up_proj.weight.data, se.down_proj.weight.data,
+        device, limit=cfg.swiglu_limit,
+    ).reshape(B, S, H)
     return out.reshape(B, S, H) + shared
 
 
