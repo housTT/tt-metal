@@ -1,0 +1,85 @@
+# Self-contained Qwen3.8-27B image using the same optimized P150x4
+# implementation as Qwen3.6-27B. Build it with:
+#   tt-model package --container models/demos/blackhole/qwen36/tt-model-qwen38.yaml
+schema: "5.1"
+
+repo: tt-hous/qwen3.8-27b-p150x4
+name: qwen3.8-27b-p150x4
+weights:
+  repo: Qwen/Qwen3.8-27B
+  revision: 1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0
+
+kind: vllm-plugin
+arch: blackhole
+
+image:
+  registry: hf
+
+source:
+  # A local source packages this exact checkout, including the fused C++ kernels.
+  tt_metal: /home/ttuser/dev/qwen-perf/tt-metal
+  code:
+    - models/common
+    - models/tt_transformers
+    - models/demos/blackhole/qwen36/__init__.py
+    - models/demos/blackhole/qwen36/tt
+    - models/demos/blackhole/qwen36/utils
+    - models/demos/qwen3_vl/tt/common.py
+    - models/experimental/gated_attention_gated_deltanet/tt
+    - models/tt_dit/utils/tensor.py
+  ubuntu: "22.04"
+  python: "3.12"
+
+runtime:
+  vllm:
+    version: "0.24.0"
+  # This is the clean plugin checkout used by the validated vLLM environment.
+  plugin:
+    path: /home/ttuser/src/vllm-tt-plugin
+
+serve:
+  port: 8000
+  hardware: p150x4
+  mesh_device: P150x4
+  max_num_seqs: 1
+  block_size: 64
+  # Supports a 128K-token prompt followed by 512 generated tokens.
+  max_model_len: 131584
+  additional_config:
+    tt:
+      l1_small_size: 24576
+      trace_mode: decode_only
+      sample_on_device_mode: decode_only
+  capabilities:
+    tool_parser: qwen3_coder
+    reasoning_parser: qwen3
+  env:
+    # Keep converted TT tensors in the container's persistent per-model cache mount.
+    TT_CACHE_PATH: /weight-cache
+    TT_QWEN35_TEXT_VER: qwen36_blackhole
+
+verify:
+  - "from models.demos.blackhole.qwen36.tt.qwen36_vllm import Qwen36ForCausalLM; assert Qwen36ForCausalLM"
+  - "from models.tt_dit.utils.tensor import prepare_for_fused_swiglu; assert callable(prepare_for_fused_swiglu)"
+  - "import ttnn; assert hasattr(ttnn.experimental, 'deltanet_decode_full')"
+
+card:
+  description: |
+    An optimized Qwen3.8-27B deployment for four Tenstorrent P150 boards,
+    with fused DeltaNet kernels, decode tracing, on-device sampling,
+    OpenAI-compatible tool calling, and separated reasoning output.
+  quickstart: |
+    ## Measured performance
+
+    Measured with vLLM on four P150 boards at concurrency 1 using fixed
+    input/output lengths, greedy sampling, temperature 0, EOS ignored, and the
+    median of five requests after warmup. E2EL is derived as
+    `TTFT + (OSL - 1) * TPOT`.
+
+    | ISL | OSL | Concurrency | Median TTFT | Median TPOT | Derived E2EL | Decode tok/s/user |
+    | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+    | 128 | 128 | 1 | 0.157s | 30.204ms | 3.993s | 33.11 |
+    | 8,192 | 512 | 1 | 1.402s | 30.741ms | 17.111s | 32.53 |
+    | 32,768 | 512 | 1 | 5.957s | 31.253ms | 21.927s | 32.00 |
+    | 65,536 | 512 | 1 | 13.050s | 32.006ms | 29.405s | 31.24 |
+    | 131,072 | 512 | 1 | 30.968s | 33.458ms | 48.066s | 29.89 |

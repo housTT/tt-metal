@@ -1,0 +1,91 @@
+# Self-contained Qwen3.6-27B image for the optimized P150x4 implementation in
+# this tt-metal checkout. Build it with:
+#   tt-model package --container models/demos/blackhole/qwen36/tt-model.yaml
+schema: "5.1"
+
+repo: tt-hous/qwen3.6-27b-p150x4
+name: qwen3.6-27b-p150x4
+weights:
+  repo: Qwen/Qwen3.6-27B
+  revision: 6a9e13bd6fc8f0983b9b99948120bc37f49c13e9
+
+kind: vllm-plugin
+arch: blackhole
+
+image:
+  registry: hf
+
+source:
+  # A local source packages this exact checkout, including the fused C++ kernels.
+  tt_metal: /home/ttuser/dev/qwen-perf/tt-metal
+  code:
+    - models/common
+    - models/tt_transformers
+    - models/demos/blackhole/qwen36/__init__.py
+    - models/demos/blackhole/qwen36/tt
+    - models/demos/blackhole/qwen36/utils
+    - models/demos/qwen3_vl/tt/common.py
+    - models/experimental/gated_attention_gated_deltanet/tt
+    - models/tt_dit/utils/tensor.py
+  ubuntu: "22.04"
+  python: "3.12"
+
+runtime:
+  vllm:
+    version: "0.24.0"
+  # This is the clean plugin checkout used by the validated vLLM environment.
+  plugin:
+    path: /home/ttuser/src/vllm-tt-plugin
+
+serve:
+  port: 8000
+  hardware: p150x4
+  mesh_device: P150x4
+  max_num_seqs: 1
+  block_size: 64
+  # Supports a 128K-token prompt followed by 512 generated tokens.
+  max_model_len: 131584
+  additional_config:
+    tt:
+      l1_small_size: 24576
+      trace_mode: decode_only
+      sample_on_device_mode: decode_only
+  capabilities:
+    tool_parser: qwen3_coder
+  env:
+    TT_QWEN35_TEXT_VER: qwen36_blackhole
+
+verify:
+  - "from models.demos.blackhole.qwen36.tt.qwen36_vllm import Qwen36ForCausalLM; assert Qwen36ForCausalLM"
+  - "from models.tt_dit.utils.tensor import prepare_for_fused_swiglu; assert callable(prepare_for_fused_swiglu)"
+  - "import ttnn; assert hasattr(ttnn.experimental, 'deltanet_decode_full')"
+
+card:
+  description: |
+    An optimized Qwen3.6-27B deployment for four Tenstorrent P150 boards,
+    with fused DeltaNet kernels, decode tracing, on-device sampling, and
+    OpenAI-compatible tool calling.
+  quickstart: |
+    ### Serve on four P150 boards
+
+    ```bash
+    tt-model serve tt-hous/qwen3.6-27b-p150x4 --follow
+    ```
+
+    The default profile is the performance-validated P150x4 configuration with
+    decode tracing and on-device decode sampling enabled.
+
+    ## Measured performance
+
+    Measured with vLLM on four P150 boards at concurrency 1 using fixed
+    input/output lengths, greedy sampling, temperature 0, EOS ignored, and the
+    median of five requests after warmup. E2EL is derived as
+    `TTFT + (OSL - 1) * TPOT`.
+
+    | ISL | OSL | Concurrency | Median TTFT | Median TPOT | Derived E2EL | Decode tok/s/user |
+    | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+    | 128 | 128 | 1 | 0.132s | 30.228ms | 3.971s | 33.08 |
+    | 8,192 | 512 | 1 | 1.411s | 30.731ms | 17.114s | 32.54 |
+    | 32,768 | 512 | 1 | 6.001s | 31.288ms | 21.989s | 31.96 |
+    | 65,536 | 512 | 1 | 13.219s | 32.033ms | 29.587s | 31.22 |
+    | 131,072 | 512 | 1 | 31.177s | 33.489ms | 48.290s | 29.86 |
