@@ -1,0 +1,45 @@
+Previous response had warnings:
+WARNINGS: - Extra text detected before JSON object
+- Extra text detected after JSON object
+
+Current Terminal Screen:
+>             } else {
+>                 this.lo = Math.floor(this.reg[rs] / this.reg[rt]);
+>                 this.hi = (this.reg[rs] * this.reg[rt]) >>> 0;
+>             }
+>             return false;
+>         }
+>         if (op === 0x3c) {  // MFLO
+>             this.reg[rt] = this.lo;
+>             return false;
+>         }
+>
+>         return false;
+>     }
+>
+>     load(binary) {
+>         const data = fs.readFileSync(binary);
+>         data.copy(this.mem);
+>         this.pc = 0x400110;  // Entry point
+>     }
+>
+>     run(maxInstructions = 100000) {
+>         for (let i = 0; i < maxInstructions; i++) {
+>             const instr = this.readU32(this.pc);
+>             if (instr === 0) break;
+>
+>             const advance = this.execute(instr);
+>             this.pc = (this.pc + 4) >>> 0;
+>             if (advance) continue;
+>         }
+>     }
+> }
+>
+> // Main
+> const vm = new MIPS32();
+> vm.load('./doomgeneric_mips');
+> console.log('MIPS VM started, executing...');
+> vm.run(50000);
+> console.log('Execution completed or hit limit');
+> ENDOFFILE
+root@69c175326619:/app#

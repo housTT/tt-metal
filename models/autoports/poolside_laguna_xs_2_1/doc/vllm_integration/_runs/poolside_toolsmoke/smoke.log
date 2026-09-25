@@ -1,0 +1,62 @@
+[15:14:28Z] === poolside_v1 parser ON-DEVICE smoke: boot serve (poolside_v1 tool+reasoning) ===
+Launching vLLM server for poolside/Laguna-XS-2.1 on P150x4
+  cmd: /home/ttuser/.tenstorrent-venv/bin/python -m vllm.entrypoints.openai.api_server --model poolside/Laguna-XS-2.1 --block_size 64 --max_num_seqs 8 --port 8000 --max_model_len 131072 --additional-config '{"tt": {"sample_on_device_mode": "all", "trace_region_size": 1500000000, "fabric_config": "FABRIC_1D_RING", "env_passthrough": ["VLLM_*", "MESH_DEVICE", "TT_LAGUNA_*", "TT_METAL_*", "PYTHONPATH"]}}' --trust-remote-code --max-num-batched-tokens 131072 --enable-auto-tool-choice --tool-call-parser poolside_v1 --reasoning-parser poolside_v1
+  log: /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/readiness_vllm/server.log
+Waiting up to 1200s for server to become ready...
+  Server ready after ~600s
+
+Server ready at http://localhost:8000
+Server is running. Press Ctrl-C (or send SIGTERM) to stop.
+[15:24:34Z] healthy ~605s
+[15:24:34Z] >>> TOOL round-trip: ask for weather with a get_weather tool (enable_thinking), expect tool_calls
+[15:24:36Z] response saved -> /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/doc/vllm_integration/_runs/poolside_toolsmoke/resp.json
+Traceback (most recent call last):
+  File "<stdin>", line 2, in <module>
+  File "/usr/lib/python3.12/json/__init__.py", line 293, in load
+    return loads(fp.read(),
+           ^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 355, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+Shutting down server (PID 395173)...
+  Terminated cleanly.
+
+=== Server log tail (/home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/readiness_vllm/server.log, last 30 lines) ===
+ - leaked instance 0x47714330 of type "ttnn._ttnn.operations.unary.nez_t"
+ - leaked instance 0x476c3c20 of type "ttnn._ttnn.operations.unary.isneginf_t"
+ - leaked instance 0x476c35b0 of type "ttnn._ttnn.operations.unary.i0_t"
+ - ... skipped remainder
+nanobind: leaked 922 types!
+ - leaked type "SocketEndpoint"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.gt__t"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.SliceDeviceOperation"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "ttnn._ttnn.operations.binary.lt__t"
+ - leaked type "ttnn._ttnn.operations.binary_backward.xlogy_bw_t"
+ - leaked type "ttnn._ttnn.operations.experimental.insert_t"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.isclose_t"
+ - leaked type "ttnn._ttnn.operations.reduction.var_t"
+ - leaked type "DispatchCoreAxis"
+ - ... skipped remainder
+nanobind: leaked 4252 functions!
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "__iter__"
+ - leaked function ""
+ - leaked function "__hash__"
+ - leaked function ""
+ - leaked function ""
+ - leaked function "get_data"
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html
+[15:25:31Z] === poolside_v1 smoke DONE (server stopped + board reset) ===

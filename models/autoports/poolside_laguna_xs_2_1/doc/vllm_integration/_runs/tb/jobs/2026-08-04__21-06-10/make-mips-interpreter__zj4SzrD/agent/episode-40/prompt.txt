@@ -1,0 +1,44 @@
+Previous response had warnings:
+WARNINGS: - Extra text detected after JSON object
+
+Current Terminal Screen:
+/app/doomgeneric/doomgeneric/doomgeneric_win.c:uint32_t DG_GetTicksMs()
+/app/doomgeneric/doomgeneric/doomgeneric_win.c:int DG_GetKey(int* pressed, unsigned char* doomKey)
+/app/doomgeneric/doomgeneric/doomgeneric_xlib.c:void DG_Init()
+/app/doomgeneric/doomgeneric/doomgeneric_xlib.c:void DG_DrawFrame()
+/app/doomgeneric/doomgeneric/doomgeneric_xlib.c:void DG_SleepMs(uint32_t ms)
+/app/doomgeneric/doomgeneric/doomgeneric_xlib.c:uint32_t DG_GetTicksMs()
+/app/doomgeneric/doomgeneric/doomgeneric_xlib.c:int DG_GetKey(int* pressed, unsigned char* doomKey)
+/app/doomgeneric/doomgeneric/i_input.c: while (DG_GetKey(&pressed, &key))
+/app/doomgeneric/doomgeneric/i_timer.c: return DG_GetTicksMs();
+/app/doomgeneric/doomgeneric/i_timer.c: DG_SleepMs(ms);
+/app/doomgeneric/doomgeneric/i_video.c: DG_DrawFrame();
+root@8dd3925eaef7:/app# grep -E 'syscall' /app/doomgeneric/build/llvm/my_stdlib.ll 2>/dev/null | head -50
+root@8dd3925eaef7:/app# grep -rn 'DG_ScreenBuffer' /app/doomgeneric/doomgeneric/ 2>/dev/null | head -50
+/app/doomgeneric/doomgeneric/doomgeneric_allegro.c:91:  if (!DG_ScreenBuffer) {
+/app/doomgeneric/doomgeneric/doomgeneric_allegro.c:126:         // replace the internal line pointers with pointers into DG_ScreenBuffer
+/app/doomgeneric/doomgeneric/doomgeneric_allegro.c:130:                 temp_bitmap->line[y] = (unsigned char *) &DG_ScreenBuffer[y * DOOMGENERIC_RESX];
+/app/doomgeneric/doomgeneric/doomgeneric_xlib.c:125:    s_Image = XCreateImage(s_Display, DefaultVisual(s_Display, s_Screen), depth, ZPixmap, 0, (char *)DG_Scre
+enBuffer, DOOMGENERIC_RESX, DOOMGENERIC_RESX, 32, 0);
+/app/doomgeneric/doomgeneric/doomgeneric.h:28:extern pixel_t* DG_ScreenBuffer;
+/app/doomgeneric/doomgeneric/doomgeneric_win.c:156:     StretchDIBits(s_Hdc, 0, 0, DOOMGENERIC_RESX, DOOMGENERIC_RESY, 0, 0, DOOMGENERIC_RESX, DOOMGENERIC_RESY,
+ DG_ScreenBuffer, &s_Bmi, 0, SRCCOPY);
+/app/doomgeneric/doomgeneric/doomgeneric_sdl.c:156:  SDL_UpdateTexture(texture, NULL, DG_ScreenBuffer, DOOMGENERIC_RESX*sizeof(uint32_t));
+/app/doomgeneric/doomgeneric/doomgeneric_soso.c:221:            memcpy(FrameBuffer + s_PositionX + (i + s_PositionY) * s_ScreenWidth, DG_ScreenBuffer + i * DOOM
+GENERIC_RESX, DOOMGENERIC_RESX * 4);
+/app/doomgeneric/doomgeneric/doomgeneric.c:8:pixel_t* DG_ScreenBuffer = NULL;
+/app/doomgeneric/doomgeneric/doomgeneric.c:22:  DG_ScreenBuffer = malloc(DOOMGENERIC_RESX * DOOMGENERIC_RESY * 4);
+/app/doomgeneric/doomgeneric/i_video.c:284:    line_out = (unsigned char *) DG_ScreenBuffer;
+/app/doomgeneric/doomgeneric/doomgeneric_emscripten.c:165:  SDL_UpdateTexture(texture, NULL, DG_ScreenBuffer, DOOMGENERIC_RESX*sizeof(uint32_t));
+/app/doomgeneric/doomgeneric/doomgeneric_sosox.c:218:        memcpy(windowBuffer, DG_ScreenBuffer, DOOMGENERIC_RESX * DOOMGENERIC_RESY * 4);
+/app/doomgeneric/doomgeneric/doomgeneric_mips.map:2742:                0x004b0a40                DG_ScreenBuffer
+/app/doomgeneric/doomgeneric/build/llvm/doomgeneric.ll:6:@DG_ScreenBuffer = dso_local local_unnamed_addr global i32* null, align 4, !dbg !0
+/app/doomgeneric/doomgeneric/build/llvm/doomgeneric.ll:18:  store i8* %3, i8** bitcast (i32** @DG_ScreenBuffer to i8**), align 4, !dbg !38, !tbaa !34
+/app/doomgeneric/doomgeneric/build/llvm/doomgeneric.ll:49:!1 = distinct !DIGlobalVariable(name: "DG_ScreenBuffer", scope: !2, file: !3, line: 8, type: !5, isLoc
+al: false, isDefinition: true)
+/app/doomgeneric/doomgeneric/build/llvm/i_video.ll:27:@DG_ScreenBuffer = external local_unnamed_addr global i32*, align 4
+/app/doomgeneric/doomgeneric/build/llvm/i_video.ll:335:  %11 = load i8*, i8** bitcast (i32** @DG_ScreenBuffer to i8**), align 4, !dbg !344, !tbaa !262
+/app/doomgeneric/doomgeneric/build/llvm/doomgeneric_img.ll:12:@DG_ScreenBuffer = external local_unnamed_addr global i32*, align 4
+/app/doomgeneric/doomgeneric/build/llvm/doomgeneric_img.ll:43:  %6 = load i32*, i32** @DG_ScreenBuffer, align 4, !dbg !63, !tbaa !65
+/app/doomgeneric/doomgeneric/doomgeneric_img.c:175:    writeBMPFile("/tmp/frame.bmp", (uint32_t*)DG_ScreenBuffer, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
+root@8dd3925eaef7:/app#

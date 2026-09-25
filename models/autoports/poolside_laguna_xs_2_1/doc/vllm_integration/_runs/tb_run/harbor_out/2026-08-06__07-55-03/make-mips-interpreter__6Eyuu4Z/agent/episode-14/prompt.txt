@@ -1,0 +1,44 @@
+Previous response had warnings:
+WARNINGS: - Extra text detected before JSON object
+
+Current Terminal Screen:
+    FileNode* node = (FileNode*)malloc(sizeof(FileNode));
+    strncpy(node->name, name, MAX_PATH_LENGTH);
+    node->name[MAX_PATH_LENGTH - 1] = '\0';
+    node->type = type;
+    node->created = node->modified = node->accessed = time(NULL);
+    node->parent = parent;
+
+    if (type == FILE_TYPE_REGULAR) {
+        // Initialize as an empty file
+        node->data = NULL;
+        node->size = 0;
+        node->capacity = 0;
+        node->entries = NULL;
+        node->num_entries = 0;
+        node->max_entries = 0;
+    } else {
+        // Initialize as an empty directory
+        node->data = NULL;
+        node->size = 0;
+        node->capacity = 0;
+        node->entries = (DirEntry*)malloc(10 * sizeof(DirEntry));
+        node->num_entries = 0;
+        node->max_entries = 10;
+    }
+
+    return node;
+}
+
+// Helper function to add a node to a directory
+int add_to_directory(FileNode* dir, const char* name, FileNode* node) {
+    if (dir->type != FILE_TYPE_DIRECTORY) {
+        return -ENOTDIR;
+    }
+
+    // Check if a file with this name already exists
+    for (size_t i = 0; i < dir->num_entries; i++) {
+        if (strcmp(dir->entries[i].name, name) == 0) {
+            return -EEXIST;
+        }
+root@69c175326619:/app#

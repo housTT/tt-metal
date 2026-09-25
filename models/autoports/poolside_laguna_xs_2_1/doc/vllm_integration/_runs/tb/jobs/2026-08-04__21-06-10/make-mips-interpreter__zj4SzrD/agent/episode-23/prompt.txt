@@ -1,0 +1,44 @@
+Previous response had warnings:
+WARNINGS: - Extra text detected after JSON object
+
+Current Terminal Screen:
+        "syscall\n\t"
+
+        /* Get the return value */
+        "move %0, $v0"
+
+        /* Output parameter */
+        : "=r" (result)
+
+        /* Input parameters */
+        : "r" (syscall_num),
+          "r" (arg1),
+          "r" (arg2),
+          "r" (arg3),
+          "r" (arg4),
+          "r" (arg5),
+          "r" (arg6)
+
+        /* Clobbered registers */
+        : "v0", "a0", "a1", "a2", "a3", "t0", "t1", "memory"
+    );
+
+    /*
+     * MIPS typically uses negative return values for errors
+     * and sets errno accordingly
+     */
+--
+        int real_fd = real_syscall6(SYS_open, (long)wad_path, O_RDONLY, 0, 0, 0, 0);
+        if (real_fd >= 0) {
+            // Get the file size
+            off_t file_size = real_syscall6(SYS_lseek, real_fd, 0, SEEK_END, 0, 0, 0);
+            real_syscall6(SYS_lseek, real_fd, 0, SEEK_SET, 0, 0, 0); // Reset to beginning
+
+            if (file_size > 0 && file_size <= MAX_FILE_SIZE) {
+                // Allocate memory for the file data
+                unsigned char* wad_data = (unsigned char*)malloc(file_size);
+                if (wad_data != NULL) {
+                    // Read the file data
+                    ssize_t bytes_read = real_syscall6(SYS_read, real_fd, (long)wad_data, file_size, 0, 0, 0);
+
+root@8dd3925eaef7:/app#

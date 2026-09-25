@@ -1,0 +1,82 @@
+New Terminal Output:
+
+root@8dd3925eaef7:/app# cat /app/doomgeneric/doomgeneric/doomgeneric.h
+#include "my_stdlib.h"
+#ifndef DOOM_GENERIC
+#define DOOM_GENERIC
+
+// remove #include <stdlib.h>
+// remove #include <stdint.h>
+
+#ifndef DOOMGENERIC_RESX
+#define DOOMGENERIC_RESX 640
+#endif  // DOOMGENERIC_RESX
+
+#ifndef DOOMGENERIC_RESY
+#define DOOMGENERIC_RESY 400
+#endif  // DOOMGENERIC_RESY
+
+
+#ifdef CMAP256
+
+typedef uint8_t pixel_t;
+
+#else  // CMAP256
+
+typedef uint32_t pixel_t;
+
+#endif  // CMAP256
+
+
+extern pixel_t* DG_ScreenBuffer;
+
+void doomgeneric_Create(int argc, char **argv);
+void doomgeneric_Tick();
+
+
+//Implement below functions for your platform
+void DG_Init();
+void DG_DrawFrame();
+void DG_SleepMs(uint32_t ms);
+uint32_t DG_GetTicksMs();
+int DG_GetKey(int* pressed, unsigned char* key);
+void DG_SetWindowTitle(const char * title);
+
+#endif //DOOM_GENERIC
+root@8dd3925eaef7:/app# cat /app/doomgeneric/doomgeneric/doomgeneric.c
+#include "my_stdlib.h"
+// remove #include <stdio.h>
+
+#include "m_argv.h"
+
+#include "doomgeneric.h"
+
+pixel_t* DG_ScreenBuffer = NULL;
+
+void M_FindResponseFile(void);
+void D_DoomMain (void);
+
+
+void doomgeneric_Create(int argc, char **argv)
+{
+        // save arguments
+    myargc = argc;
+    myargv = argv;
+
+        M_FindResponseFile();
+
+        DG_ScreenBuffer = malloc(DOOMGENERIC_RESX * DOOMGENERIC_RESY * 4);
+
+        DG_Init();
+
+        D_DoomMain ();
+}
+
+root@8dd3925eaef7:/app# grep -n 'mips' /app/doomgeneric/doomgeneric/Makefile 2>/dev/null || echo 'No MIPS in main Makefile'
+18:LLVM_TARGET=-target mips-unknown-linux-gnu
+19:MIPS_AS=mips-linux-gnu-as
+20:MIPS_LD=mips-linux-gnu-ld
+25:MIPS_LLC_FLAGS=-march=mipsel -mcpu=mips32r2 -mattr=+nooddspreg -relocation-model=static -filetype=asm -O3
+26:MIPS_AS_FLAGS=-march=mips32r2 -EL
+39:OUTPUT=doomgeneric_mips
+root@8dd3925eaef7:/app#

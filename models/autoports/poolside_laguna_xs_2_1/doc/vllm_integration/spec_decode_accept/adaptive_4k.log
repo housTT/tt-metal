@@ -1,0 +1,27 @@
+[18:40:49] === spec_decode_driver mode=latency isl=4096 osl=64 K=4 ===
+[18:40:52] [phase] build model layers=full max_model_len=8192
+[18:46:57] [phase] allocate_kv_cache blocks=144 shape=(144,2,64,128)
+[18:46:58] [phase] warmup phase-1 (compile, no trace)
+[18:47:09] [phase] warmup phase-2 (prefill buffers; decode-trace capture=False)
+[18:47:17] [phase] warmup verify-decode trace K1=2 (adaptive)
+[18:47:19] [phase] warmup verify-decode trace K1=3 (adaptive)
+[18:47:24] [phase] warmup verify-decode trace K1=4 (adaptive)
+[18:47:29] [phase] warmup verify-decode trace K1=5 (adaptive)
+[18:47:29] [phase] warmup done
+[18:47:29] [cfg] verify_mode=decode traced=True adaptive=True k=[1,4]
+[18:47:29] [phase] LATENCY 4096/64: prefill P=4096
+[18:47:32] [ok] prefill/TTFT 2999ms ; spec-decode K=4 OSL=64
+[19:15:27] === spec_decode_driver mode=latency isl=4096 osl=64 K=4 ===
+[19:15:30] [phase] build model layers=full max_model_len=8192
+[19:21:32] [phase] allocate_kv_cache blocks=144 shape=(144,2,64,128)
+[19:21:33] [phase] warmup phase-1 (compile, no trace)
+[19:21:43] [phase] warmup phase-2 (prefill buffers; decode-trace capture=False)
+[19:21:52] [phase] warmup verify-decode traces K1=[2, 3, 4, 5] (adaptive, staged alloc→capture)
+[19:21:55] [phase] warmup done
+[19:21:55] [cfg] verify_mode=decode traced=True adaptive=True k=[1,4]
+[19:21:55] [phase] LATENCY 4096/64: prefill P=4096
+[19:21:58] [ok] prefill/TTFT 2999ms ; spec-decode K=4 OSL=64
+[19:21:58] [gen] 64/64 toks  mean_accept=1.91/4  76.4 tok/s (running)
+[19:21:58] [RESULT-SPEC 4096/64] gen=64 in 0.84s -> 76.41 tok/s/u ; iters=22 mean_accept=1.91/4 ms/tok=13.1 TTFT=2999ms
+[19:22:08] [RESULT-BASE 4096/64] via-verify 9.31 tok/s/u ; spec speedup=8.21x
+[19:22:08] [phase] done

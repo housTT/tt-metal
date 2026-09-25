@@ -1,0 +1,57 @@
+==================================================================
+RUN=spec_pad32   started (full stdout+stderr stream — nothing filtered)
+CMD: /home/ttuser/.tenstorrent-venv/bin/python -u -m models.common.readiness_check.run_vllm_server --model-dir /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1 --hf-model poolside/Laguna-XS-2.1 --mesh-device P150x4 --stages serve --max-num-seqs 1 --block-size 64 --max-model-len 131072 --tt-config {"trace_region_size": 1500000000, "fabric_config": "FABRIC_1D_RING", "env_passthrough": ["VLLM_*", "MESH_DEVICE", "TT_LAGUNA_*", "TT_METAL_*", "PYTHONPATH"]} --additional-server-args=--trust-remote-code --max-num-batched-tokens 131072 --enable-prefix-caching
+tail:  tail -f ~/tail.log   (permanent — survives every run, no need to re-tail)
+==================================================================
+[17:20:35] Launching vLLM server for poolside/Laguna-XS-2.1 on P150x4
+[17:20:35]   cmd: /home/ttuser/.tenstorrent-venv/bin/python -m vllm.entrypoints.openai.api_server --model poolside/Laguna-XS-2.1 --block_size 64 --max_num_seqs 1 --port 8000 --max_model_len 131072 --additional-config '{"tt": {"sample_on_device_mode": "all", "trace_region_size": 1500000000, "fabric_config": "FABRIC_1D_RING", "env_passthrough": ["VLLM_*", "MESH_DEVICE", "TT_LAGUNA_*", "TT_METAL_*", "PYTHONPATH"]}}' --trust-remote-code --max-num-batched-tokens 131072 --enable-prefix-caching
+[17:20:35]   log: /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/readiness_vllm/server.log
+[17:20:35] Waiting up to 1200s for server to become ready...
+[17:20:35]   Server ready after ~640s
+[17:20:35] 
+[17:20:35] Server ready at http://localhost:8000
+[17:20:35] Server is running. Press Ctrl-C (or send SIGTERM) to stop.
+[17:20:35] 
+[17:20:35] Server launcher already exited (code 0).
+[17:20:35] 
+[17:20:35] === Server log tail (/home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/readiness_vllm/server.log, last 30 lines) ===
+[17:20:35]  - leaked instance 0xdca9fe0 of type "ttnn._ttnn.operations.unary.isnan_t"
+[17:20:35]  - leaked instance 0xdcb5440 of type "ttnn._ttnn.operations.unary.square_t"
+[17:20:35]  - leaked instance 0xdcd8e30 of type "ttnn._ttnn.operations.unary.identity_t"
+[17:20:35]  - ... skipped remainder
+[17:20:35] nanobind: leaked 922 types!
+[17:20:35]  - leaked type "SocketEndpoint"
+[17:20:35]  - leaked type "ttnn._ttnn.operations.experimental.quasar.gt__t"
+[17:20:35]  - leaked type "ttnn._ttnn.operations.experimental.quasar.SliceDeviceOperation"
+[17:20:35]  - leaked type "ttnn._ttnn.operations.experimental.quasar.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+[17:20:35]  - leaked type "ttnn._ttnn.operations.binary.lt__t"
+[17:20:35]  - leaked type "ttnn._ttnn.operations.binary_backward.xlogy_bw_t"
+[17:20:35]  - leaked type "ttnn._ttnn.operations.experimental.insert_t"
+[17:20:35]  - leaked type "ttnn._ttnn.operations.experimental.quasar.isclose_t"
+[17:20:35]  - leaked type "ttnn._ttnn.operations.reduction.var_t"
+[17:20:35]  - leaked type "DispatchCoreAxis"
+[17:20:35]  - ... skipped remainder
+[17:20:35] nanobind: leaked 4252 functions!
+[17:20:35]  - leaked function ""
+[17:20:35]  - leaked function "__call__"
+[17:20:35]  - leaked function ""
+[17:20:35]  - leaked function "create_receiver"
+[17:20:35]  - leaked function ""
+[17:20:35]  - leaked function "__call__"
+[17:20:35]  - leaked function ""
+[17:20:35]  - leaked function ""
+[17:20:35]  - leaked function ""
+[17:20:35]  - leaked function ""
+[17:20:35]  - ... skipped remainder
+[17:20:35] nanobind: this is likely caused by a reference counting issue in the binding code.
+[17:20:35] See https://nanobind.readthedocs.io/en/latest/refleaks.html
+[17:20:35] Traceback (most recent call last):
+[17:20:35]   File "<frozen runpy>", line 198, in _run_module_as_main
+[17:20:35]   File "<frozen runpy>", line 88, in _run_code
+[17:20:35]   File "/home/ttuser/dev/tt-metal/models/common/readiness_check/run_vllm_server.py", line 1078, in <module>
+[17:20:35]     _main()
+[17:20:35]   File "/home/ttuser/dev/tt-metal/models/common/readiness_check/run_vllm_server.py", line 992, in _main
+[17:20:35]     _hold_until_signal(server_proc, server_log)
+[17:20:35]   File "/home/ttuser/dev/tt-metal/models/common/readiness_check/run_vllm_server.py", line 722, in _hold_until_signal
+[17:20:35]     raise RuntimeError(f"Server exited unexpectedly with code {proc.returncode}. Inspect {log_file}.")
+[17:20:35] RuntimeError: Server exited unexpectedly with code 0. Inspect /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/readiness_vllm/server.log.

@@ -1,0 +1,17 @@
+==================================================================
+RUN=spec_sweep_on   started (full stdout+stderr stream — nothing filtered)
+CMD: python3 -u /home/ttuser/.claude/jobs/ae1fc1e4/tmp/spec_sweep.py SPEC_ON
+tail:  tail -f ~/tail.log   (permanent — survives every run, no need to re-tail)
+==================================================================
+[17:53:45] [SPEC_ON] ctx_target | ISL | OSL | prefill_s | decode_s | E2EL_s | DECODE t/s/u
+[17:53:45] [SPEC_ON] ctx=   512 | ISL=  1159 | OSL= 160 | prefill= 1.244s | decode= 2.003s | E2EL= 3.248s |   79.4 t/s/u
+[17:53:45] [SPEC_ON] ctx=  2048 | ISL=  4883 | OSL= 160 | prefill= 6.317s | decode= 0.000s | E2EL= 3.171s | 159000000.0 t/s/u
+[17:53:45] [SPEC_ON] ctx=  8192 | ISL= 20243 | OSL= 160 | prefill=22.795s | decode= 0.000s | E2EL= 3.231s | 159000000.0 t/s/u
+[17:53:45] Traceback (most recent call last):
+[17:53:45]   File "/home/ttuser/.claude/jobs/ae1fc1e4/tmp/spec_sweep.py", line 32, in <module>
+[17:53:45]     t1, isl, _ = call(p, 1)                    # prefill only
+[17:53:45]                  ^^^^^^^^^^
+[17:53:45]   File "/home/ttuser/.claude/jobs/ae1fc1e4/tmp/spec_sweep.py", line 26, in call
+[17:53:45]     return time.time() - t0, r["usage"]["prompt_tokens"], r["usage"]["completion_tokens"]
+[17:53:45]                              ~^^^^^^^^^
+[17:53:45] KeyError: 'usage'

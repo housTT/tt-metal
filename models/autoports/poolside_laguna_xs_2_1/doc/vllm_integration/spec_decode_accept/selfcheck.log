@@ -1,0 +1,17 @@
+[18:06:47] === spec_decode_driver mode=selfcheck isl=512 osl=48 K=4 ===
+[18:06:53] [phase] build model layers=full max_model_len=4096
+[18:13:06] [phase] allocate_kv_cache blocks=80 shape=(80,2,64,128)
+[18:13:06] [phase] warmup phase-1 (compile, no trace)
+[18:13:13] [phase] warmup phase-2 (prefill buffers; decode-trace capture=False)
+[18:13:17] [phase] warmup verify-decode trace K1=5
+[18:13:20] [phase] warmup done
+[18:13:20] [cfg] verify_mode=decode traced=True
+[18:13:20] [phase] SELFCHECK: prefill P=2048
+[18:13:24] [selfcheck] greedy drafts=[83, 62320, 28367, 2656] window=[8428, 83, 62320, 28367, 2656] positions=[2047, 2048, 2049, 2050, 2051]
+[18:13:27] [selfcheck] g_eager_sampler(no trace)=[83, 62320, 28367, 78, 2924]  row0 ==host-argmax
+[18:13:30] [selfcheck] g_eager  =[83, 62320, 28367, 78, 2924]
+[18:13:30] [selfcheck] g_traced =[83, 62320, 28367, 78, 2924]
+[18:13:30] [selfcheck] g_traced2(alt anchor 20773)=[98, 62320, 28367, 2656, 2924]  row0 changed
+[18:13:30] [selfcheck] expect g[i]==drafts[i]: drafts=[83, 62320, 28367, 2656]
+[18:13:30] [RESULT] SELFCHECK eager-vs-traced MATCH; eager-vs-drafts MISMATCH
+[18:13:30] [phase] done

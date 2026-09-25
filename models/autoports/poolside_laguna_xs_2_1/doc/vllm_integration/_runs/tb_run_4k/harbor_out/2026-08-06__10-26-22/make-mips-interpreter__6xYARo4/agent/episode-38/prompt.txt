@@ -1,0 +1,41 @@
+Current Terminal Screen:
+>
+>     if (op === 0) {
+>       const funct = instr & 0x3f;
+>       switch (funct) {
+>         case 0x20: this.regs.r[rt] = this.regs.r[rs] + this.regs.r[rt]; break;
+>         case 0x21: this.regs.r[rt] = (this.regs.r[rs] + this.regs.r[rt]) >>> 0; break;
+>         case 0x22: this.regs.r[rt] = (this.regs.r[rs] - this.regs.r[rt]) >>> 0; break;
+>         case 0x24: this.regs.r[rt] = this.regs.r[rs] & this.regs.r[rt]; break;
+>         case 0x25: this.regs.r[rt] = this.regs.r[rs] | this.regs.r[rt]; break;
+>         case 0x27: this.regs.r[rt] = ~(this.regs.r[rs] | this.regs.r[rt]) >>> 0; break;
+>       }
+>       this.regs.pc += 4;
+>       return true;
+>     }
+>
+>     console.log('Unknown opcode ' + op.toString(16));
+>     this.regs.pc += 4;
+>     return true;
+>   }
+>
+>   run(maxInsts = 1000000) {
+>     let count = 0;
+>     while (count < maxInsts) {
+>       if (!this.step()) break;
+>       count++;
+>     }
+>     console.log('Executed', count, 'instructions');
+>   }
+> }
+>
+> async function main() {
+>   const cpu = new CPU(process.argv[2] || '/app/doomgeneric_mips');
+>   cpu.load();
+>   console.log('Starting...');
+>   cpu.run(1000000);
+> }
+>
+> main().catch(e => console.error(e));
+> ENDOFSCRIPT
+root@cac8c5e102f0:/app#

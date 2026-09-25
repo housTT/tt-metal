@@ -1,0 +1,273 @@
+Let me create a simpler, more focused vm.js file:<tool_call>shell<arg_key>cmd">cat > /app/vm.js << 'ENDOFSCRIPT'
+// MIPS ELF Interpreter for Doom
+const fs = require('fs');
+const path = require('path');
+
+// Memory
+class Memory {
+  constructor(size = 32 * 1024 * 1024) {
+    this.data = Buffer.alloc(size);
+  }
+  readU32(a) { return this.data.readUInt32LE(a); }
+  writeU32(a, v) { this.data.writeUInt32LE(v >>> 0, a); }
+  readU8(a) { return this.data[a]; }
+  writeU8(a, v) { this.data[a] = v & 0xff; }
+  readString(a, max = 256) {
+    let s = '';
+    for (let i = 0; i < max; i++) {
+      const b = this.data[a + i];
+      if (b === 0) break;
+      s += String.fromCharCode(b);
+    }
+    return s;
+  }
+}
+
+// Registers
+class Regs {
+  constructor() {
+    this.r = new Array(32).fill(0);
+    this.pc = 0;
+  }
+}
+
+let frameCount = 0;
+const SCREEN_WIDTH = 640;
+const SCREEN_HEIGHT = 400;
+
+// Save BMP file
+function saveBMP(filename, buffer, width, height) {
+  const imgSize = width * height * 4;
+  const fileSize = 54 + imgSize;
+  const out = Buffer.alloc(fileSize);
+  let o = 0;
+  out[o++] = 0x42; out[o++] = 0x4D;
+  out.writeUInt32LE(fileSize, o); o += 4;
+  out.writeUInt16LE(0, o); o += 2;
+  out.writeUInt16LE(0, o); o += 2;
+  out.writeUInt32LE(54, o); o += 4;
+  out.writeUInt32LE(40, o); o += 4;
+  out.writeInt32LE(width, o); o += 4;
+  out.writeInt32LE(-height, o); o += 4;
+  out.writeUInt16LE(1, o); o += 2;
+  out.writeUInt16LE(32, o); o += 2;
+  out.writeUInt32LE(0, o); o += 4;
+  out.writeUInt32LE(imgSize, o); o += 4;
+  out.writeUInt32LE(0, o); o += 4;
+  out.writeUInt32LE(0, o); o += 4;
+  out.writeUInt32LE(0, o); o += 4;
+  out.writeUInt32LE(0, o); o += 4;
+  for (let i = 0; i < width * height; i++) {
+    const s = buffer + i * 4;
+    out[o++] = buffer[s + 2];
+    out[o++] = buffer[s + 1];
+    out[o++] = buffer[s];
+    out[o++] = 255;
+  }
+  const name = `frame_${String(frameCount).padStart(4, '0')}.bmp`;
+  fs.writeFileSync(name, out);
+  console.log('Saved', name);
+  frameCount++;
+}
+
+// Syscall handler
+function handleSyscall(mem, regs) {
+  const num = regs.r[2];
+  const a0 = regs.r[4], a1 = regs.r[5], a2 = regs.r[6], a3 = regs.r[7];
+  
+  switch (num) {
+    case 10: process.exit(0);
+    case 4000:
+      console.log('save_frame');
+      saveBMP('frame.bmp', a1, a2, a3);
+      break;
+    case 4001:
+      console.log('set_buffer', '0x' + a0.toString(16));
+      break;
+  }
+}
+
+// MIPS CPU
+class CPU {
+  constructor(binaryPath) {
+    this.mem = new Memory();
+    this.regs = new Regs();
+    this.binaryPath = binaryPath;
+  }
+  
+  load() {
+    const data = fs.readFileSync(this.binaryPath);
+    console.log('Loaded', data.length, 'bytes');
+    
+    if (data[0] !== 0x7f || data[1] !== 0x45 || data[2] !== 0x4c || data[3] !== 0x46)
+      throw new Error('Not ELF');
+    
+    const entry = data.readUInt32LE(24);
+    const phoff = data.readUInt32LE(28);
+    const phentSize = data.readUInt16LE(42);
+    const phnum = data.readUInt16LE(44);
+    
+    console.log('Entry: 0x' + entry.toString(16));
+    
+    let off = phoff;
+    for (let i = 0; i < phnum; i++) {
+      const type = data.readUInt32LE(off);
+      const vaddr = data.readUInt32LE(off + 8);
+      const foff = data.readUInt32LE(off + 12);
+      const fsize = data.readUInt32LE(off + 16);
+      if (type === 1) {
+        console.log('Loading to 0x' + vaddr.toString(16));
+        this.mem.data.set(data.slice(foff, foff + fsize), vaddr);
+      }
+      off += phentSize;
+    }
+    
+    this.regs.pc = entry;
+  }
+  
+  step() {
+    const instr = this.mem.readU32(this.regs.pc);
+    if (instr === 0) return false;
+    
+    const op = instr >>> 26;
+    const rs = (instr >>> 21) & 31;
+    const rt = (instr >>> 16) & 31;
+    const imm16 = instr & 0xffff;
+    
+    // Syscall
+    if (op === 0 && (instr & 0x3f) === 0x0c) {
+      handleSyscall(this.mem, this.regs);
+      this.regs.pc += 4;
+      return true;
+    }
+    
+    // JAL
+    if (op === 2) {
+      this.regs.r[31] = this.regs.pc + 4;
+      this.regs.pc = (instr & 0x03ffffff) << 2;
+      return true;
+    }
+    
+    // BEQ
+    if (op === 4) {
+      if (this.regs.r[rs] === this.regs.r[rt]) {
+        this.regs.pc += imm16 << 2;
+      } else {
+        this.regs.pc += 4;
+      }
+      return true;
+    }
+    
+    // BNE
+    if (op === 5) {
+      if (this.regs.r[rs] !== this.regs.r[rt]) {
+        this.regs.pc += imm16 << 2;
+      } else {
+        this.regs.pc += 4;
+      }
+      return true;
+    }
+    
+    // SLTI
+    if (op === 10) {
+      this.regs.r[rt] = (this.regs.r[rs] < (imm16 | (imm16 & 0x8000 ? 0x10000 : 0))) ? 1 : 0;
+      this.regs.pc += 4;
+      return true;
+    }
+    
+    // ADDIU
+    if (op === 9) {
+      this.regs.r[rt] = (this.regs.r[rs] + imm16) >>> 0;
+      this.regs.pc += 4;
+      return true;
+    }
+    
+    // LW
+    if (op === 35) {
+      this.regs.r[rt] = this.mem.readU32(this.regs.r[rs] + imm16);
+      this.regs.pc += 4;
+      return true;
+    }
+    
+    // SW
+    if (op === 43) {
+      this.mem.writeU32(this.regs.r[rs] + imm16, this.regs.r[rt]);
+      this.regs.pc += 4;
+      return true;
+    }
+    
+    // LUI
+    if (op === 3) {
+      this.regs.r[rt] = imm16 << 16;
+      this.regs.pc += 4;
+      return true;
+    }
+    
+    // ORI
+    if (op === 13) {
+      this.regs.r[rt] = this.regs.r[rs] | imm16;
+      this.regs.pc += 4;
+      return true;
+    }
+    
+    // ADDIU + branch
+    if (op === 9) {
+      this.regs.r[rt] = (this.regs.r[rs] + imm16) >>> 0;
+      this.regs.pc += 4;
+      return true;
+    }
+    
+    // SPECIAL instructions
+    if (op === 0) {
+      const funct = instr & 0x3f;
+      switch (funct) {
+        case 0x00: this.regs.pc += 4; return true; // SLL
+        case 0x02: this.regs.pc += 4; return true; // SRL
+        case 0x03: this.regs.pc += 4; return true; // SRA
+        case 0x08: this.regs.pc += 4; return true; // JR
+        case 0x09: this.regs.pc += 4; return true; // JALR
+        case 0x0c: break; // SYSCALL handled above
+        case 0x0d: this.regs.pc += 4; return true; // BREAK
+        case 0x20: this.regs.r[rt] = this.regs.r[rs] + this.regs.r[rt]; this.regs.pc += 4; return true; // ADD
+        case 0x21: this.regs.r[rt] = (this.regs.r[rs] + this.regs.r[rt]) >>> 0; this.regs.pc += 4; return true; // ADDU
+        case 0x22: this.regs.r[rt] = (this.regs.r[rs] - this.regs.r[rt]) >>> 0; this.regs.pc += 4; return true; // SUB
+        case 0x24: this.regs.r[rt] = this.regs.r[rs] & this.regs.r[rt]; this.regs.pc += 4; return true; // AND
+        case 0x25: this.regs.r[rt] = this.regs.r[rs] | this.regs.r[rt]; this.regs.pc += 4; return true; // OR
+        case 0x27: this.regs.r[rt] = ~(this.regs.r[rs] | this.regs.r[rt]) >>> 0; this.regs.pc += 4; return true; // NOR
+        case 0x28: this.regs.r[rt] = this.regs.r[rs] < this.regs.r[rt] ? 1 : 0; this.regs.pc += 4; return true; // SLT
+        default:
+          console.log('Unknown SPECIAL ' + funct.toString(16));
+          this.regs.pc += 4;
+          return true;
+      }
+    }
+    
+    console.log('Unknown opcode ' + op.toString(16) + ' at 0x' + this.regs.pc.toString(16));
+    this.regs.pc += 4;
+    return true;
+  }
+  
+  run(maxInsts = 1000000) {
+    let count = 0;
+    while (count < maxInsts) {
+      if (!this.step()) break;
+      count++;
+    }
+    console.log('Executed', count, 'instructions');
+  }
+}
+
+// Main
+async function main() {
+  const binaryPath = process.argv[2] || '/app/doomgeneric_mips';
+  console.log('Loading', binaryPath);
+  
+  const cpu = new CPU(binaryPath);
+  cpu.load();
+  
+  console.log('Starting execution...');
+  cpu.run(1000000);
+}
+
+main().catch(e => console.error(e));
+ENDOFSCRIPT</arg_value><arg_key="duration">2</arg_value></tool_call>

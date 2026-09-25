@@ -1,0 +1,59 @@
+Previous response had warnings:
+WARNINGS: - Extra text detected before JSON object
+
+New Terminal Output:
+
+root@69c175326619:/app# readelf -s doomgeneric_mips 2>/dev/null | grep ScreenBuffer
+  1085: 004b0a40     4 OBJECT  GLOBAL DEFAULT    6 DG_ScreenBuffer
+root@69c175326619:/app# readelf -s doomgeneric_mips 2>/dev/null | grep -i buffer
+    66: 004751d0    20 OBJECT  LOCAL  DEFAULT    6 AM_Responder.buffer
+   162: 0047c5dc   480 OBJECT  LOCAL  DEFAULT    6 w_inputbuffer
+   185: 0047c8e4     4 OBJECT  LOCAL  DEFAULT    6 dest_buffer
+   186: 0047c8e0     4 OBJECT  LOCAL  DEFAULT    6 src_buffer
+   303: 00483b4c     4 OBJECT  LOCAL  DEFAULT    6 background_buffer
+   777: 004b05f4     4 OBJECT  GLOBAL DEFAULT    6 I_VideoBuffer
+   862: 0047bcd0     4 OBJECT  GLOBAL DEFAULT    6 demobuffer
+  1085: 004b0a40     4 OBJECT  GLOBAL DEFAULT    6 DG_ScreenBuffer
+  1628: 004339c0    12 FUNC    GLOBAL DEFAULT    3 V_UseBuffer
+  1762: 00429704   148 FUNC    GLOBAL DEFAULT    3 R_InitBuffer
+  1852: 004339cc    20 FUNC    GLOBAL DEFAULT    3 V_RestoreBuffer
+root@69c175326619:/app# readelf -s doomgeneric_mips 2>/dev/null | grep -i 'dg_' | head -20
+   595: 004395b0    52 FUNC    GLOBAL DEFAULT    3 DG_Init
+   785: 00439848    20 FUNC    GLOBAL DEFAULT    3 DG_GetTicksMs
+   835: 004397bc   140 FUNC    GLOBAL DEFAULT    3 DG_SleepMs
+   861: 0043985c     8 FUNC    GLOBAL DEFAULT    3 DG_GetKey
+  1085: 004b0a40     4 OBJECT  GLOBAL DEFAULT    6 DG_ScreenBuffer
+  1107: 00439864    36 FUNC    GLOBAL DEFAULT    3 DG_SetWindowTitle
+  1314: 004395e4   472 FUNC    GLOBAL DEFAULT    3 DG_DrawFrame
+root@69c175326619:/app# objdump -t doomgeneric_mips 2>/dev/null | grep -i 'screen\|buffer\|dg_' | head -30
+004751d0 l     O .bss   00000014 AM_Responder.buffer
+0047b294 l     O .bss   00000004 D_Display.fullscreen
+0047b290 l     O .bss   00000004 D_Display.inhelpscreensstate
+004668b0 l     O .data  000001b8 textscreens
+00441060 l     O .rodata        00000018 wipe_ScreenWipe.wipes
+0047c5dc l     O .bss   000001e0 w_inputbuffer
+0047c8e4 l     O .bss   00000004 dest_buffer
+0047c8e0 l     O .bss   00000004 src_buffer
+00483b4c l     O .bss   00000004 background_buffer
+004b0428 l     O .bss   00000004 dest_screen
+004aff40 g     O .bss   00000004 st_backing_screen
+004395b0 g     F .text  00000034 DG_Init
+004b0600 g     O .bss   00000004 screenvisible
+004070f8 g     F .text  00000088 wipe_EndScreen
+004b05f4 g     O .bss   00000004 I_VideoBuffer
+00439848 g     F .text  00000014 DG_GetTicksMs
+00472198 g     O .data  00000004 screenblocks
+004397bc g     F .text  0000008c DG_SleepMs
+0043985c g     F .text  00000008 DG_GetKey
+0047bcd0 g     O .bss   00000004 demobuffer
+00429798 g     F .text  00000370 R_FillBackScreen
+004b05f8 g     O .bss   00000004 screensaver_mode
+004b0a40 g     O .bss   00000004 DG_ScreenBuffer
+004ade58 g     O .bss   00000280 screenheightarray
+00439864 g     F .text  00000024 DG_SetWindowTitle
+00433990 g     F .text  00000028 V_DrawRawScreen
+0047c96c g     O .bss   00000004 key_menu_screenshot
+00439558 g     F .text  00000008 I_CheckIsScreensaver
+00472160 g     O .data  00000004 key_menu_decscreen
+004393dc g     F .text  00000024 I_ReadScreen
+root@69c175326619:/app#

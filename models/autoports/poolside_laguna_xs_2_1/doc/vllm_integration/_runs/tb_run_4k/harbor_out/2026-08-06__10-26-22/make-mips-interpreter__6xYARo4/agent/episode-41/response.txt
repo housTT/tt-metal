@@ -1,0 +1,12 @@
+<tool_call>shell<arg_key>cmd">python3 -c \"
+import struct
+with open('/app/doomgeneric_mips', 'rb') as f:
+    d = f.read(100)
+entry = struct.unpack('<I', d[24:28])[0]
+print('Entry:', hex(entry))
+phoff = struct.unpack('<I', d[28:32])[0]
+print('PHOFF:', phoff)
+phent = struct.unpack('<H', d[42:44])[0]
+phnum = struct.unpack('<H', d[44:46])[0]
+print('PENTSIZE:', phent, 'NUM:', phnum)
+\""</arg_value><arg_key>duration">0.1</arg_value></tool_call>

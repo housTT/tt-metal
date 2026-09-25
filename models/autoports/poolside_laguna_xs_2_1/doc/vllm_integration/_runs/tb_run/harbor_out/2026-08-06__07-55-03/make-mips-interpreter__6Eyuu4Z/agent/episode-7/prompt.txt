@@ -1,0 +1,155 @@
+Previous response had warnings:
+WARNINGS: - Extra text detected before JSON object
+
+New Terminal Output:
+
+root@69c175326619:/app# cat doomgeneric/doomgeneric/doomgeneric.h
+#include "my_stdlib.h"
+#ifndef DOOM_GENERIC
+#define DOOM_GENERIC
+
+// remove #include <stdlib.h>
+// remove #include <stdint.h>
+
+#ifndef DOOMGENERIC_RESX
+#define DOOMGENERIC_RESX 640
+#endif  // DOOMGENERIC_RESX
+
+#ifndef DOOMGENERIC_RESY
+#define DOOMGENERIC_RESY 400
+#endif  // DOOMGENERIC_RESY
+
+
+#ifdef CMAP256
+
+typedef uint8_t pixel_t;
+
+#else  // CMAP256
+
+typedef uint32_t pixel_t;
+
+#endif  // CMAP256
+
+
+extern pixel_t* DG_ScreenBuffer;
+
+void doomgeneric_Create(int argc, char **argv);
+void doomgeneric_Tick();
+
+
+//Implement below functions for your platform
+void DG_Init();
+void DG_DrawFrame();
+void DG_SleepMs(uint32_t ms);
+uint32_t DG_GetTicksMs();
+int DG_GetKey(int* pressed, unsigned char* key);
+void DG_SetWindowTitle(const char * title);
+
+#endif //DOOM_GENERIC
+root@69c175326619:/app# cat doomgeneric/doomgeneric/v_video.c | head -100
+#include "my_stdlib.h"
+//
+// Copyright(C) 1993-1996 Id Software, Inc.
+// Copyright(C) 1993-2008 Raven Software
+// Copyright(C) 2005-2014 Simon Howard
+//
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU General Public License
+// as published by the Free Software Foundation; either version 2
+// of the License, or (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+//
+// DESCRIPTION:
+//      Gamma correction LUT stuff.
+//      Functions to draw patches (by post) directly to screen.
+//      Functions to blit a block to the screen.
+//
+
+// remove #include <stdio.h>
+// remove #include <string.h>
+// remove #include <math.h>
+
+#include "i_system.h"
+
+#include "doomtype.h"
+
+#include "deh_str.h"
+#include "i_swap.h"
+#include "i_video.h"
+#include "m_bbox.h"
+#include "m_misc.h"
+#include "v_video.h"
+#include "w_wad.h"
+#include "z_zone.h"
+
+#include "config.h"
+#ifdef HAVE_LIBPNG
+// remove #include <png.h>
+#endif
+
+// TODO: There are separate RANGECHECK defines for different games, but this
+// is common code. Fix this.
+#define RANGECHECK
+
+// Blending table used for fuzzpatch, etc.
+// Only used in Heretic/Hexen
+
+byte *tinttable = NULL;
+
+// villsa [STRIFE] Blending table used for Strife
+byte *xlatab = NULL;
+
+// The screen buffer that the v_video.c code draws to.
+
+static byte *dest_screen = NULL;
+
+int dirtybox[4];
+
+// haleyjd 08/28/10: clipping callback function for patches.
+// This is needed for Chocolate Strife, which clips patches to the screen.
+static vpatchclipfunc_t patchclip_callback = NULL;
+
+//
+// V_MarkRect
+//
+void V_MarkRect(int x, int y, int width, int height)
+{
+    // If we are temporarily using an alternate screen, do not
+    // affect the update box.
+
+    if (dest_screen == I_VideoBuffer)
+    {
+        M_AddToBox (dirtybox, x, y);
+        M_AddToBox (dirtybox, x + width-1, y + height-1);
+    }
+}
+
+
+//
+// V_CopyRect
+//
+void V_CopyRect(int srcx, int srcy, byte *source,
+                int width, int height,
+                int destx, int desty)
+{
+    byte *src;
+    byte *dest;
+
+#ifdef RANGECHECK
+    if (srcx < 0
+     || srcx + width > SCREENWIDTH
+     || srcy < 0
+     || srcy + height > SCREENHEIGHT
+     || destx < 0
+     || destx + width > SCREENWIDTH
+     || desty < 0
+root@69c175326619:/app# find doomgeneric -name '*mips*' -o -name '*syscall*' -o -name '*systype*' 2>/dev/null
+doomgeneric/doomgeneric/doomgeneric_mips.map
+doomgeneric/doomgeneric/doomgeneric_mips
+root@69c175326619:/app# hexdump -C doomgeneric_mips | head -30
+bash: hexdump: command not found
+root@69c175326619:/app#

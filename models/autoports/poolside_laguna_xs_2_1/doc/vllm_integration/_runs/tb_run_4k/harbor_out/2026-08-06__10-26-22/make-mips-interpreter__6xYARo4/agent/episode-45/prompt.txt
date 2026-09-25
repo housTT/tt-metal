@@ -1,0 +1,41 @@
+Current Terminal Screen:
+>     let count = 0;
+>     while (count < maxInsts) {
+>       if (!this.step()) break;
+>       count++;
+>     }
+>     console.log('Executed', count, 'instructions');
+>   }
+> }
+>
+> async function main() {
+>   const cpu = new CPU(process.argv[2] || '/app/doomgeneric_mips');
+>   cpu.load();
+>   console.log('Starting...');
+>   cpu.run(1000000);
+> }
+>
+> main().catch(e => console.error(e));
+> ENDOFSCRIPT
+root@cac8c5e102f0:/app# cd /app && timeout 5 node vm.js 2>&1 | head -100
+Loaded 1543608 bytes
+Entry: 0x400110
+Loading to 0x400000
+Loading to 0x466520
+Starting...
+Executed 0 instructions
+root@cac8c5e102f0:/app# node -e "console.log('test')"
+test
+root@cac8c5e102f0:/app# node -e "
+> const fs = require('fs');
+> const d = fs.readFileSync('/app/doomgeneric_mips');
+> console.log('Entry:', '0x' + d.readUInt32LE(24).toString(16));
+> console.log('PHOFF:', d.readUInt32LE(28));
+> console.log('PENTSIZE:', d.readUInt16LE(42));
+> console.log('NUM:', d.readUInt16LE(44));
+> "
+Entry: 0x400110
+PHOFF: 52
+PENTSIZE: 32
+NUM: 5
+root@cac8c5e102f0:/app#

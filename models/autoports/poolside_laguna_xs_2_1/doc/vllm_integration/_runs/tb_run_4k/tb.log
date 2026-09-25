@@ -1,0 +1,40 @@
+[14:26:21Z] === TB2 rerun: 4k per-step output cap (OUTCAP=4096), n-tasks 6, n-concurrent 1, cap 4500s ===
+[14:26:21Z] server ALREADY UP on :8000 — reusing (no reboot)
+[14:26:21Z] >>> smoke chat completion
+{"id":"chatcmpl-96c96c3699c5b462","object":"chat.completion","created":1786026381,"model":"poolside/Laguna-XS-2.1","choices":[{"index":0,"message":{"role":"assistant","content":null,"refusal":null,"annotations":null,"audio":null,"function_call":null,"tool_calls":[],"reasoning":"ready"},"logprobs":null,"finish_reason":"stop","stop_reason":24,"token_ids":null}],"service_tier":null,"system_fingerprint":null,"usage":{"prompt_tokens":50,"total_tokens":52,"completion_tokens":2,"prompt_tokens_details":null},"prompt_logprobs":null,"prompt_token_ids":null,"kv_transfer_params":null}
+[14:26:22Z] >>> Terminal-Bench terminus-2 launching (harbor TUI -> /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/doc/vllm_integration/_runs/tb_run_4k/harbor_raw.log; live status below)
+
+Shutting down server (PID 347393)...
+  Terminated cleanly.
+
+=== Server log tail (/home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/readiness_vllm/server.log, last 30 lines) ===
+ - leaked instance 0x76f0e0e5fc48 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x35b80ba0 of type "ttnn._ttnn.operations.unary.sigmoid_accurate_t"
+ - leaked instance 0x76f0e0e5fd08 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - ... skipped remainder
+nanobind: leaked 922 types!
+ - leaked type "SocketEndpoint"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.gt__t"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.SliceDeviceOperation"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "ttnn._ttnn.operations.binary.lt__t"
+ - leaked type "ttnn._ttnn.operations.binary_backward.xlogy_bw_t"
+ - leaked type "ttnn._ttnn.operations.experimental.insert_t"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.isclose_t"
+ - leaked type "ttnn._ttnn.operations.reduction.var_t"
+ - leaked type "DispatchCoreAxis"
+ - ... skipped remainder
+nanobind: leaked 4252 functions!
+ - leaked function "__call__"
+ - leaked function ""
+ - leaked function "__call__"
+ - leaked function "__call__"
+ - leaked function "_find_expected_dram_grid"
+ - leaked function ""
+ - leaked function ""
+ - leaked function "__call__"
+ - leaked function ""
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html

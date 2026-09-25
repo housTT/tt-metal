@@ -1,0 +1,44 @@
+Previous response had warnings:
+WARNINGS: - Extra text detected before JSON object
+
+Current Terminal Screen:
+            ret = sys_close(fd);
+            break;
+        }
+        case SYS_lseek: {
+            int fd = va_arg(args, int);
+            off_t offset = va_arg(args, off_t);
+            int whence = va_arg(args, int);
+            ret = sys_lseek(fd, offset, whence);
+            break;
+        }
+        case SYS_fsync: {
+            int fd = va_arg(args, int);
+            ret = sys_fsync(fd);
+            break;
+        }
+        case SYS_rename: {
+            const char* oldpath = va_arg(args, const char*);
+            const char* newpath = va_arg(args, const char*);
+            ret = sys_rename(oldpath, newpath);
+            break;
+        }
+        case SYS_mkdir: {
+            const char* pathname = va_arg(args, const char*);
+            mode_t mode = va_arg(args, mode_t);
+            ret = sys_mkdir(pathname, mode);
+            break;
+        }
+        case SYS_unlink: {
+            const char* pathname = va_arg(args, const char*);
+            ret = sys_unlink(pathname);
+            break;
+        }
+        default:
+            ret = -EINVAL; // Invalid system call
+    }
+
+    va_end(args);
+    return ret;
+}
+root@69c175326619:/app#

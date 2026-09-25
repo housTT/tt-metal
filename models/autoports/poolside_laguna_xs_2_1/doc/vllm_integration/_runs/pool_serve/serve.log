@@ -1,0 +1,45 @@
+[15:55:36Z] === boot Laguna serve (poolside_v1 tool+reasoning parsers) — PERSISTENT for pool ===
+Launching vLLM server for poolside/Laguna-XS-2.1 on P150x4
+  cmd: /home/ttuser/.tenstorrent-venv/bin/python -m vllm.entrypoints.openai.api_server --model poolside/Laguna-XS-2.1 --block_size 64 --max_num_seqs 8 --port 8000 --max_model_len 131072 --additional-config '{"tt": {"sample_on_device_mode": "all", "trace_region_size": 1500000000, "fabric_config": "FABRIC_1D_RING", "env_passthrough": ["VLLM_*", "MESH_DEVICE", "TT_LAGUNA_*", "TT_METAL_*", "PYTHONPATH"]}}' --trust-remote-code --max-num-batched-tokens 131072 --enable-prefix-caching --enable-auto-tool-choice --tool-call-parser poolside_v1 --reasoning-parser poolside_v1
+  log: /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/readiness_vllm/server.log
+Waiting up to 1200s for server to become ready...
+[16:05:31Z] SERVER HEALTHY ~595s — up at http://localhost:8000/v1 (model poolside/Laguna-XS-2.1)
+  Server ready after ~600s
+
+Server ready at http://localhost:8000
+Server is running. Press Ctrl-C (or send SIGTERM) to stop.
+
+Shutting down server (PID 402716)...
+  Terminated cleanly.
+
+=== Server log tail (/home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/readiness_vllm/server.log, last 30 lines) ===
+ - leaked instance 0x98c67f0 of type "ttnn._ttnn.operations.unary.log_t"
+ - leaked instance 0x7f56aed7ae38 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x98eceb0 of type "ttnn._ttnn.operations.unary.bitcast_t"
+ - ... skipped remainder
+nanobind: leaked 922 types!
+ - leaked type "SocketEndpoint"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.gt__t"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.SliceDeviceOperation"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "ttnn._ttnn.operations.binary.lt__t"
+ - leaked type "ttnn._ttnn.operations.binary_backward.xlogy_bw_t"
+ - leaked type "ttnn._ttnn.operations.experimental.insert_t"
+ - leaked type "ttnn._ttnn.operations.experimental.quasar.isclose_t"
+ - leaked type "ttnn._ttnn.operations.reduction.var_t"
+ - leaked type "DispatchCoreAxis"
+ - ... skipped remainder
+nanobind: leaked 4252 functions!
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "__repr__"
+ - leaked function ""
+ - leaked function ""
+ - leaked function "__repr__"
+ - leaked function "__call__"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html

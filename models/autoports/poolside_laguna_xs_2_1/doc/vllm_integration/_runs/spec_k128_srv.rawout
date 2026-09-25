@@ -1,0 +1,48 @@
+==================================================================
+RUN=spec_k128_srv   started (full stdout+stderr stream — nothing filtered)
+CMD: /home/ttuser/.tenstorrent-venv/bin/python -u -m models.common.readiness_check.run_vllm_server --model-dir /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1 --hf-model poolside/Laguna-XS-2.1 --mesh-device P150x4 --stages serve --max-num-seqs 1 --block-size 64 --max-model-len 131072 --tt-config {"trace_region_size": 1500000000, "fabric_config": "FABRIC_1D_RING", "env_passthrough": ["VLLM_*", "MESH_DEVICE", "TT_LAGUNA_*", "TT_METAL_*", "PYTHONPATH"]} --additional-server-args=--trust-remote-code --max-num-batched-tokens 131072 --enable-prefix-caching
+tail:  tail -f ~/tail.log   (permanent — survives every run, no need to re-tail)
+==================================================================
+[23:09:52] Launching vLLM server for poolside/Laguna-XS-2.1 on P150x4
+[23:09:52]   cmd: /home/ttuser/.tenstorrent-venv/bin/python -m vllm.entrypoints.openai.api_server --model poolside/Laguna-XS-2.1 --block_size 64 --max_num_seqs 1 --port 8000 --max_model_len 131072 --additional-config '{"tt": {"sample_on_device_mode": "all", "trace_region_size": 1500000000, "fabric_config": "FABRIC_1D_RING", "env_passthrough": ["VLLM_*", "MESH_DEVICE", "TT_LAGUNA_*", "TT_METAL_*", "PYTHONPATH"]}}' --trust-remote-code --max-num-batched-tokens 131072 --enable-prefix-caching
+[23:09:52]   log: /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/readiness_vllm/server.log
+[23:09:52] Waiting up to 1200s for server to become ready...
+[23:09:52]   Server ready after ~600s
+[23:09:52] 
+[23:09:52] Server ready at http://localhost:8000
+[23:09:52] Server is running. Press Ctrl-C (or send SIGTERM) to stop.
+[23:09:52] 
+[23:09:52] Shutting down server (PID 203028)...
+[23:09:52]   Terminated cleanly.
+[23:09:52] 
+[23:09:52] === Server log tail (/home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/readiness_vllm/server.log, last 30 lines) ===
+[23:09:52]  - leaked instance 0x2f411cd0 of type "ttnn._ttnn.operations.unary.hardmish_t"
+[23:09:52]  - leaked instance 0x7cc5103dada8 of type "ttnn._ttnn.tensor.CoreRangeSet"
+[23:09:52]  - leaked instance 0x2f448a00 of type "ttnn._ttnn.operations.unary.gelu_t"
+[23:09:52]  - ... skipped remainder
+[23:09:52] nanobind: leaked 922 types!
+[23:09:52]  - leaked type "SocketEndpoint"
+[23:09:52]  - leaked type "ttnn._ttnn.operations.experimental.quasar.gt__t"
+[23:09:52]  - leaked type "ttnn._ttnn.operations.experimental.quasar.SliceDeviceOperation"
+[23:09:52]  - leaked type "ttnn._ttnn.operations.experimental.quasar.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+[23:09:52]  - leaked type "ttnn._ttnn.operations.binary.lt__t"
+[23:09:52]  - leaked type "ttnn._ttnn.operations.binary_backward.xlogy_bw_t"
+[23:09:52]  - leaked type "ttnn._ttnn.operations.experimental.insert_t"
+[23:09:52]  - leaked type "ttnn._ttnn.operations.experimental.quasar.isclose_t"
+[23:09:52]  - leaked type "ttnn._ttnn.operations.reduction.var_t"
+[23:09:52]  - leaked type "DispatchCoreAxis"
+[23:09:52]  - ... skipped remainder
+[23:09:52] nanobind: leaked 4252 functions!
+[23:09:52]  - leaked function "__call__"
+[23:09:52]  - leaked function "__getitem__"
+[23:09:52]  - leaked function ""
+[23:09:52]  - leaked function ""
+[23:09:52]  - leaked function ""
+[23:09:52]  - leaked function ""
+[23:09:52]  - leaked function ""
+[23:09:52]  - leaked function ""
+[23:09:52]  - leaked function "__repr__"
+[23:09:52]  - leaked function "__call__"
+[23:09:52]  - ... skipped remainder
+[23:09:52] nanobind: this is likely caused by a reference counting issue in the binding code.
+[23:09:52] See https://nanobind.readthedocs.io/en/latest/refleaks.html

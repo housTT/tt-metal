@@ -1,0 +1,54 @@
+==================================================================
+RUN=spec_k64_sweep_srv   started (full stdout+stderr stream — nothing filtered)
+CMD: /home/ttuser/.tenstorrent-venv/bin/python -u -m models.common.readiness_check.run_vllm_server --model-dir /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1 --hf-model poolside/Laguna-XS-2.1 --mesh-device P150x4 --stages serve --max-num-seqs 1 --block-size 64 --max-model-len 131072 --tt-config {"trace_region_size": 1500000000, "fabric_config": "FABRIC_1D_RING", "env_passthrough": ["VLLM_*", "MESH_DEVICE", "TT_LAGUNA_*", "TT_METAL_*", "PYTHONPATH"]} --additional-server-args=--trust-remote-code --max-num-batched-tokens 131072 --enable-prefix-caching
+tail:  tail -f ~/tail.log   (permanent — survives every run, no need to re-tail)
+==================================================================
+[00:51:00] Launching vLLM server for poolside/Laguna-XS-2.1 on P150x4
+[00:51:00]   cmd: /home/ttuser/.tenstorrent-venv/bin/python -m vllm.entrypoints.openai.api_server --model poolside/Laguna-XS-2.1 --block_size 64 --max_num_seqs 1 --port 8000 --max_model_len 131072 --additional-config '{"tt": {"sample_on_device_mode": "all", "trace_region_size": 1500000000, "fabric_config": "FABRIC_1D_RING", "env_passthrough": ["VLLM_*", "MESH_DEVICE", "TT_LAGUNA_*", "TT_METAL_*", "PYTHONPATH"]}}' --trust-remote-code --max-num-batched-tokens 131072 --enable-prefix-caching
+[00:51:00]   log: /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/readiness_vllm/server.log
+[00:51:00] Waiting up to 1200s for server to become ready...
+[00:51:00] 
+[00:51:00] Shutting down server (PID 225310)...
+[00:51:00]   Did not exit after SIGTERM; sending SIGKILL.
+[00:51:00] 
+[00:51:00] === Server log tail (/home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/readiness_vllm/server.log, last 30 lines) ===
+[00:51:00]  --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7883c502a1ca]
+[00:51:00]  --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7883c502a28b]
+[00:51:00]  --- VLLM::EngineCore(_start+0x25) [0x657bc5]
+[00:51:00] 
+[00:51:00] [tt-quietbox:225398] *** Process received signal ***
+[00:51:00] [tt-quietbox:225398] Signal: Aborted (6)
+[00:51:00] [tt-quietbox:225398] Signal code:  (-6)
+[00:51:00] [tt-quietbox:225398] [ 0] /lib/x86_64-linux-gnu/libc.so.6(+0x45330)[0x7883c5045330]
+[00:51:00] [tt-quietbox:225398] [ 1] /lib/x86_64-linux-gnu/libc.so.6(pthread_kill+0x11c)[0x7883c509ec0c]
+[00:51:00] [tt-quietbox:225398] [ 2] /lib/x86_64-linux-gnu/libc.so.6(gsignal+0x1e)[0x7883c504527e]
+[00:51:00] [tt-quietbox:225398] [ 3] /lib/x86_64-linux-gnu/libc.so.6(abort+0xdf)[0x7883c50288ff]
+[00:51:00] [tt-quietbox:225398] [ 4] /lib/x86_64-linux-gnu/libstdc++.so.6(+0xac2b5)[0x7883ad6ac2b5]
+[00:51:00] [tt-quietbox:225398] [ 5] /lib/x86_64-linux-gnu/libstdc++.so.6(+0xc31ea)[0x7883ad6c31ea]
+[00:51:00] [tt-quietbox:225398] [ 6] /lib/x86_64-linux-gnu/libstdc++.so.6(_ZSt10unexpectedv+0x0)[0x7883ad6abcac]
+[00:51:00] [tt-quietbox:225398] [ 7] /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0x67b84b)[0x78836de7b84b]
+[00:51:00] [tt-quietbox:225398] [ 8] /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(+0xa919b7)[0x78836e2919b7]
+[00:51:00] [tt-quietbox:225398] [ 9] /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(_ZN2tt8tt_metal12MetalContext16destroy_instanceEbN4ttsl10StrongTypeIiNS0_12ContextIdTagEEE+0x86)[0x78836e290fd6]
+[00:51:00] [tt-quietbox:225398] [10] /home/ttuser/.local/lib/model-bringup/tt-metal/build_Release/tt_metal/libtt_metal.so(_ZN2tt8tt_metal12MetalContext21destroy_all_instancesEb+0xa)[0x78836e2910aa]
+[00:51:00] [tt-quietbox:225398] [11] /lib/x86_64-linux-gnu/libc.so.6(+0x47a76)[0x7883c5047a76]
+[00:51:00] [tt-quietbox:225398] [12] /lib/x86_64-linux-gnu/libc.so.6(+0x47bbe)[0x7883c5047bbe]
+[00:51:00] [tt-quietbox:225398] [13] VLLM::EngineCore[0x6b1f52]
+[00:51:00] [tt-quietbox:225398] [14] VLLM::EngineCore[0x6b538d]
+[00:51:00] [tt-quietbox:225398] [15] VLLM::EngineCore[0x6b51fc]
+[00:51:00] [tt-quietbox:225398] [16] VLLM::EngineCore(PyRun_SimpleStringFlags+0x6a)[0x6b406a]
+[00:51:00] [tt-quietbox:225398] [17] VLLM::EngineCore(Py_RunMain+0x481)[0x6bcd01]
+[00:51:00] [tt-quietbox:225398] [18] VLLM::EngineCore(Py_BytesMain+0x2d)[0x6bc71d]
+[00:51:00] [tt-quietbox:225398] [19] /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca)[0x7883c502a1ca]
+[00:51:00] [tt-quietbox:225398] [20] /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b)[0x7883c502a28b]
+[00:51:00] [tt-quietbox:225398] [21] VLLM::EngineCore(_start+0x25)[0x657bc5]
+[00:51:00] [tt-quietbox:225398] *** End of error message ***
+[00:51:00] Traceback (most recent call last):
+[00:51:00]   File "<frozen runpy>", line 198, in _run_module_as_main
+[00:51:00]   File "<frozen runpy>", line 88, in _run_code
+[00:51:00]   File "/home/ttuser/dev/tt-metal/models/common/readiness_check/run_vllm_server.py", line 1078, in <module>
+[00:51:00]     _main()
+[00:51:00]   File "/home/ttuser/dev/tt-metal/models/common/readiness_check/run_vllm_server.py", line 977, in _main
+[00:51:00]     _wait_for_server(
+[00:51:00]   File "/home/ttuser/dev/tt-metal/models/common/readiness_check/run_vllm_server.py", line 305, in _wait_for_server
+[00:51:00]     raise RuntimeError(f"Fatal marker {fatal!r} found in {log_file}. Server cannot start.")
+[00:51:00] RuntimeError: Fatal marker 'EngineCore failed to start' found in /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/readiness_vllm/server.log. Server cannot start.

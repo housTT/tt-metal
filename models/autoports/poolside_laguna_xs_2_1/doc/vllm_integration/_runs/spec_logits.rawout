@@ -1,0 +1,53 @@
+==================================================================
+RUN=spec_logits   started (full stdout+stderr stream — nothing filtered)
+CMD: /home/ttuser/.tenstorrent-venv/bin/python -u -m models.common.readiness_check.run_vllm_server --model-dir /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1 --hf-model poolside/Laguna-XS-2.1 --mesh-device P150x4 --stages serve --max-num-seqs 1 --block-size 64 --max-model-len 131072 --tt-config {"trace_region_size": 1500000000, "fabric_config": "FABRIC_1D_RING", "env_passthrough": ["VLLM_*", "MESH_DEVICE", "TT_LAGUNA_*", "TT_METAL_*", "PYTHONPATH"]} --additional-server-args=--trust-remote-code --max-num-batched-tokens 131072 --enable-prefix-caching
+tail:  tail -f ~/tail.log   (permanent — survives every run, no need to re-tail)
+==================================================================
+[17:07:08] Launching vLLM server for poolside/Laguna-XS-2.1 on P150x4
+[17:07:08]   cmd: /home/ttuser/.tenstorrent-venv/bin/python -m vllm.entrypoints.openai.api_server --model poolside/Laguna-XS-2.1 --block_size 64 --max_num_seqs 1 --port 8000 --max_model_len 131072 --additional-config '{"tt": {"sample_on_device_mode": "all", "trace_region_size": 1500000000, "fabric_config": "FABRIC_1D_RING", "env_passthrough": ["VLLM_*", "MESH_DEVICE", "TT_LAGUNA_*", "TT_METAL_*", "PYTHONPATH"]}}' --trust-remote-code --max-num-batched-tokens 131072 --enable-prefix-caching
+[17:07:08]   log: /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/readiness_vllm/server.log
+[17:07:08] Waiting up to 1200s for server to become ready...
+[17:07:08] 
+[17:07:08] Server launcher already exited (code 1).
+[17:07:08] 
+[17:07:08] === Server log tail (/home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/readiness_vllm/server.log, last 30 lines) ===
+[17:07:08] (APIServer pid=43547)     raise RuntimeError(
+[17:07:08] (APIServer pid=43547) RuntimeError: Engine core initialization failed. See root cause above. Failed core proc(s): {}
+[17:07:08] nanobind: leaked 1 instances!
+[17:07:08]  - leaked instance 0x75f097feea18 of type "ttnn._ttnn.tensor.CoreRangeSet"
+[17:07:08] nanobind: leaked 20 types!
+[17:07:08]  - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+[17:07:08]  - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+[17:07:08]  - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+[17:07:08]  - leaked type "BufferType"
+[17:07:08]  - leaked type "UnaryOpType"
+[17:07:08]  - leaked type "Layout"
+[17:07:08]  - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+[17:07:08]  - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+[17:07:08]  - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+[17:07:08]  - leaked type "DataType"
+[17:07:08]  - ... skipped remainder
+[17:07:08] nanobind: leaked 247 functions!
+[17:07:08]  - leaked function "worker_core_from_logical_core"
+[17:07:08]  - leaked function ""
+[17:07:08]  - leaked function ""
+[17:07:08]  - leaked function ""
+[17:07:08]  - leaked function "is_per_core_allocated"
+[17:07:08]  - leaked function "get_fabric_node_id"
+[17:07:08]  - leaked function "sfpu_inf"
+[17:07:08]  - leaked function ""
+[17:07:08]  - leaked function ""
+[17:07:08]  - leaked function "logical_volume"
+[17:07:08]  - ... skipped remainder
+[17:07:08] nanobind: this is likely caused by a reference counting issue in the binding code.
+[17:07:08] See https://nanobind.readthedocs.io/en/latest/refleaks.html
+[17:07:08] Traceback (most recent call last):
+[17:07:08]   File "<frozen runpy>", line 198, in _run_module_as_main
+[17:07:08]   File "<frozen runpy>", line 88, in _run_code
+[17:07:08]   File "/home/ttuser/dev/tt-metal/models/common/readiness_check/run_vllm_server.py", line 1078, in <module>
+[17:07:08]     _main()
+[17:07:08]   File "/home/ttuser/dev/tt-metal/models/common/readiness_check/run_vllm_server.py", line 977, in _main
+[17:07:08]     _wait_for_server(
+[17:07:08]   File "/home/ttuser/dev/tt-metal/models/common/readiness_check/run_vllm_server.py", line 299, in _wait_for_server
+[17:07:08]     raise RuntimeError(
+[17:07:08] RuntimeError: Server launcher exited with code 1 before becoming ready. Inspect /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/readiness_vllm/server.log.

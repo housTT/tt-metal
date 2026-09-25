@@ -1,0 +1,35 @@
+diff --git a/astropy/table/table.py b/astropy/table/table.py
+index 5afe2127a..0af3052b7 100644
+--- a/astropy/table/table.py
++++ b/astropy/table/table.py
+@@ -1243,6 +1243,14 @@ class Table:
+         # mixin class
+         if (not isinstance(data, Column) and not data_is_mixin
+                 and isinstance(data, np.ndarray) and len(data.dtype) > 1):
++            warnings.warn(
++                "Adding a structured ndarray to a Table is deprecated. "
++                "In the future, structured arrays will be added as Column objects. "
++                "To opt-in to the future behavior and silence this warning, "
++                "wrap the structured array in a Column object.",
++                FutureWarning,
++                stacklevel=3
++            )
+             data = data.view(NdarrayMixin)
+             data_is_mixin = True
+ 
+diff --git a/CHANGES.rst b/CHANGES.rst
+index 1e96ad317..764663e8f 100644
+--- a/CHANGES.rst
++++ b/CHANGES.rst
+@@ -19,6 +19,11 @@ astropy.utils
+ Other Changes and Additions
+ ---------------------------
+ 
++- Added a ``FutureWarning`` when adding a structured ndarray to a Table. In a
++  future version, structured arrays will be added as ``Column`` objects instead
++  of being viewed as ``NdarrayMixin``. To opt-in to the future behavior, wrap
++  the structured array in a ``Column`` object. [#12644]
++
+ - Updated bundled WCSLIB to version 7.9 with several bugfixes and added
+   support for time coordinate axes in ``wcsset()`` and ``wcssub()``. The
+   four-digit type code for the time axis will have the first digit set to 4,

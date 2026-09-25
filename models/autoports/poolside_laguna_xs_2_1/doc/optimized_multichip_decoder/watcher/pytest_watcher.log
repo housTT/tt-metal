@@ -1,0 +1,58 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.3, pluggy-1.6.0
+rootdir: /home/ttuser/dev/tt-metal
+configfile: pytest.ini
+plugins: anyio-4.13.0
+collected 65 items / 50 deselected / 15 selected
+
+../home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/tests/test_multichip_decoder.py . [  6%]
+..............                                                           [100%]
+
+=============================== warnings summary ===============================
+../home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434
+  /home/ttuser/.tenstorrent-venv/lib/python3.12/site-packages/_pytest/config/__init__.py:1434: PytestConfigWarning: Unknown config option: timeout
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================ 15 passed, 50 deselected, 1 warning in 37.23s =================
+nanobind: leaked 2 instances!
+ - leaked instance 0x7d14e1fec348 of type "ttnn._ttnn.tensor.MemoryConfig"
+ - leaked instance 0x7d14e2083288 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 20 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - ... skipped remainder
+nanobind: leaked 247 functions!
+ - leaked function "get_layout"
+ - leaked function ""
+ - leaked function ""
+ - leaked function "pop_current_command_queue_id_for_thread"
+ - leaked function ""
+ - leaked function "is_per_core_allocated"
+ - leaked function ""
+ - leaked function ""
+ - leaked function "get_tile"
+ - leaked function "compute_with_storage_grid_size"
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-07-22 22:56:25.965 | info     |    BuildKernels | JIT cache stats: 611/649 hits (94.1%) [611 cached, 569 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-07-22 22:56:25.965 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-07-22 22:56:25.967 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:602)
+2026-07-22 22:56:25.967 | info     |       LLRuntime | Watcher detached device 0 (watcher_server.cpp:188)
+2026-07-22 22:56:25.967 | info     |       LLRuntime | Watcher detached device 1 (watcher_server.cpp:188)
+2026-07-22 22:56:25.967 | info     |       LLRuntime | Watcher detached device 2 (watcher_server.cpp:188)
+2026-07-22 22:56:25.967 | info     |       LLRuntime | Watcher detached device 3 (watcher_server.cpp:188)
+2026-07-22 22:56:25.981 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:513)
+2026-07-22 22:56:25.981 | info     |             UMD | Closing devices in cluster (cluster.cpp:1037)
+2026-07-22 22:56:26.399 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1046)
+2026-07-22 22:56:26.399 | info     |             UMD | Cluster destructor started. (cluster.cpp:754)
+2026-07-22 22:56:26.399 | info     |             UMD | Cluster destructor completed. (cluster.cpp:757)

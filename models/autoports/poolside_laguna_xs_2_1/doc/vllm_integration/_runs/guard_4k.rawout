@@ -1,0 +1,171 @@
+==================================================================
+RUN=guard_4k   started (full stdout+stderr stream — nothing filtered)
+CMD: /home/ttuser/.tenstorrent-venv/bin/python -u -m models.autoports.poolside_laguna_xs_2_1.doc.vllm_integration.scripts.spec_decode_driver --mode latency --verify-mode decode --traced --adaptive --draft-len 4 --k-min 1 --k-max 4 --guard --guard-off 0.5 --guard-on 1.0 --guard-window 8 --guard-probe 16 --isl 4096 --osl 64 --ngram-max-n 10 --prompt-mode code --baseline --log /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/doc/vllm_integration/spec_decode_accept/guard_4k.log
+tail:  tail -f ~/tail.log
+==================================================================
+2026-08-03 19:54:30.848 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+[19:54:30] === spec_decode_driver mode=latency isl=4096 osl=64 K=4 ===
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[transformers] Unrecognized keys in `rope_parameters` for 'rope_type'='default': {'full_attention', 'sliding_attention'}
+2026-08-03 19:54:32.736 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:228)
+2026-08-03 19:54:32.736 | info     |             UMD | Cluster constructor started. (cluster.cpp:348)
+2026-08-03 19:54:32.736 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:95)
+2026-08-03 19:54:32.736 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:114)
+2026-08-03 19:54:32.748 | info     |             UMD | Established firmware bundle version: 19.11.0 (topology_discovery.cpp:574)
+2026-08-03 19:54:32.749 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:118)
+2026-08-03 19:54:32.831 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:168)
+2026-08-03 19:54:32.831 | info     |             UMD | IOMMU: enabled (cluster.cpp:142)
+2026-08-03 19:54:32.831 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:145)
+2026-08-03 19:54:32.831 | info     |             UMD | Cluster constructor completed. (cluster.cpp:520)
+2026-08-03 19:54:32.833 | info     |             UMD | Starting devices in cluster (cluster.cpp:1024)
+2026-08-03 19:54:32.836 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1032)
+2026-08-03 19:54:32.965 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:408)
+2026-08-03 19:54:32.965 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:470)
+2026-08-03 19:54:32.965 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-03 19:54:32.965 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-03 19:54:32.965 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-03 19:54:32.965 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-03 19:54:32.965 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=1 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-03 19:54:32.965 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-03 19:54:32.965 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=2 (bus_id=0x3) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-03 19:54:32.965 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=3 (bus_id=0x4) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:89)
+2026-08-03 19:54:32.965 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2342)
+2026-08-03 19:54:32.965 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {2:4} (topology_mapper_utils.cpp:2350)
+2026-08-03 19:54:32.993 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-03 19:54:32.994 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-03 19:54:32.995 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-03 19:54:32.996 | info     |    BuildKernels | Using pre-compiled firmware from: /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/pre-compiled/5822202293905037534/ (build_env_manager.cpp:347)
+2026-08-03 19:54:33.039 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:106)
+2026-08-03 19:54:33.039 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:106)
+2026-08-03 19:54:33.039 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:106)
+2026-08-03 19:54:33.039 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:106)
+2026-08-03 19:54:33.040 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:106)
+2026-08-03 19:54:33.040 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:106)
+2026-08-03 19:54:33.040 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:106)
+2026-08-03 19:54:33.040 | warning  |           Metal | Unable to set process priority to 0, error code: -1 (thread_pool.cpp:106)
+2026-08-03 19:54:33.040 | info     |           Metal | Initializing Fabric (fabric_firmware_initializer.cpp:296)
+2026-08-03 19:54:33.067 | info     |           Metal | Fabric initialized on Device 0 (device.cpp:431)
+2026-08-03 19:54:33.069 | info     |           Metal | Fabric initialized on Device 1 (device.cpp:431)
+2026-08-03 19:54:33.071 | info     |           Metal | Fabric initialized on Device 2 (device.cpp:431)
+2026-08-03 19:54:33.072 | info     |           Metal | Fabric initialized on Device 3 (device.cpp:431)
+2026-08-03 19:54:33.072 | info     |           Metal | Fabric initialized on 4 devices (fabric_firmware_initializer.cpp:444)
+2026-08-03 19:54:33.072 | info     |           Metal | Fabric Initialized with config FabricConfig::FABRIC_1D_RING (fabric_firmware_initializer.cpp:313)
+2026-08-03 19:54:33.122 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226368_memory' (shm_resource_tracker.cpp:282)
+2026-08-03 19:54:33.122 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680226369_memory' (shm_resource_tracker.cpp:282)
+2026-08-03 19:54:33.122 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680227712_memory' (shm_resource_tracker.cpp:282)
+2026-08-03 19:54:33.122 | info     |           Metal | ShmResourceTracker: removed orphaned shm '/tt_device_154095680227713_memory' (shm_resource_tracker.cpp:282)
+2026-08-03 19:54:33.703 | info     |           Metal | [Real-time profiler] Device 1 sync complete: 100 samples, frequency=1.349992 GHz, device_time_at_sync=2320787530560 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-03 19:54:33.703 | info     |           Metal | [Real-time profiler] Device 0 sync complete: 100 samples, frequency=1.349994 GHz, device_time_at_sync=2320503346113 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-03 19:54:33.703 | info     |           Metal | [Real-time profiler] Device 3 sync complete: 100 samples, frequency=1.349993 GHz, device_time_at_sync=2320824039807 cycles (realtime_profiler_manager.cpp:1127)
+2026-08-03 19:54:33.704 | info     |           Metal | [Real-time profiler] Device 2 sync complete: 100 samples, frequency=1.349994 GHz, device_time_at_sync=2321165759584 cycles (realtime_profiler_manager.cpp:1127)
+[transformers] Unrecognized keys in `rope_parameters` for 'rope_type'='default': {'full_attention', 'sliding_attention'}
+[19:54:33] [phase] build model layers=full max_model_len=8192
+[transformers] Unrecognized keys in `rope_parameters` for 'rope_type'='default': {'full_attention', 'sliding_attention'}
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 26317.20it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 33058.55it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 159025.74it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 23125.04it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 254200.24it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 27776.85it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 81049.35it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 44501.90it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 32864.28it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 237974.70it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 60458.44it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 37241.32it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 85816.96it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 53008.58it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 34988.98it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 189573.06it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 35544.95it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 96144.50it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 26672.84it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 38216.89it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 256140.70it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 18406.16it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 63550.06it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 28315.98it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 38701.77it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 26800.66it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 33825.03it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 82646.38it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 29826.16it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 17041.36it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 138654.68it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 29879.28it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 266305.02it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 26317.20it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 34485.54it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 72005.22it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 28315.98it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 68618.47it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 73103.34it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 52103.16it/s]
+Fetching 8 files:   0%|          | 0/8 [00:00<?, ?it/s]Fetching 8 files: 100%|██████████| 8/8 [00:00<00:00, 38086.76it/s]
+[20:00:47] [phase] allocate_kv_cache blocks=144 shape=(144,2,64,128)
+[20:00:47] [phase] warmup phase-1 (compile, no trace)
+[20:00:58] [phase] warmup phase-2 (prefill buffers; decode-trace capture=False)
+[20:01:07] [phase] warmup verify-decode traces K1=[1, 2, 3, 4, 5] (adaptive, staged alloc→capture) +native K1=1
+[20:01:10] [phase] warmup done
+[20:01:10] [cfg] verify_mode=decode traced=True adaptive=True k=[1,4] guard=True (off<0.5 on>=1.0 win=8 probe=16)
+[20:01:10] [phase] LATENCY 4096/64: prefill P=4096
+2026-08-03 20:01:10.872 | warning  |           Metal | Allocating device buffers is unsafe due to the existence of an active trace. These buffers may be corrupted once a trace is executed. (allocator.cpp:123)
+[20:01:13] [ok] prefill/TTFT 2998ms ; spec-decode K=4 OSL=64
+[spec-step 0000] spec K=4 drafted=4 accept=4 commit=5 out=5/64 mean_accept=4.00 spec_on=1 last_tok=3191
+[spec-step 0001] spec K=4 drafted=4 accept=3 commit=4 out=9/64 mean_accept=3.50 spec_on=1 last_tok=268
+[spec-step 0002] spec K=3 drafted=3 accept=3 commit=4 out=13/64 mean_accept=3.33 spec_on=1 last_tok=2629
+[spec-step 0003] spec K=4 drafted=4 accept=1 commit=2 out=15/64 mean_accept=2.75 spec_on=1 last_tok=30222
+[spec-step 0004] spec K=3 drafted=3 accept=0 commit=1 out=16/64 mean_accept=2.20 spec_on=1 last_tok=85874
+[spec-step 0005] spec K=2 drafted=0 accept=0 commit=1 out=17/64 mean_accept=1.83 spec_on=1 last_tok=354
+[spec-step 0006] spec K=1 drafted=0 accept=0 commit=1 out=18/64 mean_accept=1.57 spec_on=1 last_tok=78335
+[spec-step 0007] spec K=1 drafted=0 accept=0 commit=1 out=19/64 mean_accept=1.38 spec_on=1 last_tok=95482
+[spec-step 0008] spec K=1 drafted=0 accept=0 commit=1 out=20/64 mean_accept=1.22 spec_on=1 last_tok=84534
+[spec-step 0009] spec K=1 drafted=0 accept=0 commit=1 out=21/64 mean_accept=1.10 spec_on=1 last_tok=98203
+[spec-step 0010] spec K=1 drafted=0 accept=0 commit=1 out=22/64 mean_accept=1.00 spec_on=0 last_tok=82701
+[spec-step 0011] NATIVE K=0 drafted=0 accept=0 commit=1 out=23/64 mean_accept=0.92 spec_on=0 last_tok=2395
+[spec-step 0012] NATIVE K=0 drafted=0 accept=0 commit=1 out=24/64 mean_accept=0.85 spec_on=0 last_tok=404
+[spec-step 0013] NATIVE K=0 drafted=0 accept=0 commit=1 out=25/64 mean_accept=0.79 spec_on=0 last_tok=135
+[spec-step 0014] NATIVE K=0 drafted=0 accept=0 commit=1 out=26/64 mean_accept=0.73 spec_on=0 last_tok=81
+[spec-step 0015] NATIVE K=0 drafted=0 accept=0 commit=1 out=27/64 mean_accept=0.69 spec_on=0 last_tok=399
+[spec-step 0016] NATIVE K=0 drafted=0 accept=0 commit=1 out=28/64 mean_accept=0.65 spec_on=0 last_tok=81
+[spec-step 0017] NATIVE K=0 drafted=0 accept=0 commit=1 out=29/64 mean_accept=0.61 spec_on=0 last_tok=338
+[spec-step 0018] NATIVE K=0 drafted=0 accept=0 commit=1 out=30/64 mean_accept=0.58 spec_on=0 last_tok=81
+[spec-step 0019] NATIVE K=0 drafted=0 accept=0 commit=1 out=31/64 mean_accept=0.55 spec_on=0 last_tok=359
+[spec-step 0020] NATIVE K=0 drafted=0 accept=0 commit=1 out=32/64 mean_accept=0.52 spec_on=0 last_tok=752
+[spec-step 0021] NATIVE K=0 drafted=0 accept=0 commit=1 out=33/64 mean_accept=0.50 spec_on=0 last_tok=350
+[spec-step 0022] NATIVE K=0 drafted=0 accept=0 commit=1 out=34/64 mean_accept=0.48 spec_on=0 last_tok=341
+[spec-step 0023] NATIVE K=0 drafted=0 accept=0 commit=1 out=35/64 mean_accept=0.46 spec_on=0 last_tok=790
+[spec-step 0024] NATIVE K=0 drafted=0 accept=0 commit=1 out=36/64 mean_accept=0.44 spec_on=0 last_tok=1314
+[spec-step 0025] NATIVE K=0 drafted=0 accept=0 commit=1 out=37/64 mean_accept=0.42 spec_on=0 last_tok=62320
+[spec-step 0026] NATIVE K=0 drafted=0 accept=0 commit=1 out=38/64 mean_accept=0.41 spec_on=0 last_tok=2416
+[spec-step 0027] probe K=1 drafted=1 accept=0 commit=1 out=39/64 mean_accept=0.39 spec_on=0 last_tok=80898
+[spec-step 0028] NATIVE K=0 drafted=0 accept=0 commit=1 out=40/64 mean_accept=0.38 spec_on=0 last_tok=81
+[spec-step 0029] NATIVE K=0 drafted=0 accept=0 commit=1 out=41/64 mean_accept=0.37 spec_on=0 last_tok=854
+[spec-step 0030] NATIVE K=0 drafted=0 accept=0 commit=1 out=42/64 mean_accept=0.35 spec_on=0 last_tok=81
+[spec-step 0031] NATIVE K=0 drafted=0 accept=0 commit=1 out=43/64 mean_accept=0.34 spec_on=0 last_tok=1020
+[spec-step 0032] NATIVE K=0 drafted=0 accept=0 commit=1 out=44/64 mean_accept=0.33 spec_on=0 last_tok=1117
+[spec-step 0033] NATIVE K=0 drafted=0 accept=0 commit=1 out=45/64 mean_accept=0.32 spec_on=0 last_tok=268
+[spec-step 0034] NATIVE K=0 drafted=0 accept=0 commit=1 out=46/64 mean_accept=0.31 spec_on=0 last_tok=370
+[spec-step 0035] NATIVE K=0 drafted=0 accept=0 commit=1 out=47/64 mean_accept=0.31 spec_on=0 last_tok=842
+[spec-step 0036] NATIVE K=0 drafted=0 accept=0 commit=1 out=48/64 mean_accept=0.30 spec_on=0 last_tok=854
+[spec-step 0037] NATIVE K=0 drafted=0 accept=0 commit=1 out=49/64 mean_accept=0.29 spec_on=0 last_tok=95
+[spec-step 0038] NATIVE K=0 drafted=0 accept=0 commit=1 out=50/64 mean_accept=0.28 spec_on=0 last_tok=590
+[spec-step 0039] NATIVE K=0 drafted=0 accept=0 commit=1 out=51/64 mean_accept=0.28 spec_on=0 last_tok=103
+[spec-step 0040] NATIVE K=0 drafted=0 accept=0 commit=1 out=52/64 mean_accept=0.27 spec_on=0 last_tok=81
+[spec-step 0041] NATIVE K=0 drafted=0 accept=0 commit=1 out=53/64 mean_accept=0.26 spec_on=0 last_tok=393
+[spec-step 0042] NATIVE K=0 drafted=0 accept=0 commit=1 out=54/64 mean_accept=0.26 spec_on=0 last_tok=81
+[spec-step 0043] NATIVE K=0 drafted=0 accept=0 commit=1 out=55/64 mean_accept=0.25 spec_on=0 last_tok=20248
+[spec-step 0044] probe K=1 drafted=1 accept=0 commit=1 out=56/64 mean_accept=0.24 spec_on=0 last_tok=84543
+[spec-step 0045] NATIVE K=0 drafted=0 accept=0 commit=1 out=57/64 mean_accept=0.24 spec_on=0 last_tok=1848
+[spec-step 0046] NATIVE K=0 drafted=0 accept=0 commit=1 out=58/64 mean_accept=0.23 spec_on=0 last_tok=16757
+[spec-step 0047] NATIVE K=0 drafted=0 accept=0 commit=1 out=59/64 mean_accept=0.23 spec_on=0 last_tok=130
+[spec-step 0048] NATIVE K=0 drafted=0 accept=0 commit=1 out=60/64 mean_accept=0.22 spec_on=0 last_tok=1698
+[spec-step 0049] NATIVE K=0 drafted=0 accept=0 commit=1 out=61/64 mean_accept=0.22 spec_on=0 last_tok=9786
+[spec-step 0050] NATIVE K=0 drafted=0 accept=0 commit=1 out=62/64 mean_accept=0.22 spec_on=0 last_tok=578
+[spec-step 0051] NATIVE K=0 drafted=0 accept=0 commit=1 out=63/64 mean_accept=0.21 spec_on=0 last_tok=8073
+[spec-step 0052] NATIVE K=0 drafted=0 accept=0 commit=1 out=64/64 mean_accept=0.21 spec_on=0 last_tok=1665
+[20:01:15] [gen] 64/64 toks  mean_accept=0.21/4  36.8 tok/s (running)
+[20:01:15] [RESULT-SPEC 4096/64] gen=64 in 1.74s -> 36.82 tok/s/u ; iters=53 mean_accept=0.21/4 ms/tok=27.2 TTFT=2998ms
+[20:01:25] [RESULT-BASE 4096/64] via-verify(K=1) 9.24 tok/s/u = SAME-TRACE LOWER BOUND (overstates speedup, ignore the 3.98x). HONEST spec speedup ~= 1.23x vs served-decode 30 t/s/u (confirm with vllm bench).
+[20:01:25] [phase] done

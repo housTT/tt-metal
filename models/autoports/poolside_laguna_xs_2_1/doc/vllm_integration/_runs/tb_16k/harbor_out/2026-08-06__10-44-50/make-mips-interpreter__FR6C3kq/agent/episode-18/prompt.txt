@@ -1,0 +1,61 @@
+Previous response had warnings:
+WARNINGS: - Extra text detected before JSON object
+
+New Terminal Output:
+e.o
+root@f068220333d1:/app# xxd /app/doomgeneric_mips | head -50
+bash: xxd: command not found
+root@f068220333d1:/app# readelf -s /app/doomgeneric_mips | grep -E 'entry|D_GNU|sys_exit|write|read'
+   216: 0047c914     1 OBJECT  LOCAL  DEFAULT    6 already_quitting
+   279: 0041ff70   112 FUNC    LOCAL  DEFAULT    3 saveg_write8
+   280: 00420114   112 FUNC    LOCAL  DEFAULT    3 saveg_read8
+   281: 004205ec    76 FUNC    LOCAL  DEFAULT    3 saveg_write_pad
+   282: 00422014    64 FUNC    LOCAL  DEFAULT    3 saveg_write32
+   283: 004209f4    76 FUNC    LOCAL  DEFAULT    3 saveg_read_pad
+   284: 00422054    76 FUNC    LOCAL  DEFAULT    3 saveg_read32
+   285: 004220a0    68 FUNC    LOCAL  DEFAULT    3 saveg_write_thinker_t
+   286: 004219cc   168 FUNC    LOCAL  DEFAULT    3 saveg_write_ceiling_t
+   334: 004affc4    32 OBJECT  LOCAL  DEFAULT    6 w_ready
+   816: 0047cbfc     4 OBJECT  GLOBAL DEFAULT    6 read_e2
+   887: 0040eb50   268 FUNC    GLOBAL DEFAULT    3 mem_fwrite
+  1393: 0040eae8   104 FUNC    GLOBAL DEFAULT    3 mem_fopen_write
+  1421: 0043a898   184 FUNC    GLOBAL DEFAULT    3 fread
+  1535: 0047cbf8     4 OBJECT  GLOBAL DEFAULT    6 read_e
+  1538: 0043a9d0    28 FUNC    GLOBAL DEFAULT    3 fread_unlocked
+  1727: 0040ea00    76 FUNC    GLOBAL DEFAULT    3 mem_fopen_read
+  1729: 0043a9ec    28 FUNC    GLOBAL DEFAULT    3 fwrite_unlocked
+  1746: 0043a950   128 FUNC    GLOBAL DEFAULT    3 fwrite
+  1748: 0040ea4c   156 FUNC    GLOBAL DEFAULT    3 mem_fread
+root@f068220333d1:/app# strings /app/doomgeneric_mips | grep -i 'open\|read\|write\|close\|malloc\|free' | head -30
+freedm.wad
+FreeDM
+freedoom2.wad
+Freedoom: Phase 2
+freedoom1.wad
+Freedoom: Phase 1
+FREEDOOM
+FREEDM
+ WARNING: You are playing using one of the Freedoom IWAD
+ for more information on how to play using Freedoom:
+   http://www.chocolate-doom.org/wiki/index.php/Freedoom
+A hidden doorway opens and you enter.
+but now, you see spread before you more
+THERE MUST BE A WAY TO CLOSE IT ON THE
+out new hellspawn, but you're ready to
+The vista opening ahead looks real damn
+bowels of hell and by golly you're ready
+get ready to give the bastard a little Hell
+level we had ready for ya?  Now you know.
+Failed to open either '%s' or '%s' to write savegame.
+Failed to open savegame file '%s' for writing.
+(read %i, should be %i)
+I'm ready to kick butt!
+level 6: open season
+ Doom Generic is free software, covered by the GNU General Public
+not a read stream
+Couldn't read file %s
+You need a blue key to open this door
+You need a yellow key to open this door
+You need a red key to open this door
+grep: write error: Broken pipe
+root@f068220333d1:/app#

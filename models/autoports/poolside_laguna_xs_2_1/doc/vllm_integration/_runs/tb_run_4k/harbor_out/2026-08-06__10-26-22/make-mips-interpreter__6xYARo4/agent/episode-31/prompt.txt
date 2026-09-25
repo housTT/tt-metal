@@ -1,0 +1,41 @@
+Current Terminal Screen:
+        //key queue is empty
+        return 0;
+    }
+    else
+    {
+        unsigned short keyData = s_KeyQueue[s_KeyQueueReadIndex];
+        s_KeyQueueReadIndex++;
+        s_KeyQueueReadIndex %= KEYQUEUE_SIZE;
+
+        *pressed = keyData >> 8;
+        *doomKey = keyData & 0xFF;
+
+        return 1;
+    }
+}
+
+void DG_SetWindowTitle(const char * title)
+{
+    // No window to set title for, but we could print it
+    printf("DoomGeneric title: %s\n", title);
+}
+
+int main(int argc, char **argv)
+{
+    doomgeneric_Create(argc, argv);
+
+    for (int i = 0; ; i++)
+    {
+        doomgeneric_Tick();
+    }
+
+    return 0;
+}
+
+void __start(void) __attribute__((section(".text.startup")));
+void __start(void) {
+  main(0, 0);
+  while (1);
+}
+root@cac8c5e102f0:/app#

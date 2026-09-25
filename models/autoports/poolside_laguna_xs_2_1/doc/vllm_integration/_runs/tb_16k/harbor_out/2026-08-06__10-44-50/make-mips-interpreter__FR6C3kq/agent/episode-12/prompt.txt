@@ -1,0 +1,46 @@
+Previous response had warnings:
+WARNINGS: - Extra text detected before JSON object
+- Extra text detected after JSON object
+- Fields appear in wrong order. Found: commands → analysis → plan, expected: analysis → plan → commands
+
+Current Terminal Screen:
+            {
+                for (i = 0; i < DOS_MEM_DUMP_SIZE; ++i)
+                {
+                    ++p;
+
+                    if (p >= myargc || myargv[p][0] == '-')
+                    {
+                        break;
+                    }
+
+                    M_StrToInt(myargv[p], &val);
+                    mem_dump_custom[i++] = (unsigned char) val;
+                }
+
+                dos_mem_dump = mem_dump_custom;
+            }
+        }
+    }
+
+    switch (size)
+    {
+    case 1:
+        *((unsigned char *) value) = dos_mem_dump[offset];
+        return true;
+    case 2:
+        *((unsigned short *) value) = dos_mem_dump[offset]
+                                    | (dos_mem_dump[offset + 1] << 8);
+        return true;
+    case 4:
+        *((unsigned int *) value) = dos_mem_dump[offset]
+                                  | (dos_mem_dump[offset + 1] << 8)
+                                  | (dos_mem_dump[offset + 2] << 16)
+                                  | (dos_mem_dump[offset + 3] << 24);
+        return true;
+    }
+
+    return false;
+}
+
+root@f068220333d1:/app#

@@ -1,0 +1,26 @@
+[17:56:28] === spec_decode_driver mode=both isl=4096 osl=48 K=4 ===
+[17:56:34] [phase] build model layers=full max_model_len=8192
+[18:02:45] [phase] allocate_kv_cache blocks=144 shape=(144,2,64,128)
+[18:02:45] [phase] warmup phase-1 (compile, no trace)
+[18:02:57] [phase] warmup phase-2 (prefill buffers; decode-trace capture=False)
+[18:03:06] [phase] warmup verify-decode trace K1=5
+[18:03:07] [phase] warmup done
+[18:03:07] [cfg] verify_mode=decode traced=True
+[18:03:07] [phase] ACCURACY: prefill P=2048, plain-greedy baseline (24 tok)
+[18:03:11] [ok] baseline 24 toks in 2.8s ; first10=[83, 62320, 28367, 2656, 2924, 4949, 85657, 13456, 268, 341]
+[18:03:11] [phase] RE-PREFILL then ngram spec-decode
+[18:03:13] [ok] spec 24 toks ; iters=9 mean_accept=1.67/4
+[18:03:13] [result] first_mismatch=3 total_mismatch=21/24
+[18:03:13] [RESULT] ACCURACY DIVERGENCE at [3, 4, 5, 6, 7]
+[18:03:13]     idx 3: ref=2656 got=78
+[18:03:13]     idx 4: ref=2924 got=268
+[18:03:13]     idx 5: ref=4949 got=370
+[18:03:13]     idx 6: ref=85657 got=24371
+[18:03:13]     idx 7: ref=13456 got=83
+[18:03:13] [text] greedy: '.rope_parameters["sliding_attention"])\n    else:\n        cfg.rope_parameters = dict(hf_config.'
+[18:03:13] [text] spec  : '.rope_parameters)\n        cfg.rope_parameters["sliding_attention"] = dict(hf_config.rope_parameters["'
+[18:03:13] [phase] LATENCY 4096/48: prefill P=4096
+[18:03:16] [ok] prefill/TTFT 2998ms ; spec-decode K=4 OSL=48
+[18:03:17] [RESULT-SPEC 4096/48] gen=48 in 0.75s -> 63.80 tok/s/u ; iters=19 mean_accept=1.68/4 ms/tok=15.7 TTFT=2998ms
+[18:03:26] [RESULT-BASE 4096/48] via-verify 7.02 tok/s/u ; spec speedup=9.09x
+[18:03:26] [phase] done

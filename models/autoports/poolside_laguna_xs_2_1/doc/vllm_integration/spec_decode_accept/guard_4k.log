@@ -1,0 +1,14 @@
+[19:54:30] === spec_decode_driver mode=latency isl=4096 osl=64 K=4 ===
+[19:54:33] [phase] build model layers=full max_model_len=8192
+[20:00:47] [phase] allocate_kv_cache blocks=144 shape=(144,2,64,128)
+[20:00:47] [phase] warmup phase-1 (compile, no trace)
+[20:00:58] [phase] warmup phase-2 (prefill buffers; decode-trace capture=False)
+[20:01:07] [phase] warmup verify-decode traces K1=[1, 2, 3, 4, 5] (adaptive, staged alloc→capture) +native K1=1
+[20:01:10] [phase] warmup done
+[20:01:10] [cfg] verify_mode=decode traced=True adaptive=True k=[1,4] guard=True (off<0.5 on>=1.0 win=8 probe=16)
+[20:01:10] [phase] LATENCY 4096/64: prefill P=4096
+[20:01:13] [ok] prefill/TTFT 2998ms ; spec-decode K=4 OSL=64
+[20:01:15] [gen] 64/64 toks  mean_accept=0.21/4  36.8 tok/s (running)
+[20:01:15] [RESULT-SPEC 4096/64] gen=64 in 1.74s -> 36.82 tok/s/u ; iters=53 mean_accept=0.21/4 ms/tok=27.2 TTFT=2998ms
+[20:01:25] [RESULT-BASE 4096/64] via-verify(K=1) 9.24 tok/s/u = SAME-TRACE LOWER BOUND (overstates speedup, ignore the 3.98x). HONEST spec speedup ~= 1.23x vs served-decode 30 t/s/u (confirm with vllm bench).
+[20:01:25] [phase] done

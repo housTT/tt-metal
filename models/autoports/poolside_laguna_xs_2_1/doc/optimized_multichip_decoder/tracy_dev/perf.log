@@ -1,0 +1,91 @@
+2026-08-03 17:35:51.052 | INFO     | __main__:main:189 - Setting profiler artifacts folder to /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/doc/optimized_multichip_decoder/tracy_dev
+2026-08-03 17:35:51.052 | INFO     | __main__:main:395 - Using port 8086
+2026-08-03 17:35:51.052 | INFO     | tracy:run_report_setup:91 - Verifying tracy profiling tools
+2026-08-03 17:35:51.054 | INFO     | tracy:run_report_setup:112 - Capture command: ('/home/ttuser/dev/tt-metal/build/tools/profiler/bin/tracy-capture -o /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/doc/optimized_multichip_decoder/tracy_dev/.logs/tracy_profile_log_host.tracy -f -p 8086',)
+Connecting to 127.0.0.1:8086...2026-08-03 17:35:51.057 | INFO     | __main__:main:413 - Test process started
+2026-08-03 17:35:51.339 | INFO     | __main__:main:189 - Setting profiler artifacts folder to /home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/doc/optimized_multichip_decoder/tracy_dev
+2026-08-03 17:35:51.359 | DEBUG    | ttnn:<module>:79 - Initial ttnn.CONFIG:
+Config{cache_path=/home/ttuser/.cache/ttnn,model_cache_path=/home/ttuser/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+[transformers] Unrecognized keys in `rope_parameters` for 'rope_type'='default': {'full_attention', 'sliding_attention'}
+2026-08-03 17:35:53.211 | critical |          Always | TT_FATAL: TT_METAL_DEVICE_PROFILER requires a Tracy-enabled build of tt-metal. (assert.hpp:104)
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/ttuser/.local/lib/model-bringup/tt-metal/tools/tracy/__main__.py", line 493, in <module>
+    main()
+  File "/home/ttuser/.local/lib/model-bringup/tt-metal/tools/tracy/__main__.py", line 386, in main
+    runctx(code, globs, None, options.partial)
+  File "/home/ttuser/.local/lib/model-bringup/tt-metal/tools/tracy/__init__.py", line 84, in runctx
+    exec(cmd, globals, locals)
+  File "/home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/tests/perf_trace_omc.py", line 129, in <module>
+    main()
+  File "/home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/tests/perf_trace_omc.py", line 117, in main
+    bp, bd = measure(MultichipDecoder, False)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/tests/perf_trace_omc.py", line 33, in measure
+    ttnn.set_fabric_config(ttnn.FabricConfig.FABRIC_1D_RING)
+RuntimeError: TT_FATAL @ /home/ttuser/.local/lib/model-bringup/tt-metal/tt_metal/llrt/rtoptions.cpp:816: false
+info:
+TT_METAL_DEVICE_PROFILER requires a Tracy-enabled build of tt-metal.
+backtrace:
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x407290) [0x79fad9207290]
+ --- tt::llrt::RunTimeOptions::HandleEnvVar(tt::llrt::EnvVarID, char const*)
+ --- tt::llrt::RunTimeOptions::InitializeFromEnvVars()
+ --- tt::llrt::RunTimeOptions::RunTimeOptions()
+ --- tt::tt_metal::MetalEnvImpl::initialize_base_objects()
+ --- tt::tt_metal::MetalEnvImpl::MetalEnvImpl(tt::tt_metal::MetalEnvDescriptor)
+ --- std::__detail::_MakeUniq<tt::tt_metal::MetalEnvImpl>::__single_object std::make_unique<tt::tt_metal::MetalEnvImpl, tt::tt_metal::MetalEnvDescriptor>(tt::tt_metal::MetalEnvDescriptor&&)
+ --- tt::tt_metal::MetalEnv::MetalEnv(tt::tt_metal::MetalEnvDescriptor)
+ --- tt::tt_metal::MetalContext::create_default_instance_implicit_locked()
+ --- tt::tt_metal::MetalContext::instance(ttsl::StrongType<int, tt::tt_metal::ContextIdTag>)
+ --- tt::tt_fabric::SetFabricConfig(tt::tt_fabric::FabricConfig, tt::tt_fabric::FabricReliabilityMode, std::optional<unsigned char>, tt::tt_fabric::FabricTensixConfig, tt::tt_fabric::FabricUDMMode, tt::tt_fabric::FabricManagerMode, tt::tt_fabric::FabricRouterConfig)
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x44c474) [0x79fad924c474]
+ --- /home/ttuser/.local/lib/model-bringup/tt-metal/ttnn/ttnn/_ttnn.so(+0x33b045) [0x79fad913b045]
+ --- /home/ttuser/.tenstorrent-venv/bin/python(PyObject_Vectorcall+0x35) [0x549935]
+ --- /home/ttuser/.tenstorrent-venv/bin/python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+ --- /home/ttuser/.tenstorrent-venv/bin/python(PyEval_EvalCode+0x15b) [0x5d544b]
+ --- /home/ttuser/.tenstorrent-venv/bin/python() [0x5d2fdc]
+ --- /home/ttuser/.tenstorrent-venv/bin/python() [0x581add]
+ --- /home/ttuser/.tenstorrent-venv/bin/python(PyObject_Vectorcall+0x35) [0x549935]
+ --- /home/ttuser/.tenstorrent-venv/bin/python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+ --- /home/ttuser/.tenstorrent-venv/bin/python(PyEval_EvalCode+0x15b) [0x5d544b]
+ --- /home/ttuser/.tenstorrent-venv/bin/python() [0x5d2fdc]
+ --- /home/ttuser/.tenstorrent-venv/bin/python() [0x581add]
+ --- /home/ttuser/.tenstorrent-venv/bin/python(PyObject_Vectorcall+0x35) [0x549935]
+ --- /home/ttuser/.tenstorrent-venv/bin/python(_PyEval_EvalFrameDefault+0xa89) [0x5d6f09]
+ --- /home/ttuser/.tenstorrent-venv/bin/python() [0x6bce82]
+ --- /home/ttuser/.tenstorrent-venv/bin/python(Py_RunMain+0x232) [0x6bcab2]
+ --- /home/ttuser/.tenstorrent-venv/bin/python(Py_BytesMain+0x2d) [0x6bc71d]
+ --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x79fb0922a1ca]
+ --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x79fb0922a28b]
+ --- /home/ttuser/.tenstorrent-venv/bin/python(_start+0x25) [0x657bc5]
+
+nanobind: leaked 1 instances!
+ - leaked instance 0x79fad53d6da8 of type "ttnn._ttnn.tensor.CoreRangeSet"
+nanobind: leaked 13 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "UnaryOpType"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseOptimizedProgramFactory"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulDeviceOperation"
+ - leaked type "ttnn._ttnn.tensor.Tensor"
+ - ... skipped remainder
+nanobind: leaked 199 functions!
+ - leaked function ""
+ - leaked function "contains"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "from_json"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html2026-08-03 17:36:08.851 | ERROR    | __main__:main:481 - No profiling data could be captured. Please make sure you are on a Tracy-enabled build (default).

@@ -1,0 +1,46 @@
+Previous response had warnings:
+WARNINGS: - Extra text detected before JSON object
+- Extra text detected after JSON object
+- Fields appear in wrong order. Found: commands → analysis → plan, expected: analysis → plan → commands
+
+Current Terminal Screen:
+
+    switch (whence) {
+        case SEEK_SET:
+            new_pos = offset;
+            break;
+        case SEEK_CUR:
+            new_pos = fd_table[fd].position + offset;
+            break;
+        case SEEK_END:
+            new_pos = node->size + offset;
+            break;
+        default:
+            return -EINVAL;
+    }
+
+    if (new_pos < 0) {
+        return -EINVAL;
+    }
+
+    fd_table[fd].position = new_pos;
+    return new_pos;
+}
+
+// SYS_fsync: Synchronize a file's in-memory state (no-op for in-memory FS)
+int sys_fsync(int fd) {
+    if (fd < 0 || fd >= MAX_FILE_DESCRIPTORS || !fd_table[fd].used) {
+        return -EBADF;
+    }
+
+    // Nothing to do for an in-memory filesystem
+    return 0;
+}
+
+
+// SYS_unlink: Delete a file
+int sys_unlink(const char* pathname) {
+    if (root == NULL) {
+        init_filesystem();
+    }
+root@f068220333d1:/app#

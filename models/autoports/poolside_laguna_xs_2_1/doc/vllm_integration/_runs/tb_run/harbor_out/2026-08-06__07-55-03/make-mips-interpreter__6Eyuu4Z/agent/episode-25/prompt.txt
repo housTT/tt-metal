@@ -1,0 +1,44 @@
+Previous response had warnings:
+WARNINGS: - Extra text detected before JSON object
+
+Current Terminal Screen:
+/**
+ * Rename a file.
+ *
+ * @param oldpath Old path
+ * @param newpath New path
+ * @return 0 on success, negative error code on failure
+ */
+int sys_rename(const char* oldpath, const char* newpath);
+
+/**
+ * Create a directory.
+ *
+ * @param pathname Path to the directory
+ * @param mode Mode for the directory
+ * @return 0 on success, negative error code on failure
+ */
+int sys_mkdir(const char* pathname, mode_t mode);
+
+/**
+ * Main syscall handler for the filesystem.
+ * This is the entry point for all filesystem operations.
+ *
+ * @param syscall_num System call number
+ * @param ... Variable arguments depending on the system call
+ * @return Result of the system call
+ */
+long syscall_fs(int syscall_num, ...);
+
+/**
+ * Real syscall function for Linux x86_64.
+ * This calls actual kernel system calls.
+ *
+ * @param syscall_num System call number
+ * @param arg1-arg6 Arguments to the system call
+ * @return Result of the system call
+ */
+static long real_syscall6(long syscall_num, long arg1, long arg2, long arg3,
+                     long arg4, long arg5, long arg6);
+
+#endif /* INMEMORY_FS_H */root@69c175326619:/app#

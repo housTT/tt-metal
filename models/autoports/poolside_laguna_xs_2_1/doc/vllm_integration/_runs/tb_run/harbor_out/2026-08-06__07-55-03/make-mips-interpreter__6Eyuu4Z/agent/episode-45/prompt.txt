@@ -1,0 +1,44 @@
+Previous response had warnings:
+WARNINGS: - Extra text detected after JSON object
+
+Current Terminal Screen:
+                case 0x00: this.reg[rt] = this.reg[rt] >>> sa; break;
+                case 0x08: this.pc = (this.reg[rs] - 4) >>> 0; return 1;
+                case 0x09: this.reg[31] = (this.pc + 4) >>> 0; this.pc = (this.reg[rt] - 4) >>> 0; return 1;
+                case 0x20: this.reg[rt] = (this.reg[rs] + this.reg[rt]) | 0; break;
+                case 0x21: this.reg[rt] = (this.reg[rs] + this.reg[rt]) >>> 0; break;
+                case 0x22: this.reg[rt] = (this.reg[rs] - this.reg[rt]) | 0; break;
+                case 0x23: this.reg[rt] = (this.reg[rs] - this.reg[rt]) >>> 0; break;
+                case 0x24: this.reg[rt] = this.reg[rs] & this.reg[rt]; break;
+                case 0x25: this.reg[rt] = this.reg[rs] | this.reg[rt]; break;
+                case 0x26: this.reg[rt] = this.reg[rs] ^ this.reg[rt]; break;
+                case 0x27: this.reg[rt] = ~(this.reg[rs] | this.reg[rt]) >>> 0; break;
+                case 0x28: this.reg[rt] = ((this.reg[rs]|0) < (this.reg[rt]|0)) ? 1 : 0; break;
+                case 0x29: this.reg[rt] = (this.reg[rs] < this.reg[rt]) ? 1 : 0; break;
+                case 0x0c: this.syscall(); break;
+                case 0x42: this.reg[rt] = this.hi; break;
+                case 0x43: this.reg[rt] = this.lo; break;
+                case 0x44: this.hi = this.reg[rs]; break;
+                case 0x45: this.lo = this.reg[rs]; break;
+            }
+        } else if (op === 0x08) this.reg[rt] = (this.reg[rs] + imm) >>> 0;
+        else if (op === 0x22) this.reg[rt] = this.readI32((this.reg[rs] + imm) >>> 0);
+        else if (op === 0x23) this.reg[rt] = this.readI32((this.reg[rs] + imm) >>> 0);
+        else if (op === 0x28) this.writeI32((this.reg[rs] + imm) >>> 0, this.reg[rt]);
+        else if (op === 0x32) { this.lo = Math.floor(this.reg[rs] / this.reg[rt]) >>> 0; this.hi = (this.reg[rs] % this.reg[rt]) >>> 0; }
+        else if (op === 0x02) { this.pc = (this.pc + ((instr & 0x03ffffff) << 2) - 4) >>> 0; return 1; }
+        else if (op === 0x03) { this.reg[31] = (this.pc + 4) >>> 0; this.pc = (this.pc + ((instr & 0x03ffffff) << 2) - 4) >>> 0; return 1; }
+        return 0;
+    }
+    load(bp) { const d = fs.readFileSync(bp); d.copy(this.mem); this.pc = 0x400110; }
+    run(max) { for (let i = 0; i < max; i++) { const i1 = this.readI32(this.pc); if (i1 === 0) break; if (this.exec(i1)) { this.pc = (this.pc + 4) >>> 0; contin
+ue; } this.pc = (this.pc + 4) >>> 0; } }
+}
+
+const vm = new MIPS();
+vm.load("./doomgeneric_mips");
+vm.run(100000);
+root@69c175326619:/app# node --check /app/vm.js 2>&1
+root@69c175326619:/app# # Try running it
+root@69c175326619:/app# node /app/vm.js 2>&1
+root@69c175326619:/app#

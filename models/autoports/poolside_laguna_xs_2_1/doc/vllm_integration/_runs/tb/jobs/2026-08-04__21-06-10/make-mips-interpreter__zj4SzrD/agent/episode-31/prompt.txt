@@ -1,0 +1,44 @@
+Previous response had warnings:
+WARNINGS: - Extra text detected after JSON object
+
+Current Terminal Screen:
+     * Hacky MIPS syscall approach:
+     * - Syscall number goes in $v0 (register 2)
+     * - First four arguments go in $a0-$a3 (registers 4-7)
+     * - Additional arguments go in $t0-$t1 (registers 8-9)
+     * - Result comes back in $v0 (register 2)
+     */
+    __asm__ volatile(
+        /* Load syscall number into $v0 */
+        "move $v0, %1\n\t"
+
+        /* Load first four arguments into $a0-$a3 */
+        "move $a0, %2\n\t"
+        "move $a1, %3\n\t"
+        "move $a2, %4\n\t"
+        "move $a3, %5\n\t"
+
+        /* Load additional arguments into $t0-$t1 */
+        "move $t0, %6\n\t"  /* 5th arg in $t0 */
+        "move $t1, %7\n\t"  /* 6th arg in $t1 */
+
+        /* Make the syscall */
+        "syscall\n\t"
+
+        /* Get the return value */
+        "move %0, $v0"
+
+        /* Output parameter */
+        : "=r" (result)
+
+        /* Input parameters */
+        : "r" (syscall_num),
+          "r" (arg1),
+          "r" (arg2),
+          "r" (arg3),
+          "r" (arg4),
+          "r" (arg5),
+          "r" (arg6)
+
+        /* Clobbered registers */
+root@8dd3925eaef7:/app#

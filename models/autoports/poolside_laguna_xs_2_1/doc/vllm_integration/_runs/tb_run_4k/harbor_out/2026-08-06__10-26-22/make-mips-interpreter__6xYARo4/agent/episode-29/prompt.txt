@@ -1,0 +1,50 @@
+Previous response had warnings:
+WARNINGS: - AUTO-CORRECTED: Extracted JSON from mixed content - please fix this in future responses
+
+New Terminal Output:
+o
+root@cac8c5e102f0:/app# cat /app/doomgeneric/doomgeneric/doomgeneric_mips.map 2>/dev/null | grep -E '^[0-9a-fA-F]+ [0-9a-fA-F]+' | head -50
+root@cac8c5e102f0:/app# cat /app/doomgeneric/doomgeneric/doomgeneric_mips.map 2>/dev/null | grep -E '\.text' | head -20
+ *(.rel.text .rel.text.* .rel.gnu.linkonce.t.*)
+ *(.rela.text .rela.text.* .rela.gnu.linkonce.t.*)
+.text           0x00400110    0x3dbd0
+ *(.text.unlikely .text.*_unlikely .text.unlikely.*)
+ *(.text.exit .text.exit.*)
+ *(.text.startup .text.startup.*)
+ .text.startup  0x00400110       0x24 build/doomgeneric_img.o
+ *(.text.hot .text.hot.*)
+ *(SORT_BY_NAME(.text.sorted.*))
+ *(.text .stub .text.* .gnu.linkonce.t.*)
+ .text          0x00400140       0x10 build/dummy.o
+ .text          0x00400150     0x2530 build/am_map.o
+ .text          0x00402680        0x0 build/doomdef.o
+ .text          0x00402680        0x0 build/doomstat.o
+ .text          0x00402680        0x0 build/dstrings.o
+ .text          0x00402680       0xd0 build/d_event.o
+ .text          0x00402750        0x0 build/d_items.o
+ .text          0x00402750      0x6a0 build/d_iwad.o
+ .text          0x00402df0      0x980 build/d_loop.o
+ .text          0x00403770     0x1c50 build/d_main.o
+grep: write error: Broken pipe
+root@cac8c5e102f0:/app# cat /app/doomgeneric/doomgeneric/doomgeneric_mips.map 2>/dev/null | grep -E 'd_main|doomgeneric_Door' | head -20
+ .reginfo       0x00000000       0x18 build/d_main.o
+                0x00000000       0x18 build/d_main.o
+                0x00000000        0x0 build/d_main.o
+LOAD build/d_main.o
+ .text          0x00403770     0x1c50 build/d_main.o
+ .rodata        0x0043e3a8      0x180 build/d_main.o
+                0x0043e528      0x95a build/d_main.o
+ .data          0x00466890       0x10 build/d_main.o
+ .bss           0x0047a9c0      0x8e0 build/d_main.o
+ .comment       0x0000001c       0x1d build/d_main.o
+ .pdr           0x000006c0      0x220 build/d_main.o
+ .debug_info    0x00003f11     0x329e build/d_main.o
+ .debug_abbrev  0x00000ac8      0x390 build/d_main.o
+ .debug_line    0x00001be1      0xda2 build/d_main.o
+ .debug_frame   0x00000600      0x1a8 build/d_main.o
+ .debug_str     0x00004a2b      0xb7c build/d_main.o
+ .debug_addr    0x000004f0      0x43c build/d_main.o
+                0x00000199       0xd3 build/d_main.o
+                0x00000d1b      0x287 build/d_main.o
+                0x000000a8       0x1b build/d_main.o
+root@cac8c5e102f0:/app#

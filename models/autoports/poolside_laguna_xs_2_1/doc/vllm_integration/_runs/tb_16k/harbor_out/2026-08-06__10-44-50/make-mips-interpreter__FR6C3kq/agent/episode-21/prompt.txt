@@ -1,0 +1,14 @@
+Previous response had warnings:
+WARNINGS: - Extra text detected before JSON object
+- Extra text detected after JSON object
+- Fields appear in wrong order. Found: commands → analysis → plan, expected: analysis → plan → commands
+
+New Terminal Output:
+
+root@f068220333d1:/app# objdump -b elf32-little -m mips --adjust-vma=0x400000 -D /app/doomgeneric_mips 2>&1 | head -1000
+
+/app/doomgeneric_mips:     file format elf32-little
+
+objdump: can't use supplied machine mips
+root@f068220333d1:/app# objdump -b elf32-little -m mips --adjust-vma=0x400000 -D /app/doomgeneric_mips 2>&1 | grep -A 5 'syscall' | head -100
+root@f068220333d1:/app#

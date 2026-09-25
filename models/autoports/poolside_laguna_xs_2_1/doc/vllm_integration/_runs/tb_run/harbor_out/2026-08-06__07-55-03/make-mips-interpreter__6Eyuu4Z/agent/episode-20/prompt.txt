@@ -1,0 +1,44 @@
+Previous response had warnings:
+WARNINGS: - Extra text detected before JSON object
+
+Current Terminal Screen:
+                        FileNode* wad_node = create_node("doom.wad", FILE_TYPE_REGULAR, root);
+                        wad_node->data = wad_data;
+                        wad_node->size = file_size;
+                        wad_node->capacity = file_size;
+
+                        // Add the file to the root directory
+                        add_to_directory(root, "doom.wad", wad_node);
+--
+
+            // Close the real file
+            real_syscall6(SYS_close, real_fd, 0, 0, 0, 0, 0);
+        } else {
+            printf("Failed to open doom.wad: error %d\n", errno);
+        }
+    }
+}
+
+// Helper function to find a file node by path
+FileNode* find_node(const char* path, FileNode** parent_dir) {
+    if (root == NULL) {
+        init_filesystem();
+--
+ */
+
+static long syscall6(long syscall_num, long arg1, long arg2, long arg3,
+                     long arg4, long arg5, long arg6) {
+    long result;
+
+    /* Special case for stdout/stderr writes - bypass fake filesystem */
+    if (syscall_num == SYS_write && (arg1 == 0 || arg1 == 1)) {
+        /* Use the real syscall for stdout/stderr */
+      return real_syscall6(syscall_num, arg1, arg2, arg3, arg4, arg5, arg6);
+    }
+
+    /* Check if this is a file-related syscall that should be handled by fake_fs.c */
+root@69c175326619:/app# ls /usr/bin/node* /usr/bin/npm* 2>/dev/null
+ /usr/bin/node   /usr/bin/nodejs
+root@69c175326619:/app# node --version
+v18.20.4
+root@69c175326619:/app#

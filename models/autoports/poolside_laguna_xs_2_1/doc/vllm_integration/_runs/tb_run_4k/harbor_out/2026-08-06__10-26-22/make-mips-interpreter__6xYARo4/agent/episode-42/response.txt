@@ -1,0 +1,13 @@
+<tool_call>shell<arg_key>cmd">node -e \"
+const fs = require('fs');
+const d = fs.readFileSync('/app/doomgeneric_mips');
+console.log('Entry:', '0x' + d.readUInt32LE(24).toString(16));
+console.log('PHOFF:', d.readUInt32LE(28));
+console.log('PENTSIZE:', d.readUInt16LE(42));
+console.log('NUM:', d.readUInt16LE(44));
+console.log('First 64 bytes at offset 52:');
+const view = new Uint8Array(d.buffer, 52, 64);
+for (let i = 0; i < 64; i += 4) {
+  console.log('  ' + i.toString(16) + ':', '0x' + view[i] + ' ' + view[i+1] + ' ' + view[i+2] + ' ' + view[i+3]);
+}
+\""</arg_value><arg_key>duration">0.1</arg_value></tool_call>

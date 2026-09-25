@@ -1,0 +1,357 @@
+==================================================================
+RUN=laguna_c1c8_sweep   started (full stdout+stderr stream — nothing filtered)
+CMD: bash stage_d_c1c8_sweep.sh
+tail:  tail -f ~/tail.log   (permanent — survives every run, no need to re-tail)
+==================================================================
+[07:04:31] [10:00:58Z] START server (k64 + PREFILL_FAST; max-num-seqs 8; max-model-len 131072; APC OFF)
+[07:04:31] [10:16:54Z] healthy ~955s
+[07:04:31] [10:16:54Z] === WARMUP PASS (all shapes) ===
+[07:04:31] [10:16:54Z] warm ISL=1024 conc=1
+[07:04:31] [10:17:02Z] warm ISL=16384 conc=1
+[07:04:31] [10:17:34Z] warm ISL=32768 conc=1
+[07:04:31] [10:18:38Z] warm ISL=130048 conc=1
+[07:04:31] [10:25:40Z] warm ISL=1024 conc=8
+[07:04:31] [10:25:52Z] warm ISL=16384 conc=8
+[07:04:31] [10:27:54Z] warm ISL=32768 conc=8
+[07:04:31] [10:32:26Z] === MEASURED PASS ===
+[07:04:31] [10:32:26Z] >>> bench ISL=1024 OSL=1024 conc=1 np=1
+[07:04:31] INFO 08-06 06:32:28 [importing.py:44] Triton is installed but 0 active driver(s) found (expected 1). Disabling Triton to prevent runtime errors.
+[07:04:31] INFO 08-06 06:32:28 [importing.py:68] Triton not installed or not compatible; certain GPU-related functions will not be available.
+[07:04:31] WARNING 08-06 06:32:28 [interface.py:221] Failed to import from vllm._C: ImportError('libcuda.so.1: cannot open shared object file: No such file or directory')
+[07:04:31] INFO 08-06 06:32:29 [main.py:47] Unspecified platform detected, switching to CPU Platform instead.
+[07:04:31] Namespace(subparser='bench', bench_type='serve', dispatch_function=<function BenchmarkServingSubcommand.cmd at 0x7f9ea3fdc400>, seed=0, num_prompts=1, dataset_name='random', no_stream=False, dataset_path=None, no_oversample=False, skip_chat_template=False, disable_shuffle=False, custom_output_len=256, spec_bench_output_len=256, spec_bench_category=None, sonnet_input_len=550, sonnet_output_len=150, sonnet_prefix_len=200, sharegpt_output_len=None, blazedit_min_distance=0.0, blazedit_max_distance=1.0, random_input_len=1024, random_output_len=1024, random_range_ratio=0.0, random_prefix_len=0, random_batch_size=1, no_reranker=False, random_mm_base_items_per_request=1, random_mm_num_mm_items_range_ratio=0.0, random_mm_limit_mm_per_prompt={'image': 255, 'video': 1}, random_mm_bucket_config={(256, 256, 1): 0.5, (720, 1280, 1): 0.5, (720, 1280, 16): 0.0}, hf_subset=None, hf_split=None, hf_name=None, hf_output_len=None, prefix_repetition_prefix_len=256, prefix_repetition_suffix_len=256, prefix_repetition_num_prefixes=10, prefix_repetition_output_len=128, label=None, backend='vllm', base_url='http://localhost:8000', host='127.0.0.1', port=8000, endpoint='/v1/completions', header=None, max_concurrency=1, model='poolside/Laguna-XS-2.1', tokenizer=None, tokenizer_mode='auto', use_beam_search=False, logprobs=None, request_rate=inf, burstiness=1.0, trust_remote_code=False, disable_tqdm=False, num_warmups=0, profile=False, save_result=True, save_detailed=False, append_result=False, metadata=None, result_dir=None, result_filename='/home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/doc/vllm_integration/stage_d_c1c8/r_1024_1024_1.json', ignore_eos=True, percentile_metrics='ttft,tpot,itl,e2el', metric_percentiles='99', goodput=None, request_id_prefix='bench-af9d1f25-', top_p=None, top_k=None, min_p=None, temperature=None, frequency_penalty=None, presence_penalty=None, repetition_penalty=None, common_prefix_len=None, served_model_name=None, lora_modules=None, ramp_up_strategy=None, ramp_up_start_rps=None, ramp_up_end_rps=None, ready_check_timeout_sec=600, extra_body=None)
+[07:04:31] INFO 08-06 06:32:30 [datasets.py:612] Sampling input_len from [1023, 1023] and output_len from [1024, 1024]
+[07:04:31] Starting initial single prompt test run...
+[07:04:31] Waiting for endpoint to become up in 600 seconds
+[07:04:31]  |          | 00:00 elapsed, ? remaining |          | 00:00 elapsed, 00:08 remaining |          | 00:38 elapsed, 12048:01:53 remaining
+[07:04:31] Initial test run completed.
+[07:04:31] Starting main benchmark run...
+[07:04:31] Traffic request rate: inf
+[07:04:31] Burstiness factor: 1.0 (Poisson process)
+[07:04:31] Maximum request concurrency: 1
+[07:04:31]   0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:38<00:00, 38.09s/it]100%|██████████| 1/1 [00:38<00:00, 38.09s/it]
+[07:04:31] tip: install termplotlib and gnuplot to plot the metrics
+[07:04:31] ============ Serving Benchmark Result ============
+[07:04:31] Successful requests:                     1         
+[07:04:31] Failed requests:                         0         
+[07:04:31] Maximum request concurrency:             1         
+[07:04:31] Benchmark duration (s):                  38.09     
+[07:04:31] Total input tokens:                      1023      
+[07:04:31] Total generated tokens:                  1024      
+[07:04:31] Request throughput (req/s):              0.03      
+[07:04:31] Output token throughput (tok/s):         26.88     
+[07:04:31] Peak output token throughput (tok/s):    28.00     
+[07:04:31] Peak concurrent requests:                1.00      
+[07:04:31] Total token throughput (tok/s):          53.74     
+[07:04:31] ---------------Time to First Token----------------
+[07:04:31] Mean TTFT (ms):                          710.73    
+[07:04:31] Median TTFT (ms):                        710.73    
+[07:04:31] P99 TTFT (ms):                           710.73    
+[07:04:31] -----Time per Output Token (excl. 1st token)------
+[07:04:31] Mean TPOT (ms):                          36.54     
+[07:04:31] Median TPOT (ms):                        36.54     
+[07:04:31] P99 TPOT (ms):                           36.54     
+[07:04:31] ---------------Inter-token Latency----------------
+[07:04:31] Mean ITL (ms):                           36.54     
+[07:04:31] Median ITL (ms):                         36.88     
+[07:04:31] P99 ITL (ms):                            40.40     
+[07:04:31] ----------------End-to-end Latency----------------
+[07:04:31] Mean E2EL (ms):                          38091.09  
+[07:04:31] Median E2EL (ms):                        38091.09  
+[07:04:31] P99 E2EL (ms):                           38091.09  
+[07:04:31] ==================================================
+[07:04:31] [10:33:47Z] row: k64	1024	1024	1	27.37	26.9	38.1	711
+[07:04:31] [10:33:47Z] >>> bench ISL=16384 OSL=1024 conc=1 np=1
+[07:04:31] INFO 08-06 06:33:49 [importing.py:44] Triton is installed but 0 active driver(s) found (expected 1). Disabling Triton to prevent runtime errors.
+[07:04:31] INFO 08-06 06:33:49 [importing.py:68] Triton not installed or not compatible; certain GPU-related functions will not be available.
+[07:04:31] WARNING 08-06 06:33:49 [interface.py:221] Failed to import from vllm._C: ImportError('libcuda.so.1: cannot open shared object file: No such file or directory')
+[07:04:31] INFO 08-06 06:33:50 [main.py:47] Unspecified platform detected, switching to CPU Platform instead.
+[07:04:31] Namespace(subparser='bench', bench_type='serve', dispatch_function=<function BenchmarkServingSubcommand.cmd at 0x7fcfbc9d0400>, seed=0, num_prompts=1, dataset_name='random', no_stream=False, dataset_path=None, no_oversample=False, skip_chat_template=False, disable_shuffle=False, custom_output_len=256, spec_bench_output_len=256, spec_bench_category=None, sonnet_input_len=550, sonnet_output_len=150, sonnet_prefix_len=200, sharegpt_output_len=None, blazedit_min_distance=0.0, blazedit_max_distance=1.0, random_input_len=16384, random_output_len=1024, random_range_ratio=0.0, random_prefix_len=0, random_batch_size=1, no_reranker=False, random_mm_base_items_per_request=1, random_mm_num_mm_items_range_ratio=0.0, random_mm_limit_mm_per_prompt={'image': 255, 'video': 1}, random_mm_bucket_config={(256, 256, 1): 0.5, (720, 1280, 1): 0.5, (720, 1280, 16): 0.0}, hf_subset=None, hf_split=None, hf_name=None, hf_output_len=None, prefix_repetition_prefix_len=256, prefix_repetition_suffix_len=256, prefix_repetition_num_prefixes=10, prefix_repetition_output_len=128, label=None, backend='vllm', base_url='http://localhost:8000', host='127.0.0.1', port=8000, endpoint='/v1/completions', header=None, max_concurrency=1, model='poolside/Laguna-XS-2.1', tokenizer=None, tokenizer_mode='auto', use_beam_search=False, logprobs=None, request_rate=inf, burstiness=1.0, trust_remote_code=False, disable_tqdm=False, num_warmups=0, profile=False, save_result=True, save_detailed=False, append_result=False, metadata=None, result_dir=None, result_filename='/home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/doc/vllm_integration/stage_d_c1c8/r_16384_1024_1.json', ignore_eos=True, percentile_metrics='ttft,tpot,itl,e2el', metric_percentiles='99', goodput=None, request_id_prefix='bench-d7baea49-', top_p=None, top_k=None, min_p=None, temperature=None, frequency_penalty=None, presence_penalty=None, repetition_penalty=None, common_prefix_len=None, served_model_name=None, lora_modules=None, ramp_up_strategy=None, ramp_up_start_rps=None, ramp_up_end_rps=None, ready_check_timeout_sec=600, extra_body=None)
+[07:04:31] INFO 08-06 06:33:51 [datasets.py:612] Sampling input_len from [16383, 16383] and output_len from [1024, 1024]
+[07:04:31] Starting initial single prompt test run...
+[07:04:31] Waiting for endpoint to become up in 600 seconds
+[07:04:31]  |          | 00:00 elapsed, ? remaining |          | 00:00 elapsed, 00:08 remaining |          | 00:51 elapsed, 17064:01:03 remaining
+[07:04:31] Initial test run completed.
+[07:04:31] Starting main benchmark run...
+[07:04:31] Traffic request rate: inf
+[07:04:31] Burstiness factor: 1.0 (Poisson process)
+[07:04:31] Maximum request concurrency: 1
+[07:04:31]   0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [00:51<00:00, 51.54s/it]100%|██████████| 1/1 [00:51<00:00, 51.54s/it]
+[07:04:31] tip: install termplotlib and gnuplot to plot the metrics
+[07:04:31] ============ Serving Benchmark Result ============
+[07:04:31] Successful requests:                     1         
+[07:04:31] Failed requests:                         0         
+[07:04:31] Maximum request concurrency:             1         
+[07:04:31] Benchmark duration (s):                  51.54     
+[07:04:31] Total input tokens:                      16383     
+[07:04:31] Total generated tokens:                  1024      
+[07:04:31] Request throughput (req/s):              0.02      
+[07:04:31] Output token throughput (tok/s):         19.87     
+[07:04:31] Peak output token throughput (tok/s):    27.00     
+[07:04:31] Peak concurrent requests:                1.00      
+[07:04:31] Total token throughput (tok/s):          337.72    
+[07:04:31] ---------------Time to First Token----------------
+[07:04:31] Mean TTFT (ms):                          12778.11  
+[07:04:31] Median TTFT (ms):                        12778.11  
+[07:04:31] P99 TTFT (ms):                           12778.11  
+[07:04:31] -----Time per Output Token (excl. 1st token)------
+[07:04:31] Mean TPOT (ms):                          37.89     
+[07:04:31] Median TPOT (ms):                        37.89     
+[07:04:31] P99 TPOT (ms):                           37.89     
+[07:04:31] ---------------Inter-token Latency----------------
+[07:04:31] Mean ITL (ms):                           37.89     
+[07:04:31] Median ITL (ms):                         38.00     
+[07:04:31] P99 ITL (ms):                            41.64     
+[07:04:31] ----------------End-to-end Latency----------------
+[07:04:31] Mean E2EL (ms):                          51542.13  
+[07:04:31] Median E2EL (ms):                        51542.13  
+[07:04:31] P99 E2EL (ms):                           51542.13  
+[07:04:31] ==================================================
+[07:04:31] [10:35:34Z] row: k64	16384	1024	1	26.39	19.9	51.5	12778
+[07:04:31] [10:35:34Z] >>> bench ISL=32768 OSL=1024 conc=1 np=1
+[07:04:31] INFO 08-06 06:35:37 [importing.py:44] Triton is installed but 0 active driver(s) found (expected 1). Disabling Triton to prevent runtime errors.
+[07:04:31] INFO 08-06 06:35:37 [importing.py:68] Triton not installed or not compatible; certain GPU-related functions will not be available.
+[07:04:31] WARNING 08-06 06:35:37 [interface.py:221] Failed to import from vllm._C: ImportError('libcuda.so.1: cannot open shared object file: No such file or directory')
+[07:04:31] INFO 08-06 06:35:38 [main.py:47] Unspecified platform detected, switching to CPU Platform instead.
+[07:04:31] Namespace(subparser='bench', bench_type='serve', dispatch_function=<function BenchmarkServingSubcommand.cmd at 0x7c49ff500400>, seed=0, num_prompts=1, dataset_name='random', no_stream=False, dataset_path=None, no_oversample=False, skip_chat_template=False, disable_shuffle=False, custom_output_len=256, spec_bench_output_len=256, spec_bench_category=None, sonnet_input_len=550, sonnet_output_len=150, sonnet_prefix_len=200, sharegpt_output_len=None, blazedit_min_distance=0.0, blazedit_max_distance=1.0, random_input_len=32768, random_output_len=1024, random_range_ratio=0.0, random_prefix_len=0, random_batch_size=1, no_reranker=False, random_mm_base_items_per_request=1, random_mm_num_mm_items_range_ratio=0.0, random_mm_limit_mm_per_prompt={'image': 255, 'video': 1}, random_mm_bucket_config={(256, 256, 1): 0.5, (720, 1280, 1): 0.5, (720, 1280, 16): 0.0}, hf_subset=None, hf_split=None, hf_name=None, hf_output_len=None, prefix_repetition_prefix_len=256, prefix_repetition_suffix_len=256, prefix_repetition_num_prefixes=10, prefix_repetition_output_len=128, label=None, backend='vllm', base_url='http://localhost:8000', host='127.0.0.1', port=8000, endpoint='/v1/completions', header=None, max_concurrency=1, model='poolside/Laguna-XS-2.1', tokenizer=None, tokenizer_mode='auto', use_beam_search=False, logprobs=None, request_rate=inf, burstiness=1.0, trust_remote_code=False, disable_tqdm=False, num_warmups=0, profile=False, save_result=True, save_detailed=False, append_result=False, metadata=None, result_dir=None, result_filename='/home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/doc/vllm_integration/stage_d_c1c8/r_32768_1024_1.json', ignore_eos=True, percentile_metrics='ttft,tpot,itl,e2el', metric_percentiles='99', goodput=None, request_id_prefix='bench-bcab3b86-', top_p=None, top_k=None, min_p=None, temperature=None, frequency_penalty=None, presence_penalty=None, repetition_penalty=None, common_prefix_len=None, served_model_name=None, lora_modules=None, ramp_up_strategy=None, ramp_up_start_rps=None, ramp_up_end_rps=None, ready_check_timeout_sec=600, extra_body=None)
+[07:04:31] INFO 08-06 06:35:38 [datasets.py:612] Sampling input_len from [32767, 32767] and output_len from [1024, 1024]
+[07:04:31] Starting initial single prompt test run...
+[07:04:31] Waiting for endpoint to become up in 600 seconds
+[07:04:31]  |          | 00:00 elapsed, ? remaining |          | 00:00 elapsed, 00:08 remaining |          | 01:09 elapsed, 21768:50:38 remaining
+[07:04:31] Initial test run completed.
+[07:04:31] Starting main benchmark run...
+[07:04:31] Traffic request rate: inf
+[07:04:31] Burstiness factor: 1.0 (Poisson process)
+[07:04:31] Maximum request concurrency: 1
+[07:04:31]   0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [01:09<00:00, 69.54s/it]100%|██████████| 1/1 [01:09<00:00, 69.54s/it]
+[07:04:31] tip: install termplotlib and gnuplot to plot the metrics
+[07:04:31] ============ Serving Benchmark Result ============
+[07:04:31] Successful requests:                     1         
+[07:04:31] Failed requests:                         0         
+[07:04:31] Maximum request concurrency:             1         
+[07:04:31] Benchmark duration (s):                  69.54     
+[07:04:31] Total input tokens:                      32767     
+[07:04:31] Total generated tokens:                  1024      
+[07:04:31] Request throughput (req/s):              0.01      
+[07:04:31] Output token throughput (tok/s):         14.73     
+[07:04:31] Peak output token throughput (tok/s):    26.00     
+[07:04:31] Peak concurrent requests:                1.00      
+[07:04:31] Total token throughput (tok/s):          485.92    
+[07:04:31] ---------------Time to First Token----------------
+[07:04:31] Mean TTFT (ms):                          29353.31  
+[07:04:31] Median TTFT (ms):                        29353.31  
+[07:04:31] P99 TTFT (ms):                           29353.31  
+[07:04:31] -----Time per Output Token (excl. 1st token)------
+[07:04:31] Mean TPOT (ms):                          39.28     
+[07:04:31] Median TPOT (ms):                        39.28     
+[07:04:31] P99 TPOT (ms):                           39.28     
+[07:04:31] ---------------Inter-token Latency----------------
+[07:04:31] Mean ITL (ms):                           39.28     
+[07:04:31] Median ITL (ms):                         39.02     
+[07:04:31] P99 ITL (ms):                            43.22     
+[07:04:31] ----------------End-to-end Latency----------------
+[07:04:31] Mean E2EL (ms):                          69539.51  
+[07:04:31] Median E2EL (ms):                        69539.51  
+[07:04:31] P99 E2EL (ms):                           69539.51  
+[07:04:31] ==================================================
+[07:04:31] [10:37:58Z] row: k64	32768	1024	1	25.46	14.7	69.5	29353
+[07:04:31] [10:37:58Z] >>> bench ISL=130048 OSL=1024 conc=1 np=1
+[07:04:31] INFO 08-06 06:38:00 [importing.py:44] Triton is installed but 0 active driver(s) found (expected 1). Disabling Triton to prevent runtime errors.
+[07:04:31] INFO 08-06 06:38:00 [importing.py:68] Triton not installed or not compatible; certain GPU-related functions will not be available.
+[07:04:31] WARNING 08-06 06:38:00 [interface.py:221] Failed to import from vllm._C: ImportError('libcuda.so.1: cannot open shared object file: No such file or directory')
+[07:04:31] INFO 08-06 06:38:01 [main.py:47] Unspecified platform detected, switching to CPU Platform instead.
+[07:04:31] Namespace(subparser='bench', bench_type='serve', dispatch_function=<function BenchmarkServingSubcommand.cmd at 0x7db958ddc400>, seed=0, num_prompts=1, dataset_name='random', no_stream=False, dataset_path=None, no_oversample=False, skip_chat_template=False, disable_shuffle=False, custom_output_len=256, spec_bench_output_len=256, spec_bench_category=None, sonnet_input_len=550, sonnet_output_len=150, sonnet_prefix_len=200, sharegpt_output_len=None, blazedit_min_distance=0.0, blazedit_max_distance=1.0, random_input_len=130048, random_output_len=1024, random_range_ratio=0.0, random_prefix_len=0, random_batch_size=1, no_reranker=False, random_mm_base_items_per_request=1, random_mm_num_mm_items_range_ratio=0.0, random_mm_limit_mm_per_prompt={'image': 255, 'video': 1}, random_mm_bucket_config={(256, 256, 1): 0.5, (720, 1280, 1): 0.5, (720, 1280, 16): 0.0}, hf_subset=None, hf_split=None, hf_name=None, hf_output_len=None, prefix_repetition_prefix_len=256, prefix_repetition_suffix_len=256, prefix_repetition_num_prefixes=10, prefix_repetition_output_len=128, label=None, backend='vllm', base_url='http://localhost:8000', host='127.0.0.1', port=8000, endpoint='/v1/completions', header=None, max_concurrency=1, model='poolside/Laguna-XS-2.1', tokenizer=None, tokenizer_mode='auto', use_beam_search=False, logprobs=None, request_rate=inf, burstiness=1.0, trust_remote_code=False, disable_tqdm=False, num_warmups=0, profile=False, save_result=True, save_detailed=False, append_result=False, metadata=None, result_dir=None, result_filename='/home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/doc/vllm_integration/stage_d_c1c8/r_130048_1024_1.json', ignore_eos=True, percentile_metrics='ttft,tpot,itl,e2el', metric_percentiles='99', goodput=None, request_id_prefix='bench-1ed4e06f-', top_p=None, top_k=None, min_p=None, temperature=None, frequency_penalty=None, presence_penalty=None, repetition_penalty=None, common_prefix_len=None, served_model_name=None, lora_modules=None, ramp_up_strategy=None, ramp_up_start_rps=None, ramp_up_end_rps=None, ready_check_timeout_sec=600, extra_body=None)
+[07:04:31] INFO 08-06 06:38:02 [datasets.py:612] Sampling input_len from [130047, 130047] and output_len from [1024, 1024]
+[07:04:31] Starting initial single prompt test run...
+[07:04:31] Waiting for endpoint to become up in 600 seconds
+[07:04:31]  |          | 00:00 elapsed, ? remaining |          | 00:00 elapsed, 00:03 remaining |          | 04:16 elapsed, 33971:32:37 remaining
+[07:04:31] Initial test run completed.
+[07:04:31] Starting main benchmark run...
+[07:04:31] Traffic request rate: inf
+[07:04:31] Burstiness factor: 1.0 (Poisson process)
+[07:04:31] Maximum request concurrency: 1
+[07:04:31]   0%|          | 0/1 [00:00<?, ?it/s]100%|██████████| 1/1 [04:16<00:00, 256.59s/it]100%|██████████| 1/1 [04:16<00:00, 256.59s/it]
+[07:04:31] tip: install termplotlib and gnuplot to plot the metrics
+[07:04:31] ============ Serving Benchmark Result ============
+[07:04:31] Successful requests:                     1         
+[07:04:31] Failed requests:                         0         
+[07:04:31] Maximum request concurrency:             1         
+[07:04:31] Benchmark duration (s):                  256.59    
+[07:04:31] Total input tokens:                      130047    
+[07:04:31] Total generated tokens:                  1024      
+[07:04:31] Request throughput (req/s):              0.00      
+[07:04:31] Output token throughput (tok/s):         3.99      
+[07:04:31] Peak output token throughput (tok/s):    21.00     
+[07:04:31] Peak concurrent requests:                1.00      
+[07:04:31] Total token throughput (tok/s):          510.81    
+[07:04:31] ---------------Time to First Token----------------
+[07:04:31] Mean TTFT (ms):                          207940.90 
+[07:04:31] Median TTFT (ms):                        207940.90 
+[07:04:31] P99 TTFT (ms):                           207940.90 
+[07:04:31] -----Time per Output Token (excl. 1st token)------
+[07:04:31] Mean TPOT (ms):                          47.56     
+[07:04:31] Median TPOT (ms):                        47.56     
+[07:04:31] P99 TPOT (ms):                           47.56     
+[07:04:31] ---------------Inter-token Latency----------------
+[07:04:31] Mean ITL (ms):                           47.56     
+[07:04:31] Median ITL (ms):                         47.94     
+[07:04:31] P99 ITL (ms):                            51.57     
+[07:04:31] ----------------End-to-end Latency----------------
+[07:04:31] Mean E2EL (ms):                          256594.16 
+[07:04:31] Median E2EL (ms):                        256594.16 
+[07:04:31] P99 E2EL (ms):                           256594.16 
+[07:04:31] ==================================================
+[07:04:31] [10:46:35Z] row: k64	130048	1024	1	21.03	4.0	256.6	207941
+[07:04:31] [10:46:35Z] >>> bench ISL=1024 OSL=128 conc=8 np=16
+[07:04:31] INFO 08-06 06:46:38 [importing.py:44] Triton is installed but 0 active driver(s) found (expected 1). Disabling Triton to prevent runtime errors.
+[07:04:31] INFO 08-06 06:46:38 [importing.py:68] Triton not installed or not compatible; certain GPU-related functions will not be available.
+[07:04:31] WARNING 08-06 06:46:38 [interface.py:221] Failed to import from vllm._C: ImportError('libcuda.so.1: cannot open shared object file: No such file or directory')
+[07:04:31] INFO 08-06 06:46:39 [main.py:47] Unspecified platform detected, switching to CPU Platform instead.
+[07:04:31] Namespace(subparser='bench', bench_type='serve', dispatch_function=<function BenchmarkServingSubcommand.cmd at 0x73245d7cc400>, seed=0, num_prompts=16, dataset_name='random', no_stream=False, dataset_path=None, no_oversample=False, skip_chat_template=False, disable_shuffle=False, custom_output_len=256, spec_bench_output_len=256, spec_bench_category=None, sonnet_input_len=550, sonnet_output_len=150, sonnet_prefix_len=200, sharegpt_output_len=None, blazedit_min_distance=0.0, blazedit_max_distance=1.0, random_input_len=1024, random_output_len=128, random_range_ratio=0.0, random_prefix_len=0, random_batch_size=1, no_reranker=False, random_mm_base_items_per_request=1, random_mm_num_mm_items_range_ratio=0.0, random_mm_limit_mm_per_prompt={'image': 255, 'video': 1}, random_mm_bucket_config={(256, 256, 1): 0.5, (720, 1280, 1): 0.5, (720, 1280, 16): 0.0}, hf_subset=None, hf_split=None, hf_name=None, hf_output_len=None, prefix_repetition_prefix_len=256, prefix_repetition_suffix_len=256, prefix_repetition_num_prefixes=10, prefix_repetition_output_len=128, label=None, backend='vllm', base_url='http://localhost:8000', host='127.0.0.1', port=8000, endpoint='/v1/completions', header=None, max_concurrency=8, model='poolside/Laguna-XS-2.1', tokenizer=None, tokenizer_mode='auto', use_beam_search=False, logprobs=None, request_rate=inf, burstiness=1.0, trust_remote_code=False, disable_tqdm=False, num_warmups=0, profile=False, save_result=True, save_detailed=False, append_result=False, metadata=None, result_dir=None, result_filename='/home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/doc/vllm_integration/stage_d_c1c8/r_1024_128_8.json', ignore_eos=True, percentile_metrics='ttft,tpot,itl,e2el', metric_percentiles='99', goodput=None, request_id_prefix='bench-6d1d3701-', top_p=None, top_k=None, min_p=None, temperature=None, frequency_penalty=None, presence_penalty=None, repetition_penalty=None, common_prefix_len=None, served_model_name=None, lora_modules=None, ramp_up_strategy=None, ramp_up_start_rps=None, ramp_up_end_rps=None, ready_check_timeout_sec=600, extra_body=None)
+[07:04:31] INFO 08-06 06:46:41 [datasets.py:612] Sampling input_len from [1023, 1023] and output_len from [128, 128]
+[07:04:31] Starting initial single prompt test run...
+[07:04:31] Waiting for endpoint to become up in 600 seconds
+[07:04:31]  |          | 00:00 elapsed, ? remaining |          | 00:00 elapsed, 00:08 remaining |          | 00:05 elapsed, 1768:37:21 remaining
+[07:04:31] Initial test run completed.
+[07:04:31] Starting main benchmark run...
+[07:04:31] Traffic request rate: inf
+[07:04:31] Burstiness factor: 1.0 (Poisson process)
+[07:04:31] Maximum request concurrency: 8
+[07:04:31]   0%|          | 0/16 [00:00<?, ?it/s]  6%|▋         | 1/16 [00:10<02:35, 10.40s/it] 56%|█████▋    | 9/16 [00:20<00:14,  2.02s/it]100%|██████████| 16/16 [00:20<00:00,  1.29s/it]
+[07:04:31] tip: install termplotlib and gnuplot to plot the metrics
+[07:04:31] ============ Serving Benchmark Result ============
+[07:04:31] Successful requests:                     16        
+[07:04:31] Failed requests:                         0         
+[07:04:31] Maximum request concurrency:             8         
+[07:04:31] Benchmark duration (s):                  20.66     
+[07:04:31] Total input tokens:                      16368     
+[07:04:31] Total generated tokens:                  2048      
+[07:04:31] Request throughput (req/s):              0.77      
+[07:04:31] Output token throughput (tok/s):         99.15     
+[07:04:31] Peak output token throughput (tok/s):    224.00    
+[07:04:31] Peak concurrent requests:                16.00     
+[07:04:31] Total token throughput (tok/s):          891.55    
+[07:04:31] ---------------Time to First Token----------------
+[07:04:31] Mean TTFT (ms):                          4704.88   
+[07:04:31] Median TTFT (ms):                        5640.54   
+[07:04:31] P99 TTFT (ms):                           5706.77   
+[07:04:31] -----Time per Output Token (excl. 1st token)------
+[07:04:31] Mean TPOT (ms):                          44.27     
+[07:04:31] Median TPOT (ms):                        36.95     
+[07:04:31] P99 TPOT (ms):                           74.30     
+[07:04:31] ---------------Inter-token Latency----------------
+[07:04:31] Mean ITL (ms):                           44.27     
+[07:04:31] Median ITL (ms):                         36.90     
+[07:04:31] P99 ITL (ms):                            40.81     
+[07:04:31] ----------------End-to-end Latency----------------
+[07:04:31] Mean E2EL (ms):                          10327.31  
+[07:04:31] Median E2EL (ms):                        10326.91  
+[07:04:31] P99 E2EL (ms):                           10399.38  
+[07:04:31] ==================================================
+[07:04:31] [10:47:07Z] row: k64	1024	128	8	22.59	99.1	10.3	4705
+[07:04:31] [10:47:07Z] >>> bench ISL=16384 OSL=128 conc=8 np=16
+[07:04:31] INFO 08-06 06:47:10 [importing.py:44] Triton is installed but 0 active driver(s) found (expected 1). Disabling Triton to prevent runtime errors.
+[07:04:31] INFO 08-06 06:47:10 [importing.py:68] Triton not installed or not compatible; certain GPU-related functions will not be available.
+[07:04:31] WARNING 08-06 06:47:10 [interface.py:221] Failed to import from vllm._C: ImportError('libcuda.so.1: cannot open shared object file: No such file or directory')
+[07:04:31] INFO 08-06 06:47:11 [main.py:47] Unspecified platform detected, switching to CPU Platform instead.
+[07:04:31] Namespace(subparser='bench', bench_type='serve', dispatch_function=<function BenchmarkServingSubcommand.cmd at 0x7aaaf2dd0400>, seed=0, num_prompts=16, dataset_name='random', no_stream=False, dataset_path=None, no_oversample=False, skip_chat_template=False, disable_shuffle=False, custom_output_len=256, spec_bench_output_len=256, spec_bench_category=None, sonnet_input_len=550, sonnet_output_len=150, sonnet_prefix_len=200, sharegpt_output_len=None, blazedit_min_distance=0.0, blazedit_max_distance=1.0, random_input_len=16384, random_output_len=128, random_range_ratio=0.0, random_prefix_len=0, random_batch_size=1, no_reranker=False, random_mm_base_items_per_request=1, random_mm_num_mm_items_range_ratio=0.0, random_mm_limit_mm_per_prompt={'image': 255, 'video': 1}, random_mm_bucket_config={(256, 256, 1): 0.5, (720, 1280, 1): 0.5, (720, 1280, 16): 0.0}, hf_subset=None, hf_split=None, hf_name=None, hf_output_len=None, prefix_repetition_prefix_len=256, prefix_repetition_suffix_len=256, prefix_repetition_num_prefixes=10, prefix_repetition_output_len=128, label=None, backend='vllm', base_url='http://localhost:8000', host='127.0.0.1', port=8000, endpoint='/v1/completions', header=None, max_concurrency=8, model='poolside/Laguna-XS-2.1', tokenizer=None, tokenizer_mode='auto', use_beam_search=False, logprobs=None, request_rate=inf, burstiness=1.0, trust_remote_code=False, disable_tqdm=False, num_warmups=0, profile=False, save_result=True, save_detailed=False, append_result=False, metadata=None, result_dir=None, result_filename='/home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/doc/vllm_integration/stage_d_c1c8/r_16384_128_8.json', ignore_eos=True, percentile_metrics='ttft,tpot,itl,e2el', metric_percentiles='99', goodput=None, request_id_prefix='bench-e3d6c371-', top_p=None, top_k=None, min_p=None, temperature=None, frequency_penalty=None, presence_penalty=None, repetition_penalty=None, common_prefix_len=None, served_model_name=None, lora_modules=None, ramp_up_strategy=None, ramp_up_start_rps=None, ramp_up_end_rps=None, ready_check_timeout_sec=600, extra_body=None)
+[07:04:31] INFO 08-06 06:47:12 [datasets.py:612] Sampling input_len from [16383, 16383] and output_len from [128, 128]
+[07:04:31] Starting initial single prompt test run...
+[07:04:31] Waiting for endpoint to become up in 600 seconds
+[07:04:31]  |          | 00:00 elapsed, ? remaining |          | 00:00 elapsed, 00:08 remaining |          | 00:17 elapsed, 5700:45:39 remaining
+[07:04:31] Initial test run completed.
+[07:04:31] Starting main benchmark run...
+[07:04:31] Traffic request rate: inf
+[07:04:31] Burstiness factor: 1.0 (Poisson process)
+[07:04:31] Maximum request concurrency: 8
+[07:04:31]   0%|          | 0/16 [00:00<?, ?it/s]  6%|▋         | 1/16 [01:47<26:59, 107.97s/it] 56%|█████▋    | 9/16 [03:35<02:27, 21.06s/it] 100%|██████████| 16/16 [03:35<00:00, 13.48s/it]
+[07:04:31] tip: install termplotlib and gnuplot to plot the metrics
+[07:04:31] ============ Serving Benchmark Result ============
+[07:04:31] Successful requests:                     16        
+[07:04:31] Failed requests:                         0         
+[07:04:31] Maximum request concurrency:             8         
+[07:04:31] Benchmark duration (s):                  215.61    
+[07:04:31] Total input tokens:                      262128    
+[07:04:31] Total generated tokens:                  2048      
+[07:04:31] Request throughput (req/s):              0.07      
+[07:04:31] Output token throughput (tok/s):         9.50      
+[07:04:31] Peak output token throughput (tok/s):    208.00    
+[07:04:31] Peak concurrent requests:                16.00     
+[07:04:31] Total token throughput (tok/s):          1225.23   
+[07:04:31] ---------------Time to First Token----------------
+[07:04:31] Mean TTFT (ms):                          77995.78  
+[07:04:31] Median TTFT (ms):                        102754.69 
+[07:04:31] P99 TTFT (ms):                           103029.23 
+[07:04:31] -----Time per Output Token (excl. 1st token)------
+[07:04:31] Mean TPOT (ms):                          234.72    
+[07:04:31] Median TPOT (ms):                        38.87     
+[07:04:31] P99 TPOT (ms):                           546.25    
+[07:04:31] ---------------Inter-token Latency----------------
+[07:04:31] Mean ITL (ms):                           234.72    
+[07:04:31] Median ITL (ms):                         38.99     
+[07:04:31] P99 ITL (ms):                            44.17     
+[07:04:31] ----------------End-to-end Latency----------------
+[07:04:31] Mean E2EL (ms):                          107805.32 
+[07:04:31] Median E2EL (ms):                        107804.99 
+[07:04:31] P99 E2EL (ms):                           107966.77 
+[07:04:31] ==================================================
+[07:04:31] [10:51:07Z] row: k64	16384	128	8	4.26	9.5	107.8	77996
+[07:04:31] [10:51:07Z] >>> bench ISL=32768 OSL=128 conc=8 np=16
+[07:04:31] INFO 08-06 06:51:09 [importing.py:44] Triton is installed but 0 active driver(s) found (expected 1). Disabling Triton to prevent runtime errors.
+[07:04:31] INFO 08-06 06:51:09 [importing.py:68] Triton not installed or not compatible; certain GPU-related functions will not be available.
+[07:04:31] WARNING 08-06 06:51:09 [interface.py:221] Failed to import from vllm._C: ImportError('libcuda.so.1: cannot open shared object file: No such file or directory')
+[07:04:31] INFO 08-06 06:51:10 [main.py:47] Unspecified platform detected, switching to CPU Platform instead.
+[07:04:31] Namespace(subparser='bench', bench_type='serve', dispatch_function=<function BenchmarkServingSubcommand.cmd at 0x72c8311dc400>, seed=0, num_prompts=16, dataset_name='random', no_stream=False, dataset_path=None, no_oversample=False, skip_chat_template=False, disable_shuffle=False, custom_output_len=256, spec_bench_output_len=256, spec_bench_category=None, sonnet_input_len=550, sonnet_output_len=150, sonnet_prefix_len=200, sharegpt_output_len=None, blazedit_min_distance=0.0, blazedit_max_distance=1.0, random_input_len=32768, random_output_len=128, random_range_ratio=0.0, random_prefix_len=0, random_batch_size=1, no_reranker=False, random_mm_base_items_per_request=1, random_mm_num_mm_items_range_ratio=0.0, random_mm_limit_mm_per_prompt={'image': 255, 'video': 1}, random_mm_bucket_config={(256, 256, 1): 0.5, (720, 1280, 1): 0.5, (720, 1280, 16): 0.0}, hf_subset=None, hf_split=None, hf_name=None, hf_output_len=None, prefix_repetition_prefix_len=256, prefix_repetition_suffix_len=256, prefix_repetition_num_prefixes=10, prefix_repetition_output_len=128, label=None, backend='vllm', base_url='http://localhost:8000', host='127.0.0.1', port=8000, endpoint='/v1/completions', header=None, max_concurrency=8, model='poolside/Laguna-XS-2.1', tokenizer=None, tokenizer_mode='auto', use_beam_search=False, logprobs=None, request_rate=inf, burstiness=1.0, trust_remote_code=False, disable_tqdm=False, num_warmups=0, profile=False, save_result=True, save_detailed=False, append_result=False, metadata=None, result_dir=None, result_filename='/home/ttuser/dev/tt-metal/models/autoports/poolside_laguna_xs_2_1/doc/vllm_integration/stage_d_c1c8/r_32768_128_8.json', ignore_eos=True, percentile_metrics='ttft,tpot,itl,e2el', metric_percentiles='99', goodput=None, request_id_prefix='bench-1c1a6b36-', top_p=None, top_k=None, min_p=None, temperature=None, frequency_penalty=None, presence_penalty=None, repetition_penalty=None, common_prefix_len=None, served_model_name=None, lora_modules=None, ramp_up_strategy=None, ramp_up_start_rps=None, ramp_up_end_rps=None, ready_check_timeout_sec=600, extra_body=None)
+[07:04:31] INFO 08-06 06:51:11 [datasets.py:612] Sampling input_len from [32767, 32767] and output_len from [128, 128]
+[07:04:31] Starting initial single prompt test run...
+[07:04:31] Waiting for endpoint to become up in 600 seconds
+[07:04:31]  |          | 00:00 elapsed, ? remaining |          | 00:00 elapsed, 00:07 remaining |          | 00:34 elapsed, 10010:46:18 remaining
+[07:04:31] Initial test run completed.
+[07:04:31] Starting main benchmark run...
+[07:04:31] Traffic request rate: inf
+[07:04:31] Burstiness factor: 1.0 (Poisson process)
+[07:04:31] Maximum request concurrency: 8
+[07:04:31]   0%|          | 0/16 [00:00<?, ?it/s]  6%|▋         | 1/16 [02:32<38:06, 152.40s/it] 31%|███▏      | 5/16 [05:41<11:31, 62.87s/it]  38%|███▊      | 6/16 [06:13<09:16, 55.66s/it] 62%|██████▎   | 10/16 [09:24<05:06, 51.14s/it] 69%|██████▉   | 11/16 [10:30<04:28, 53.71s/it] 88%|████████▊ | 14/16 [11:31<01:19, 39.69s/it] 94%|█████████▍| 15/16 [11:34<00:33, 33.51s/it]100%|██████████| 16/16 [11:34<00:00, 43.39s/it]
+[07:04:31] tip: install termplotlib and gnuplot to plot the metrics
+[07:04:31] ============ Serving Benchmark Result ============
+[07:04:31] Successful requests:                     16        
+[07:04:31] Failed requests:                         0         
+[07:04:31] Maximum request concurrency:             8         
+[07:04:31] Benchmark duration (s):                  694.23    
+[07:04:31] Total input tokens:                      524272    
+[07:04:31] Total generated tokens:                  2048      
+[07:04:31] Request throughput (req/s):              0.02      
+[07:04:31] Output token throughput (tok/s):         2.95      
+[07:04:31] Peak output token throughput (tok/s):    130.00    
+[07:04:31] Peak concurrent requests:                12.00     
+[07:04:31] Total token throughput (tok/s):          758.14    
+[07:04:31] ---------------Time to First Token----------------
+[07:04:31] Mean TTFT (ms):                          243101.19 
+[07:04:31] Median TTFT (ms):                        218089.33 
+[07:04:31] P99 TTFT (ms):                           406746.75 
+[07:04:31] -----Time per Output Token (excl. 1st token)------
+[07:04:31] Mean TPOT (ms):                          501.48    
+[07:04:31] Median TPOT (ms):                        270.64    
+[07:04:31] P99 TPOT (ms):                           1525.83   
+[07:04:31] ---------------Inter-token Latency----------------
+[07:04:31] Mean ITL (ms):                           501.48    
+[07:04:31] Median ITL (ms):                         39.95     
+[07:04:31] P99 ITL (ms):                            46.03     
+[07:04:31] ----------------End-to-end Latency----------------
+[07:04:31] Mean E2EL (ms):                          306789.05 
+[07:04:31] Median E2EL (ms):                        321084.25 
+[07:04:31] P99 E2EL (ms):                           478047.22 
+[07:04:31] ==================================================
+[07:04:31] [11:03:22Z] row: k64	32768	128	8	1.99	3.0	306.8	243101
+[07:04:31] [11:04:31Z] STOPPED + board reset
+[07:04:31] [11:04:31Z] === SWEEP DONE ===
+[07:04:31] 
+[07:04:31] final TSV:
+[07:04:31] # server	ISL	OSL	CONC	t/s/u	agg_tok/s	E2EL_s(meas)	TTFT_ms
+[07:04:31] k64	1024	1024	1	27.37	26.9	38.1	711
+[07:04:31] k64	16384	1024	1	26.39	19.9	51.5	12778
+[07:04:31] k64	32768	1024	1	25.46	14.7	69.5	29353
+[07:04:31] k64	130048	1024	1	21.03	4.0	256.6	207941
+[07:04:31] k64	1024	128	8	22.59	99.1	10.3	4705
+[07:04:31] k64	16384	128	8	4.26	9.5	107.8	77996
+[07:04:31] k64	32768	128	8	1.99	3.0	306.8	243101

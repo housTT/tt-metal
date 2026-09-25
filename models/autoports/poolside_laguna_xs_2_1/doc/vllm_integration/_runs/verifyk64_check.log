@@ -1,0 +1,27 @@
+[22:27:01] === spec_decode_driver mode=both isl=4096 osl=64 K=4 ===
+[22:27:04] [phase] build model layers=full max_model_len=8192
+[22:33:13] [phase] allocate_kv_cache blocks=144 shape=(144,2,64,128)
+[22:33:14] [phase] warmup phase-1 (compile, no trace)
+[22:33:25] [phase] warmup phase-2 (prefill buffers; decode-trace capture=False)
+[22:33:33] [phase] warmup verify-decode traces K1=[5]
+[22:33:34] [phase] warmup done
+[22:33:34] [cfg] verify_mode=decode traced=True adaptive=False k=[1,4] guard=False
+[22:33:34] [phase] ACCURACY: prefill P=512, plain-greedy baseline (48 tok)
+[22:33:40] [ok] baseline 48 toks in 5.3s ; first10=[81, 17228, 989, 1656, 98, 85, 54909, 268, 290, 4088]
+[22:33:40] [phase] RE-PREFILL then ngram spec-decode
+[22:33:41] [ok] spec 48 toks ; iters=17 mean_accept=2.06/4
+[22:33:41] [result] first_mismatch=24 total_mismatch=24/48
+[22:33:41] [RESULT] ACCURACY DIVERGENCE at [24, 25, 26, 27, 28]
+[22:33:41]     idx 24: ref=130 got=81
+[22:33:41]     idx 25: ref=452 got=290
+[22:33:41]     idx 26: ref=404 got=93
+[22:33:41]     idx 27: ref=1979 got=130
+[22:33:41]     idx 28: ref=8822 got=452
+[22:33:41] [text] greedy: ", *, user_id=0)``\n  processes one user's prompt ``x`` of shape ``[1, hidden]`` (any logical\n  ``hidden``; internal chunking owns padding/masking), fills that user's paged KV\n"
+[22:33:41] [text] spec  : ", *, user_id=0)``\n  processes one user's prompt ``x`` of shape ``[1, hidden, 8]`` (any logical\n  ``hidden``; internal chunking owns padding/masking), fills that user's"
+[22:33:41] [phase] LATENCY 4096/64: prefill P=4096
+[22:33:44] [ok] prefill/TTFT 2998ms ; spec-decode K=4 OSL=64
+[22:33:45] [gen] 64/64 toks  mean_accept=2.00/4  71.8 tok/s (running)
+[22:33:45] [RESULT-SPEC 4096/64] gen=64 in 0.89s -> 71.80 tok/s/u ; iters=22 mean_accept=2.00/4 ms/tok=13.9 TTFT=2998ms
+[22:33:54] [RESULT-BASE 4096/64] via-verify(K=1) 9.72 tok/s/u = SAME-TRACE LOWER BOUND (overstates speedup, ignore the 7.39x). HONEST spec speedup ~= 2.39x vs served-decode 30 t/s/u (confirm with vllm bench).
+[22:33:54] [phase] done
