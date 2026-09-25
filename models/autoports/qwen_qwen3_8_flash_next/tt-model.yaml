@@ -1,0 +1,377 @@
+# Self-contained Qwen3.8-Flash-Next image for the optimized four-chip
+# TP4+EP4 implementation in this exact tt-metal checkout. Build it with:
+#   tt-model package --container models/autoports/qwen_qwen3_8_flash_next/tt-model.yaml
+schema: "5.1"
+
+repo: tt-hous/qwen3.8-flash-next-p300x2
+name: qwen3.8-flash-next-p300x2
+weights:
+  repo: Qwen/Qwen3.8-Flash-Next
+  revision: f5d08274bafd880402bd16f5e3e6c514136ec06c
+
+kind: vllm-plugin
+arch: blackhole
+
+image:
+  registry: hf
+
+source:
+  # Package this exact checkout, including the native recurrent GDN operation
+  # and the uncommitted resident-expert optimization work validated below.
+  tt_metal: /home/ttuser/dev/qwen3.8-flash-next/tt-metal
+  code:
+    - models/common
+    - models/tt_transformers
+    - models/autoports/qwen_qwen3_8_flash_next/__init__.py
+    - models/autoports/qwen_qwen3_8_flash_next/tt
+    - models/autoports/qwen_qwen3_8_flash_next/vllm_bundle
+    - models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/selected_precision_config.json
+    - models/autoports/qwen_qwen3_8_flash_next/requirements.lock
+    - models/demos/blackhole/qwen36/__init__.py
+    - models/demos/blackhole/qwen36/tt
+    - models/experimental/gated_attention_gated_deltanet/tt
+    - models/demos/deepseek_v3_d_p/tt/moe
+  ubuntu: "22.04"
+  python: "3.12"
+
+runtime:
+  vllm: {version: "0.24.0"}
+  # Qwen3.8 registration plus the qwen4_exp chunked-prefill policy validated
+  # with this exact tt-metal checkout.
+  plugin: {path: /home/ttuser/dev/qwen3.8-flash-next/vllm-tt-plugin-a48857a}
+  extra_models_dir: models/autoports/qwen_qwen3_8_flash_next/vllm_bundle
+  # Seeded from the hardware-validated vLLM 0.24 environment. Transformers
+  # 5.16.0 is required: 5.15.0 does not register qwen4_exp.
+  lock: requirements.lock
+
+serve:
+  port: 8000
+  hardware: p300x2
+  # The four chips are arranged along the model's expert/tensor-parallel axis.
+  mesh_device: "(4, 1)"
+  # The product path is deliberately single-user: additional requests remain
+  # queued in vLLM instead of time-slicing the physical-B1 trace.
+  max_num_seqs: 1
+  block_size: 64
+  capabilities:
+    # Qwen3.8's chat template emits <tool_call><function=…><parameter=…> XML;
+    # vLLM 0.24's qwen3_xml parser converts it to OpenAI tool_calls and is the
+    # parser Qwen documents alongside the qwen3 reasoning parser. tt-model emits
+    # --enable-auto-tool-choice --tool-call-parser qwen3_xml from this key.
+    tool_parser: qwen3_xml
+    reasoning_parser: qwen3
+  additional_config:
+    tt:
+      sample_on_device_mode: all
+      trace_region_size: 1073741824
+      fabric_config: FABRIC_1D
+      fabric_packet_payload_bytes: 8192
+      l1_small_size: 24576
+      trace_mode: decode_only
+  args:
+    - --async-scheduling
+    - --enable-chunked-prefill
+    - [--max-num-batched-tokens, "1024"]
+    - [--served-model-name, Qwen/Qwen3.8-Flash-Next]
+  env:
+    TT_VISIBLE_DEVICES: "0,1,2,3"
+    # vLLM validates the checkpoint's plain architecture before the TT platform
+    # hook prefixes it. Keep the pinned plugin's plain + TT Qwen3.8 aliases on;
+    # EXTRA_MODELS_DIR alone registers only the TT-prefixed alias.
+    TT_VLLM_BUILTIN_MODELS: "1"
+    QWEN38_VLLM_LOG_METRICS: "1"
+    QWEN38_PREFILL_SCHEDULE: stack_major
+    QWEN38_DECODE_TRACE_SCHEDULE: resident_stack
+    # Dispatch-free resident MoE (sparse_matmul over per-rank expert banks);
+    # see doc/phase1_cfgA/README.md for the Phase 1 switches and evidence.
+    QWEN38_MOE_KERNEL: sparse_bank
+    # tt-model mounts this model's persistent converted-weight directory here.
+    # A complete 48-layer cache avoids rereading checkpoint expert tensors on
+    # subsequent starts; partial layers are detected and rebuilt atomically.
+    QWEN38_EXPERT_WEIGHT_CACHE: /weight-cache/resident-experts-f5d08274-p300-tp4-ep4-bfp4-v1
+    # Prefill microchunk plan: 512-row microchunks with 128-row tails and
+    # expert-sorted MoE slabs (doc/prefill_sweep/, 1.45x prefill at 16k-64k).
+    # Gated on the long-document decode agreement in
+    # doc/correctness/evidence_fix_geometry_20260917/ (the earlier regression
+    # was the compressed-index page geometry, fixed there).
+    QWEN38_PREFILL_CHUNK: "512"
+    QWEN38_PREFILL_CHUNK_ADAPTIVE: "1"
+    QWEN38_MOE_PREFILL_SLABS: "1"
+
+serve_profiles:
+  # Single profile. The former 4,096-token batch1-latency profile was removed on
+  # 2026-09-11: it rejected any request whose max_tokens exceeded 4,096, and the
+  # long-context profile is the one that serves real workloads.
+  - name: long-context
+    description: Full 262,144-token capacity, physical batch one.
+    max_model_len: 262144
+default_profile: long-context
+
+verify:
+  - "import pathlib; p = pathlib.Path('/opt/tt-metal/models/autoports/qwen_qwen3_8_flash_next/requirements.lock'); text = p.read_text(); assert len(text.splitlines()) >= 400 and 'torch==2.11.0+cpu' in text and 'transformers==5.16.0' in text"
+  - "import json, pathlib; p = pathlib.Path('/opt/tt-metal/models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/selected_precision_config.json'); c = json.loads(p.read_text()); assert c['parallelism'] == {'mesh_shape': [4, 1], 'dense_tp': 4, 'expert_parallel': 4, 'expert_mode': 'resident_ep4', 'kv_replication': 2, 'indexer_kv_replication': 4}, c['parallelism']"
+  - "from models.autoports.qwen_qwen3_8_flash_next.tt.generator_vllm import Qwen4ExpForConditionalGeneration; assert Qwen4ExpForConditionalGeneration"
+  - "from transformers.models.qwen4_exp.configuration_qwen4_exp import Qwen4ExpConfig; assert Qwen4ExpConfig"
+  - "import ttnn; assert hasattr(ttnn.experimental.kda, 'recurrent_gated_delta_rule'), 'native recurrent GDN op is missing'"
+  - "import vllm; import vllm_tt_plugin.platform as p; import inspect; assert 'Qwen4ExpForConditionalGeneration' in inspect.getsource(p), 'plugin lacks Qwen3.8 registration/capability support'"
+  - "import vllm.tool_parsers; from vllm.tool_parsers.abstract_tool_parser import ToolParserManager; assert ToolParserManager.get_tool_parser('qwen3_xml'), 'qwen3_xml tool-call parser is missing'; from vllm.reasoning import ReasoningParserManager; assert ReasoningParserManager.get_reasoning_parser('qwen3'), 'qwen3 reasoning parser is missing'"
+
+card:
+  quickstart: |
+    **Text-only.** This package serves the language model of
+    Qwen3.8-Flash-Next as an OpenAI-compatible chat and completion endpoint
+    on two P300 boards (four Blackhole devices). The checkpoint's vision
+    encoder is not ported: requests with image or video content are rejected.
+    The runtime uses TP4+EP4 with all 512 routed experts resident on device;
+    only the PLE n-gram table and its sparse row assembly remain host-backed.
+
+    ### Serve on two P300 boards (four chips)
+
+    ```bash
+    tt-model serve tt-hous/qwen3.8-flash-next-p300x2
+    ```
+
+    `tt-model serve` waits for the model to become ready and prints the selected
+    local endpoint. With the default port, verify the OpenAI-compatible API with:
+
+    ```bash
+    curl -fsS http://127.0.0.1:20000/v1/chat/completions \
+      -H 'Content-Type: application/json' \
+      --data-binary '{"model":"Qwen/Qwen3.8-Flash-Next","messages":[{"role":"user","content":"What is 7 multiplied by 8? Answer in exactly one sentence."}],"temperature":0.0,"max_tokens":64}'
+    ```
+
+    ### Tool calling
+
+    The endpoint serves OpenAI-style function calling. The server starts with
+    `--enable-auto-tool-choice --tool-call-parser qwen3_xml` and the `qwen3`
+    reasoning parser, so a request that passes `tools` gets structured
+    `tool_calls` back and thinking content arrives in `reasoning_content`:
+
+    ```bash
+    curl -fsS http://127.0.0.1:20000/v1/chat/completions \
+      -H 'Content-Type: application/json' \
+      --data-binary '{"model":"Qwen/Qwen3.8-Flash-Next","messages":[{"role":"user","content":"What is the weather in Toronto right now?"}],"tools":[{"type":"function","function":{"name":"get_weather","description":"Get the current weather for a city.","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}],"tool_choice":"auto","temperature":0.0,"max_tokens":256}'
+    ```
+
+    The package pins the exact Hugging Face checkpoint revision, vLLM 0.24.0,
+    Transformers 5.16.0, and the Qwen3.8-capable TT plugin revision. It exposes
+    one physical batch-1 decode lane and uses resumable 1,024-token prefill
+    chunks split into 512-token model microchunks with 128-token tails. The
+    single serve profile, `long-context`, exposes the full 262,144-token
+    context, so requests may use large `max_tokens` values without being
+    rejected.
+
+    ### What is implemented
+
+    Text generation only, on four Blackhole chips as a (4, 1) mesh: dense
+    weights are tensor-parallel over the four chips (TP4) and the 512 routed
+    experts of every layer are resident on device, 128 per chip (EP4). Batch
+    one, 262,144-token context, traced decode, eager prefill in 512-token
+    microchunks (128-token tails) inside 1,024-token vLLM chunks.
+
+    | component | in this port | weights on device |
+    | --- | --- | --- |
+    | Gated DeltaNet linear attention (36 layers) | one fused decode kernel: causal conv, q/k norm, delta-rule recurrence, gated RMSNorm; recurrent state kept in FP32 | projections BFP8 (HiFi2) |
+    | Query-sparse attention (12 layers) | exact top-512 block selection from the compressed index above 2,048 tokens; dense paged attention below it (same result) | projections BFP8 (HiFi2); K/V page cache BFP8 with BF16 updates; compressed index keys BF16 |
+    | MoE, 512 routed experts, top-10 plus a shared expert | all experts resident, indexed sparse matmuls per chip, fused routing / top-k / softmax / weighted-sum kernels | routed experts BFP4 (LoFi, ~17 GB per chip); shared expert BFP8; router BF16 |
+    | Hyper-connections (4-stream gated residual) | fused mixer kernels; the residual is width-sharded over the four chips | per-layer mixers BF16, final mixer BFP8 |
+    | N-gram (PLE) embedding table, 51.2 B parameters | memory-mapped on the host; the rows a token needs are looked up and uploaded per step | BF16 |
+    | Embedding and LM head | replicated embedding; vocabulary-sharded LM head with an exact global argmax on device | BF16 (LM head HiFi2) |
+    | Norms, activations, residual stream, collectives | RMSNorm at HiFi4; two-link linear collectives | BF16 |
+
+    Quantization in one sentence: the 123.6 B routed-expert parameters run as
+    BFP4 (block floating point: 4-bit mantissas, one shared exponent per 16
+    values), derived once from the BF16 checkpoint into the resident cache;
+    the dense attention, DeltaNet and shared-expert projections and the final
+    mixer are BFP8; embeddings, the LM head, norms, routers, per-layer
+    mixers, the n-gram table and all activations stay BF16; the DeltaNet
+    recurrence accumulates in FP32. The policy is declared in
+    `doc/datatype_sweep/selected_precision_config.json` and audited against
+    the live tensors on every accuracy-gate run.
+
+    Not in this port: the vision encoder and multimodal RoPE (text-only
+    endpoint), YaRN scaling beyond 262,144 tokens, speculative decoding with
+    the checkpoint's MTP head (the weights load and a lossless k=1 verifier
+    exists in the test harness, but it is performance-neutral on this stack
+    until more of the layer is fused, so the server does not use it), prefix
+    caching (the recurrent and n-gram state cannot be rebuilt from KV blocks),
+    on-device stochastic sampling (see Recommended sampling), and batching
+    above one.
+
+    ### Recommended sampling
+
+    Requests that omit sampling fields get the checkpoint's own defaults
+    (`generation_config.json`: `temperature 1.0`, `top_p 0.95`, `top_k 20`),
+    which is Qwen's thinking-mode preset. For long reasoning add
+    `presence_penalty` 1.0-1.5. The `temperature: 0.0` in the examples above
+    is for reproducible smoke tests, not a recommendation.
+
+    Sampling paths: greedy requests (`temperature 0`) sample on device
+    (exact global argmax, ~0.7 ms per token). Every request with
+    `temperature > 0` is sampled by vLLM on the host from the full logits
+    (as are requests with penalties, `logprobs`, an explicit `seed`, `min_p`,
+    `logit_bias`, `bad_words`, `allowed_token_ids` or structured outputs);
+    this adds about 18 ms per generated token over the greedy figures in the
+    table below (41 -> 59 ms/token under 2,048 tokens of context, 72 -> 91
+    ms/token above; TTFT unchanged). The bounded on-device stochastic sampler is disabled
+    in this revision while a user report of repetition loops under it is
+    investigated. Measured against the vLLM reference the
+    device sampler draws no token outside the requested `top_p` set and
+    stays within 0.02 total-variation distance, so the switch is a
+    precaution, not a fix for a known numerical defect. Greedy decoding was
+    never affected.
+
+    The first start populates a persistent BFP4 resident-expert tensor cache in
+    tt-model's per-model weight-cache mount. Later starts reuse complete cached
+    layers; model weights remain pinned in the host Hugging Face cache.
+
+    ### Long context: what to expect
+
+    The `long-context` profile accepts prompts up to 262,144 tokens and they
+    complete, but treat anything above ~32k tokens as a batch job rather than
+    an interactive request. Latency follows one rule:
+
+    `end-to-end = TTFT(prompt) + max_tokens x TPOT`
+
+    - TTFT is linear in prompt length at roughly 2.6 ms per prompt token
+      (prefill ~400 tokens/s): 16k ~ 38 s, 64k ~ 2.7 min, 131k ~ 5.6 min,
+      262k ~ 11.5 min. Set client timeouts accordingly (at least 10 min for
+      131k prompts) and use `stream: true` so the first token is visible.
+    - TPOT does not depend on prompt length: about 41 ms/token (24 tok/s)
+      while the context is under the 2,048-token sparse-attention budget and
+      about 72 ms/token (14 tok/s) above it, independent of the 262,144-token
+      capacity. Reducing `max_tokens` saves only 72 ms per removed token
+      (256 -> 64 saves ~14 s on a 3-minute 64k request).
+    - There is no prefix caching: every request, including each turn of a
+      multi-turn chat over a long document, re-prefills the whole prompt.
+    - The first long request after a server start pays a few seconds of
+      one-time kernel compilation.
+
+    Measured 2026-09-17 on two P300 boards (four devices) against this exact
+    package on the `long-context` profile, with the tt-model community
+    latency-sweep harness: one closed-loop user, random token prompts of
+    exactly ISL tokens, output pinned to OSL tokens with `ignore_eos`, one
+    unrecorded warm-up request per input length, greedy sampling. TTFT and
+    TPOT are means; prefill tok/s = ISL / TTFT, decode tok/s/user = 1 / TPOT.
+
+    | ISL | OSL | Users | Requests | Mean TTFT | Prefill tok/s | Mean TPOT | Decode tok/s/user | E2EL |
+    | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+    | 128 | 128 | 1 | 4 | 0.34 s | 379 | 41.2 ms | 24.3 | 5.6 s |
+    | 1,024 | 256 | 1 | 4 | 1.59 s | 642 | 41.3 ms | 24.2 | 12.1 s |
+    | 4,096 | 256 | 1 | 4 | 7.99 s | 513 | 72.1 ms | 13.9 | 26.4 s |
+    | 16,384 | 256 | 1 | 2 | 38.27 s | 428 | 72.4 ms | 13.8 | 56.7 s |
+    | 32,768 | 256 | 1 | 1 | 79.25 s | 413 | 72.4 ms | 13.8 | 97.7 s |
+    | 65,536 | 256 | 1 | 1 | 163 s | 402 | 72.5 ms | 13.8 | 182 s |
+    | 131,072 | 256 | 1 | 1 | 338 s | 388 | 72.4 ms | 13.8 | 357 s |
+
+    Decode is about 41 ms/token (24 tok/s per user) for prompts up to the
+    2,048-token sparse-attention budget and about 72 ms/token (14 tok/s)
+    beyond it, independent of the configured 262,144-token capacity. The
+    serving profile is intentionally batch one; later requests queue in vLLM
+    instead of time-slicing a virtual state bank. Tool calling was verified
+    end to end on this package (single, parallel, streaming, and tool-result
+    round-trip requests).
+
+    Queued work: re-enable the bounded on-device sampler for `temperature > 0`
+    requests (removes the ~18 ms/token host-sampling cost below; the sampler
+    now has a distribution gate and an endpoint A/B, and the switch flips back
+    once the reported repetition loops are reproduced or ruled out), a
+    capacity-independent sparse-attention selector (decode above 2k tokens
+    from ~72 toward ~45 ms/token and 10-20 % off TTFT above 2k), then traced
+    prefill (~1.5x TTFT). Prefix caching is not planned: the hybrid DeltaNet /
+    n-gram state cannot be rebuilt from KV blocks.
+
+    ### Evaluation
+
+    Measured on this exact package configuration on two P300 boards, against a
+    BF16 Hugging Face reference (Transformers 5.16) of the same checkpoint
+    revision run on the CPU. Agreement numbers are teacher-forced: the
+    reference's tokens are fed in and the port's next-token prediction is
+    compared position by position, so they measure numerical fidelity, not
+    task skill.
+
+    Teacher set (`doc/correctness/teacher_set/`, 14 prompts, 1,386 decode
+    positions, greedy):
+
+    | domain | prompts | decode positions | top-1 | ref. token in TT top-5 |
+    | --- | ---: | ---: | ---: | ---: |
+    | mathematics (competition, word problem) | 2 | 198 | 97.0 % | 100.0 % |
+    | code (function, debugging) | 2 | 198 | 97.5 % | 100.0 % |
+    | JSON extraction | 1 | 99 | 97.0 % | 100.0 % |
+    | Chinese reasoning, Japanese summary | 2 | 198 | 97.5 % | 100.0 % |
+    | chat (system persona, instruct) | 2 | 198 | 97.0 % | 100.0 % |
+    | summarization | 1 | 99 | 98.0 % | 100.0 % |
+    | tool-call formatting | 1 | 99 | 93.9 % | 100.0 % |
+    | long documents (3k / 6k / 12k tokens) | 3 | 297 | 93.9 % | 100.0 % |
+    | **all** | 14 | 1,386 | **96.3 %** | **100.0 %** |
+
+    Prompts up to 2,048 tokens agree at 97.0 % top-1; the long documents
+    run through the sparse-attention selector and agree at
+    93.9 % (see Known limitations). The
+    reference token is in the port's top-100 at 100.0 % of all
+    positions.
+
+    - AIME24 competition prompt (201 tokens), 99 teacher-forced steps:
+      top-1 97.98 %, top-5 100 %, top-100 100 %. The free-run
+      greedy continuation matches the reference for its first
+      5 tokens and stays coherent for 100 tokens
+      (`doc/correctness/evidence_fix_geometry_20260917/full_c512_a1_s1/`).
+    - Prefill, every position (12 prompts, 4,594 positions): top-1
+      88.8 %, reference top-1 in the port's top-5 98.8 %, mean
+      top-100 logit PCC 0.938.
+    - GSM8K through the served endpoint (100 vendored items,
+      `doc/correctness/gsm8k_100.jsonl`, greedy, thinking off,
+      `max_tokens 512`, exact match on the final number): **92 / 100**
+      (8 answers cut at the token cap, no degenerate or empty replies;
+      `doc/correctness/gsm8k_endpoint_20260917_p1_100.json`).
+    - Sampling: with `temperature 1.0 / top_p 0.95 / top_k 20`, 8 of 8 AIME24
+      requests through the endpoint finish on their own with the correct
+      answer.
+
+    Reproduce in the tt-metal checkout (`RUN_QWEN38_ACCURACY=1` and
+    `RUN_QWEN38_TEACHER_SET=1` select the gates in
+    `tests/test_full_model.py`; `demo/run_gsm8k_endpoint.py --limit 100`
+    scores a running server).
+
+    ### Known limitations
+
+    - Competition mathematics and very long reasoning: on AIME24-style
+      problems this port scores well below the model card. Chains of thought
+      beyond roughly 25-30k reasoning tokens can drift and lose the final
+      answer even when the mathematics is sound; cap `max_tokens` near 32k
+      for such prompts and prefer several shorter attempts over one very long
+      one.
+    - Long-context accuracy: after prompts above 2,048 tokens the sparse
+      attention path (top-512 block selection) agrees with the BF16 reference
+      at about 94 % top-1 / 100 % top-5 on our 3k-12k-token teacher
+      documents, versus 97 % top-1 for short prompts. Long-document answers
+      can still differ from the reference model more often than short-prompt
+      answers.
+    - Host sampling (precautionary in this revision): every request with
+      `temperature > 0`, penalties, `logprobs` or a seed is sampled by vLLM on
+      the host from the full logits, which costs about 18 ms per generated
+      token more than greedy (17 instead of 24 tok/s under 2k tokens of
+      context, 11 instead of 14 above). Because the checkpoint's own
+      defaults set `temperature 1.0`, this is the path a request that omits
+      sampling fields takes; send `temperature: 0` for the greedy figures in
+      the table. The on-device stochastic sampler can be restored per
+      deployment with `QWEN38_DEVICE_SAMPLING_MAX_TOP_K=32` in the serve
+      environment.
+    - Batch one: concurrent requests queue in vLLM; throughput does not scale
+      with users.
+
+    ### Checkpoint size
+
+    The pinned snapshot is 360 GB (335 GiB): 180.0 B parameters in BF16 with
+    nothing duplicated - 123.6 B routed experts, a 51.2 B n-gram (PLE) lookup
+    table that stays memory-mapped on the host, 3.5 B dense / attention /
+    DeltaNet weights, 1.3 B embeddings and LM head, and a 0.45 B vision tower
+    this text-only endpoint does not load. About 6.7 B parameters are active
+    per token; the transformer proper is ~128 B. The first serve converts the
+    experts once into a ~64 GiB BFP4 resident-expert cache (17 GB per device)
+    in tt-model's per-model weight cache; later starts reuse it.
+
+    Runtime telemetry reported all 48 expert layers resident with
+    16,986,931,200 expert bytes per device, zero expert host-store bytes, zero
+    expert H2D, and zero route D2H/stall time. Only PLE n-gram row lookup and
+    selected-row DMA remain host-backed.

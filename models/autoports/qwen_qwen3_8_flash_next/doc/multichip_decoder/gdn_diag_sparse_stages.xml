@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="36.620" timestamp="2026-08-27T16:50:14.424996-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_gdn_prefill_residual_topology_diagnostic[blackhole-True-baseline_tp-device_params0]" time="36.566"><properties><property name="start_timestamp" value="2026-08-27T16:50:14" /><property name="end_timestamp" value="2026-08-27T16:50:51" /></properties><failure message="assert 0.9917066693305969 &gt;= 0.995&#10; +  where 0.995 = H.PCC_BAR">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'trace_region_size': 100000000}
+edge = 'baseline_tp'
+
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
+        indirect=True,
+    )
+    @pytest.mark.parametrize("edge", ("baseline_tp", "residual", "host"))
+    def test_gdn_prefill_residual_topology_diagnostic(bh_1d_mesh_device, device_params, edge):
+        """AutoFix ladder for the current real-activation layer-0 prefill miss."""
+    
+        if os.environ.get("QWEN38_MC_RUN_GDN_RESIDUAL_DIAG", "0") != "1":
+            pytest.skip("set QWEN38_MC_RUN_GDN_RESIDUAL_DIAG=1 for the focused AutoFix A/B")
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        mesh_device = bh_1d_mesh_device
+        config = H.target_config()
+        state = H.load_real_layer_state(0)
+        common = dict(
+            hf_config=config,
+            layer_idx=0,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=128,
+        )
+        hidden, _, _ = _real_activations(0)
+        logical = HOST_PREFILL_SEQ_LEN
+        logical_hidden = hidden[:, :, :logical].contiguous()
+        activation_hash = _sha256_tensors(logical_hidden)
+        replicated_hidden = _upload(logical_hidden, mesh_device)
+        fractured_hidden = _fractured_upload(logical_hidden, mesh_device)
+        lhs_captures = rhs_captures = None
+        if edge == "baseline_tp":
+            lhs = OptimizedDecoder.from_state_dict(state, **common)
+            rhs = MultichipDecoder.from_state_dict(state, fractured_residual=False, **common)
+            if os.environ.get("QWEN38_MC_DIAG_EXPERT_FIDELITY", "") == "hifi2":
+                rhs.expert_compute_cfg = ttnn.WormholeComputeKernelConfig(
+                    math_fidelity=ttnn.MathFidelity.HiFi2,
+                    math_approx_mode=False,
+                    fp32_dest_acc_en=True,
+                    packer_l1_acc=True,
+                )
+            lhs_captures = _capture_gdn_prefill_pipeline(lhs)
+            rhs_captures = _capture_gdn_prefill_pipeline(rhs)
+            lhs_output, lhs_sparse = _invoke_with_sparse_captures(lambda: lhs.prefill_forward(replicated_hidden))
+            rhs_output, rhs_sparse = _invoke_with_sparse_captures(lambda: rhs.prefill_forward(replicated_hidden))
+            lhs_host = ttnn.to_torch(ttnn.get_device_tensors(lhs_output)[0])
+            rhs_host = ttnn.to_torch(ttnn.get_device_tensors(rhs_output)[0])
+        elif edge == "residual":
+            lhs = MultichipDecoder.from_state_dict(state, fractured_residual=False, **common)
+            rhs = MultichipDecoder.from_state_dict(state, fractured_residual=True, **common)
+            lhs_output = lhs.prefill_forward(replicated_hidden)
+            rhs_output = rhs.prefill_forward_fractured(fractured_hidden)
+            lhs_host = ttnn.to_torch(ttnn.get_device_tensors(lhs_output)[0])
+            rhs_host = _fractured_host(rhs_output)
+        else:
+            lhs = MultichipDecoder.from_state_dict(state, fractured_residual=True, **common)
+            rhs = MultichipDecoder.from_checkpoint_host_backed(H.MODEL_SNAPSHOT, **common)
+            lhs_output = lhs.prefill_forward_fractured(fractured_hidden)
+            rhs_output = rhs.prefill_forward_fractured(fractured_hidden)
+            lhs_host = _fractured_host(lhs_output)
+            rhs_host = _fractured_host(rhs_output)
+        del state
+        ttnn.synchronize_device(mesh_device)
+        if lhs_captures is not None:
+            _print_gdn_expert_weight_pcc(lhs, rhs)
+            _print_gdn_sparse_stage_pcc(lhs_sparse, rhs_sparse)
+            _print_gdn_prefill_pipeline_pcc(lhs_captures, rhs_captures)
+        output_pcc = H.pcc(lhs_host, rhs_host)
+        print(
+            "MC_GDN_PREFILL_RESIDUAL_DIAG "
+            f"layer=0 edge={edge} seq={logical} activation_sha256={activation_hash} output_pcc={output_pcc:.8f}"
+        )
+&gt;       assert output_pcc &gt;= H.PCC_BAR
+E       assert 0.9917066693305969 &gt;= 0.995
+E        +  where 0.995 = H.PCC_BAR
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py:858: AssertionError</failure><system-out>--------------------------------- Captured Log ---------------------------------
+
+--------------------------------- Captured Out ---------------------------------
+MC_GDN_EXPERT_WEIGHT name=gate_up pcc=1.75379026 max_abs=0.00000000 exact=True
+MC_GDN_EXPERT_WEIGHT name=down pcc=1.27477765 max_abs=0.00000000 exact=True
+MC_GDN_SPARSE_STAGE name=gate_up pcc=1.00448632 max_abs=0.00000000
+MC_GDN_SPARSE_STAGE name=down_partial_sum pcc=0.92605865 max_abs=0.08918381
+MC_GDN_PREFILL_BOUNDARY boundary=hyper_mix0.mixed pcc=1.00038743
+MC_GDN_PREFILL_BOUNDARY boundary=hyper_mix0.hyper pcc=1.00033522
+MC_GDN_PREFILL_BOUNDARY boundary=hyper_mix0.injection pcc=0.99999833
+MC_GDN_PREFILL_BOUNDARY boundary=hyper_mix1.mixed pcc=1.00000393
+MC_GDN_PREFILL_BOUNDARY boundary=hyper_mix1.hyper pcc=1.00002587
+MC_GDN_PREFILL_BOUNDARY boundary=hyper_mix1.injection pcc=0.99999887
+MC_GDN_PREFILL_BOUNDARY boundary=gdn0.input0 pcc=1.00038743
+MC_GDN_PREFILL_BOUNDARY boundary=gdn0.output pcc=1.00002766
+MC_GDN_PREFILL_BOUNDARY boundary=hyper_inject0.input0 pcc=1.00033522
+MC_GDN_PREFILL_BOUNDARY boundary=hyper_inject0.input1 pcc=1.00002766
+MC_GDN_PREFILL_BOUNDARY boundary=hyper_inject0.input2 pcc=0.99999833
+MC_GDN_PREFILL_BOUNDARY boundary=hyper_inject0.output pcc=1.00002587
+MC_GDN_PREFILL_BOUNDARY boundary=hyper_inject1.input0 pcc=1.00002587
+MC_GDN_PREFILL_BOUNDARY boundary=hyper_inject1.input1 pcc=0.98043340
+MC_GDN_PREFILL_BOUNDARY boundary=hyper_inject1.input2 pcc=0.99999887
+MC_GDN_PREFILL_BOUNDARY boundary=hyper_inject1.output pcc=0.99979049
+MC_GDN_PREFILL_BOUNDARY boundary=routing0.input0 pcc=0.99981987
+MC_GDN_PREFILL_BOUNDARY boundary=routing0.output pcc=0.99997306
+MC_GDN_PREFILL_BOUNDARY boundary=moe0.input0 pcc=1.00000393
+MC_GDN_PREFILL_BOUNDARY boundary=moe0.output pcc=0.98043340
+MC_GDN_PREFILL_BOUNDARY boundary=routed0.input0 pcc=1.00000393
+MC_GDN_PREFILL_BOUNDARY boundary=routed0.input1 pcc=0.99997306
+MC_GDN_PREFILL_BOUNDARY boundary=routed0.output_partial_sum pcc=0.93857193
+MC_GDN_PREFILL_RESIDUAL_DIAG layer=0 edge=baseline_tp seq=33 activation_sha256=2c7e71cfd8d55527102386a35e9b9133883f5d6fad42b5725e5399180aeaff3a output_pcc=0.99170667
+
+</system-out><system-err>--------------------------------- Captured Err ---------------------------------
+2026-08-27 16:50:15.560 | DEBUG    | conftest:bh_1d_mesh_device:754 - multidevice with 2 devices is created
+2026-08-27 16:50:26.258 | INFO     | models.demos.blackhole.qwen36.tt.gdn.fused_chunk:chunk_gated_delta_rule_fused_adapter:105 - [GDN] fused chunk_gated_delta_rule active: path=PHASED (chunk-parallel prep + V-block scan), chunk_size=32, flat_qkv=True, input q/k/v dtype=DataType.BFLOAT16/DataType.BFLOAT16/DataType.BFLOAT16
+
+</system-err></testcase></testsuite></testsuites>

@@ -24,28 +24,43 @@ from models.autoports.qwen_qwen3_8_flash_next.demo.full_model import (
     write_report,
 )
 from models.autoports.qwen_qwen3_8_flash_next.tests import harness as H
+from models.autoports.qwen_qwen3_8_flash_next.tt import functional_decoder as _functional_decoder
 from models.autoports.qwen_qwen3_8_flash_next.tt.generator import Qwen38Generator, build_generator
 from models.autoports.qwen_qwen3_8_flash_next.tt.host_weight_cache import PLEDeviceStaging
 from models.autoports.qwen_qwen3_8_flash_next.tt.model import (
+    HC_COUNT,
     HIDDEN_SIZE,
     LM_HEAD_POLICIES,
+    MODEL_REVISION,
     REQUIRED_L1_SMALL_SIZE,
     VOCAB_SIZE,
     Qwen38FullModel,
+    RESIDUAL_SHARD_WIDTH,
     _dtype_name,
     _lm_head_rank_slices,
 )
-from models.autoports.qwen_qwen3_8_flash_next.tt.multichip_decoder import FABRIC_PACKET_BYTES, MultichipDecoder
+from models.autoports.qwen_qwen3_8_flash_next.tt.multichip_decoder import (
+    FABRIC_PACKET_BYTES,
+    TP_SIZE,
+    MultichipDecoder,
+)
+from models.autoports.qwen_qwen3_8_flash_next.tt.model_config import LINEAR_ATTENTION
 from models.autoports.qwen_qwen3_8_flash_next.tt.precision_config import load_precision_config
 
 _SOURCE_DIGEST_PATHS = (
+    "demo/full_model.py",
     "tt/functional_decoder.py",
+    "tt/fused_decoder.py",
     "tt/generator.py",
+    "tt/generator_vllm.py",
     "tt/host_weight_cache.py",
     "tt/model.py",
+    "tt/model_config.py",
     "tt/multichip_decoder.py",
     "tt/optimized_decoder.py",
+    "tt/parallel_config.py",
     "tt/precision_config.py",
+    "tt/resident_experts.py",
     "tests/test_full_model.py",
 )
 
@@ -175,20 +190,19 @@ def test_lm_head_dram_frontier_has_exact_vocab_and_tile_geometry():
         "bfp8_hifi2_dram_s8_c40",
         "bfp8_hifi2_dram_s10_c20",
     )
-    expected_per_core_n = (97, 25, 20, 20, 13, 20)
-    local_vocab = VOCAB_SIZE // 2
+    expected_per_core_n = (49, 13, 10, 10, 7, 10)
+    local_vocab = VOCAB_SIZE // TP_SIZE
     for (name, policy), per_core_n in zip(frontier.items(), expected_per_core_n):
         split_sizes = policy.split_sizes(32_768)
         rank_slices = _lm_head_rank_slices(split_sizes)
         assert policy.weight_dtype == "bfp8"
         assert policy.fidelity == "hifi2"
         assert sum(split_sizes) == local_vocab
-        assert all(split_size % 32 == 0 for split_size in split_sizes)
         assert policy.worker_cores is not None
         assert (HIDDEN_SIZE // 32) % policy.worker_cores == 0
         assert ((HIDDEN_SIZE // 32) // policy.worker_cores) % policy.in0_block_w == 0
         assert all(
-            (split_size // 32 + policy.worker_cores - 1) // policy.worker_cores == per_core_n
+            (((split_size + 31) // 32) + policy.worker_cores - 1) // policy.worker_cores == per_core_n
             for split_size in split_sizes
         )
         if name != "bfp8_hifi2_dram_s1_c40":
@@ -196,9 +210,9 @@ def test_lm_head_dram_frontier_has_exact_vocab_and_tile_geometry():
 
         offset = 0
         for split_size, slices in zip(split_sizes, rank_slices):
-            assert slices == (
-                (offset, offset + split_size),
-                (local_vocab + offset, local_vocab + offset + split_size),
+            assert slices == tuple(
+                (rank * local_vocab + offset, rank * local_vocab + offset + split_size)
+                for rank in range(TP_SIZE)
             )
             offset += split_size
         assert offset == local_vocab
@@ -388,9 +402,9 @@ def test_repeated_nonaligned_embedding_expansion_has_no_tiled_reshape_stall(
             )
             residual = model.embed_tokens(token_device)
             ttnn.synchronize_device(bh_1d_mesh_device)
-            assert tuple(residual.shape) == (1, 1, length * 4, 1280)
+            assert tuple(residual.shape) == (1, 1, length * 4, 640)
             for shard in ttnn.get_device_tensors(residual):
-                host = ttnn.to_torch(shard).reshape(length, 4, 1280)
+                host = ttnn.to_torch(shard).reshape(length, 4, 640)
                 for stream in range(1, 4):
                     assert torch.equal(host[:, 0], host[:, stream])
             ttnn.deallocate(residual)
@@ -428,6 +442,104 @@ def test_reduced_real_weight_full_model_endpoint_smoke(bh_1d_mesh_device, device
         ttnn.deallocate(logits)
     finally:
         model.close(best_effort=True)
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_QWEN38_CHUNKED_PREFILL") != "1",
+    reason="explicit real-weight chunked-prefill continuation gate",
+)
+@pytest.mark.timeout(1200)
+@pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
+def test_reduced_real_weight_chunked_prefill_matches_single_shot(
+    bh_1d_mesh_device,
+    device_params,
+):
+    """A 1,024-token vLLM boundary preserves GDN, PLE, QSA, and KV state."""
+
+    del device_params
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    model = Qwen38FullModel(
+        snapshot=H.MODEL_SNAPSHOT,
+        hf_config=H.target_config(),
+        mesh_device=bh_1d_mesh_device,
+        max_batch=1,
+        max_seq_len=2048,
+        layer_indices=(0, 1, 3),
+    )
+    generator = Qwen38Generator(model, tokenizer=None)
+    tokens = ((torch.arange(1025, dtype=torch.int64) * 17 + 29) % VOCAB_SIZE).reshape(1, -1)
+    pages = model._default_page_table_host.clone()
+    try:
+        model.prefill_schedule = "layer_major"
+        reference = generator.prefill_forward(
+            tokens,
+            page_table=pages,
+            prompt_lens=[1025],
+            start_pos=[0],
+            intermediate_prefill_mask=[False],
+            request_ids=("layer-major",),
+            read_from_device=False,
+        )
+        reference_host = model.logits_to_torch(reference).float().reshape(-1)
+        ttnn.deallocate(reference)
+
+        model.prefill_schedule = "stack_major"
+        single = generator.prefill_forward(
+            tokens,
+            page_table=pages,
+            prompt_lens=[1025],
+            start_pos=[0],
+            intermediate_prefill_mask=[False],
+            request_ids=("single",),
+            read_from_device=False,
+        )
+        single_host = model.logits_to_torch(single).float().reshape(-1)
+        ttnn.deallocate(single)
+
+        intermediate = generator.prefill_forward(
+            tokens,
+            page_table=pages,
+            prompt_lens=[1024],
+            start_pos=[0],
+            intermediate_prefill_mask=[True],
+            request_ids=("chunked",),
+            read_from_device=False,
+        )
+        ttnn.deallocate(intermediate)
+        chunked = generator.prefill_forward(
+            tokens,
+            page_table=pages,
+            prompt_lens=[1025],
+            start_pos=[1024],
+            intermediate_prefill_mask=[False],
+            request_ids=("chunked",),
+            read_from_device=False,
+        )
+        chunked_host = model.logits_to_torch(chunked).float().reshape(-1)
+        ttnn.deallocate(chunked)
+
+        centered_reference = reference_host - reference_host.mean()
+        centered_single = single_host - single_host.mean()
+        centered_chunked = chunked_host - chunked_host.mean()
+        schedule_pcc = float(
+            torch.dot(centered_reference, centered_single)
+            / (torch.linalg.vector_norm(centered_reference) * torch.linalg.vector_norm(centered_single))
+        )
+        pcc = float(
+            torch.dot(centered_single, centered_chunked)
+            / (torch.linalg.vector_norm(centered_single) * torch.linalg.vector_norm(centered_chunked))
+        )
+        assert schedule_pcc >= 0.995
+        assert pcc >= 0.995
+        reference_top100 = set(torch.topk(reference_host, 100).indices.tolist())
+        single_top100 = set(torch.topk(single_host, 100).indices.tolist())
+        chunked_top100 = set(torch.topk(chunked_host, 100).indices.tolist())
+        assert len(reference_top100 & single_top100) >= 98
+        assert len(single_top100 & chunked_top100) >= 98
+        assert generator.state is not None
+        assert generator.state.computed_lens.tolist() == [1025]
+    finally:
+        generator.close()
 
 
 @pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
@@ -861,6 +973,53 @@ def test_reduced_real_weight_generator_token_out_trace_smoke(bh_1d_mesh_device, 
         generator.close()
 
 
+@pytest.mark.skipif(
+    os.getenv("RUN_QWEN38_PHYSICAL_BATCH_TT") != "1",
+    reason="explicit resident physical-batch trace gate",
+)
+@pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
+def test_reduced_real_weight_physical_batch2_token_out_trace_smoke(bh_1d_mesh_device, device_params):
+    """Resident TP4+EP4 traces two real users in one device execution."""
+
+    del device_params
+
+    class DummyTokenizer:
+        def decode(self, ids, **_kwargs):
+            return " ".join(str(int(value)) for value in ids)
+
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    model = Qwen38FullModel(
+        snapshot=H.MODEL_SNAPSHOT,
+        hf_config=H.target_config(),
+        mesh_device=bh_1d_mesh_device,
+        max_batch=2,
+        max_seq_len=4096,
+        layer_indices=(0, 1, 3),
+    )
+    generator = Qwen38Generator(model, DummyTokenizer())
+    try:
+        output = generator.generate_batch(
+            torch.tensor([[17, 18, 19], [27, 28, 29]], dtype=torch.int64),
+            max_new_tokens=3,
+            enable_trace=True,
+            sampling_mode="device",
+            top_k=1,
+            top_p=0.0,
+            temperature=1.0,
+            request_ids=("physical-b2-a", "physical-b2-b"),
+            stop_on_eos=False,
+        )
+        assert tuple(output.shape) == (2, 3)
+        assert torch.all((0 <= output) & (output < VOCAB_SIZE))
+        assert model.trace_replays == 1
+        assert model.last_decode_timing is not None
+        assert model.virtual_slot_metrics()["enabled"] is False
+        assert model.host_service_gauges()["resident_expert_layers"] == 3
+        print({"physical_batch2_metrics": generator.last_metrics.report()})
+    finally:
+        generator.close()
+
+
 @pytest.mark.skipif(os.getenv("RUN_QWEN38_FULL_MODEL") != "1", reason="explicit full-stack hardware gate")
 @pytest.mark.timeout(1200)
 @pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
@@ -879,14 +1038,15 @@ def test_full_48_layer_token_out_trace_smoke(bh_1d_mesh_device, device_params):
         max_batch=1,
         max_seq_len=4096,
     )
-    slot_shard_counts = {
-        layer.shapes.layer_idx: tuple(
-            len(ttnn.get_device_tensors(slot.gate_up)) for slot in layer.host_expert_cache.slots
-        )
+    resident_metrics = {
+        layer.shapes.layer_idx: layer.resident_experts.metrics()
         for layer in model.layers
-        if layer.host_expert_cache is not None
+        if layer.resident_experts is not None
     }
-    assert all(count == 2 for counts in slot_shard_counts.values() for count in counts), slot_shard_counts
+    assert len(resident_metrics) == 48
+    assert all(metrics["experts_per_device"] == 128 for metrics in resident_metrics.values())
+    assert all(metrics["expert_weight_h2d_bytes_runtime"] == 0 for metrics in resident_metrics.values())
+    assert all(metrics["expert_route_d2h_bytes_runtime"] == 0 for metrics in resident_metrics.values())
     generator = Qwen38Generator(model, DummyTokenizer())
     try:
         output = generator.generate_batch(
@@ -1004,6 +1164,12 @@ def test_full_model_advertised_context_construction(bh_1d_mesh_device, device_pa
 
 REFERENCE = Path(__file__).parents[1] / "doc/full_model/readiness_aime24_chat.refpt"
 QUALITATIVE_REFERENCE = Path(__file__).parents[1] / "doc/full_model/qualitative_shared_suite.refpt"
+PREFILL_REGRESSION_REFERENCE = Path(__file__).parents[1] / "doc/correctness/tricky_prefill_125.refpt"
+LAYERWISE_PREFILL_REFERENCE = (
+    Path(__file__).parents[1] / "doc/correctness/tricky_prefill_125_layerwise_hf.refpt"
+)
+LAYERWISE_DECODE_REFERENCE = Path(__file__).parents[1] / "doc/correctness/aime24_decode1_layerwise_hf.refpt"
+PROMPT_LENGTH_REFERENCE = Path(__file__).parents[1] / "doc/correctness/tricky_prefill_length_sweep_hf.refpt"
 
 
 def _evidence_dir() -> Path:
@@ -1017,6 +1183,423 @@ def _evidence_dir() -> Path:
     )
     output.mkdir(parents=True, exist_ok=True)
     return output
+
+
+@pytest.mark.skipif(os.getenv("RUN_QWEN38_ACCURACY") != "1", reason="explicit full-stack accuracy gate")
+@pytest.mark.timeout(1800)
+@pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
+def test_full_model_tricky_prefill_first_token_regression(
+    bh_1d_mesh_device,
+    device_params,
+    record_property,
+):
+    """The shipped 125-token chat prompt must match the HF first-token oracle."""
+
+    from transformers import AutoTokenizer
+
+    del device_params
+    reference = torch.load(PREFILL_REGRESSION_REFERENCE, map_location="cpu", weights_only=False)
+    assert reference["metadata"]["checkpoint_revision"] == MODEL_REVISION
+    prompt = torch.as_tensor(reference["prompt_tokens"], dtype=torch.int64).reshape(1, -1)
+    assert int(prompt.shape[1]) == 125
+    provenance = _record_source_provenance(record_property)
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    model = Qwen38FullModel(
+        snapshot=H.MODEL_SNAPSHOT,
+        hf_config=H.target_config(),
+        mesh_device=bh_1d_mesh_device,
+        max_batch=1,
+        max_seq_len=4096,
+    )
+    generator = Qwen38Generator(model, AutoTokenizer.from_pretrained(H.MODEL_SNAPSHOT, local_files_only=True))
+    try:
+        logits = generator.prefill_forward(
+            prompt,
+            prompt_lens=[prompt.shape[1]],
+            request_ids=("tricky-prefill-125",),
+            read_from_device=True,
+        )
+        tt_logits = logits[0, -1].float().cpu()
+        tt_values, tt_tokens = torch.topk(tt_logits, 100)
+        hf_tokens = torch.as_tensor(reference["top100_tokens"], dtype=torch.int64)
+        hf_values = torch.as_tensor(reference["top100_values"], dtype=torch.float32)
+        tt_token = int(tt_tokens[0])
+        hf_token = int(reference["reference_token"])
+        report = {
+            "prompt_tokens": int(prompt.shape[1]),
+            "hf_top1_token": hf_token,
+            "tt_top1_token": tt_token,
+            "hf_top1_text": reference["reference_text"],
+            "tt_top1_text": generator.tokenizer.decode([tt_token], skip_special_tokens=False),
+            "tt_top1_in_hf_top5": tt_token in hf_tokens[:5].tolist(),
+            "tt_top1_in_hf_top100": tt_token in hf_tokens.tolist(),
+            "top100_overlap": len(set(tt_tokens.tolist()) & set(hf_tokens.tolist())),
+            "top5_overlap": len(set(tt_tokens[:5].tolist()) & set(hf_tokens[:5].tolist())),
+            "hf_top5_tokens": hf_tokens[:5].tolist(),
+            "hf_top5_values": hf_values[:5].tolist(),
+            "tt_top5_tokens": tt_tokens[:5].tolist(),
+            "tt_top5_values": tt_values[:5].tolist(),
+            "source_provenance": provenance,
+        }
+        print({"tricky_prefill_first_token": report})
+        for key in (
+            "prompt_tokens",
+            "hf_top1_token",
+            "tt_top1_token",
+            "top100_overlap",
+        ):
+            record_property(key, report[key])
+        assert tt_token == hf_token, report
+        # Resident experts are intentionally BFP4, so the low-margin tail of a top-100
+        # ranking is not bit-stable. Guard the semantically relevant head of the distribution
+        # while retaining a broad-tail signal strong enough to catch the phased-GDN failure
+        # (which produced EOS and only 12/100 overlap on this prompt).
+        assert report["top5_overlap"] >= 4, report
+        assert report["top100_overlap"] >= 80, report
+    finally:
+        generator.close()
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_QWEN38_PROMPT_LENGTH_SWEEP") != "1",
+    reason="explicit suffix-preserving prompt-length/indexing accuracy gate",
+)
+@pytest.mark.timeout(1800)
+@pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
+def test_full_model_suffix_preserving_prompt_length_sweep(
+    bh_1d_mesh_device,
+    device_params,
+    record_property,
+):
+    """Verify logical last-row selection and HF top-k across lengths 96--128."""
+
+    del device_params
+    reference = torch.load(PROMPT_LENGTH_REFERENCE, map_location="cpu", weights_only=False)
+    assert reference["metadata"]["checkpoint_revision"] == MODEL_REVISION
+    assert tuple(reference["metadata"]["prompt_lengths"]) == (96, 104, 110, 118, 124, 125, 126, 127, 128)
+    suffix = torch.as_tensor(reference["metadata"]["assistant_suffix_tokens"], dtype=torch.int64)
+    provenance = _record_source_provenance(record_property)
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    model = Qwen38FullModel(
+        snapshot=H.MODEL_SNAPSHOT,
+        hf_config=H.target_config(),
+        mesh_device=bh_1d_mesh_device,
+        max_batch=1,
+        max_seq_len=4096,
+    )
+    captured_hidden = []
+
+    def capture_project_logits(residual):
+        hidden = model.final_hidden(residual)
+        ttnn.synchronize_device(bh_1d_mesh_device)
+        captured_hidden.append(
+            ttnn.to_torch(ttnn.get_device_tensors(hidden)[0]).float().reshape(-1, HIDDEN_SIZE)[-1].clone()
+        )
+        logits = model.project_hidden_logits(hidden)
+        ttnn.deallocate(hidden)
+        return logits
+
+    # Capture the exact one-row tensor selected by prefill immediately before
+    # LM-head projection, without changing the production prefill schedule.
+    model.project_logits = capture_project_logits
+    reports = []
+    try:
+        for row in reference["rows"]:
+            length = int(row["length"])
+            prompt = torch.as_tensor(row["prompt_tokens"], dtype=torch.int64).reshape(1, -1)
+            attention_mask = torch.as_tensor(row["attention_mask"], dtype=torch.int64).reshape(-1)
+            assert int(prompt.shape[1]) == length
+            assert torch.equal(prompt[0, -suffix.numel() :], suffix)
+            assert torch.equal(attention_mask, torch.ones(length, dtype=torch.int64))
+            assert int(row["selected_row"]) == length - 1
+
+            state = model.new_batch_state([length], request_ids=(f"tricky-length-{length}",))
+            captured_hidden.clear()
+            logits_tt = model.prefill_forward(
+                prompt,
+                state=state,
+                prompt_lens=[length],
+            )
+            ttnn.synchronize_device(bh_1d_mesh_device)
+            assert len(captured_hidden) == 1
+            logits = model.logits_to_torch(logits_tt)[0, 0, -1]
+            ttnn.deallocate(logits_tt)
+            tt_values, tt_tokens = torch.topk(logits, 100)
+            hf_tokens = torch.as_tensor(row["top100_tokens"], dtype=torch.int64)
+            hf_hidden = torch.as_tensor(row["selected_final_hidden"]).float()
+            hidden = captured_hidden[0]
+            current_pos = int(
+                ttnn.to_torch(ttnn.get_device_tensors(state.current_pos)[0]).reshape(-1)[0]
+            )
+            report = {
+                "length": length,
+                "selected_logical_row": length - 1,
+                "selected_physical_stream_start": HC_COUNT * ((length - 1) % 128),
+                "attention_mask_sum": int(attention_mask.sum()),
+                "state_prompt_len": int(state.prompt_lens[0]),
+                "state_computed_len": int(state.computed_lens[0]),
+                "state_current_pos": current_pos,
+                "state_active": bool(state.active_mask[0]),
+                "hidden_pcc": H.pcc(hf_hidden, hidden),
+                "hidden_relative_l2": float(
+                    torch.linalg.vector_norm(hidden - hf_hidden) / torch.linalg.vector_norm(hf_hidden)
+                ),
+                "hf_top1": int(row["reference_token"]),
+                "tt_top1": int(tt_tokens[0]),
+                "top5_overlap": len(set(tt_tokens[:5].tolist()) & set(hf_tokens[:5].tolist())),
+                "top100_overlap": len(set(tt_tokens.tolist()) & set(hf_tokens.tolist())),
+                "tt_top5_tokens": tt_tokens[:5].tolist(),
+                "tt_top5_values": tt_values[:5].tolist(),
+            }
+            reports.append(report)
+            print(f"QWEN38_PROMPT_LENGTH_SWEEP metrics={report}")
+            assert report["state_active"] is True, report
+            assert report["attention_mask_sum"] == length, report
+            assert report["state_prompt_len"] == length, report
+            assert report["state_computed_len"] == length, report
+            assert report["state_current_pos"] == length, report
+            assert report["hidden_pcc"] >= 0.70, report
+            assert report["tt_top1"] == report["hf_top1"], report
+            assert report["top5_overlap"] >= 3, report
+            assert report["top100_overlap"] >= 70, report
+    finally:
+        model.close(best_effort=True)
+
+    evidence = {
+        "source_provenance": provenance,
+        "reference": str(PROMPT_LENGTH_REFERENCE),
+        "reference_sha256": hashlib.sha256(PROMPT_LENGTH_REFERENCE.read_bytes()).hexdigest(),
+        "assistant_suffix_tokens": suffix.tolist(),
+        "rows": reports,
+    }
+    write_report(evidence, _evidence_dir() / "prompt_length_sweep.json")
+    record_property("prompt_lengths", json.dumps([row["length"] for row in reports]))
+    record_property("prompt_length_reports", json.dumps(reports))
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_QWEN38_LAYERWISE_PREFILL") != "1",
+    reason="explicit 48-layer HF/TT divergence localization",
+)
+@pytest.mark.timeout(1800)
+@pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
+def test_full_model_tricky_prefill_layerwise_localization(
+    bh_1d_mesh_device,
+    device_params,
+    record_property,
+):
+    """Report the first full-stack residual boundary that diverges from HF."""
+
+    del device_params
+    provenance = _record_source_provenance(record_property)
+    reference = torch.load(LAYERWISE_PREFILL_REFERENCE, map_location="cpu", weights_only=False)
+    prompt = torch.as_tensor(reference["prompt_tokens"], dtype=torch.int64).reshape(1, -1)
+    assert int(prompt.shape[1]) == 125
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    model = Qwen38FullModel(
+        snapshot=H.MODEL_SNAPSHOT,
+        hf_config=H.target_config(),
+        mesh_device=bh_1d_mesh_device,
+        max_batch=1,
+        max_seq_len=4096,
+    )
+
+    def fractured_host(value):
+        shards = [ttnn.to_torch(shard).float() for shard in ttnn.get_device_tensors(value)]
+        grouped = torch.cat(shards, dim=-1)
+        return grouped.reshape(1, grouped.shape[-2] // HC_COUNT, HC_COUNT * HIDDEN_SIZE)
+
+    def comparison(expected, actual):
+        expected = expected.float()
+        actual = actual.float()
+        return {
+            "pcc": H.pcc(expected, actual),
+            "last_token_pcc": H.pcc(expected[:, -1], actual[:, -1]),
+            "relative_l2": float(torch.linalg.vector_norm(actual - expected) / torch.linalg.vector_norm(expected)),
+            "last_token_relative_l2": float(
+                torch.linalg.vector_norm(actual[:, -1] - expected[:, -1])
+                / torch.linalg.vector_norm(expected[:, -1])
+            ),
+            "max_abs": float((actual - expected).abs().max()),
+        }
+
+    state = model.new_batch_state([prompt.shape[1]], request_ids=("tricky-layerwise",))
+    logical = int(prompt.shape[1])
+    qsa_layer = next(layer for layer in model.layers if layer.shapes.layer_type != "linear_attention")
+    page_device, chunk_pages = model._prefill_page_inputs(qsa_layer, state, 0, logical)
+    residual = model._embed_prefill_tokens(prompt)
+    reports = []
+    try:
+        embedding_report = comparison(reference["embedding"], fractured_host(residual))
+        print(f"QWEN38_LAYERWISE boundary=embedding metrics={embedding_report}")
+        physical_rows = HC_COUNT * model.layers[0].prefill_chunk_plan(logical)[0][2]
+        if int(residual.shape[-2]) != physical_rows:
+            padded = ttnn.pad(
+                residual,
+                [(0, 0), (0, 0), (0, physical_rows - int(residual.shape[-2])), (0, 0)],
+                0.0,
+            )
+            ttnn.deallocate(residual)
+            residual = padded
+
+        for layer_idx, layer in enumerate(model.layers):
+            if layer.shapes.has_ple:
+                output = layer.prefill_microchunk_host_backed_fractured(
+                    residual,
+                    input_ids=prompt,
+                    request_id=state.request_ids[0],
+                    logical=logical,
+                    user_id=0,
+                    chunk_start=0,
+                    reset_state=True,
+                )
+            else:
+                kwargs = {"logical": logical, "user_id": 0, "chunk_start": 0, "reset_state": True}
+                if layer.shapes.layer_type != "linear_attention":
+                    kwargs.update(
+                        page_table=page_device,
+                        chunk_page_table=chunk_pages[0],
+                        rot_mats=model.rot_mats,
+                    )
+                output = layer.prefill_microchunk_forward_fractured(residual, **kwargs)
+            ttnn.deallocate(residual)
+            residual = output
+            actual = fractured_host(residual)[:, :logical]
+            metrics = comparison(reference["hidden_states"][layer_idx], actual)
+            metrics["layer"] = layer_idx
+            metrics["kind"] = layer.shapes.layer_type
+            reports.append(metrics)
+            print(f"QWEN38_LAYERWISE boundary=layer_{layer_idx} metrics={metrics}")
+
+        if int(residual.shape[-2]) != HC_COUNT * logical:
+            trimmed = ttnn.slice(
+                residual,
+                [0, 0, 0, 0],
+                [1, 1, HC_COUNT * logical, RESIDUAL_SHARD_WIDTH],
+            )
+            ttnn.deallocate(residual)
+            residual = trimmed
+        final_hidden = model.final_hidden(residual)
+        final_host = ttnn.to_torch(ttnn.get_device_tensors(final_hidden)[0]).float()[:, :, :logical]
+        final_host = final_host.reshape(1, logical, HIDDEN_SIZE)
+        final_metrics = comparison(reference["final_hidden"], final_host)
+        print(f"QWEN38_LAYERWISE boundary=final_hidden metrics={final_metrics}")
+        logits = model.project_hidden_logits(final_hidden)
+        logits_host = model.logits_to_torch(logits)[0, 0, -1]
+        expected_logits = torch.as_tensor(reference["logits"]).float()
+        logits_metrics = comparison(expected_logits.reshape(1, 1, -1), logits_host.reshape(1, 1, -1))
+        logits_metrics.update(
+            hf_top1=int(expected_logits.argmax()),
+            tt_top1=int(logits_host.argmax()),
+        )
+        print(f"QWEN38_LAYERWISE boundary=logits metrics={logits_metrics}")
+        record_property("layerwise_reports", json.dumps(reports))
+        record_property("layerwise_final_hidden", json.dumps(final_metrics))
+        record_property("layerwise_logits", json.dumps(logits_metrics))
+        record_property("layerwise_source", json.dumps(provenance, sort_keys=True))
+        ttnn.deallocate(logits)
+        ttnn.deallocate(final_hidden)
+    finally:
+        if isinstance(residual, ttnn.Tensor) and residual.is_allocated():
+            ttnn.deallocate(residual)
+        if page_device.is_allocated():
+            ttnn.deallocate(page_device)
+        for table in chunk_pages:
+            if table.is_allocated():
+                ttnn.deallocate(table)
+        model.close(best_effort=True)
+
+
+@pytest.mark.skipif(
+    os.getenv("RUN_QWEN38_LAYERWISE_DECODE") != "1",
+    reason="explicit first-token decode HF/TT divergence localization",
+)
+@pytest.mark.timeout(1800)
+@pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
+def test_full_model_first_decode_layerwise_localization(
+    bh_1d_mesh_device,
+    device_params,
+    record_property,
+):
+    """Report the first decoder layer that diverges after a correct prefill token."""
+
+    del device_params
+    reference = torch.load(LAYERWISE_DECODE_REFERENCE, map_location="cpu", weights_only=False)
+    assert reference["metadata"]["checkpoint_revision"] == MODEL_REVISION
+    prompt = torch.as_tensor(reference["prompt_tokens"], dtype=torch.int64).reshape(1, -1)
+    teacher = torch.as_tensor(reference["teacher_token"], dtype=torch.int64).reshape(1)
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    model = Qwen38FullModel(
+        snapshot=H.MODEL_SNAPSHOT,
+        hf_config=H.target_config(),
+        mesh_device=bh_1d_mesh_device,
+        max_batch=1,
+        max_seq_len=4096,
+    )
+
+    def fractured_host(value):
+        shards = [ttnn.to_torch(shard).float() for shard in ttnn.get_device_tensors(value)]
+        grouped = torch.cat(shards, dim=-1)
+        return grouped.reshape(1, grouped.shape[-2] // HC_COUNT, HC_COUNT * HIDDEN_SIZE)
+
+    def comparison(expected, actual):
+        expected = torch.as_tensor(expected).float()
+        actual = torch.as_tensor(actual).float()
+        return {
+            "pcc": H.pcc(expected, actual),
+            "relative_l2": float(torch.linalg.vector_norm(actual - expected) / torch.linalg.vector_norm(expected)),
+            "max_abs": float((actual - expected).abs().max()),
+        }
+
+    state = model.new_batch_state([prompt.shape[1]], request_ids=("decode-layerwise",))
+    residual = None
+    prefill_logits = None
+    final_hidden = None
+    logits = None
+    reports = []
+    try:
+        prefill_logits = model.prefill_forward(prompt, state=state)
+        prefill_top1 = int(model.logits_to_torch(prefill_logits)[0, -1].argmax())
+        assert prefill_top1 == int(teacher.item())
+        ttnn.deallocate(prefill_logits)
+        prefill_logits = None
+        model.copy_tokens(state, teacher)
+        ple_ids = teacher.reshape(1, 1)
+        residual = model.embed_tokens(state.token_input)
+        embedding_metrics = comparison(reference["embedding"], fractured_host(residual))
+        print(f"QWEN38_DECODE_LAYERWISE boundary=embedding metrics={embedding_metrics}")
+
+        for layer_idx, layer in enumerate(model.layers):
+            kwargs = {"current_pos": state.current_pos}
+            if layer.shapes.layer_type != LINEAR_ATTENTION:
+                kwargs.update(page_table=state.page_table, rot_mats=model.rot_mats)
+            if layer.shapes.has_ple:
+                kwargs["ple_embeddings"] = model._stage_active_ple_decode(layer, state, ple_ids)
+            output = layer.decode_forward_fractured(residual, **kwargs)
+            _functional_decoder._free(residual, output)
+            residual = output
+            metrics = comparison(reference["hidden_states"][layer_idx], fractured_host(residual))
+            metrics.update(layer=layer_idx, kind=layer.shapes.layer_type)
+            reports.append(metrics)
+            print(f"QWEN38_DECODE_LAYERWISE boundary=layer_{layer_idx} metrics={metrics}")
+
+        final_hidden = model.final_hidden(residual)
+        final_metrics = comparison(reference["final_hidden"], ttnn.to_torch(ttnn.get_device_tensors(final_hidden)[0]))
+        print(f"QWEN38_DECODE_LAYERWISE boundary=final_hidden metrics={final_metrics}")
+        logits = model.project_hidden_logits(final_hidden)
+        logits_host = model.logits_to_torch(logits)[0, 0, -1]
+        logits_metrics = comparison(reference["logits"], logits_host)
+        logits_metrics.update(hf_top1=int(torch.as_tensor(reference["logits"]).argmax()), tt_top1=int(logits_host.argmax()))
+        print(f"QWEN38_DECODE_LAYERWISE boundary=logits metrics={logits_metrics}")
+        assert logits_metrics["tt_top1"] == logits_metrics["hf_top1"]
+        record_property("decode_layerwise_reports", json.dumps(reports))
+        record_property("decode_final_hidden", json.dumps(final_metrics))
+        record_property("decode_logits", json.dumps(logits_metrics))
+    finally:
+        for value in (logits, final_hidden, residual, prefill_logits):
+            if isinstance(value, ttnn.Tensor) and value.is_allocated():
+                ttnn.deallocate(value)
+        model.close(best_effort=True)
 
 
 @pytest.mark.skipif(
@@ -1294,7 +1877,17 @@ def test_full_model_batch1_prompt128_generate128_performance(bh_1d_mesh_device, 
         assert tuple(output.shape) == (1, 128)
         assert model.trace_replays == 126
         report = {
-            "workload": {"batch": 1, "prompt_tokens": 128, "generated_tokens": 128},
+            "workload": {
+                "batch": 1,
+                "prompt_tokens": 128,
+                "generated_tokens": 128,
+                "max_sequence_tokens": model.max_seq_len,
+                "qsa_selector_compressed_blocks": next(
+                    int(layer.const["compressed_blocks"])
+                    for layer in model.layers
+                    if layer.shapes.layer_type != LINEAR_ATTENTION
+                ),
+            },
             "source_provenance": provenance,
             "metrics": generator.last_metrics.report(),
             "last_decode_timing": model.last_decode_timing,
@@ -1418,3 +2011,211 @@ def test_full_model_cold_and_warm_chunked_prefill(bh_1d_mesh_device, device_para
         assert windows[0]["top1"] == windows[1]["top1"]
     finally:
         generator.close()
+
+
+TEACHER_SET_DIR = Path(__file__).parents[1] / "doc/correctness/teacher_set"
+
+
+@pytest.mark.skipif(os.getenv("RUN_QWEN38_TEACHER_SET") != "1", reason="explicit pooled teacher-set accuracy gate")
+@pytest.mark.timeout(7200)
+@pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
+def test_full_model_teacher_set_accuracy(bh_1d_mesh_device, device_params, record_property):
+    """Pooled teacher-forced agreement with HF bf16 over the multi-prompt teacher set.
+
+    One model (16k capacity, so the 12k long-context prompt exercises the QSA selector
+    variant), every ``doc/correctness/teacher_set/refs/<id>.refpt`` present, 99 decode rows
+    each.  Pools top-1/5/100 across prompts (~1,400 rows, binomial SE ~0.4 pt) and reports
+    per-domain figures plus the mean PCC of TT logits against the HF top-100 logit values.
+    Gates are relative to ``teacher_set/baseline.json`` when it exists; otherwise this run
+    only records evidence (copy its report to baseline.json to arm the gate).
+    """
+
+    from transformers import AutoTokenizer
+
+    _record_source_provenance(record_property)
+    manifest = json.loads((TEACHER_SET_DIR / "manifest.json").read_text())
+    refs = [(p, TEACHER_SET_DIR / "refs" / f"{p['id']}.refpt") for p in manifest["prompts"]]
+    refs = [(p, path) for p, path in refs if path.is_file()]
+    if not refs:
+        pytest.skip("no teacher-set references generated yet (doc/correctness/teacher_set/generate_refs.sh)")
+    wanted = os.getenv("QWEN38_TEACHER_SET_IDS")
+    if wanted:
+        keep = set(wanted.split(","))
+        refs = [(p, path) for p, path in refs if p["id"] in keep]
+    rows = int(os.getenv("QWEN38_TEACHER_ROWS", "99"))
+    max_seq_len = int(os.getenv("QWEN38_TEACHER_SET_MAX_SEQ_LEN", "16384"))
+
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    model = Qwen38FullModel(
+        snapshot=H.MODEL_SNAPSHOT,
+        hf_config=H.target_config(),
+        mesh_device=bh_1d_mesh_device,
+        max_batch=1,
+        max_seq_len=max_seq_len,
+    )
+    generator = Qwen38Generator(model, AutoTokenizer.from_pretrained(H.MODEL_SNAPSHOT, local_files_only=True))
+    per_prompt = {}
+    try:
+        for entry, path in refs:
+            report = run_teacher_forcing(generator, path, enable_trace=True, decode_rows=rows)
+            report["domain"] = entry.get("domain")
+            per_prompt[entry["id"]] = report
+            print({"teacher_set_prompt": {"id": entry["id"], "domain": entry.get("domain"),
+                                          "prompt_tokens": report["prompt_tokens"],
+                                          "top1": report["top1_percent"], "top5": report["top5_percent"],
+                                          "top100": report["top100_percent"],
+                                          "prefill_top1": report["prefill"]["top1_percent"],
+                                          "ms_per_token": report["decode_seconds_per_token"] * 1e3}})
+    finally:
+        generator.close()
+
+    def pooled(key: str, reports) -> float:
+        total_rows = sum(r["reference_rows"] for r in reports)
+        return sum(r[key] * r["reference_rows"] for r in reports) / max(1, total_rows)
+
+    reports = list(per_prompt.values())
+    domains = sorted({r["domain"] for r in reports})
+    summary = {
+        "prompts": len(reports),
+        "rows": sum(r["reference_rows"] for r in reports),
+        "top1_percent": pooled("top1_percent", reports),
+        "top5_percent": pooled("top5_percent", reports),
+        "top100_percent": pooled("top100_percent", reports),
+        "prefill_top1_percent": sum(r["prefill"]["top1_percent"] for r in reports) / len(reports),
+        "per_domain": {
+            d: {k: pooled(k, [r for r in reports if r["domain"] == d]) for k in ("top1_percent", "top5_percent", "top100_percent")}
+            for d in domains
+        },
+        "long_context_prompts": [pid for pid, r in per_prompt.items() if r["prompt_tokens"] > 2048],
+        "max_seq_len": max_seq_len,
+        "decode_rows": rows,
+        "per_prompt": per_prompt,
+        "precision_propagation": model.precision_propagation_summary(),
+        "source_provenance": _source_provenance(),
+    }
+    write_report(summary, _evidence_dir() / "teacher_set_accuracy.json")
+    print({"teacher_set_accuracy": {k: v for k, v in summary.items() if k not in ("per_prompt", "precision_propagation", "source_provenance")}})
+    for key in ("top1_percent", "top5_percent", "top100_percent", "prefill_top1_percent"):
+        record_property(f"pooled_{key}", summary[key])
+
+    baseline_path = TEACHER_SET_DIR / "baseline.json"
+    if baseline_path.is_file():
+        base = json.loads(baseline_path.read_text())
+        assert summary["top1_percent"] >= base["top1_percent"] - 1.0, (summary["top1_percent"], base["top1_percent"])
+        assert summary["top5_percent"] >= min(99.0, base["top5_percent"] - 0.5), summary["top5_percent"]
+        # The three long documents hold the pooled top-100 at ~99.4 (their selector path); gate on the
+        # recorded baseline instead of the pre-long-context absolute 99.9.
+        assert summary["top100_percent"] >= min(99.9, base["top100_percent"] - 0.2), (summary["top100_percent"], base["top100_percent"])
+        assert summary["prefill_top1_percent"] >= base["prefill_top1_percent"] - 0.5
+        for pid, r in per_prompt.items():
+            if pid in base.get("per_prompt", {}):
+                assert r["top5_percent"] >= base["per_prompt"][pid]["top5_percent"] - 2.0, pid
+        # Decode after a long-document prefill is where prefill-written state (K/V pages,
+        # compressed index keys, recurrent state) shows up; the 2026-09-16 microchunk regression
+        # (-5 at 256 rows) hid under the pooled -1.0 tolerance.  Gate the long-context domain
+        # on its own and report where the decode tokens first leave the baseline's.
+        base_long = (base.get("per_domain") or {}).get("long_context")
+        if base_long and "long_context" in summary["per_domain"]:
+            observed_long = summary["per_domain"]["long_context"]["top1_percent"]
+            print({"long_context_domain_top1": observed_long, "baseline": base_long["top1_percent"]})
+            assert observed_long >= base_long["top1_percent"] - 3.0, (observed_long, base_long["top1_percent"])
+        for pid, r in per_prompt.items():
+            ours = r.get("tt_top1_tokens"); theirs = (base.get("per_prompt", {}).get(pid) or {}).get("tt_top1_tokens")
+            if ours and theirs:
+                n = min(len(ours), len(theirs))
+                diffs = [i for i in range(n) if ours[i] != theirs[i]]
+                print({"decode_divergence_vs_baseline": {"prompt": pid, "first_differing_step": diffs[0] if diffs else None, "differing_steps": len(diffs), "steps": n}})
+    else:
+        # First run: record evidence only.  Never gate on a single prompt's row flips.
+        assert summary["top100_percent"] >= 99.0, summary["top100_percent"]
+
+
+@pytest.mark.skipif(os.getenv("RUN_QWEN38_TEACHER_SET") != "1", reason="explicit prefill all-position agreement gate")
+@pytest.mark.timeout(3600)
+@pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
+def test_full_model_prefill_allpos_agreement(bh_1d_mesh_device, device_params, record_property):
+    """Per-position prefill agreement with HF bf16 (C0).
+
+    For every ``teacher_set/refs/<id>.allpos.pt`` the whole prompt is prefilled once with
+    ``return_all_logits=True`` and every position's next-token distribution is compared with
+    the HF top-100: top-1 / top-5 membership rates over all positions and the mean PCC of the
+    TT logits against the HF top-100 logit values.  This isolates the prefill path, whose
+    final-logits PCC vs HF is ~0.80 today, from decode.
+    """
+
+    _record_source_provenance(record_property)
+    refs = sorted((TEACHER_SET_DIR / "refs").glob("*.allpos.pt"))
+    wanted = os.getenv("QWEN38_TEACHER_SET_IDS")
+    if wanted:
+        keep = set(wanted.split(","))
+        refs = [r for r in refs if r.name.replace(".allpos.pt", "") in keep]
+    if not refs:
+        pytest.skip("no all-position references (demo/generate_prefill_allpos_reference.py)")
+    max_seq_len = int(os.getenv("QWEN38_TEACHER_SET_MAX_SEQ_LEN", "16384"))
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    model = Qwen38FullModel(
+        snapshot=H.MODEL_SNAPSHOT,
+        hf_config=H.target_config(),
+        mesh_device=bh_1d_mesh_device,
+        max_batch=1,
+        max_seq_len=max_seq_len,
+    )
+    generator = Qwen38Generator(model, tokenizer=None)
+    per_prompt = {}
+    try:
+        for path in refs:
+            ref = torch.load(path, weights_only=False)
+            prompt = torch.as_tensor(ref["prompt_tokens"], dtype=torch.int64).reshape(1, -1)
+            length = int(prompt.shape[1])
+            if length > max_seq_len:
+                continue
+            state = generator.allocate_batch_state([length], request_ids=(f"allpos-{path.stem}",))
+            logits = model.prefill_forward(prompt, state=state, return_all_logits=True)
+            host = model.logits_to_torch(logits).reshape(length, -1)
+            ttnn.deallocate(logits)
+            hf_tokens = torch.as_tensor(ref["topk_tokens"])[:length]
+            hf_values = torch.as_tensor(ref["topk_values"])[:length].float()
+            tt_top1 = host.argmax(dim=-1)
+            top1 = float((tt_top1 == hf_tokens[:, 0]).float().mean()) * 100
+            tt_top5 = torch.topk(host, 5, dim=-1).indices
+            top5 = float((tt_top5 == hf_tokens[:, :1]).any(dim=-1).float().mean()) * 100
+            gathered = torch.gather(host, 1, hf_tokens.long())
+            a = gathered - gathered.mean(dim=1, keepdim=True)
+            b = hf_values - hf_values.mean(dim=1, keepdim=True)
+            pcc = ((a * b).sum(1) / (a.norm(dim=1) * b.norm(dim=1)).clamp_min(1e-12)).mean().item()
+            hit = (tt_top1 == hf_tokens[:, 0]).float()
+            bin_size = 512
+            bins = {
+                f"{b}-{min(b + bin_size, length) - 1}": float(hit[b : b + bin_size].mean()) * 100
+                for b in range(0, length, bin_size)
+            } if length > 1024 else None
+            per_prompt[path.stem.replace(".allpos", "")] = {
+                "positions": length,
+                "top1_percent": top1,
+                "hf_top1_in_tt_top5_percent": top5,
+                "mean_top100_pcc": pcc,
+                "domain": ref["metadata"].get("prompt_domain"),
+                "top1_by_position_bin": bins,
+            }
+            print({"prefill_allpos_prompt": {path.stem: per_prompt[path.stem.replace(".allpos", "")]}})
+    finally:
+        generator.close()
+    total = sum(r["positions"] for r in per_prompt.values())
+    summary = {
+        "prompts": len(per_prompt),
+        "positions": total,
+        "top1_percent": sum(r["top1_percent"] * r["positions"] for r in per_prompt.values()) / max(1, total),
+        "hf_top1_in_tt_top5_percent": sum(r["hf_top1_in_tt_top5_percent"] * r["positions"] for r in per_prompt.values()) / max(1, total),
+        "mean_top100_pcc": sum(r["mean_top100_pcc"] * r["positions"] for r in per_prompt.values()) / max(1, total),
+        "per_prompt": per_prompt,
+        "source_provenance": _source_provenance(),
+    }
+    write_report(summary, _evidence_dir() / "prefill_allpos_agreement.json")
+    print({"prefill_allpos_agreement": {k: v for k, v in summary.items() if k not in ("per_prompt", "source_provenance")}})
+    for key in ("top1_percent", "hf_top1_in_tt_top5_percent", "mean_top100_pcc"):
+        record_property(f"allpos_{key}", summary[key])
+    baseline_path = TEACHER_SET_DIR / "baseline_allpos.json"
+    if baseline_path.is_file():
+        base = json.loads(baseline_path.read_text())
+        assert summary["top1_percent"] >= base["top1_percent"] - 0.5
+        assert summary["mean_top100_pcc"] >= base["mean_top100_pcc"] - 0.002

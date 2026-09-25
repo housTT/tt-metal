@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="8.587" timestamp="2026-08-28T02:57:11.603608-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_full_model" name="test_reduced_real_weight_embedding_to_terminal_gather_smoke[blackhole-True-device_params0]" time="8.439"><properties><property name="start_timestamp" value="2026-08-28T02:57:11" /><property name="end_timestamp" value="2026-08-28T02:57:20" /></properties><failure message="RuntimeError: TT_FATAL @ /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/tensor/spec/tensor_spec.cpp:122: layout == Layout::TILE&#10;info:&#10;Only TILE layout is supported for BFLOAT8_B dtype!&#10;backtrace:&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x73ca4b) [0x70dfa853ca4b]&#10; --- tt::tt_metal::TensorSpec::TensorSpec(tt::tt_metal::Shape, tt::tt_metal::TensorLayout)&#10; --- ttnn::prim::UntilizeWithUnpaddingDeviceOperation::compute_output_specs(ttnn::prim::UntilizeWithUnpaddingParams const&amp;, ttnn::Tensor const&amp;)&#10; --- ttnn::prim::UntilizeWithUnpaddingDeviceOperation::create_output_tensors(ttnn::prim::UntilizeWithUnpaddingParams const&amp;, ttnn::Tensor const&amp;)&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim36UntilizeWithUnpaddingDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x10a) [0x70dfa5f6a81a]&#10; --- ttnn::prim::untilize_with_unpadding(ttnn::Tensor const&amp;, tt::tt_metal::Shape const&amp;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, bool, bool, bool, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/build_Release/ttnn/_ttnncpp.so(+0xb6a458) [0x70dfa5f6a458]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/build_Release/ttnn/_ttnncpp.so(+0xb6cd3b) [0x70dfa5f6cd3b]&#10; --- ttnn::untilize_with_unpadding(ttnn::Tensor const&amp;, tt::tt_metal::Shape const&amp;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, bool, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)&#10; --- ttnn::operations::data_movement::untilize_native(ttnn::Tensor const&amp;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, bool, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/build_Release/ttnn/_ttnncpp.so(+0xb97cc8) [0x70dfa5f97cc8]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/build_Release/ttnn/_ttnncpp.so(+0xb6cd3b) [0x70dfa5f6cd3b]&#10; --- ttnn::untilize(ttnn::Tensor const&amp;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, bool, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x78ce9b) [0x70dfa858ce9b]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3681b4) [0x70dfa81681b4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xe2) [0x1684e62]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x16a4982]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17aebff]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x118) [0x17af3ac]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x42) [0x17af282]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af1c4]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af0d8]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(Py_RunMain+0x2e5) [0x171f33b]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17406fa]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17404ed]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x70dfef42a1ca]&#10; --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x70dfef42a28b]&#10; --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_start+0x29) [0x1795ced]">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'fabric_router_config': &lt;ttnn._ttnn.fabric.FabricRouterConfig object at 0x70df943b86f0&gt;, 'l1_small_size': 24576, 'trace_region_size': 1073741824}
+record_property = &lt;function record_property.&lt;locals&gt;.append_property at 0x70df941c53a0&gt;
+
+    @pytest.mark.parametrize("device_params", [_device_params()], indirect=True)
+    def test_reduced_real_weight_embedding_to_terminal_gather_smoke(bh_1d_mesh_device, device_params, record_property):
+        """Isolate endpoint collectives and check real checkpoint top-k numerics."""
+    
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        model = Qwen38FullModel(
+            snapshot=H.MODEL_SNAPSHOT,
+            hf_config=H.target_config(),
+            mesh_device=bh_1d_mesh_device,
+            max_batch=1,
+            max_seq_len=128,
+            layer_indices=(0,),
+            lm_head_policy=os.getenv("QWEN38_LM_HEAD_POLICY", "bf16_hifi2"),
+        )
+        try:
+            state = model.new_batch_state([1], request_ids=("endpoint",))
+            model.copy_tokens(state, torch.tensor([17], dtype=torch.int64))
+            residual = model.embed_tokens(model.decode_token_input)
+            gathered = model.layers[-1].gather_residual(residual)
+            ttnn.synchronize_device(bh_1d_mesh_device)
+            assert tuple(gathered.shape) == (1, 1, 1, 10_240)
+            ttnn.deallocate(gathered)
+    
+            hidden_tt = model.final_hidden(residual)
+            row_seconds = []
+            logits = None
+            for iteration in range(8):
+                started = time.perf_counter()
+                candidate = model.lm_head(hidden_tt)
+                ttnn.synchronize_device(bh_1d_mesh_device)
+                elapsed = time.perf_counter() - started
+                if iteration:
+                    row_seconds.append(elapsed)
+                if logits is not None:
+                    ttnn.deallocate(logits)
+                logits = candidate
+            tt_logits = model.logits_to_torch(logits).reshape(-1)
+&gt;           sampled = model.sample_logits(logits, state)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_full_model.py:114: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+models/autoports/qwen_qwen3_8_flash_next/tt/model.py:970: in sample_logits
+    sampled, _ = self.sampling.decode_forward(
+models/common/modules/sampling/sampling_1d.py:299: in decode_forward
+    return self._sample_argmax(logits, tt_out_tok)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+models/common/modules/sampling/sampling_1d.py:320: in _sample_argmax
+    x_untilized = ttnn.untilize(logits, use_multicore=True)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = FastOperation(python_fully_qualified_name='ttnn.untilize', function=&lt;ttnn._ttnn.operations.data_movement.untilize_t ob...&lt;function default_postprocess_golden_function_outputs at 0x70df556682c0&gt;, is_cpp_operation=True, is_experimental=False)
+function_args = (device_id: 1, MeshCoordinate([0, 0])
+ttnn.Tensor([[[[-1.0000, -3.0000,  ...,  0.0000,  0.5000]]]], shape=Shape([1, 1,... -3.0000,  ...,  0.0000,  0.5000]]]], shape=Shape([1, 1, 1, 248320]), dtype=DataType::BFLOAT4_B, layout=Layout::TILE),)
+function_kwargs = {'use_multicore': True}, cq_id = None, recording = False
+
+    def __call__(self, *function_args, **function_kwargs):
+        if self._requires_slow_runtime():
+            return self._slow_operation_instance()(*function_args, **function_kwargs)
+    
+        cq_id = None
+        if "queue_id" in function_kwargs:
+            cq_id = function_kwargs.pop("queue_id")
+        elif "cq_id" in function_kwargs:
+            cq_id = function_kwargs.pop("cq_id")
+    
+        recording = ttnn.graph.is_python_io_recording_enabled()
+        if recording:
+            ttnn.graph.track_function_start(self.python_fully_qualified_name)
+            ttnn.graph.record_python_operation(self.python_fully_qualified_name, function_args, function_kwargs)
+            input_tensors = get_all_tensors((function_args, function_kwargs))
+            set_tensor_id(input_tensors)
+    
+        try:
+            if cq_id is None:
+&gt;               result = self.function(*function_args, **function_kwargs)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               RuntimeError: TT_FATAL @ /home/ttuser/dev/qwen3.8-flash-next/tt-metal/tt_metal/impl/tensor/spec/tensor_spec.cpp:122: layout == Layout::TILE
+E               info:
+E               Only TILE layout is supported for BFLOAT8_B dtype!
+E               backtrace:
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x73ca4b) [0x70dfa853ca4b]
+E                --- tt::tt_metal::TensorSpec::TensorSpec(tt::tt_metal::Shape, tt::tt_metal::TensorLayout)
+E                --- ttnn::prim::UntilizeWithUnpaddingDeviceOperation::compute_output_specs(ttnn::prim::UntilizeWithUnpaddingParams const&amp;, ttnn::Tensor const&amp;)
+E                --- ttnn::prim::UntilizeWithUnpaddingDeviceOperation::create_output_tensors(ttnn::prim::UntilizeWithUnpaddingParams const&amp;, ttnn::Tensor const&amp;)
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/build_Release/ttnn/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_4prim36UntilizeWithUnpaddingDeviceOperationEEENT_21tensor_return_value_tERKNS5_22operation_attributes_tERKNS5_13tensor_args_tE+0x10a) [0x70dfa5f6a81a]
+E                --- ttnn::prim::untilize_with_unpadding(ttnn::Tensor const&amp;, tt::tt_metal::Shape const&amp;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, bool, bool, bool, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/build_Release/ttnn/_ttnncpp.so(+0xb6a458) [0x70dfa5f6a458]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/build_Release/ttnn/_ttnncpp.so(+0xb6cd3b) [0x70dfa5f6cd3b]
+E                --- ttnn::untilize_with_unpadding(ttnn::Tensor const&amp;, tt::tt_metal::Shape const&amp;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, bool, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)
+E                --- ttnn::operations::data_movement::untilize_native(ttnn::Tensor const&amp;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, bool, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/build_Release/ttnn/_ttnncpp.so(+0xb97cc8) [0x70dfa5f97cc8]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/build_Release/ttnn/_ttnncpp.so(+0xb6cd3b) [0x70dfa5f6cd3b]
+E                --- ttnn::untilize(ttnn::Tensor const&amp;, std::optional&lt;tt::tt_metal::MemoryConfig&gt; const&amp;, bool, std::optional&lt;tt::tt_metal::CoreRangeSet&gt; const&amp;)
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x78ce9b) [0x70dfa858ce9b]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/ttnn/ttnn/_ttnn.so(+0x3681b4) [0x70dfa81681b4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0xe920) [0x1621aa0]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1876122]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x1686e59]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyEval_EvalFrameDefault+0x36f1) [0x1616871]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(PyEval_EvalCode+0xe2) [0x1684e62]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x16a4982]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17aebff]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_SimpleFileObject+0x118) [0x17af3ac]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_PyRun_AnyFileObject+0x42) [0x17af282]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af1c4]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17af0d8]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(Py_RunMain+0x2e5) [0x171f33b]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17406fa]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3() [0x17404ed]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x70dfef42a1ca]
+E                --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x70dfef42a28b]
+E                --- /home/ttuser/dev/qwen3.8-flash-next/tt-metal/python_env/bin/python3(_start+0x29) [0x1795ced]
+
+ttnn/ttnn/decorators.py:728: RuntimeError</failure></testcase></testsuite></testsuites>

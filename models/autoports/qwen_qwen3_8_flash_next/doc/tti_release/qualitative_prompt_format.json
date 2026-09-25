@@ -1,0 +1,102 @@
+{
+  "schema_version": 2,
+  "model": "Qwen/Qwen3.8-Flash-Next",
+  "checkpoint_revision": "f5d08274bafd880402bd16f5e3e6c514136ec06c",
+  "tokenizer_class": "Qwen2Tokenizer",
+  "chat_template_present": true,
+  "chat_template_sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
+  "prompt_mode": "chat",
+  "rendering_method": "tokenizer.apply_chat_template(add_generation_prompt=True)",
+  "transport": "exact rendered chat-template token IDs through /v1/completions; no server-side double templating",
+  "prompt_suite_sha256": "8e5190276a68ffbd268816718317e939bced453cb0cb1597e961e4ff96eae1dd",
+  "sampling": {
+    "temperature": 0.0,
+    "max_tokens": 256,
+    "logprobs": false,
+    "path": "canonical traced on-device exact global argmax"
+  },
+  "prompt_usage": {
+    "explanation": {
+      "prompt_tokens": 76,
+      "visible_response_token_ids": 154,
+      "api_completion_tokens_including_terminal_stop": 155,
+      "api_total_tokens": 231,
+      "finish_reason": "stop"
+    },
+    "coding": {
+      "prompt_tokens": 89,
+      "visible_response_token_ids": 147,
+      "api_completion_tokens_including_terminal_stop": 148,
+      "api_total_tokens": 237,
+      "finish_reason": "stop"
+    },
+    "summarization": {
+      "prompt_tokens": 94,
+      "visible_response_token_ids": 81,
+      "api_completion_tokens_including_terminal_stop": 82,
+      "api_total_tokens": 176,
+      "finish_reason": "stop"
+    }
+  },
+  "prompt_and_usage_verification": {
+    "rendered_strings_match_checkpoint_template": 3,
+    "prompt_token_id_streams_match_checkpoint_template": 3,
+    "api_prompt_usage_matches_token_id_count": 3,
+    "api_totals_are_internally_consistent": 3,
+    "cases_checked": 3,
+    "terminal_stop_accounting": "API completion usage is one token larger than each visible decoded token-id list because the consumed terminal stop token is not returned as text"
+  },
+  "served_artifact": "readiness_vllm/qualitative_tt_chat.json",
+  "served_artifact_sha256": "b813290555652ab02cd4c804e274ce50707190eef64561cff99e9a477c5a2b8c",
+  "control_artifact": "doc/full_model/qualitative_shared_suite_final.json",
+  "control_artifact_sha256": "9e8eaa14fb2ea31f5107cfea2110dfdf06928312abbe5dd2ae8ca48420d59487",
+  "exact_rendered_prompts_and_token_ids": "embedded per case in the served artifact",
+  "primary_review_counts": {
+    "responses_read": 3,
+    "coherent_and_topical": 3,
+    "no_mechanical_repetition_or_gibberish": 3,
+    "no_wrong_language_drift": 3,
+    "no_prompt_or_request_contamination": 3,
+    "natural_stop": 3,
+    "pass": 3
+  },
+  "raw_continuation_stress": {
+    "artifact": "readiness_vllm/vllm_qualitative_outputs.json",
+    "artifact_sha256": "182008f62c383f6291998f4da822fcece24f872ac4019e6b4fa36cacb6de48de",
+    "prompt_source": "/home/ttuser/dev/muse-glimmer/tt-metal/models/common/readiness_check/vllm_prompts.txt",
+    "prompt_source_sha256": "2ad452c15d8442d3fe641eb968bbd84e3bfe9acb01ddc540f451983c0da3cbbd",
+    "prompt_mode": "raw untemplated completion; non-gating for this chat-template checkpoint",
+    "endpoint": "/v1/completions",
+    "calls": {
+      "greedy": {
+        "temperature": 0.0,
+        "max_tokens": 256
+      },
+      "sampled": {
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "max_tokens": 256
+      }
+    },
+    "api_usage_retained": false,
+    "usage_caveat": "The runner artifact stores prompts and decoded text but not API usage or finish reasons; the following are offline exact-checkpoint-tokenizer visible-text counts, not API usage.",
+    "offline_visible_token_counts": {
+      "prompt": [8, 15, 23, 9, 14, 10],
+      "greedy": [196, 256, 256, 256, 191, 111],
+      "sampled": [21, 256, 256, 256, 256, 153]
+    },
+    "review_counts": {
+      "prompts": 6,
+      "outputs_read": 12,
+      "mechanically_non_degenerate": 12,
+      "no_gibberish": 12,
+      "no_wrong_language_drift": 12,
+      "no_cross_request_leakage": 12,
+      "visible_256_token_cap": 7,
+      "visible_think_markup": 8,
+      "prompt_echo": 1,
+      "learned_follow_up_qa_continuation": 2
+    }
+  },
+  "verdict": "pass: all 3 prompt-correct chat responses are coherent, correct, topical, non-degenerate, in the requested language, and uncontaminated; the 12 raw continuations are non-gating and their truncation/format/continuation limitations are documented"
+}

@@ -1,0 +1,155 @@
+{
+ "schema_version": 1,
+ "description": "Teacher-forcing accuracy set for Qwen3.8-Flash-Next on TT: 14 prompts across domains, three of them past the 2,048-token QSA budget so the selector variant is exercised. HF bf16 greedy references are generated per prompt with demo/generate_hf_reference.py --manifest ... --prompt-id ...",
+ "generation_length": 100,
+ "prompts": [
+  {
+   "id": "math_competition",
+   "domain": "math",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Let $S$ be the set of positive integers $n \\le 1000$ such that $n^2 + 1$ is divisible by 5. How many elements does $S$ have? Please reason step by step, and put your final answer within \\boxed{}."
+    }
+   ]
+  },
+  {
+   "id": "math_word_problem",
+   "domain": "math",
+   "messages": [
+    {
+     "role": "user",
+     "content": "A bakery sells croissants for $3 each and muffins for $2 each. On Monday it sold 48 items for a total of $118. How many croissants did it sell? Please reason step by step, and put your final answer within \\boxed{}."
+    }
+   ]
+  },
+  {
+   "id": "code_python_function",
+   "domain": "code",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Write a Python function `merge_intervals(intervals: list[tuple[int, int]]) -> list[tuple[int, int]]` that merges overlapping closed intervals and returns them sorted. Include three short doctests."
+    }
+   ]
+  },
+  {
+   "id": "code_debug",
+   "domain": "code",
+   "messages": [
+    {
+     "role": "user",
+     "content": "This function should return the second largest distinct value in a list, or None if there is none, but it is wrong. Fix it and explain the bug in two sentences.\n\n```python\ndef second_largest(xs):\n    best = second = float('-inf')\n    for x in xs:\n        if x > best:\n            best = x\n        elif x > second:\n            second = x\n    return second\n```"
+    }
+   ]
+  },
+  {
+   "id": "json_extraction",
+   "domain": "structured",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Extract the fields into JSON with keys name, order_id, items (list of {sku, qty}), total_usd. Reply with JSON only.\n\nHi, this is Priya Natarajan. Order #A-77213 arrived with 2 units of SKU KB-201 and 1 unit of SKU MS-118 missing. The invoice total was $184.50."
+    }
+   ]
+  },
+  {
+   "id": "zh_reasoning",
+   "domain": "multilingual",
+   "messages": [
+    {
+     "role": "user",
+     "content": "请用中文回答：一列火车以每小时 90 公里的速度行驶，另一列火车从同一车站晚 30 分钟出发，以每小时 120 公里的速度追赶。第二列火车需要多长时间才能追上第一列？请逐步推理。"
+    }
+   ]
+  },
+  {
+   "id": "ja_summary",
+   "domain": "multilingual",
+   "messages": [
+    {
+     "role": "user",
+     "content": "次の文章を日本語で二文に要約してください。\n\n量子コンピュータは、重ね合わせと量子もつれを利用して特定の計算問題を古典計算機より高速に解く可能性がある。しかし、量子ビットは環境ノイズに極めて弱く、誤り訂正のために多数の物理量子ビットが必要となるため、実用的な規模の装置の実現には依然として大きな工学的課題が残っている。"
+    }
+   ]
+  },
+  {
+   "id": "system_persona_chat",
+   "domain": "chat",
+   "messages": [
+    {
+     "role": "system",
+     "content": "You are a terse maritime weather briefer. Answer in at most three sentences and always give wind in knots."
+    },
+    {
+     "role": "user",
+     "content": "We are leaving Halifax for Boston tomorrow morning in a 34-foot sloop. What should we watch for with a cold front forecast to pass mid-afternoon?"
+    }
+   ]
+  },
+  {
+   "id": "summarization",
+   "domain": "summarization",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Summarize the following passage in one sentence of at most 30 words.\n\nThe Blackhole latency sweep measured every tt-model community package on two QuietBox 2 systems. Each row held a fixed number of users open until a fixed number of prompts finished. Prompts were random token ids of exactly the input length, so no prefix-cache hits were possible, and outputs were pinned to the output length with ignore_eos. Time to first token was the time to the first streamed token, and time per output token was the end-to-end latency minus the first-token time divided by one less than the output length. One unrecorded warm-up request preceded each new input length so trace capture did not enter the numbers. Rows whose end-to-end latency passed 300 seconds were measured but flagged, and larger user counts at that length were skipped."
+    }
+   ]
+  },
+  {
+   "id": "tool_call_format",
+   "domain": "tool_calling",
+   "messages": [
+    {
+     "role": "system",
+     "content": "You are a helpful assistant with access to tools. When a tool is needed, call it.\n\n# Tools\n\nYou may call one or more functions to assist with the user query.\n\nYou are provided with function signatures within <tools></tools> XML tags:\n<tools>\n{\"type\": \"function\", \"function\": {\"name\": \"get_weather\", \"description\": \"Get the current weather for a city.\", \"parameters\": {\"type\": \"object\", \"properties\": {\"city\": {\"type\": \"string\"}, \"unit\": {\"type\": \"string\", \"enum\": [\"celsius\", \"fahrenheit\"]}}, \"required\": [\"city\"]}}}\n</tools>\n\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags."
+    },
+    {
+     "role": "user",
+     "content": "What is the weather in Lisbon right now, in celsius?"
+    }
+   ]
+  },
+  {
+   "id": "instruct_no_thinking",
+   "domain": "chat",
+   "messages": [
+    {
+     "role": "user",
+     "content": "Give me three distinct names for a small coffee shop next to a university library, each with a one-line rationale."
+    }
+   ],
+   "template_kwargs": {
+    "enable_thinking": false
+   }
+  },
+  {
+   "id": "long_document_3k",
+   "domain": "long_context",
+   "messages": [],
+   "document_file": "../../batch1_optimization/README.md",
+   "document_tokens": 3072,
+   "document_prefix": "Read the following engineering report carefully.",
+   "question": "In one paragraph, state the three most important measured results in the report and the single largest remaining risk it names."
+  },
+  {
+   "id": "long_document_6k",
+   "domain": "long_context",
+   "messages": [],
+   "document_file": "../../batch1_optimization/README.md",
+   "document_tokens": 6144,
+   "document_prefix": "Read the following engineering report carefully.",
+   "question": "In one paragraph, state the three most important measured results in the report and the single largest remaining risk it names."
+  },
+  {
+   "id": "long_document_12k",
+   "domain": "long_context",
+   "messages": [],
+   "document_file": "../../batch1_optimization/README.md",
+   "document_tokens": 12288,
+   "document_prefix": "Read the following engineering report carefully.",
+   "question": "In one paragraph, state the three most important measured results in the report and the single largest remaining risk it names."
+  }
+ ]
+}

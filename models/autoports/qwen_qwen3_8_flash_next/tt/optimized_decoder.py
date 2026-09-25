@@ -64,6 +64,12 @@ POLICIES = {
     "expert_bfp4_lofi_g20b16_d40b5": OptimizationPolicy(
         "expert_bfp4_lofi_g20b16_d40b5", ttnn.bfloat4_b, "lofi", 20, 16, 40, 5
     ),
+    # TP4's non-EP reference path shards the 640-wide expert intermediate to
+    # 160 columns per rank. Gate/up therefore has Nt=10 and needs ten cores;
+    # the 2560-wide down projection retains its established 40-core geometry.
+    "expert_bfp4_lofi_g10b16_d40b5": OptimizationPolicy(
+        "expert_bfp4_lofi_g10b16_d40b5", ttnn.bfloat4_b, "lofi", 10, 16, 40, 5
+    ),
     "expert_bfp4_hifi2_g40b16_d40b5": OptimizationPolicy(
         "expert_bfp4_hifi2_g40b16_d40b5", ttnn.bfloat4_b, "hifi2", 40, 16, 40, 5
     ),
@@ -74,6 +80,18 @@ POLICIES = {
         "expert_bfp4_lofi_g40b8_d40b10", ttnn.bfloat4_b, "lofi", 40, 8, 40, 10
     ),
     "expert_bfp4_lofi_g40d80": OptimizationPolicy("expert_bfp4_lofi_g40d80", ttnn.bfloat4_b, "lofi", 40, 16, 80, 10),
+    # Decode probes: the indexed sparse matmul reads ~27 MB of expert weights
+    # per layer at ~110 GB/s (40 cores, 5 K-blocks); wider K blocks and more
+    # down cores test whether the loop is DRAM-latency bound.
+    "expert_bfp4_lofi_g40b40_d80b20": OptimizationPolicy(
+        "expert_bfp4_lofi_g40b40_d80b20", ttnn.bfloat4_b, "lofi", 40, 40, 80, 20
+    ),
+    "expert_bfp4_lofi_g40b80_d80b20": OptimizationPolicy(
+        "expert_bfp4_lofi_g40b80_d80b20", ttnn.bfloat4_b, "lofi", 40, 80, 80, 20
+    ),
+    "expert_bfp4_lofi_g40b80_d40b20": OptimizationPolicy(
+        "expert_bfp4_lofi_g40b80_d40b20", ttnn.bfloat4_b, "lofi", 40, 80, 40, 20
+    ),
     "expert_bfp4_lofi_g20d80": OptimizationPolicy("expert_bfp4_lofi_g20d80", ttnn.bfloat4_b, "lofi", 20, 16, 80, 10),
 }
 
@@ -125,6 +143,7 @@ class OptimizedDecoder(FusedDecoder):
         "prefill_l1_intermediate_outputs",
         "decode_l1_intermediate_outputs",
         "packed_same_input_projections",
+        "fused_sigmoid_gates_for_gdn_and_qsa",
         "tuned_native_sdpa_prefill_and_decode",
         "dram_sharded_decode_attention_projections",
         "indexed_batch_one_active_expert_execution",
@@ -489,13 +508,28 @@ class OptimizedDecoder(FusedDecoder):
         role = self.weight_role_by_id.get(id(weight))
         prefill_config = self.prefill_configs.get(role) if not self._decode_active else None
         if prefill_config is not None:
+            program_config = self._prefill_program_config(x, weight, prefill_config)
+            # The tuned grids were measured at 128-row microchunks (per_core_M
+            # <= 2).  Larger microchunks (QWEN38_PREFILL_CHUNK >= 512) grow the
+            # per-core blocks until the program's static circular buffers clash
+            # with live L1 activations; fall back to the matmul heuristic with a
+            # DRAM output for those shapes.
+            if int(program_config.per_core_M) > 2:
+                return ttnn.linear(
+                    x,
+                    weight,
+                    bias=bias,
+                    dtype=dtype,
+                    compute_kernel_config=compute_cfg,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                )
             return ttnn.linear(
                 x,
                 weight,
                 bias=bias,
                 dtype=dtype,
                 compute_kernel_config=compute_cfg,
-                program_config=self._prefill_program_config(x, weight, prefill_config),
+                program_config=program_config,
                 memory_config=(ttnn.L1_MEMORY_CONFIG if self.prefill_output == "l1" else ttnn.DRAM_MEMORY_CONFIG),
             )
         if self._decode_active and role in self.dram_sharded_roles:
@@ -544,29 +578,74 @@ class OptimizedDecoder(FusedDecoder):
         # FP32 projection.  Route it through the same measured program-policy
         # hook without changing the projection's slicing or nonlinear math.
         s = self.shapes
-        packed = self._linear_impl(
-            x,
-            self.w["gdn_qkv_b_a"],
-            bias=self.w["gdn_qkv_b_a_bias"],
-            dtype=ttnn.float32,
-        )
-        mixed = self._slice_last(packed, 0, s.linear_qkv_width)
-        b_start = s.linear_qkv_width
-        b = self._slice_last(packed, b_start, b_start + s.linear_num_value_heads)
-        a = self._slice_last(
-            packed,
-            b_start + s.linear_num_value_heads,
-            b_start + 2 * s.linear_num_value_heads,
-        )
-        ttnn.deallocate(packed)
+        if "gdn_qkv" in self.w:
+            # Split projection: the 10240-wide qkv output is produced directly
+            # (no fp32 slice of a 10336-wide packed tensor) and the 96 beta /
+            # decay columns come from a tiny second matmul.
+            mixed = self._linear_impl(
+                x,
+                self.w["gdn_qkv"],
+                bias=self.w["gdn_qkv_bias"],
+                dtype=ttnn.float32,
+            )
+            packed = self._linear_impl(
+                x,
+                self.w["gdn_b_a"],
+                bias=self.w["gdn_b_a_bias"],
+                dtype=ttnn.float32,
+            )
+            b = self._slice_last(packed, 0, s.linear_num_value_heads)
+            a = self._slice_last(packed, s.linear_num_value_heads, 2 * s.linear_num_value_heads)
+            ttnn.deallocate(packed)
+        else:
+            packed = self._linear_impl(
+                x,
+                self.w["gdn_qkv_b_a"],
+                bias=self.w["gdn_qkv_b_a_bias"],
+                dtype=ttnn.float32,
+            )
+            mixed = self._slice_last(packed, 0, s.linear_qkv_width)
+            b_start = s.linear_qkv_width
+            b = self._slice_last(packed, b_start, b_start + s.linear_num_value_heads)
+            a = self._slice_last(
+                packed,
+                b_start + s.linear_num_value_heads,
+                b_start + 2 * s.linear_num_value_heads,
+            )
+            ttnn.deallocate(packed)
         z = self._linear(x, self.w["in_proj_z"])
         beta = ttnn.sigmoid(b)
         ttnn.deallocate(b)
-        soft = ttnn.softplus(a, beta=1.0, threshold=20.0)
+        soft = self._softplus(a)
         ttnn.deallocate(a)
         g = ttnn.multiply(soft, self.w["neg_exp_A"])
         ttnn.deallocate(soft)
         return mixed, z, beta, g
+
+    @staticmethod
+    def _softplus(a):
+        """softplus with threshold 20, as log1p(exp(min(a, 20))) below it.
+
+        The dedicated ``ttnn.softplus`` SFPU kernel measured ~57 us on one fp32
+        tile in the decode profile; this composite is a few ~4 us ops and is
+        exact to fp32 rounding for a <= 20 and returns a itself above.
+        """
+
+        # Default is the SFPU kernel: the composite drifted the greedy sequence
+        # by the third token on the reduced stack (log1p/exp precision on the
+        # fp32 decay gate), so it stays opt-in via QWEN38_GDN_SOFTPLUS=composite.
+        if os.environ.get("QWEN38_GDN_SOFTPLUS", "kernel") != "composite":
+            return ttnn.softplus(a, beta=1.0, threshold=20.0)
+        clamped = ttnn.minimum(a, 20.0)
+        expd = ttnn.exp(clamped)
+        ttnn.deallocate(clamped)
+        soft = ttnn.log1p(expd)
+        ttnn.deallocate(expd)
+        above = ttnn.gt(a, 20.0)
+        result = ttnn.where(above, a, soft)
+        ttnn.deallocate(above)
+        ttnn.deallocate(soft)
+        return result
 
     def _gathered_qsa_attention(self, q, selected, valid, page_table):
         """Preserve fused paging/gather semantics with a measured SDPA policy."""

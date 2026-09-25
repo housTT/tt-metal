@@ -14,7 +14,9 @@ before the op — padded positions become identity state updates, so o (causal) 
 
 Notes:
 * The fused op does not L2-normalize q/k (its contract), so we normalize here — identical
-  to what the seq adapter does internally.
+  to what the seq adapter does internally. The phased/flat-QKV optimization remains opt-in:
+  real Qwen3.8 activations expose a phased-kernel numerical defect that the monolithic path
+  does not have.
 * The fused op runs at chunk_size=32 (chunk=128 exceeds the L1 CB budget). chunk size is an
   internal tiling choice; the result is identical to chunk=128. At 32 each per-chunk WY matrix
   is a single 32x32 tile whose (I + strictly_lower)^-1 is computed by the 16x16-blocked inverse
@@ -24,6 +26,8 @@ Notes:
   that with identical math (see tests/.../test_gdn_phased_perchunk.py).
 * GVA (Nk<Nv) head expansion is done inside the fused op; we pass q/k with Nk heads.
 """
+
+import os
 
 import torch
 from loguru import logger
@@ -42,13 +46,13 @@ def fused_chunk_enabled():
 
 
 def phased_enabled():
-    """Chunk-parallel phase-split GDN (prep fanned across the grid + V-block scan)."""
-    return True
+    """Whether to opt into the experimental chunk-parallel phase-split GDN path."""
+    return os.environ.get("QWEN_GDN_PHASED", "0") == "1"
 
 
 def flat_qkv_enabled():
     """Flat token-major q/k/v + in-kernel L2-norm; needs phased path and chunk_size==32."""
-    return True
+    return phased_enabled() and os.environ.get("QWEN_GDN_FLAT_QKV", "1") != "0"
 
 
 _logged_path = False

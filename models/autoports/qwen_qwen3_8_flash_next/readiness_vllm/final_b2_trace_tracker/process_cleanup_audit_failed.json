@@ -1,0 +1,31 @@
+{
+  "device_holders": {
+    "/dev/tenstorrent/0": [],
+    "/dev/tenstorrent/1": []
+  },
+  "devices": [
+    {
+      "asic_temperature_c": 43.4,
+      "board_type": "p300c",
+      "bus_id": "0000:01:00.0",
+      "dram_status": true,
+      "heartbeat": "27045"
+    },
+    {
+      "asic_temperature_c": 45.3,
+      "board_type": "p300c",
+      "bus_id": "0000:02:00.0",
+      "dram_status": true,
+      "heartbeat": "27045"
+    }
+  ],
+  "matching_processes": [
+    {
+      "command": "/usr/bin/zsh -c python_env/bin/python models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/run_process_cleanup_audit.py --server-log models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/final_b2_trace_tracker/server.log --output models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/final_b2_trace_tracker/process_cleanup_audit_failed.json\npgrep -af 'vllm.entrypoints.openai.api_server.*8019|VLLM::EngineCore' || true\n/home/ttuser/.tenstorrent-venv/bin/tt-smi -s > /tmp/qwen38_tracker_failed_health.json\npython - <<'PY'\nimport json\np='/tmp/qwen38_tracker_failed_health.json'\nd=json.load(open(p))\nprint([(x.get('board_info',{}).get('board_type'), x.get('smbus_telem',{}).get('TIMER_HEARTBEAT'), x.get('dram_status')) for x in d['device_info'][:2]])\nPY",
+      "pid": 1095900
+    }
+  ],
+  "shutdown_log": "models/autoports/qwen_qwen3_8_flash_next/readiness_vllm/final_b2_trace_tracker/server.log",
+  "shutdown_log_has_device_close": false,
+  "verdict": "fail"
+}

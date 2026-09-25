@@ -43,6 +43,9 @@ _PROJECTION_POLICIES = {
 _EXPERT_POLICIES = {
     "expert_bfp4_hifi2_g40b16_d40b5": ("bfp4", "hifi2"),
     "expert_bfp4_lofi_g40b16_d40b5": ("bfp4", "lofi"),
+    "expert_bfp4_lofi_g40b40_d80b20": ("bfp4", "lofi"),
+    "expert_bfp4_lofi_g40b80_d80b20": ("bfp4", "lofi"),
+    "expert_bfp4_lofi_g40b80_d40b20": ("bfp4", "lofi"),
 }
 _LM_HEAD_POLICIES = {
     "bf16_hifi2": ("bf16", "hifi2", "bf16"),
@@ -96,6 +99,19 @@ def validate_precision_config(config: dict) -> dict:
         raise ValueError("Qwen3.8 precision config schema_version must be 1")
     if not str(_require(value, "config_id")):
         raise ValueError("precision config_id cannot be empty")
+
+    parallelism = value.get("parallelism")
+    if parallelism is not None:
+        expected_parallelism = {
+            "mesh_shape": [4, 1],
+            "dense_tp": 4,
+            "expert_parallel": 4,
+            "expert_mode": "resident_ep4",
+            "kv_replication": 2,
+            "indexer_kv_replication": 4,
+        }
+        if parallelism != expected_parallelism:
+            raise ValueError(f"Qwen3.8 resident parallelism must be {expected_parallelism}, got {parallelism}")
 
     for group in ("shared_projection", "gdn_projection", "qsa_input", "attention_output"):
         _validate_policy_pair(value, group)
@@ -224,6 +240,8 @@ def validate_precision_config(config: dict) -> dict:
         raise ValueError("datatype ranking fixes the PLE row-cache capacity at 8192")
     if int(_require(host_ple, "prefill_chunk_rows")) != 128:
         raise ValueError("datatype ranking fixes PLE prefill chunks at 128 rows")
+    # ``QWEN38_PREFILL_CHUNK`` may run larger physical microchunks; the PLE
+    # staging buffer then follows the microchunk (see model._load_layers).
 
     exceptions = _require(value, "layer_exceptions")
     if not isinstance(exceptions, dict):

@@ -22,7 +22,7 @@ from models.autoports.qwen_qwen3_8_flash_next.tt.generator import (
     _ServingDecodeOutput,
 )
 from models.autoports.qwen_qwen3_8_flash_next.tt.generator_vllm import Qwen4ExpForConditionalGeneration
-from models.autoports.qwen_qwen3_8_flash_next.tt.model import Qwen38FullModel
+from models.autoports.qwen_qwen3_8_flash_next.tt.model import Qwen38FullModel, _physical_compressed_ids_host
 
 
 class _GeneratorSpy:
@@ -77,6 +77,24 @@ def _sampling_params():
         enable_log_probs=[False],
         num_logprobs=[-2],
     )
+
+
+def test_physical_compressed_page_map_is_built_once_from_host_table() -> None:
+    pages = torch.tensor([[7, 2, 11]], dtype=torch.int32)
+    result = _physical_compressed_ids_host(
+        pages,
+        compressed_blocks=35,
+        compressed_per_page=16,
+    )
+    assert result.shape == (1, 35)
+    assert result[0, :16].tolist() == list(range(112, 128))
+    assert result[0, 16:32].tolist() == list(range(32, 48))
+    assert result[0, 32:].tolist() == [176, 177, 178]
+    # The compressed-key cache is stored one 32-row tile per page: 16 keys, 16 padding rows.
+    tiled = _physical_compressed_ids_host(pages, compressed_blocks=35, compressed_per_page=16, rows_per_page=32)
+    assert tiled[0, :16].tolist() == list(range(7 * 32, 7 * 32 + 16))
+    assert tiled[0, 16:32].tolist() == list(range(2 * 32, 2 * 32 + 16))
+    assert tiled[0, 32:].tolist() == [11 * 32, 11 * 32 + 1, 11 * 32 + 2]
 
 
 def test_prefill_program_cache_guard_releases_only_when_trace_replay_would_be_unsafe() -> None:
@@ -210,25 +228,26 @@ def test_virtual_slot_release_is_inside_program_cache_guard() -> None:
 
 def test_static_protocol_and_full_context_contract() -> None:
     cls = Qwen4ExpForConditionalGeneration
-    assert adapter_module.MAX_NUM_SEQS == 2
+    assert adapter_module.MAX_NUM_SEQS == 1
     assert cls.model_capabilities == {
         "supports_prefix_caching": False,
         "supports_async_decode": True,
         "supports_sample_on_device": True,
         "supports_request_specific_rope": False,
         "supports_device_sampling_penalties": False,
-        "device_sampling_max_top_k": 32,
+        # DEVSTACK-294 mitigation: stochastic rows go to the host sampler.
+        "device_sampling_max_top_k": 0,
         "force_host_seeded_sampling": True,
-        "supports_virtual_state_slots": True,
+        "supports_virtual_state_slots": False,
         "supports_intermediate_prefill_device_sampling": True,
     }
-    assert cls.get_max_tokens_all_users(max_model_len=262_144, max_num_seqs=2) == 262_144
+    assert cls.get_max_tokens_all_users(max_model_len=262_144, max_num_seqs=1) == 262_144
     try:
-        cls.get_max_tokens_all_users(max_model_len=262_144, max_num_seqs=3)
+        cls.get_max_tokens_all_users(max_model_len=262_144, max_num_seqs=2)
     except ValueError as error:
-        assert "at most 2 active virtual slots" in str(error)
+        assert "max_num_seqs=1" in str(error)
     else:
-        raise AssertionError("adapter accepted more virtual slots than the source bank supports")
+        raise AssertionError("adapter accepted a concurrent serving configuration")
     for name in (
         "tokens",
         "page_table",
@@ -244,7 +263,7 @@ def test_static_protocol_and_full_context_contract() -> None:
         assert name in inspect.signature(cls.decode_forward).parameters
 
 
-def test_initialize_uses_selected_precision_and_proven_tp2(monkeypatch) -> None:
+def test_initialize_uses_selected_precision_and_tp4_ep4(monkeypatch) -> None:
     captured = {}
 
     class FakeModel:
@@ -261,16 +280,16 @@ def test_initialize_uses_selected_precision_and_proven_tp2(monkeypatch) -> None:
         return FakeGenerator()
 
     monkeypatch.setattr(adapter_module, "build_generator", fake_build)
-    mesh = SimpleNamespace(get_num_devices=lambda: 2)
+    mesh = SimpleNamespace(get_num_devices=lambda: 4)
     result = Qwen4ExpForConditionalGeneration.initialize_vllm_model(
         SimpleNamespace(_name_or_path=adapter_module.MODEL_ID),
         mesh,
-        max_batch_size=2,
+        max_batch_size=1,
         max_seq_len=262_144,
     )
     assert result.max_seq_len == 262_144
     assert captured["max_batch"] == 1
-    assert captured["virtual_slot_capacity"] == 2
+    assert captured["virtual_slot_capacity"] == 1
     assert captured["max_seq_len"] == 262_144
     assert captured["precision_config"] == adapter_module.DEFAULT_PRECISION_CONFIG_PATH
 
@@ -339,7 +358,7 @@ def test_vllm_cache_adoption_includes_qsa_compressed_attention_state(
     cache = model.allocate_vllm_attention_cache((4097, 1, 64, 256))
 
     assert len(cache) == 1 and len(cache[0]) == 4
-    assert cache[0][3].shape == (4097, 1, 16, 128)
+    assert cache[0][3].shape == (4097, 1, 32, 128)  # one full tile per page, 16 keys + 16 padding rows
     assert layer.fused_index_key_cache is cache[0][3]
     assert released == old
     assert model._attention_cache_owner == "vllm"
@@ -373,7 +392,8 @@ def test_prefill_preserves_non_aligned_logical_length_and_cache_identity() -> No
     assert kwargs["intermediate_prefill_mask"] is None
     assert kwargs["on_device_sampling"] is True
     assert kwargs["request_ids"] == ["nonaligned"]
-    assert kwargs["state_slot_ids"] == [0]
+    assert kwargs["state_slot_ids"] is None
+    assert kwargs["state_slot_generations"] is None
 
 
 def test_prefill_metrics_count_completed_logical_rows_not_grouped_calls() -> None:
@@ -427,10 +447,86 @@ def test_vllm_prefill_cache_pages_follow_logical_tokens_not_compute_padding(
         assert torch.equal(full, state.page_table_host)
         assert tuple(tuple(int(value) for value in chunk.reshape(-1)) for chunk in chunks) == expected_pages
 
+    layer = SimpleNamespace(
+        prefill_chunk_plan=lambda _length: [(0, 128, 128), (128, 1, 128)]
+    )
+    _, chunks = model._prefill_page_inputs(layer, state, 0, 129, start_pos=1024)
+    assert tuple(tuple(int(value) for value in chunk.reshape(-1)) for chunk in chunks) == (
+        (16, 17),
+        (18,),
+    )
+
     reset_source = inspect.getsource(FunctionalDecoder._reset_user_state)
     assert "ttnn.copy" in reset_source
     assert "ttnn.multiply" not in reset_source
     assert "host_expert_cache.reset" not in inspect.getsource(Qwen38FullModel.reset_batch_state)
+
+
+def test_batch_one_generator_prefill_advances_only_new_chunk() -> None:
+    calls = []
+
+    class FakeModel:
+        max_batch = 1
+        vocab_size = 32
+        _trace_ready = False
+
+        def new_batch_state(self, lengths, *, request_ids, page_table, active_mask):
+            del active_mask
+            return SimpleNamespace(
+                prompt_lens=torch.as_tensor(lengths, dtype=torch.int32).clone(),
+                computed_lens=torch.zeros(1, dtype=torch.int32),
+                active_mask=torch.ones(1, dtype=torch.bool),
+                request_ids=tuple(request_ids),
+                active_slots=(0,),
+                page_table_host=torch.as_tensor(page_table).clone(),
+                token_input=object(),
+            )
+
+        def prefill_forward(self, tokens, **kwargs):
+            calls.append((tokens.clone(), dict(kwargs)))
+            kwargs["state"].computed_lens = kwargs["prompt_lens"].clone()
+            return object()
+
+    generator = object.__new__(Qwen38Generator)
+    generator.model = FakeModel()
+    generator.state = None
+    generator._serving_device_feedback_current = False
+    pages = torch.arange(4096, dtype=torch.int32).reshape(1, 4096)
+    tokens = torch.arange(1537, dtype=torch.int64).reshape(1, 1537)
+
+    generator.prefill_forward(
+        tokens,
+        page_table=pages,
+        prompt_lens=[1024],
+        start_pos=[0],
+        intermediate_prefill_mask=[True],
+        request_ids=["request"],
+        read_from_device=False,
+    )
+    generator.prefill_forward(
+        tokens,
+        page_table=pages,
+        prompt_lens=[1537],
+        start_pos=[1024],
+        intermediate_prefill_mask=[False],
+        request_ids=["request"],
+        read_from_device=False,
+    )
+
+    assert [call[1]["start_pos"].tolist() for call in calls] == [[0], [1024]]
+    assert [call[1]["is_final_chunk"] for call in calls] == [False, True]
+    assert generator.state.computed_lens.tolist() == [1537]
+
+    with pytest.raises(ValueError, match="committed offsets"):
+        generator.prefill_forward(
+            tokens,
+            page_table=pages,
+            prompt_lens=[1537],
+            start_pos=[1536],
+            intermediate_prefill_mask=[False],
+            request_ids=["request"],
+            read_from_device=False,
+        )
 
 
 def test_decode_reset_once_then_steady_async_delegation() -> None:
@@ -464,7 +560,7 @@ def test_decode_reset_once_then_steady_async_delegation() -> None:
     assert generator.release_calls == [[("active", 0, 1, "finished")]]
 
 
-def test_generator_steady_decode_reads_device_token_only_for_ple() -> None:
+def test_generator_steady_decode_falls_back_to_device_token_for_ple() -> None:
     ple_inputs = []
 
     class FakeModel:
@@ -492,12 +588,15 @@ def test_generator_steady_decode_reads_device_token_only_for_ple() -> None:
     kv_cache = object()
     page_table = object()
     sampled_output = object()
-    batch_state = SimpleNamespace(token_input=object())
+    batch_state = SimpleNamespace(token_input=object(), compact_token_readbacks=0)
     generator = object.__new__(Qwen38Generator)
     generator.model = FakeModel()
     generator._serving_device_feedback_current = True
+    generator._serving_pending_token_host = None
     generator._serving_sampling_signature = None
     generator.host_sampling_compatibility_calls = 0
+    generator.async_feedback_host_reuses = 0
+    generator.async_feedback_device_fallbacks = 0
 
     result = generator._decode_forward_serving(
         torch.tensor([[999]]),
@@ -514,6 +613,67 @@ def test_generator_steady_decode_reads_device_token_only_for_ple() -> None:
     assert isinstance(result, _ServingDecodeOutput)
     assert result.device is sampled_output
     assert ple_inputs[0].reshape(-1).tolist() == [77]
+    assert generator.async_feedback_host_reuses == 0
+    assert generator.async_feedback_device_fallbacks == 1
+
+
+def test_generator_steady_decode_reuses_async_host_token_for_ple() -> None:
+    ple_inputs = []
+
+    class FakeModel:
+        max_batch = 1
+        vocab_size = 32
+
+        def _require_kv_cache_identity(self, cache):
+            assert cache is kv_cache
+
+        def update_page_table(self, state, table):
+            assert state is batch_state
+            assert table is page_table
+
+        def set_sampling_params(self, **kwargs):
+            assert kwargs["top_k"] == [1]
+
+        def sampled_tokens_to_torch(self, _token, _state):
+            raise AssertionError("the already-enqueued async host token must be reused")
+
+        def decode_token_out_traced(self, state, values):
+            ple_inputs.append(values.clone())
+            return object(), sampled_output
+
+    kv_cache = object()
+    page_table = object()
+    sampled_output = object()
+    batch_state = SimpleNamespace(token_input=object(), compact_token_readbacks=0)
+    generator = object.__new__(Qwen38Generator)
+    generator.model = FakeModel()
+    generator._serving_device_feedback_current = True
+    generator._serving_pending_token_host = _ServingDecodeHost(
+        "tokens", torch.tensor([77], dtype=torch.int32), 1, batch_state
+    )
+    generator._serving_sampling_signature = None
+    generator.host_sampling_compatibility_calls = 0
+    generator.async_feedback_host_reuses = 0
+    generator.async_feedback_device_fallbacks = 0
+
+    result = generator._decode_forward_serving(
+        torch.tensor([[999]]),
+        start_pos=torch.tensor([68]),
+        page_table=page_table,
+        kv_cache=kv_cache,
+        state=batch_state,
+        read_from_device=False,
+        enable_trace=True,
+        sampling_params=_sampling_params(),
+        reset_batch=False,
+        slot_remap=torch.tensor([0]),
+    )
+    assert isinstance(result, _ServingDecodeOutput)
+    assert result.device is sampled_output
+    assert ple_inputs[0].reshape(-1).tolist() == [77]
+    assert generator._serving_pending_token_host is None
+    assert generator.async_feedback_host_reuses == 1
+    assert generator.async_feedback_device_fallbacks == 0
 
 
 def test_generator_async_output_supplies_next_virtual_ple_token_once(monkeypatch) -> None:
@@ -1420,6 +1580,52 @@ def test_canonical_sampler_routes_top1_at_any_temperature_to_argmax(
     assert model._sampling_force_argmax is True
     assert model._sampling_seed_rngs is None
     assert torch.equal(writes[-1][0], torch.tensor([0.5]))
+
+
+def test_canonical_sampler_synthesizes_seeds_for_unseeded_stochastic_requests(monkeypatch) -> None:
+    """DEVSTACK-294: stochastic sampling must never run on the static default seed buffer."""
+
+    monkeypatch.setattr(model_module, "_copy_host_to_device", lambda value, target, **kwargs: None)
+    model = SimpleNamespace(
+        max_batch=1,
+        _sampling_force_argmax=True,
+        _trace_ready=False,
+        _sampling_seed_rngs=None,
+        sampling_k=object(),
+        sampling_p=object(),
+        sampling_temp=object(),
+    )
+    Qwen38FullModel.set_sampling_params(model, top_k=20, top_p=0.95, temperature=1.0)
+    assert model._sampling_force_argmax is False
+    assert model._sampling_seed_rngs is not None and len(model._sampling_seed_rngs) == 1
+
+
+def test_canonical_sampler_refuses_to_advance_without_seed_streams() -> None:
+    model = SimpleNamespace(_sampling_force_argmax=False, _sampling_seed_rngs=None)
+    try:
+        Qwen38FullModel._advance_sampling_seeds(model)
+    except RuntimeError as error:
+        assert "seed streams" in str(error)
+    else:
+        raise AssertionError("stochastic sampling advanced without per-row seed streams")
+    greedy = SimpleNamespace(_sampling_force_argmax=True, _sampling_seed_rngs=None)
+    Qwen38FullModel._advance_sampling_seeds(greedy)
+
+
+def test_compile_hooks_route_sampling_params_through_serving_bridge() -> None:
+    generator = object.__new__(Qwen38Generator)
+    generator.model = SimpleNamespace(
+        max_batch=1,
+        set_sampling_params=Mock(),
+        _require_kv_cache_identity=lambda kv_cache: None,
+        _default_page_table_host=torch.zeros(1, 1, dtype=torch.int32),
+    )
+    generator._serving_sampling_signature = None
+    generator._apply_serving_sampling_params = Mock()
+    params = SimpleNamespace(top_k=[20], top_p=[0.95], temperature=[1.0], seed=[None])
+    generator.compile_decode(tokens=[1], start_pos=[0], sampling_params=params)
+    generator._apply_serving_sampling_params.assert_called_once_with(params, reset_seed=True)
+    generator.model.set_sampling_params.assert_not_called()
 
 
 def test_vllm_unseeded_device_sampling_refreshes_once_per_request(monkeypatch) -> None:

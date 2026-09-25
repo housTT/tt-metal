@@ -4,19 +4,22 @@
 
 The adapter translates the shared TT plugin protocol only.  Model execution,
 selected precision, split traced sampling, direct device token feedback,
-linear-attention recurrence, expert/PLE host service, and output formatting all
-remain owned by :mod:`tt.generator` and :mod:`tt.model`.
+linear-attention recurrence, resident expert execution, PLE host service, and
+output formatting all remain owned by :mod:`tt.generator` and :mod:`tt.model`.
 
 The serving cache object contains K, V, and the QSA indexer's paged key state
 for each of the twelve QSA layers.  vLLM owns that attention object and its
-block ids.  The model owns the 36 linear-attention recurrent states plus the
-declared expert and PLE host stores; none of those are disguised as vLLM KV.
+block ids.  The model owns the 36 linear-attention recurrent states, all
+resident EP4 expert tensors, and the declared PLE host store; none of those are
+disguised as vLLM KV.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +30,7 @@ from models.autoports.qwen_qwen3_8_flash_next.tt.model import DEFAULT_SNAPSHOT, 
 from models.autoports.qwen_qwen3_8_flash_next.tt.precision_config import DEFAULT_PRECISION_CONFIG_PATH
 
 MAX_MODEL_LEN = 262_144
-MAX_NUM_SEQS = 2
+MAX_NUM_SEQS = 1
 PHYSICAL_TRACE_BATCH = 1
 QSA_LAYER_INDICES = tuple(range(3, 48, 4))
 _REDUCED_LAYERS_ENV = "QWEN38_VLLM_LAYER_INDICES"
@@ -66,12 +69,23 @@ class Qwen4ExpForConditionalGeneration:
         "supports_sample_on_device": True,
         "supports_request_specific_rope": False,
         "supports_device_sampling_penalties": False,
-        "device_sampling_max_top_k": 32,
+        # DEVSTACK-294: 0 routes every temperature > 0 request to vLLM's host
+        # sampler (the plugin treats any random row with top_k > bound as
+        # host-only) while greedy requests keep the validated on-device argmax.
+        # QWEN38_DEVICE_SAMPLING_MAX_TOP_K=32 restores the device sampler for A/B runs.
+        # The bounded ttnn.sampling path (top_k <= 32) stays available and
+        # returns here once its distribution gate
+        # (tests/test_full_model.py::test_full_model_stochastic_free_run_not_degenerate
+        # and the Sampling1D distribution test) passes.
+        "device_sampling_max_top_k": int(os.environ.get("QWEN38_DEVICE_SAMPLING_MAX_TOP_K", "0")),
         # The TT and vLLM host samplers deliberately use different RNG
         # algorithms.  Keep explicit-seed stochastic requests on the optional
         # host compatibility path so cohort composition cannot switch algorithms.
         "force_host_seeded_sampling": True,
-        "supports_virtual_state_slots": True,
+        # This product path deliberately exposes one physical request only.
+        # Keeping the generic virtual-slot implementation out of the runner
+        # avoids lease/snapshot/restore bookkeeping on every batch-one step.
+        "supports_virtual_state_slots": False,
         "supports_intermediate_prefill_device_sampling": True,
     }
 
@@ -115,13 +129,11 @@ class Qwen4ExpForConditionalGeneration:
         if optimizations is not None:
             raise ValueError("Qwen3.8 serving uses the datatype-sweep selection, not a vLLM preset")
         if int(tt_data_parallel) != 1:
-            raise ValueError("Qwen3.8 serving requires the measured TP2 mesh with tt_data_parallel=1")
-        if int(mesh_device.get_num_devices()) != 2:
-            raise ValueError("Qwen3.8 serving requires exactly two P300 devices")
-        if not 1 <= int(max_batch_size) <= MAX_NUM_SEQS:
-            raise ValueError(
-                f"Qwen3.8 supports between 1 and {MAX_NUM_SEQS} active virtual slots over its physical-B1 trace"
-            )
+            raise ValueError("Qwen3.8 serving requires the TP4+EP4 mesh with tt_data_parallel=1")
+        if int(mesh_device.get_num_devices()) != 4:
+            raise ValueError("Qwen3.8 serving requires exactly four P300 devices (P300x2)")
+        if int(max_batch_size) != MAX_NUM_SEQS:
+            raise ValueError("Qwen3.8 serving is specialized for physical batch 1")
 
         max_seq_len = MAX_MODEL_LEN if max_seq_len is None else int(max_seq_len)
         if not 1 <= max_seq_len <= MAX_MODEL_LEN:
@@ -138,7 +150,7 @@ class Qwen4ExpForConditionalGeneration:
             mesh_device,
             max_batch=PHYSICAL_TRACE_BATCH,
             max_seq_len=max_seq_len,
-            virtual_slot_capacity=int(max_batch_size),
+            virtual_slot_capacity=1,
             layer_indices=_reduced_layer_indices(),
             precision_config=DEFAULT_PRECISION_CONFIG_PATH,
         )
@@ -149,8 +161,8 @@ class Qwen4ExpForConditionalGeneration:
 
     @classmethod
     def get_max_tokens_all_users(cls, max_model_len=None, max_num_seqs=None, **_kwargs) -> int:
-        if max_num_seqs is not None and not 1 <= int(max_num_seqs) <= MAX_NUM_SEQS:
-            raise ValueError(f"Qwen3.8 traced serving supports at most {MAX_NUM_SEQS} active virtual slots")
+        if max_num_seqs is not None and int(max_num_seqs) != MAX_NUM_SEQS:
+            raise ValueError("Qwen3.8 traced serving requires max_num_seqs=1")
         context = MAX_MODEL_LEN if max_model_len is None else int(max_model_len)
         if not 1 <= context <= MAX_MODEL_LEN:
             raise ValueError(f"max_model_len must be in [1, {MAX_MODEL_LEN}]")
@@ -205,7 +217,12 @@ class Qwen4ExpForConditionalGeneration:
         kwargs.pop("enable_trace", None)
         if kwargs:
             raise TypeError(f"unsupported Qwen3.8 prefill arguments: {', '.join(sorted(kwargs))}")
+        # The public endpoint is physical batch one.  The shared runner still
+        # supplies its generic physical slot metadata, but exposing it as the
+        # virtual-slot ABI would re-enter snapshot/lease machinery that this
+        # model deliberately disables.
         slots = empty_slots if state_slot_ids is None else state_slot_ids
+        prefill_started = time.perf_counter()
         result = self.generator.prefill_forward(
             tokens,
             page_table=page_table,
@@ -215,10 +232,10 @@ class Qwen4ExpForConditionalGeneration:
             intermediate_prefill_mask=intermediate_prefill_mask,
             empty_slots=slots,
             request_ids=request_ids,
-            state_slot_ids=slots,
-            state_slot_generations=state_slot_generations,
+            state_slot_ids=None,
+            state_slot_generations=None,
             unpadded_batch_size=unpadded_batch_size,
-            released_state_slots=released_state_slots,
+            released_state_slots=None,
             on_device_sampling=sampling_params is not None,
             sampling_params=sampling_params,
         )
@@ -235,6 +252,14 @@ class Qwen4ExpForConditionalGeneration:
                 raise ValueError("intermediate_prefill_mask must name every logical prompt row")
             completed_rows = int((~intermediate).sum().item())
         self._completed_requests += completed_rows
+        # Per-request prefill wall time (model prefill + sampling + readback),
+        # to attribute TTFT between the model and the serving path.
+        timing = self.__dict__.setdefault("_prefill_timing", {"calls": 0, "seconds": 0.0, "last_seconds": 0.0, "tokens": 0})
+        elapsed = time.perf_counter() - prefill_started
+        timing["calls"] += 1
+        timing["seconds"] += elapsed
+        timing["last_seconds"] = elapsed
+        timing["tokens"] += int(sum(int(value) for value in prompt_lens))
         return result
 
     def decode_forward(
@@ -274,10 +299,10 @@ class Qwen4ExpForConditionalGeneration:
             reset_batch=bool(reset_batch),
             slot_remap=slot_remap,
             request_ids=request_ids,
-            state_slot_ids=state_slot_ids,
-            state_slot_generations=state_slot_generations,
+            state_slot_ids=None,
+            state_slot_generations=None,
             unpadded_batch_size=unpadded_batch_size,
-            released_state_slots=released_state_slots,
+            released_state_slots=None,
             prompt_tokens=prompt_tokens,
             output_tokens=output_tokens,
             serving_mode=True,
@@ -297,6 +322,13 @@ class Qwen4ExpForConditionalGeneration:
 
     def warmup_model_prefill(self, **kwargs) -> None:
         # Request-bound prefill owns exact logical length and host-store history.
+        if kwargs.get("enable_trace"):
+            # additional_config.tt.trace_mode "all" asks for traced prefill; this
+            # port has no prefill trace path, so the setting silently changes
+            # nothing (DEVSTACK-294 testers tried it as a TTFT lever).
+            logging.getLogger(__name__).warning(
+                "Qwen3.8 prefill runs eagerly in 512/128-row microchunks; trace_mode 'all' has no effect on TTFT"
+            )
         del kwargs
 
     def warmup_model_decode(self, **kwargs) -> None:
@@ -349,10 +381,20 @@ class Qwen4ExpForConditionalGeneration:
             "host_service": self.model.host_service_totals(),
             "host_gauges": self.model.host_service_gauges(),
             "decode_timing": dict(self.model.decode_timing_totals),
+            "prefill_timing": dict(self.__dict__.get("_prefill_timing", {})),
+            # Model-side stack-major prefill: microchunk count/seconds totals and
+            # the last slot's per-microchunk breakdown (QWEN38_PREFILL_TIMING_SYNC=1
+            # makes the per-chunk figures include device completion).
+            "prefill_timing_model": dict(getattr(self.model, "prefill_timing_totals", {}) or {}),
+            "prefill_timing_model_last": dict(getattr(self.model, "last_prefill_timing", None) or {}),
+            "trace_capture_seconds_last": float(getattr(self.model, "trace_capture_seconds", 0.0)),
+            "trace_ready": bool(getattr(self.model, "_trace_ready", False)),
             "runtime_fallback": (
                 None
                 if runtime is None
                 else {
+                    "execution_policy": runtime["execution_policy"],
+                    "speculative_decode": runtime["speculative_decode"],
                     "declared_host_work": runtime["declared_host_work"],
                     "prohibited_host_work": runtime["prohibited_host_work"],
                     "ownership": runtime["ownership"],

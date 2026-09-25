@@ -10,6 +10,7 @@ shapes.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 LINEAR_ATTENTION = "linear_attention"
@@ -21,8 +22,13 @@ HF_ADVERTISED_CONTEXT = 262_144
 
 # Public prefill is logically unaligned.  Physical work is split into this
 # target-independent recurrence/page-friendly quantum and the final chunk is
-# masked and sliced back to its logical length.
-PREFILL_CHUNK = 128
+# masked and sliced back to its logical length.  128 is the datatype-ranked
+# baseline; ``QWEN38_PREFILL_CHUNK`` may raise it in multiples of 128 so long
+# prompts amortize the per-op fixed cost of the eager prefill graph.
+PREFILL_CHUNK_BASE = 128
+PREFILL_CHUNK = int(os.environ.get("QWEN38_PREFILL_CHUNK", PREFILL_CHUNK_BASE))
+if PREFILL_CHUNK < PREFILL_CHUNK_BASE or PREFILL_CHUNK % PREFILL_CHUNK_BASE:
+    raise ValueError(f"QWEN38_PREFILL_CHUNK must be a positive multiple of {PREFILL_CHUNK_BASE}, got {PREFILL_CHUNK}")
 PAGE_BLOCK_SIZE = 64
 
 

@@ -50,6 +50,7 @@ calls torch, ``ttnn.from_torch``, ``ttnn.as_tensor`` or ``ttnn.to_torch``.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 from typing import Mapping, Optional, Sequence
 
@@ -59,12 +60,12 @@ from models.demos.blackhole.qwen36.tt.gdn.fused_chunk import (
     build_fused_const_tiles,
     chunk_gated_delta_rule_fused_adapter,
 )
-
 from .model_config import (
     HF_ADVERTISED_CONTEXT,
     LINEAR_ATTENTION,
     PAGE_BLOCK_SIZE,
     PREFILL_CHUNK,
+    PREFILL_CHUNK_BASE,
     QWEN_SPARSE_ATTENTION,
     DecoderShapes,
     decoder_shapes,
@@ -464,7 +465,8 @@ class FunctionalDecoder(LightweightModule):
                     shape=(1, 1, 1, s.head_dim),
                     add_one=True,
                 )
-            iqk = raw(f"{p}.indexer.index_qk_proj.weight", (640, s.hidden_size))
+            index_qk_width = (s.indexer_n_heads + s.indexer_kv_heads) * s.indexer_head_dim
+            iqk = raw(f"{p}.indexer.index_qk_proj.weight", (index_qk_width, s.hidden_size))
             iq = None if iqk is None else iqk[: s.indexer_n_heads * s.indexer_head_dim]
             ik = None if iqk is None else iqk[s.indexer_n_heads * s.indexer_head_dim :]
             w["index_q"] = upload(
@@ -1011,9 +1013,13 @@ class FunctionalDecoder(LightweightModule):
         s = self.shapes
         core = self._rms_norm(core, self.w["gdn_norm"], s.rms_norm_eps)
         z = ttnn.reshape(z, _shape(core))
-        gated = ttnn.multiply(core, ttnn.sigmoid(z))
-        ttnn.deallocate(core)
+        gate = ttnn.sigmoid(z)
         ttnn.deallocate(z)
+        # The fused binary-activation form of multiply corrupts this one-token
+        # tiled shape.  Keep sigmoid explicit until that kernel is corrected.
+        gated = ttnn.multiply(core, gate)
+        ttnn.deallocate(core)
+        ttnn.deallocate(gate)
         flat = ttnn.reshape(gated, (*public_shape[:-1], s.linear_value_width))
         _free(gated, flat)
         out = self._linear(flat, self.w["gdn_out"])
@@ -1452,7 +1458,11 @@ class FunctionalDecoder(LightweightModule):
         else:
             attention = ttnn.permute(attention, (0, 2, 1, 3))
             attention = ttnn.reshape(attention, (1, 1, int(attention.shape[1]), s.q_width))
-        gated = ttnn.multiply(attention, ttnn.sigmoid(gate))
+        gated = ttnn.multiply(
+            attention,
+            gate,
+            input_tensor_b_activations=[ttnn.UnaryOpType.SIGMOID],
+        )
         ttnn.deallocate(attention)
         ttnn.deallocate(gate)
         out = self._linear(gated, self.w["attn_out"])
@@ -1721,6 +1731,22 @@ class FunctionalDecoder(LightweightModule):
         if not 1 <= seq_len <= self.max_seq_len:
             raise ValueError(f"seq_len {seq_len} outside [1, {self.max_seq_len}]")
         plan = []
+        if os.environ.get("QWEN38_PREFILL_CHUNK_ADAPTIVE", "0") == "1" and PREFILL_CHUNK > PREFILL_CHUNK_BASE:
+            # Long prompts amortize the eager graph's per-op cost over
+            # PREFILL_CHUNK-row microchunks (a 16k prompt ran 1.47x faster at
+            # 512 rows with MoE slabs); the remainder falls back to 128-row
+            # chunks so short prompts and chunk tails do not pay 512 rows of
+            # padding.  Every start stays a multiple of 128 (two 64-token
+            # pages, four tiles, one DeltaNet chunk).
+            start = 0
+            while seq_len - start >= PREFILL_CHUNK:
+                plan.append((start, PREFILL_CHUNK, PREFILL_CHUNK))
+                start += PREFILL_CHUNK
+            while start < seq_len:
+                logical = min(PREFILL_CHUNK_BASE, seq_len - start)
+                plan.append((start, logical, PREFILL_CHUNK_BASE))
+                start += PREFILL_CHUNK_BASE
+            return plan
         for start in range(0, seq_len, PREFILL_CHUNK):
             logical = min(PREFILL_CHUNK, seq_len - start)
             # 128 is simultaneously a DeltaNet chunk, two 64-token pages and

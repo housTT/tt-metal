@@ -1,0 +1,673 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="7" skipped="0" tests="21" time="191.330" timestamp="2026-08-27T15:58:14.361881-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-0-1-7]" time="10.439"><properties><property name="start_timestamp" value="2026-08-27T15:58:14" /><property name="end_timestamp" value="2026-08-27T15:58:24" /></properties><failure message="assert 0.9911649227142334 &gt;= 0.995&#10; +  where 0.995 = H.PCC_BAR">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'trace_region_size': 100000000}
+layer_idx = 0
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
+        indirect=True,
+    )
+    def test_host_backed_warmed_prefill_and_segmented_decode(bh_1d_mesh_device, device_params, layer_idx):
+        """Compare an exact single-chip graph with the final host-backed TP2 path."""
+    
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        mesh_device = bh_1d_mesh_device
+        config = H.target_config()
+        max_seq_len = 4096 if layer_idx == 3 else 128
+        state = H.load_real_layer_state(layer_idx)
+        baseline = OptimizedDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        del state
+        host_backed = MultichipDecoder.from_checkpoint_host_backed(
+            H.MODEL_SNAPSHOT,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        prefill_seq_len = HOST_PREFILL_SEQ_LEN
+        hidden_host, _, activation_hash = _real_activations(layer_idx)
+        prefill_hidden = _upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        host_prefill_hidden = _fractured_upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        token_ids = torch.arange(2026, 2026 + prefill_seq_len + 1, dtype=torch.int64).unsqueeze(0)
+        reference_store = None
+        baseline_prefill_kwargs = {}
+        host_prefill_kwargs = {}
+        baseline_decode_kwargs = {}
+        host_capture_kwargs = {}
+        if layer_idx == 1:
+            reference_store = Qwen38PLEHostStore(SafetensorCheckpoint(H.MODEL_SNAPSHOT), row_cache_capacity=256)
+            prefill_ple = reference_store.prepare(("perf-reference",), token_ids[:, :prefill_seq_len], reset=True)
+            baseline_prefill_kwargs["ple_embeddings"] = _upload(prefill_ple.unsqueeze(0), mesh_device)
+            host_prefill_kwargs.update(input_ids=token_ids[:, :prefill_seq_len], request_id="perf-host")
+        if layer_idx == 3:
+            cos, sin = H.rope_tables(max_seq_len)
+            page_host = H.shuffled_page_table(max_seq_len)
+            page, chunk_pages, rot = _paged_inputs(
+                baseline, mesh_device, page_host, cos, sin, prefill_seq_len=prefill_seq_len
+            )
+            baseline_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            host_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            baseline_decode_kwargs.update(page_table=page, rot_mats=rot)
+            host_capture_kwargs.update(page_table=page, rot_mats=rot)
+    
+        # Compile and fill the bounded host cache before the measured windows.
+        baseline_warm = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        if layer_idx == 1:
+            host_warm = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_warm = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        ttnn.deallocate(baseline_warm)
+        ttnn.deallocate(host_warm)
+        _profile_checkpoint(mesh_device)
+    
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}")
+        started = time.perf_counter()
+        baseline_prefill = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        baseline_prefill_ms = (time.perf_counter() - started) * 1000.0
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}_END")
+        _profile_checkpoint(mesh_device)
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}")
+        started = time.perf_counter()
+        if layer_idx == 1:
+            host_prefill = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_prefill = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        host_prefill_ms = (time.perf_counter() - started) * 1000.0
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}_END")
+        prefill_pcc = H.pcc(
+            ttnn.to_torch(ttnn.get_device_tensors(baseline_prefill)[0]),
+            _fractured_host(host_prefill),
+        )
+&gt;       assert prefill_pcc &gt;= H.PCC_BAR
+E       assert 0.9911649227142334 &gt;= 0.995
+E        +  where 0.995 = H.PCC_BAR
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py:518: AssertionError</failure></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-0-2-7]" time="8.549"><properties><property name="start_timestamp" value="2026-08-27T15:58:24" /><property name="end_timestamp" value="2026-08-27T15:58:33" /></properties><failure message="assert 0.9911649227142334 &gt;= 0.995&#10; +  where 0.995 = H.PCC_BAR">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'trace_region_size': 100000000}
+layer_idx = 0
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
+        indirect=True,
+    )
+    def test_host_backed_warmed_prefill_and_segmented_decode(bh_1d_mesh_device, device_params, layer_idx):
+        """Compare an exact single-chip graph with the final host-backed TP2 path."""
+    
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        mesh_device = bh_1d_mesh_device
+        config = H.target_config()
+        max_seq_len = 4096 if layer_idx == 3 else 128
+        state = H.load_real_layer_state(layer_idx)
+        baseline = OptimizedDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        del state
+        host_backed = MultichipDecoder.from_checkpoint_host_backed(
+            H.MODEL_SNAPSHOT,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        prefill_seq_len = HOST_PREFILL_SEQ_LEN
+        hidden_host, _, activation_hash = _real_activations(layer_idx)
+        prefill_hidden = _upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        host_prefill_hidden = _fractured_upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        token_ids = torch.arange(2026, 2026 + prefill_seq_len + 1, dtype=torch.int64).unsqueeze(0)
+        reference_store = None
+        baseline_prefill_kwargs = {}
+        host_prefill_kwargs = {}
+        baseline_decode_kwargs = {}
+        host_capture_kwargs = {}
+        if layer_idx == 1:
+            reference_store = Qwen38PLEHostStore(SafetensorCheckpoint(H.MODEL_SNAPSHOT), row_cache_capacity=256)
+            prefill_ple = reference_store.prepare(("perf-reference",), token_ids[:, :prefill_seq_len], reset=True)
+            baseline_prefill_kwargs["ple_embeddings"] = _upload(prefill_ple.unsqueeze(0), mesh_device)
+            host_prefill_kwargs.update(input_ids=token_ids[:, :prefill_seq_len], request_id="perf-host")
+        if layer_idx == 3:
+            cos, sin = H.rope_tables(max_seq_len)
+            page_host = H.shuffled_page_table(max_seq_len)
+            page, chunk_pages, rot = _paged_inputs(
+                baseline, mesh_device, page_host, cos, sin, prefill_seq_len=prefill_seq_len
+            )
+            baseline_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            host_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            baseline_decode_kwargs.update(page_table=page, rot_mats=rot)
+            host_capture_kwargs.update(page_table=page, rot_mats=rot)
+    
+        # Compile and fill the bounded host cache before the measured windows.
+        baseline_warm = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        if layer_idx == 1:
+            host_warm = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_warm = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        ttnn.deallocate(baseline_warm)
+        ttnn.deallocate(host_warm)
+        _profile_checkpoint(mesh_device)
+    
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}")
+        started = time.perf_counter()
+        baseline_prefill = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        baseline_prefill_ms = (time.perf_counter() - started) * 1000.0
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}_END")
+        _profile_checkpoint(mesh_device)
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}")
+        started = time.perf_counter()
+        if layer_idx == 1:
+            host_prefill = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_prefill = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        host_prefill_ms = (time.perf_counter() - started) * 1000.0
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}_END")
+        prefill_pcc = H.pcc(
+            ttnn.to_torch(ttnn.get_device_tensors(baseline_prefill)[0]),
+            _fractured_host(host_prefill),
+        )
+&gt;       assert prefill_pcc &gt;= H.PCC_BAR
+E       assert 0.9911649227142334 &gt;= 0.995
+E        +  where 0.995 = H.PCC_BAR
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py:518: AssertionError</failure></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-0-3-7]" time="8.544"><properties><property name="start_timestamp" value="2026-08-27T15:58:33" /><property name="end_timestamp" value="2026-08-27T15:58:41" /></properties><failure message="assert 0.9911649227142334 &gt;= 0.995&#10; +  where 0.995 = H.PCC_BAR">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'trace_region_size': 100000000}
+layer_idx = 0
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
+        indirect=True,
+    )
+    def test_host_backed_warmed_prefill_and_segmented_decode(bh_1d_mesh_device, device_params, layer_idx):
+        """Compare an exact single-chip graph with the final host-backed TP2 path."""
+    
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        mesh_device = bh_1d_mesh_device
+        config = H.target_config()
+        max_seq_len = 4096 if layer_idx == 3 else 128
+        state = H.load_real_layer_state(layer_idx)
+        baseline = OptimizedDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        del state
+        host_backed = MultichipDecoder.from_checkpoint_host_backed(
+            H.MODEL_SNAPSHOT,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        prefill_seq_len = HOST_PREFILL_SEQ_LEN
+        hidden_host, _, activation_hash = _real_activations(layer_idx)
+        prefill_hidden = _upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        host_prefill_hidden = _fractured_upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        token_ids = torch.arange(2026, 2026 + prefill_seq_len + 1, dtype=torch.int64).unsqueeze(0)
+        reference_store = None
+        baseline_prefill_kwargs = {}
+        host_prefill_kwargs = {}
+        baseline_decode_kwargs = {}
+        host_capture_kwargs = {}
+        if layer_idx == 1:
+            reference_store = Qwen38PLEHostStore(SafetensorCheckpoint(H.MODEL_SNAPSHOT), row_cache_capacity=256)
+            prefill_ple = reference_store.prepare(("perf-reference",), token_ids[:, :prefill_seq_len], reset=True)
+            baseline_prefill_kwargs["ple_embeddings"] = _upload(prefill_ple.unsqueeze(0), mesh_device)
+            host_prefill_kwargs.update(input_ids=token_ids[:, :prefill_seq_len], request_id="perf-host")
+        if layer_idx == 3:
+            cos, sin = H.rope_tables(max_seq_len)
+            page_host = H.shuffled_page_table(max_seq_len)
+            page, chunk_pages, rot = _paged_inputs(
+                baseline, mesh_device, page_host, cos, sin, prefill_seq_len=prefill_seq_len
+            )
+            baseline_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            host_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            baseline_decode_kwargs.update(page_table=page, rot_mats=rot)
+            host_capture_kwargs.update(page_table=page, rot_mats=rot)
+    
+        # Compile and fill the bounded host cache before the measured windows.
+        baseline_warm = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        if layer_idx == 1:
+            host_warm = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_warm = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        ttnn.deallocate(baseline_warm)
+        ttnn.deallocate(host_warm)
+        _profile_checkpoint(mesh_device)
+    
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}")
+        started = time.perf_counter()
+        baseline_prefill = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        baseline_prefill_ms = (time.perf_counter() - started) * 1000.0
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}_END")
+        _profile_checkpoint(mesh_device)
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}")
+        started = time.perf_counter()
+        if layer_idx == 1:
+            host_prefill = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_prefill = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        host_prefill_ms = (time.perf_counter() - started) * 1000.0
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}_END")
+        prefill_pcc = H.pcc(
+            ttnn.to_torch(ttnn.get_device_tensors(baseline_prefill)[0]),
+            _fractured_host(host_prefill),
+        )
+&gt;       assert prefill_pcc &gt;= H.PCC_BAR
+E       assert 0.9911649227142334 &gt;= 0.995
+E        +  where 0.995 = H.PCC_BAR
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py:518: AssertionError</failure></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-0-4-7]" time="8.493"><properties><property name="start_timestamp" value="2026-08-27T15:58:41" /><property name="end_timestamp" value="2026-08-27T15:58:50" /></properties><failure message="assert 0.9911649227142334 &gt;= 0.995&#10; +  where 0.995 = H.PCC_BAR">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'trace_region_size': 100000000}
+layer_idx = 0
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
+        indirect=True,
+    )
+    def test_host_backed_warmed_prefill_and_segmented_decode(bh_1d_mesh_device, device_params, layer_idx):
+        """Compare an exact single-chip graph with the final host-backed TP2 path."""
+    
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        mesh_device = bh_1d_mesh_device
+        config = H.target_config()
+        max_seq_len = 4096 if layer_idx == 3 else 128
+        state = H.load_real_layer_state(layer_idx)
+        baseline = OptimizedDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        del state
+        host_backed = MultichipDecoder.from_checkpoint_host_backed(
+            H.MODEL_SNAPSHOT,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        prefill_seq_len = HOST_PREFILL_SEQ_LEN
+        hidden_host, _, activation_hash = _real_activations(layer_idx)
+        prefill_hidden = _upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        host_prefill_hidden = _fractured_upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        token_ids = torch.arange(2026, 2026 + prefill_seq_len + 1, dtype=torch.int64).unsqueeze(0)
+        reference_store = None
+        baseline_prefill_kwargs = {}
+        host_prefill_kwargs = {}
+        baseline_decode_kwargs = {}
+        host_capture_kwargs = {}
+        if layer_idx == 1:
+            reference_store = Qwen38PLEHostStore(SafetensorCheckpoint(H.MODEL_SNAPSHOT), row_cache_capacity=256)
+            prefill_ple = reference_store.prepare(("perf-reference",), token_ids[:, :prefill_seq_len], reset=True)
+            baseline_prefill_kwargs["ple_embeddings"] = _upload(prefill_ple.unsqueeze(0), mesh_device)
+            host_prefill_kwargs.update(input_ids=token_ids[:, :prefill_seq_len], request_id="perf-host")
+        if layer_idx == 3:
+            cos, sin = H.rope_tables(max_seq_len)
+            page_host = H.shuffled_page_table(max_seq_len)
+            page, chunk_pages, rot = _paged_inputs(
+                baseline, mesh_device, page_host, cos, sin, prefill_seq_len=prefill_seq_len
+            )
+            baseline_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            host_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            baseline_decode_kwargs.update(page_table=page, rot_mats=rot)
+            host_capture_kwargs.update(page_table=page, rot_mats=rot)
+    
+        # Compile and fill the bounded host cache before the measured windows.
+        baseline_warm = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        if layer_idx == 1:
+            host_warm = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_warm = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        ttnn.deallocate(baseline_warm)
+        ttnn.deallocate(host_warm)
+        _profile_checkpoint(mesh_device)
+    
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}")
+        started = time.perf_counter()
+        baseline_prefill = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        baseline_prefill_ms = (time.perf_counter() - started) * 1000.0
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}_END")
+        _profile_checkpoint(mesh_device)
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}")
+        started = time.perf_counter()
+        if layer_idx == 1:
+            host_prefill = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_prefill = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        host_prefill_ms = (time.perf_counter() - started) * 1000.0
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}_END")
+        prefill_pcc = H.pcc(
+            ttnn.to_torch(ttnn.get_device_tensors(baseline_prefill)[0]),
+            _fractured_host(host_prefill),
+        )
+&gt;       assert prefill_pcc &gt;= H.PCC_BAR
+E       assert 0.9911649227142334 &gt;= 0.995
+E        +  where 0.995 = H.PCC_BAR
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py:518: AssertionError</failure></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-0-5-7]" time="8.647"><properties><property name="start_timestamp" value="2026-08-27T15:58:50" /><property name="end_timestamp" value="2026-08-27T15:58:59" /></properties><failure message="assert 0.9911649227142334 &gt;= 0.995&#10; +  where 0.995 = H.PCC_BAR">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'trace_region_size': 100000000}
+layer_idx = 0
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
+        indirect=True,
+    )
+    def test_host_backed_warmed_prefill_and_segmented_decode(bh_1d_mesh_device, device_params, layer_idx):
+        """Compare an exact single-chip graph with the final host-backed TP2 path."""
+    
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        mesh_device = bh_1d_mesh_device
+        config = H.target_config()
+        max_seq_len = 4096 if layer_idx == 3 else 128
+        state = H.load_real_layer_state(layer_idx)
+        baseline = OptimizedDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        del state
+        host_backed = MultichipDecoder.from_checkpoint_host_backed(
+            H.MODEL_SNAPSHOT,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        prefill_seq_len = HOST_PREFILL_SEQ_LEN
+        hidden_host, _, activation_hash = _real_activations(layer_idx)
+        prefill_hidden = _upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        host_prefill_hidden = _fractured_upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        token_ids = torch.arange(2026, 2026 + prefill_seq_len + 1, dtype=torch.int64).unsqueeze(0)
+        reference_store = None
+        baseline_prefill_kwargs = {}
+        host_prefill_kwargs = {}
+        baseline_decode_kwargs = {}
+        host_capture_kwargs = {}
+        if layer_idx == 1:
+            reference_store = Qwen38PLEHostStore(SafetensorCheckpoint(H.MODEL_SNAPSHOT), row_cache_capacity=256)
+            prefill_ple = reference_store.prepare(("perf-reference",), token_ids[:, :prefill_seq_len], reset=True)
+            baseline_prefill_kwargs["ple_embeddings"] = _upload(prefill_ple.unsqueeze(0), mesh_device)
+            host_prefill_kwargs.update(input_ids=token_ids[:, :prefill_seq_len], request_id="perf-host")
+        if layer_idx == 3:
+            cos, sin = H.rope_tables(max_seq_len)
+            page_host = H.shuffled_page_table(max_seq_len)
+            page, chunk_pages, rot = _paged_inputs(
+                baseline, mesh_device, page_host, cos, sin, prefill_seq_len=prefill_seq_len
+            )
+            baseline_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            host_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            baseline_decode_kwargs.update(page_table=page, rot_mats=rot)
+            host_capture_kwargs.update(page_table=page, rot_mats=rot)
+    
+        # Compile and fill the bounded host cache before the measured windows.
+        baseline_warm = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        if layer_idx == 1:
+            host_warm = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_warm = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        ttnn.deallocate(baseline_warm)
+        ttnn.deallocate(host_warm)
+        _profile_checkpoint(mesh_device)
+    
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}")
+        started = time.perf_counter()
+        baseline_prefill = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        baseline_prefill_ms = (time.perf_counter() - started) * 1000.0
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}_END")
+        _profile_checkpoint(mesh_device)
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}")
+        started = time.perf_counter()
+        if layer_idx == 1:
+            host_prefill = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_prefill = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        host_prefill_ms = (time.perf_counter() - started) * 1000.0
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}_END")
+        prefill_pcc = H.pcc(
+            ttnn.to_torch(ttnn.get_device_tensors(baseline_prefill)[0]),
+            _fractured_host(host_prefill),
+        )
+&gt;       assert prefill_pcc &gt;= H.PCC_BAR
+E       assert 0.9911649227142334 &gt;= 0.995
+E        +  where 0.995 = H.PCC_BAR
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py:518: AssertionError</failure></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-0-6-7]" time="8.530"><properties><property name="start_timestamp" value="2026-08-27T15:58:59" /><property name="end_timestamp" value="2026-08-27T15:59:07" /></properties><failure message="assert 0.9911649227142334 &gt;= 0.995&#10; +  where 0.995 = H.PCC_BAR">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'trace_region_size': 100000000}
+layer_idx = 0
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
+        indirect=True,
+    )
+    def test_host_backed_warmed_prefill_and_segmented_decode(bh_1d_mesh_device, device_params, layer_idx):
+        """Compare an exact single-chip graph with the final host-backed TP2 path."""
+    
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        mesh_device = bh_1d_mesh_device
+        config = H.target_config()
+        max_seq_len = 4096 if layer_idx == 3 else 128
+        state = H.load_real_layer_state(layer_idx)
+        baseline = OptimizedDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        del state
+        host_backed = MultichipDecoder.from_checkpoint_host_backed(
+            H.MODEL_SNAPSHOT,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        prefill_seq_len = HOST_PREFILL_SEQ_LEN
+        hidden_host, _, activation_hash = _real_activations(layer_idx)
+        prefill_hidden = _upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        host_prefill_hidden = _fractured_upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        token_ids = torch.arange(2026, 2026 + prefill_seq_len + 1, dtype=torch.int64).unsqueeze(0)
+        reference_store = None
+        baseline_prefill_kwargs = {}
+        host_prefill_kwargs = {}
+        baseline_decode_kwargs = {}
+        host_capture_kwargs = {}
+        if layer_idx == 1:
+            reference_store = Qwen38PLEHostStore(SafetensorCheckpoint(H.MODEL_SNAPSHOT), row_cache_capacity=256)
+            prefill_ple = reference_store.prepare(("perf-reference",), token_ids[:, :prefill_seq_len], reset=True)
+            baseline_prefill_kwargs["ple_embeddings"] = _upload(prefill_ple.unsqueeze(0), mesh_device)
+            host_prefill_kwargs.update(input_ids=token_ids[:, :prefill_seq_len], request_id="perf-host")
+        if layer_idx == 3:
+            cos, sin = H.rope_tables(max_seq_len)
+            page_host = H.shuffled_page_table(max_seq_len)
+            page, chunk_pages, rot = _paged_inputs(
+                baseline, mesh_device, page_host, cos, sin, prefill_seq_len=prefill_seq_len
+            )
+            baseline_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            host_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            baseline_decode_kwargs.update(page_table=page, rot_mats=rot)
+            host_capture_kwargs.update(page_table=page, rot_mats=rot)
+    
+        # Compile and fill the bounded host cache before the measured windows.
+        baseline_warm = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        if layer_idx == 1:
+            host_warm = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_warm = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        ttnn.deallocate(baseline_warm)
+        ttnn.deallocate(host_warm)
+        _profile_checkpoint(mesh_device)
+    
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}")
+        started = time.perf_counter()
+        baseline_prefill = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        baseline_prefill_ms = (time.perf_counter() - started) * 1000.0
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}_END")
+        _profile_checkpoint(mesh_device)
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}")
+        started = time.perf_counter()
+        if layer_idx == 1:
+            host_prefill = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_prefill = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        host_prefill_ms = (time.perf_counter() - started) * 1000.0
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}_END")
+        prefill_pcc = H.pcc(
+            ttnn.to_torch(ttnn.get_device_tensors(baseline_prefill)[0]),
+            _fractured_host(host_prefill),
+        )
+&gt;       assert prefill_pcc &gt;= H.PCC_BAR
+E       assert 0.9911649227142334 &gt;= 0.995
+E        +  where 0.995 = H.PCC_BAR
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py:518: AssertionError</failure></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-0-7-7]" time="8.622"><properties><property name="start_timestamp" value="2026-08-27T15:59:07" /><property name="end_timestamp" value="2026-08-27T15:59:16" /></properties><failure message="assert 0.9911649227142334 &gt;= 0.995&#10; +  where 0.995 = H.PCC_BAR">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'trace_region_size': 100000000}
+layer_idx = 0
+
+    @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
+    @pytest.mark.parametrize(
+        "device_params",
+        [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
+        indirect=True,
+    )
+    def test_host_backed_warmed_prefill_and_segmented_decode(bh_1d_mesh_device, device_params, layer_idx):
+        """Compare an exact single-chip graph with the final host-backed TP2 path."""
+    
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        mesh_device = bh_1d_mesh_device
+        config = H.target_config()
+        max_seq_len = 4096 if layer_idx == 3 else 128
+        state = H.load_real_layer_state(layer_idx)
+        baseline = OptimizedDecoder.from_state_dict(
+            state,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        del state
+        host_backed = MultichipDecoder.from_checkpoint_host_backed(
+            H.MODEL_SNAPSHOT,
+            hf_config=config,
+            layer_idx=layer_idx,
+            mesh_device=mesh_device,
+            max_batch=1,
+            max_seq_len=max_seq_len,
+        )
+        prefill_seq_len = HOST_PREFILL_SEQ_LEN
+        hidden_host, _, activation_hash = _real_activations(layer_idx)
+        prefill_hidden = _upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        host_prefill_hidden = _fractured_upload(hidden_host[:, :, :prefill_seq_len], mesh_device)
+        token_ids = torch.arange(2026, 2026 + prefill_seq_len + 1, dtype=torch.int64).unsqueeze(0)
+        reference_store = None
+        baseline_prefill_kwargs = {}
+        host_prefill_kwargs = {}
+        baseline_decode_kwargs = {}
+        host_capture_kwargs = {}
+        if layer_idx == 1:
+            reference_store = Qwen38PLEHostStore(SafetensorCheckpoint(H.MODEL_SNAPSHOT), row_cache_capacity=256)
+            prefill_ple = reference_store.prepare(("perf-reference",), token_ids[:, :prefill_seq_len], reset=True)
+            baseline_prefill_kwargs["ple_embeddings"] = _upload(prefill_ple.unsqueeze(0), mesh_device)
+            host_prefill_kwargs.update(input_ids=token_ids[:, :prefill_seq_len], request_id="perf-host")
+        if layer_idx == 3:
+            cos, sin = H.rope_tables(max_seq_len)
+            page_host = H.shuffled_page_table(max_seq_len)
+            page, chunk_pages, rot = _paged_inputs(
+                baseline, mesh_device, page_host, cos, sin, prefill_seq_len=prefill_seq_len
+            )
+            baseline_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            host_prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+            baseline_decode_kwargs.update(page_table=page, rot_mats=rot)
+            host_capture_kwargs.update(page_table=page, rot_mats=rot)
+    
+        # Compile and fill the bounded host cache before the measured windows.
+        baseline_warm = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        if layer_idx == 1:
+            host_warm = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_warm = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        ttnn.deallocate(baseline_warm)
+        ttnn.deallocate(host_warm)
+        _profile_checkpoint(mesh_device)
+    
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}")
+        started = time.perf_counter()
+        baseline_prefill = baseline.prefill_forward(prefill_hidden, **baseline_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        baseline_prefill_ms = (time.perf_counter() - started) * 1000.0
+        signpost(f"MC_BASELINE_PREFILL_L{layer_idx}_END")
+        _profile_checkpoint(mesh_device)
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}")
+        started = time.perf_counter()
+        if layer_idx == 1:
+            host_prefill = host_backed.prefill_forward_host_backed_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        else:
+            host_prefill = host_backed.prefill_forward_fractured(host_prefill_hidden, **host_prefill_kwargs)
+        ttnn.synchronize_device(mesh_device)
+        host_prefill_ms = (time.perf_counter() - started) * 1000.0
+        signpost(f"MC_HOST_PREFILL_L{layer_idx}_END")
+        prefill_pcc = H.pcc(
+            ttnn.to_torch(ttnn.get_device_tensors(baseline_prefill)[0]),
+            _fractured_host(host_prefill),
+        )
+&gt;       assert prefill_pcc &gt;= H.PCC_BAR
+E       assert 0.9911649227142334 &gt;= 0.995
+E        +  where 0.995 = H.PCC_BAR
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py:518: AssertionError</failure></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-1-1-7]" time="10.206"><properties><property name="start_timestamp" value="2026-08-27T15:59:16" /><property name="end_timestamp" value="2026-08-27T15:59:26" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-1-2-7]" time="8.841"><properties><property name="start_timestamp" value="2026-08-27T15:59:26" /><property name="end_timestamp" value="2026-08-27T15:59:35" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-1-3-7]" time="8.873"><properties><property name="start_timestamp" value="2026-08-27T15:59:35" /><property name="end_timestamp" value="2026-08-27T15:59:44" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-1-4-7]" time="8.963"><properties><property name="start_timestamp" value="2026-08-27T15:59:44" /><property name="end_timestamp" value="2026-08-27T15:59:53" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-1-5-7]" time="8.822"><properties><property name="start_timestamp" value="2026-08-27T15:59:53" /><property name="end_timestamp" value="2026-08-27T16:00:02" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-1-6-7]" time="8.867"><properties><property name="start_timestamp" value="2026-08-27T16:00:02" /><property name="end_timestamp" value="2026-08-27T16:00:10" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-1-7-7]" time="8.982"><properties><property name="start_timestamp" value="2026-08-27T16:00:11" /><property name="end_timestamp" value="2026-08-27T16:00:20" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-3-1-7]" time="10.185"><properties><property name="start_timestamp" value="2026-08-27T16:00:20" /><property name="end_timestamp" value="2026-08-27T16:00:30" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-3-2-7]" time="9.114"><properties><property name="start_timestamp" value="2026-08-27T16:00:30" /><property name="end_timestamp" value="2026-08-27T16:00:39" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-3-3-7]" time="9.201"><properties><property name="start_timestamp" value="2026-08-27T16:00:39" /><property name="end_timestamp" value="2026-08-27T16:00:48" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-3-4-7]" time="9.287"><properties><property name="start_timestamp" value="2026-08-27T16:00:48" /><property name="end_timestamp" value="2026-08-27T16:00:57" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-3-5-7]" time="9.223"><properties><property name="start_timestamp" value="2026-08-27T16:00:57" /><property name="end_timestamp" value="2026-08-27T16:01:07" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-3-6-7]" time="9.182"><properties><property name="start_timestamp" value="2026-08-27T16:01:07" /><property name="end_timestamp" value="2026-08-27T16:01:16" /></properties></testcase><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder_perf" name="test_host_backed_warmed_prefill_and_segmented_decode[blackhole-True-device_params0-3-7-7]" time="9.231"><properties><property name="start_timestamp" value="2026-08-27T16:01:16" /><property name="end_timestamp" value="2026-08-27T16:01:25" /></properties></testcase></testsuite></testsuites>

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import httpx
@@ -18,7 +19,8 @@ def main() -> None:
     args = parser.parse_args()
 
     endpoint = f"{args.server_url.rstrip('/')}/v1/completions"
-    lengths = (1, 63, 64, 65, 67, 127, 129)
+    # page (64), 128-row tail, 512-row microchunk and 1,024-token vLLM chunk boundaries
+    lengths = (1, 63, 64, 65, 67, 127, 129, 511, 512, 513, 1023, 1024, 1025, 1537)
     cases = []
     with httpx.Client(timeout=180.0) as client:
         for prompt_length in lengths:
@@ -63,7 +65,10 @@ def main() -> None:
         },
         "internal_boundaries": {
             "attention_page_tokens": 64,
-            "prefill_compute_chunk_tokens": 128,
+            # Model microchunk rows; the served default is 128 (QWEN38_PREFILL_CHUNK).
+            "prefill_compute_chunk_tokens": int(os.getenv("QWEN38_PREFILL_CHUNK", "128")),
+            "prefill_chunk_adaptive": os.getenv("QWEN38_PREFILL_CHUNK_ADAPTIVE", "0") == "1",
+            "vllm_prefill_chunk_tokens": 1024,
         },
         "cases": cases,
     }

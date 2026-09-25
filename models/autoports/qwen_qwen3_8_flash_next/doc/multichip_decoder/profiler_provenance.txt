@@ -1,0 +1,62 @@
+Qwen3.8-Flash-Next host-backed multichip decoder profiler provenance
+Date: 2026-08-27 America/New_York
+Target: P300 Blackhole 1x2, devices 0,1, FABRIC_1D
+Runtime: repo-local functional_decoder/ttenv.sh
+
+Capture command template:
+QWEN38_MC_PROFILE_DIRECT_DECODE=1 QWEN38_MC_PROFILE_HOST_ONLY=1 \
+QWEN38_MC_PERF_DECODE_REPLAYS=1 QWEN38_MC_PERF_LAYERS=<0|1|3> \
+python -m tracy -p -r --op-support-count=2000 \
+--dump-device-data-mid-run --check-exit-code -o <capacity2000-layer-dir> \
+-m pytest -q --tt-arch blackhole \
+models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder_perf.py::test_host_backed_warmed_prefill_and_segmented_decode
+
+Accepted pytest artifacts:
+tracy_host_layer0_capacity2000.xml
+tracy_host_layer1_capacity2000.xml
+tracy_host_layer3_capacity2000.xml
+
+Profiler capacity acceptance:
+0 dropped-buffer messages  layer0_gdn_capacity2000/.logs/tracy_ops_data.csv
+0 dropped-buffer messages  layer1_ple_gdn_capacity2000/.logs/tracy_ops_data.csv
+0 dropped-buffer messages  layer3_qsa_capacity2000/.logs/tracy_ops_data.csv
+
+Raw TT ops result CSV SHA-256 (retained locally as ignored generated provenance):
+a4228b42892f7a23bc22b9f7b7866b90284b2125adf2136809d52e39997fee17  layer0_gdn_capacity2000/reports/2026_08_27_14_21_05/ops_perf_results_2026_08_27_14_21_05.csv
+0ec650c9aae9de49686e8ca4f2e3a623a084645b149930e9fb5a77738531dc7d  layer1_ple_gdn_capacity2000/reports/2026_08_27_14_20_03/ops_perf_results_2026_08_27_14_20_03.csv
+7fb328c46b6c5fcabcd3426060904e228e36fd9d8f7d574ea7ba1f337fbb396a  layer3_qsa_capacity2000/reports/2026_08_27_14_22_57/ops_perf_results_2026_08_27_14_22_57.csv
+
+Tracy host postprocess CSV SHA-256 (retained locally as ignored generated provenance):
+ab466d1726f5836213aac4b1162d7ff98f46265d385023cdc885e780c358a0be  layer0_gdn_capacity2000/.logs/tracy_ops_data.csv
+603be79f6c40b73538daffb679c95c6be770d327c98b4ca7f1d28fced3182538  layer1_ple_gdn_capacity2000/.logs/tracy_ops_data.csv
+5b1d6c89abd121e7be66bc0b926a102ede4dd80c3496a8359d02fc467c4a2af5  layer3_qsa_capacity2000/.logs/tracy_ops_data.csv
+
+tt-perf-report command template:
+tt-perf-report <ops.csv> \
+--start-signpost MC_HOST_<PREFILL|DECODE>_Lx \
+--end-signpost MC_HOST_<PREFILL|DECODE>_Lx_END \
+--no-color --no-host-ops --active-experts 10 \
+--csv <report.csv> --summary-file <summary.csv>
+
+Detailed report CSV SHA-256:
+a5eea038441afc672189dcfb42e8b83eb1632e0e44ba2ee5ce5150a9f5b5f81d  layer0_gdn_capacity2000/decode_report.csv
+203ef1658a2538f886c8109d03cdea42d5263b1171b6247b89d43b5a5afc86d7  layer0_gdn_capacity2000/prefill_report.csv
+4125f12ec68b6087c3251ec70152854336662d524140d92888de4c0cebccf565  layer1_ple_gdn_capacity2000/decode_report.csv
+e23bf2692aa2320b4976c2d034021cdf25479b0073db5d27bb3906a0c4cf97c4  layer1_ple_gdn_capacity2000/prefill_report.csv
+a03e45074a9c320afab4e53beac8077939cbca3b21d6c29a945624bc22536d09  layer3_qsa_capacity2000/decode_report.csv
+9bfb5865cf266ffcebed6ec55939e59b7db429b84c98c8fe51b20d2287fb3015  layer3_qsa_capacity2000/prefill_report.csv
+
+Human table SHA-256:
+d2271d85e18f49b7bba73f022e5fc5fd4b2da5e2c40a4f2db6a57a1388cdf709  layer0_gdn_capacity2000/decode_table.txt
+a7d8a87e41df00e548397aca47f68f35f50e3b984c8f21e64e7d67d58aeb2ef5  layer0_gdn_capacity2000/prefill_table.txt
+9eefe04560b4f6665fcf2694fb65089eee7ba6a12569d4f5b7084776b84f7cc0  layer1_ple_gdn_capacity2000/decode_table.txt
+a575c9e19fa43d8674ac917cc47e1281d90ffdd339e8ce490760a84d91b60d77  layer1_ple_gdn_capacity2000/prefill_table.txt
+3eb448ec7f78835f4639d1d406800e93148c1ed9740b786545bab7a5c3912f2c  layer3_qsa_capacity2000/decode_table.txt
+c388a946f83c04ca5942beaba441f760c8205e02e14f8f042cc86eed2498c533  layer3_qsa_capacity2000/prefill_table.txt
+
+Rejected capture provenance:
+Default profiler capacity was not accepted.  Layer 1 emitted 1,605
+"Profiler DRAM buffers were full" records and left 33 TT host ops without
+C++ device rows.  The capacity-2000 reruns above have no such messages and
+postprocessed without unmatched-op failure.  Failed generated capture trees
+were moved to desktop trash; the small failed pytest XML records remain.

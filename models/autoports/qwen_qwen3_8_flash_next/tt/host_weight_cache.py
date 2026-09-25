@@ -42,10 +42,10 @@ PLE_ROW_BYTES = PLE_ROW_WIDTH * 2
 
 EXPERTS = 512
 GLOBAL_INTERMEDIATE = 640
-TP_SIZE = 2
+TP_SIZE = 4
 HIDDEN_SIZE = 2560
 BFP4_TILE_BYTES = 576
-# Routed experts use deterministic EP2 ownership.  Each physical rank has a
+# Routed experts use deterministic EP4 ownership.  Each physical rank has a
 # full-K slot so the selected owner executes the checkpoint-identical
 # 640-wide projection; the non-owner slot contains exact zeros.  This avoids
 # the numerically divergent 320+320 split-K down projection while preserving
@@ -84,10 +84,17 @@ class SafetensorCheckpoint:
         with safe_open(self.path_for(key), framework="pt", device="cpu") as handle:
             return handle.get_slice(key)[index]
 
-    def layer_state(self, layer_idx: int, *, include_experts: bool = False) -> dict[str, torch.Tensor]:
-        """Load one layer while never materializing the PLE table by accident."""
+    def layer_state(
+        self, layer_idx: int, *, include_experts: bool = False, key_prefix: str | None = None
+    ) -> dict[str, torch.Tensor]:
+        """Load one layer while never materializing the PLE table by accident.
 
-        prefix = f"model.language_model.layers.{layer_idx}."
+        ``key_prefix`` overrides the checkpoint prefix, e.g. ``"mtp.layers.0."``
+        for the multi-token-prediction layer whose tensors mirror a decoder
+        layer's names.
+        """
+
+        prefix = key_prefix if key_prefix is not None else f"model.language_model.layers.{layer_idx}."
         selected = {}
         for full_name in self.weight_map:
             if not full_name.startswith(prefix):
@@ -124,13 +131,13 @@ class ExpertIdentity:
 
 @dataclasses.dataclass(frozen=True)
 class PackedExpert:
-    """BF16 EP2 matrices immediately before device-native BFP4 packing.
+    """BF16 EP4 matrices immediately before device-native BFP4 packing.
 
-    Exactly one rank owns the full expert; the other rank holds exact zeros.
+    Exactly one rank owns the full expert; the other ranks hold exact zeros.
     """
 
-    gate_up_by_rank: tuple[torch.Tensor, torch.Tensor]
-    down_by_rank: tuple[torch.Tensor, torch.Tensor]
+    gate_up_by_rank: tuple[torch.Tensor, ...]
+    down_by_rank: tuple[torch.Tensor, ...]
 
     def __post_init__(self):
         for value in self.gate_up_by_rank:
@@ -145,8 +152,8 @@ class Qwen38ExpertHostSource:
     """Lazy exact checkpoint source for routed experts.
 
     The two large layer tensors remain mmap-backed.  A miss reads exactly one
-    expert and creates a full-K matrix pair on its deterministic EP2 owner and
-    an exact-zero pair on the other rank.
+    expert and creates a full-K matrix pair on its deterministic EP4 owner and
+    exact-zero pairs on the other ranks.
     """
 
     def __init__(self, checkpoint: SafetensorCheckpoint, layer_idx: int):
@@ -543,6 +550,8 @@ class ExpertCacheMetrics:
     policy_d2d_submit_seconds: float = 0.0
     owner_0_misses: int = 0
     owner_1_misses: int = 0
+    owner_2_misses: int = 0
+    owner_3_misses: int = 0
 
 
 @dataclasses.dataclass(frozen=True)
@@ -560,6 +569,7 @@ class PreparedExpertSlotLoad:
     gate_shards: tuple[object, ...]
     down_shards: tuple[object, ...]
     reset_non_owner: bool = True
+    previous_owner: int | None = None
 
 
 def _replicated_device_zeros(mesh_device, shape: tuple[int, ...], *, dtype):
@@ -567,8 +577,8 @@ def _replicated_device_zeros(mesh_device, shape: tuple[int, ...], *, dtype):
 
     ``ttnn.zeros(..., device=mesh_device)`` applies the mesh's default tensor
     distribution.  A leading dimension of one is therefore split unevenly on
-    TP2, which is never the contract for rank-local expert or PLE buffers.
-    Creating from an explicitly replicated host tensor keeps both shard shapes
+    TP4, which is never the contract for rank-local expert or PLE buffers.
+    Creating from an explicitly replicated host tensor keeps all shard shapes
     and stable addresses exact.
     """
 
@@ -623,9 +633,9 @@ class QwenDeviceExpertCache:
         self.staging_layout = staging_layout
         self.directory = ExpertSlotDirectory(capacity)
         self.capacity = int(capacity)
-        # ``None`` means construction-time all-zero storage.  Rank 0/1 means
-        # that rank contains the last published expert while its peer is known
-        # zero.  ``-1`` is the conservative state after a failed submission.
+        # ``None`` means construction-time all-zero storage.  Rank 0--3 means
+        # that rank contains the last published expert while every peer is
+        # known zero.  ``-1`` is the conservative state after a failed submission.
         # Directory reset does not change physical storage, so this ownership
         # ledger intentionally survives reset and can still prove a peer zero.
         self._slot_last_owner: list[int | None] = [None] * self.capacity
@@ -667,7 +677,7 @@ class QwenDeviceExpertCache:
         # zero after an in-place MeshDevice reshape.
         rank_coordinates = tuple(self.slots[0].gate_up.device_coords())
         if len(rank_coordinates) != TP_SIZE:
-            raise RuntimeError("expert slots require exactly two physical ranks")
+            raise RuntimeError(f"expert slots require exactly {TP_SIZE} physical ranks")
         if any(
             tuple(slot.gate_up.device_coords()) != rank_coordinates
             or tuple(slot.down.device_coords()) != rank_coordinates
@@ -675,7 +685,7 @@ class QwenDeviceExpertCache:
         ):
             raise RuntimeError("expert slot storage has inconsistent device coordinates")
         self._rank_coordinates = rank_coordinates
-        # EP2 assigns every routed expert to exactly one rank.  Keep one
+        # EP4 assigns every routed expert to exactly one rank.  Keep one
         # immutable replicated zero allocation so a miss uploads only the
         # owner weights; each non-owner shard is reset with local D2D instead
         # of transferring a known-zero 2.64 MiB shard over PCIe.
@@ -694,7 +704,7 @@ class QwenDeviceExpertCache:
         zero_gate_shards = tuple(ttnn.get_device_tensors(self._zero_storage.gate_up))
         zero_down_shards = tuple(ttnn.get_device_tensors(self._zero_storage.down))
         if len(zero_gate_shards) != TP_SIZE or len(zero_down_shards) != TP_SIZE:
-            raise RuntimeError("expert zero staging requires exactly two device shards")
+            raise RuntimeError(f"expert zero staging requires exactly {TP_SIZE} device shards")
         self.zero_by_rank = tuple(
             DeviceExpertSlot(zero_gate_shards[rank], zero_down_shards[rank]) for rank in range(TP_SIZE)
         )
@@ -718,7 +728,7 @@ class QwenDeviceExpertCache:
                 layout=ttnn.TILE_LAYOUT,
             ),
         )
-        self._packed: OrderedDict[ExpertIdentity, tuple[tuple[object, object], tuple[object, object]]] = OrderedDict()
+        self._packed: OrderedDict[ExpertIdentity, tuple[tuple[object, object], ...]] = OrderedDict()
         self._published_indices: tuple[int, ...] | None = tuple(range(self.capacity))
         self._metrics = ExpertCacheMetrics()
         self._owner_h2d_executor: ThreadPoolExecutor | None = None
@@ -804,7 +814,7 @@ class QwenDeviceExpertCache:
         gate_shards = ttnn.get_device_tensors(target.gate_up)
         down_shards = ttnn.get_device_tensors(target.down)
         if len(gate_shards) != TP_SIZE or len(down_shards) != TP_SIZE:
-            raise RuntimeError("expert slots require exactly two device shards")
+            raise RuntimeError(f"expert slots require exactly {TP_SIZE} device shards")
         owner = identity.expert_id % TP_SIZE
         previous_owner = self._slot_last_owner[slot]
         reset_non_owner = previous_owner is not None and previous_owner != owner
@@ -816,7 +826,22 @@ class QwenDeviceExpertCache:
             gate_shards,
             down_shards,
             reset_non_owner,
+            previous_owner,
         )
+
+    @staticmethod
+    def _reset_ranks(prepared: PreparedExpertSlotLoad) -> tuple[int, ...]:
+        """Return ranks whose stale non-zero owner payload must be cleared."""
+
+        if not prepared.reset_non_owner:
+            return ()
+        owner = prepared.identity.expert_id % TP_SIZE
+        previous = prepared.previous_owner
+        if previous is not None and 0 <= previous < TP_SIZE and previous != owner:
+            return (previous,)
+        # ``-1`` denotes an unknown physical owner after a failed submission.
+        # Clear every non-owner rank before publishing the recovered slot.
+        return tuple(rank for rank in range(TP_SIZE) if rank != owner)
 
     def _enqueue_prepared_h2d(self, prepared: PreparedExpertSlotLoad) -> float:
         import ttnn
@@ -837,13 +862,11 @@ class QwenDeviceExpertCache:
     def _enqueue_prepared_d2d(self, prepared: PreparedExpertSlotLoad) -> float:
         import ttnn
 
-        owner = prepared.identity.expert_id % TP_SIZE
-        non_owner = 1 - owner
         started = time.perf_counter()
-        if prepared.reset_non_owner:
-            zero = self.zero_by_rank[non_owner]
-            ttnn.copy(zero.gate_up, prepared.gate_shards[non_owner])
-            ttnn.copy(zero.down, prepared.down_shards[non_owner])
+        for rank in self._reset_ranks(prepared):
+            zero = self.zero_by_rank[rank]
+            ttnn.copy(zero.gate_up, prepared.gate_shards[rank])
+            ttnn.copy(zero.down, prepared.down_shards[rank])
         # Do not fence each miss.  All uploads, rank-local copies, the compact
         # index update, and the consuming back trace use CQ0.  Completion is
         # therefore observed at the next required route-id read (or the final
@@ -852,14 +875,14 @@ class QwenDeviceExpertCache:
         return time.perf_counter() - started
 
     def _account_submitted(self, prepared: Sequence[PreparedExpertSlotLoad], enqueue_seconds: float) -> None:
-        zero_resets = sum(item.reset_non_owner for item in prepared)
+        zero_resets = sum(len(self._reset_ranks(item)) for item in prepared)
         self._metrics.h2d_seconds += enqueue_seconds
         self._metrics.h2d_bytes += len(prepared) * EXPERT_PACKED_BYTES_PER_RANK
         self._metrics.direct_slot_h2d_bytes += len(prepared) * EXPERT_PACKED_BYTES_PER_RANK
         self._metrics.direct_slot_h2d_copies += len(prepared) * 2
         self._metrics.zero_d2d_bytes += zero_resets * EXPERT_PACKED_BYTES_PER_RANK
         self._metrics.zero_d2d_resets += zero_resets
-        self._metrics.zero_d2d_skips += len(prepared) - zero_resets
+        self._metrics.zero_d2d_skips += sum(not self._reset_ranks(item) for item in prepared)
         self._metrics.deferred_dma_misses += len(prepared)
 
     def _mark_slot_owners(self, prepared: Sequence[PreparedExpertSlotLoad], *, failed: bool) -> None:
@@ -869,7 +892,7 @@ class QwenDeviceExpertCache:
     def _owner_executor(self) -> ThreadPoolExecutor:
         if self._owner_h2d_executor is None:
             executor = ThreadPoolExecutor(max_workers=TP_SIZE, thread_name_prefix="qwen-owner-h2d")
-            # ThreadPoolExecutor starts workers lazily. Force both workers to
+            # ThreadPoolExecutor starts workers lazily. Force all owner workers to
             # exist before any timed wave so lifecycle cost is not mistaken
             # for H2D submission cost.
             barrier = threading.Barrier(TP_SIZE)
@@ -933,6 +956,8 @@ class QwenDeviceExpertCache:
         self._metrics.policy_misses += len(prepared)
         self._metrics.owner_0_misses += sum(item.identity.expert_id % TP_SIZE == 0 for item in prepared)
         self._metrics.owner_1_misses += sum(item.identity.expert_id % TP_SIZE == 1 for item in prepared)
+        self._metrics.owner_2_misses += sum(item.identity.expert_id % TP_SIZE == 2 for item in prepared)
+        self._metrics.owner_3_misses += sum(item.identity.expert_id % TP_SIZE == 3 for item in prepared)
 
     def probe_completed_owner_h2d(self, expert_id: int) -> dict[str, int | float]:
         """Time only one packed owner shard's two H2D copies to completion.
@@ -978,16 +1003,19 @@ class QwenDeviceExpertCache:
             "completed_gb_per_second": EXPERT_PACKED_BYTES_PER_RANK / elapsed / 1e9,
         }
 
-    def probe_completed_dual_owner_h2d(self, expert_ids: tuple[int, int] = (0, 1)) -> dict[str, int | float]:
+    def probe_completed_all_owner_h2d(
+        self,
+        expert_ids: tuple[int, ...] = tuple(range(TP_SIZE)),
+    ) -> dict[str, int | float | dict[str, int]]:
         """Time one independent packed H2D on each physical rank concurrently."""
 
         import ttnn
 
         identities = tuple(ExpertIdentity(self.layer_idx, int(expert_id)) for expert_id in expert_ids)
         if tuple(identity.expert_id % TP_SIZE for identity in identities) != tuple(range(TP_SIZE)):
-            raise ValueError("dual-owner H2D probe needs one expert owned by rank 0 followed by one owned by rank 1")
+            raise ValueError(f"all-owner H2D probe needs one ordered expert for each of {TP_SIZE} ranks")
         if any(not 0 <= identity.expert_id < EXPERTS for identity in identities):
-            raise ValueError("dual-owner H2D probe expert id is out of range")
+            raise ValueError("all-owner H2D probe expert id is out of range")
         with self._lock:
             packed = tuple(self._host_packed(identity) for identity in identities)
 
@@ -1010,14 +1038,16 @@ class QwenDeviceExpertCache:
         elapsed = completed - started
         transferred_bytes = TP_SIZE * EXPERT_PACKED_BYTES_PER_RANK
         return {
-            "rank_0_expert_id": identities[0].expert_id,
-            "rank_1_expert_id": identities[1].expert_id,
+            "rank_expert_ids": {str(rank): identity.expert_id for rank, identity in enumerate(identities)},
             "owner_h2d_bytes": transferred_bytes,
             "enqueue_seconds": enqueued - started,
             "completion_wait_seconds": completed - enqueued,
             "completed_seconds": elapsed,
             "completed_gb_per_second": transferred_bytes / elapsed / 1e9,
         }
+
+    # Retain the original public name for downstream diagnostic callers.
+    probe_completed_dual_owner_h2d = probe_completed_all_owner_h2d
 
     def ensure_wave(self, expert_ids: Iterable[int]) -> SlotPlan:
         with self._lock:
@@ -1078,9 +1108,9 @@ class QwenDeviceExpertCache:
                 )
                 index_shards = ttnn.get_device_tensors(self.local_indices)
                 if len(index_shards) != TP_SIZE:
-                    raise RuntimeError("expert route indices require exactly two device shards")
+                    raise RuntimeError(f"expert route indices require exactly {TP_SIZE} device shards")
                 # Like PLE, the index row is replicated. A write through one
-                # mesh shard broadcasts the same compact row to both ranks and
+                # mesh shard broadcasts the same compact row to all ranks and
                 # is ordered before the following back trace on CQ0.
                 ttnn.copy_host_to_device_tensor(host_indices, index_shards[0])
                 self._published_indices = indices
@@ -1143,10 +1173,16 @@ class PLEMetrics:
     table_bytes_read: int = 0
     h2d_bytes: int = 0
     lookup_seconds: float = 0.0
+    parallel_read_calls: int = 0
+    parallel_read_shards: int = 0
+    parallel_read_seconds: float = 0.0
+    direct_read_rows: int = 0
+    direct_read_bytes: int = 0
+    async_prepare_calls: int = 0
 
 
 class Qwen38PLEHostStore:
-    """Exact mmap-backed Qwen4Exp hashed n-gram embedding lookup."""
+    """Exact Qwen4Exp hashed n-gram lookup with parallel direct-row reads."""
 
     def __init__(
         self,
@@ -1154,6 +1190,7 @@ class Qwen38PLEHostStore:
         *,
         layer_idx: int = PLE_LAYER,
         row_cache_capacity: int = 8192,
+        lookup_workers: int | None = None,
     ):
         if layer_idx != PLE_LAYER:
             raise ValueError(f"Qwen3.8 PLE exists only on zero-based layer {PLE_LAYER}")
@@ -1162,6 +1199,26 @@ class Qwen38PLEHostStore:
         self.row_cache_capacity = int(row_cache_capacity)
         if self.row_cache_capacity < 0:
             raise ValueError("row cache capacity cannot be negative")
+        self.lookup_workers = min(PLE_HEADS, os.cpu_count() or 1) if lookup_workers is None else int(lookup_workers)
+        if not 1 <= self.lookup_workers <= PLE_HEADS:
+            raise ValueError(f"PLE lookup_workers must be in [1, {PLE_HEADS}]")
+        # A decode lookup touches one independent row per PLE head. Reading
+        # those shards serially adds as many as sixteen storage/page-cache
+        # latencies. A persistent pool lets the kernel/NVMe service direct
+        # row reads concurrently without copying or preloading the 102.4 GB
+        # table. mmap tensors remain open for shape validation and fallback.
+        self._lookup_executor = ThreadPoolExecutor(
+            max_workers=self.lookup_workers,
+            thread_name_prefix="qwen38-ple",
+        )
+        # The outer service task is deliberately separate from the shard-read
+        # pool.  It may wait for all shard futures without consuming one of
+        # their workers, and contains CPU/file work only (no TTNN calls).
+        self._prepare_executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="qwen38-ple-prepare",
+        )
+        self._closed = False
         prefix = f"model.language_model.layers.{layer_idx}.ple.ple_embedding"
         self._prefix = prefix
         self._shard_keys = tuple(f"{prefix}.ngram_embedding.shard_{index}.weight" for index in range(PLE_SHARDS))
@@ -1181,6 +1238,8 @@ class Qwen38PLEHostStore:
         self._lock = threading.RLock()
         self._stack = ExitStack()
         handles = {}
+        self._direct_files = {}
+        self._direct_rows = []
         self._tables = []
         for key in self._shard_keys:
             path = checkpoint.path_for(key)
@@ -1193,16 +1252,69 @@ class Qwen38PLEHostStore:
                 raise ValueError(f"PLE shard {key} has shape/dtype {tuple(table.shape)}/{table.dtype}")
             self._tables.append(table)
 
+            direct_file = self._direct_files.get(path)
+            if direct_file is None:
+                fd = os.open(path, os.O_RDONLY)
+                header_size_bytes = os.pread(fd, 8, 0)
+                if len(header_size_bytes) != 8:
+                    os.close(fd)
+                    raise ValueError(f"invalid safetensors header in {path}")
+                header_size = int.from_bytes(header_size_bytes, "little")
+                header = json.loads(os.pread(fd, header_size, 8))
+                direct_file = (fd, 8 + header_size, header)
+                self._direct_files[path] = direct_file
+            fd, tensor_data_start, header = direct_file
+            metadata = header[key]
+            start, stop = (int(value) for value in metadata["data_offsets"])
+            if metadata["dtype"] != "BF16" or tuple(metadata["shape"]) != (
+                PLE_ROWS_PER_SHARD,
+                PLE_ROW_WIDTH,
+            ):
+                raise ValueError(f"PLE direct-read metadata for {key} does not match its tensor")
+            if stop - start != PLE_ROWS_PER_SHARD * PLE_ROW_BYTES:
+                raise ValueError(f"PLE direct-read byte range for {key} is inconsistent")
+            self._direct_rows.append((fd, tensor_data_start + start))
+
     @property
     def manifest(self) -> tuple[dict[str, object], ...]:
         return self.checkpoint.manifest(self._shard_keys)
 
     def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._prepare_executor.shutdown(wait=True)
+        self._lookup_executor.shutdown(wait=True)
+        for fd, _tensor_data_start, _header in self._direct_files.values():
+            os.close(fd)
+        self._direct_files.clear()
         self._stack.close()
+
+    def _read_direct_rows(self, shard_id: int, local_ids: tuple[int, ...]) -> torch.Tensor:
+        """Read exact BF16 rows without faulting full mmap pages into cache."""
+
+        fd, data_start = self._direct_rows[shard_id]
+        rows = []
+        for local_id in local_ids:
+            payload = os.pread(fd, PLE_ROW_BYTES, data_start + local_id * PLE_ROW_BYTES)
+            if len(payload) != PLE_ROW_BYTES:
+                raise OSError(f"short PLE read for shard {shard_id}, row {local_id}")
+            rows.append(torch.frombuffer(bytearray(payload), dtype=torch.bfloat16))
+        return torch.stack(rows)
 
     def reset_request(self, request_id: object) -> None:
         with self._lock:
             self._histories[request_id] = torch.full((self.context_len,), self.eos_token_id, dtype=torch.int64)
+
+    def history_snapshot(self, request_id: object) -> torch.Tensor:
+        """Copy of the request's n-gram history (for speculative rollback)."""
+
+        with self._lock:
+            return self._history(request_id).clone()
+
+    def history_restore(self, request_id: object, snapshot: torch.Tensor) -> None:
+        with self._lock:
+            self._histories[request_id] = snapshot.clone()
 
     def cancel_request(self, request_id: object) -> None:
         with self._lock:
@@ -1294,13 +1406,38 @@ class Qwen38PLEHostStore:
                     rows[value] = cached
 
             if misses:
-                miss_tensor = torch.tensor(misses, dtype=torch.int64)
-                shard_ids = torch.div(miss_tensor, PLE_ROWS_PER_SHARD, rounding_mode="floor")
-                local_ids = torch.remainder(miss_tensor, PLE_ROWS_PER_SHARD)
-                for shard_id in torch.unique(shard_ids).tolist():
-                    positions = torch.nonzero(shard_ids == shard_id, as_tuple=False).flatten()
-                    selected = self._tables[shard_id].index_select(0, local_ids[positions]).clone()
-                    for position, row in zip(positions.tolist(), selected):
+                groups: OrderedDict[int, list[tuple[int, int]]] = OrderedDict()
+                for position, value in enumerate(misses):
+                    shard_id, local_id = divmod(value, PLE_ROWS_PER_SHARD)
+                    groups.setdefault(shard_id, []).append((position, local_id))
+
+                read_started = time.perf_counter()
+                if self.lookup_workers > 1 and len(groups) > 1:
+                    futures = [
+                        self._lookup_executor.submit(
+                            self._read_direct_rows,
+                            shard_id,
+                            tuple(local_id for _position, local_id in entries),
+                        )
+                        for shard_id, entries in groups.items()
+                    ]
+                    selected_groups = [future.result() for future in futures]
+                    self._metrics.parallel_read_calls += 1
+                    self._metrics.parallel_read_shards += len(groups)
+                    self._metrics.parallel_read_seconds += time.perf_counter() - read_started
+                else:
+                    selected_groups = [
+                        self._read_direct_rows(
+                            shard_id,
+                            tuple(local_id for _position, local_id in entries),
+                        )
+                        for shard_id, entries in groups.items()
+                    ]
+                self._metrics.direct_read_rows += len(misses)
+                self._metrics.direct_read_bytes += len(misses) * PLE_ROW_BYTES
+
+                for entries, selected in zip(groups.values(), selected_groups):
+                    for (position, _local_id), row in zip(entries, selected):
                         value = misses[position]
                         rows[value] = row
                         if self.row_cache_capacity:
@@ -1330,6 +1467,31 @@ class Qwen38PLEHostStore:
     ) -> torch.Tensor:
         return self.lookup_rows(self.row_ids(request_ids, input_ids, valid_mask=valid_mask, reset=reset))
 
+    def prepare_async(
+        self,
+        request_ids: Sequence[object],
+        input_ids: torch.Tensor,
+        *,
+        valid_mask: torch.Tensor | None = None,
+        reset: bool = False,
+    ):
+        """Start exact host lookup so it can overlap preceding TT layers."""
+
+        if self._closed:
+            raise RuntimeError("PLE host store is closed")
+        requests = tuple(request_ids)
+        ids = torch.as_tensor(input_ids, dtype=torch.int64, device="cpu").clone()
+        mask = None if valid_mask is None else torch.as_tensor(valid_mask, dtype=torch.bool, device="cpu").clone()
+        with self._lock:
+            self._metrics.async_prepare_calls += 1
+        return self._prepare_executor.submit(
+            self.prepare,
+            requests,
+            ids,
+            valid_mask=mask,
+            reset=reset,
+        )
+
     def metrics(self) -> dict[str, int | float]:
         with self._lock:
             return dataclasses.asdict(self._metrics) | {
@@ -1355,6 +1517,9 @@ class PLEDeviceStaging:
         if (dtype, layout) != ("bf16", "tile"):
             raise ValueError("the exact Qwen3.8 PLE staging ABI currently supports only BF16 TILE tensors")
         self.mesh_device = mesh_device
+        self.num_devices = int(mesh_device.get_num_devices())
+        if self.num_devices < 1:
+            raise ValueError("PLE staging requires at least one device")
         self.max_batch = int(max_batch)
         self.prefill_rows = int(prefill_rows)
         self.dtype = dtype
@@ -1388,11 +1553,13 @@ class PLEDeviceStaging:
         self._pending_source = None
         source = ttnn.from_torch(host, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT)
         shards = ttnn.get_device_tensors(target)
-        if len(shards) != TP_SIZE:
-            raise RuntimeError("PLE staging requires exactly two device shards")
+        if len(shards) != self.num_devices:
+            raise RuntimeError(
+                f"PLE staging expected {self.num_devices} device shards, got {len(shards)}"
+            )
         # Writes through one shard of a replicated MeshTensor broadcast to the
-        # parent mesh.  PLE is identical on both ranks, so one broadcast is the
-        # intended TP2 transfer (expert shards deliberately use local D2D).
+        # parent mesh.  PLE is identical on every rank, so one broadcast is the
+        # intended transfer (expert shards deliberately use local D2D).
         ttnn.copy_host_to_device_tensor(source, shards[0])
         self._pending_source = source
         self.deferred_uploads += 1
@@ -1409,8 +1576,8 @@ class PLEDeviceStaging:
         started = time.perf_counter()
         self._upload_replicated(host, self.prefill)
         self.h2d_seconds += time.perf_counter() - started
-        self.h2d_bytes += TP_SIZE * self.prefill_rows * PLE_EMBED_DIM * 2
-        self.logical_h2d_bytes += TP_SIZE * logical * PLE_EMBED_DIM * 2
+        self.h2d_bytes += self.num_devices * self.prefill_rows * PLE_EMBED_DIM * 2
+        self.logical_h2d_bytes += self.num_devices * logical * PLE_EMBED_DIM * 2
         return self.prefill
 
     def upload_decode(self, embeddings: torch.Tensor):
@@ -1425,8 +1592,8 @@ class PLEDeviceStaging:
         started = time.perf_counter()
         self._upload_replicated(host, self.decode)
         self.h2d_seconds += time.perf_counter() - started
-        self.h2d_bytes += TP_SIZE * self.max_batch * PLE_EMBED_DIM * 2
-        self.logical_h2d_bytes += TP_SIZE * self.max_batch * PLE_EMBED_DIM * 2
+        self.h2d_bytes += self.num_devices * self.max_batch * PLE_EMBED_DIM * 2
+        self.logical_h2d_bytes += self.num_devices * self.max_batch * PLE_EMBED_DIM * 2
         return self.decode
 
     def metrics(self) -> dict[str, object]:

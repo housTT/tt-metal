@@ -10,7 +10,7 @@ import pytest
 
 from models.autoports.qwen_qwen3_8_flash_next.tests import test_functional_decoder as functional_gates
 from models.autoports.qwen_qwen3_8_flash_next.tt.fused_decoder import FusedDecoder
-from models.autoports.qwen_qwen3_8_flash_next.tt.optimized_decoder import OptimizedDecoder
+from models.autoports.qwen_qwen3_8_flash_next.tt.optimized_decoder import OptimizedDecoder, POLICIES
 
 LAYER_KINDS = (0, 1, 3)
 
@@ -30,6 +30,9 @@ def test_optimized_class_and_source_contract():
     assert OptimizedDecoder.DEFAULT_DECODE_EXPERT_MODE == "indexed"
     assert OptimizedDecoder.DEFAULT_PREFILL_OUTPUT == "l1"
     assert OptimizedDecoder.DEFAULT_DRAM_SHARDED_ROLES == ("qsa_input", "attn_out")
+    tp4_reference = POLICIES["expert_bfp4_lofi_g10b16_d40b5"]
+    assert (tp4_reference.gate_up_cores, tp4_reference.gate_up_in0_block_w) == (10, 16)
+    assert (tp4_reference.down_cores, tp4_reference.down_in0_block_w) == (40, 5)
     assert "gdn_qkv_b_a" not in OptimizedDecoder.DEFAULT_DECODE_1D_CONFIG
     # The former layer-0 55-core packed projection passed one-token PCC but
     # accumulated severe repeated-transition error.  Keep the parser's scoped-role

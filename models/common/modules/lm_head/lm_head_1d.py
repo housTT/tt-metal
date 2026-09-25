@@ -151,7 +151,9 @@ class LMHead1D(LightweightModule):
                 )
                 outputs.append(output)
 
-        # Concatenate splits
+        # Concatenate splits (a single split needs no copy)
+        if len(outputs) == 1:
+            return outputs[0]
         output = ttnn.concat(outputs, dim=-1, memory_config=cfg.output_memcfg)
 
         return output

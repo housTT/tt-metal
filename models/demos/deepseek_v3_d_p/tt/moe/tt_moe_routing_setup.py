@@ -122,6 +122,7 @@ class TtMoERoutingSetup(LightweightModule):
         num_links: int = 1,
         experts_per_chip: int = 32,
         use_l1_small_for_semaphores: bool = False,
+        cluster_axis: int = 0,
     ):
         """
         Initialize routing setup with the expert-to-chip mapping.
@@ -147,13 +148,20 @@ class TtMoERoutingSetup(LightweightModule):
         self.num_links = num_links
         self.experts_per_chip = experts_per_chip
         self.use_l1_small_for_semaphores = use_l1_small_for_semaphores
+        if cluster_axis not in (0, 1):
+            raise ValueError("cluster_axis must be 0 or 1")
+        self.cluster_axis = int(cluster_axis)
+
+        # The dispatch table is sharded over independent dispatch groups and
+        # replicated over the axis whose devices exchange tokens.
+        table_dims = (None, 0) if self.cluster_axis == 0 else (0, None)
 
         self.experts_in_dispatch_group = ttnn.from_torch(
             expert_dispatch_table,
             device=mesh_device,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
             layout=ttnn.ROW_MAJOR_LAYOUT,
-            mesh_mapper=ttnn.ShardTensor2dMesh(mesh_device, mesh_shape=mesh_device.shape, dims=(None, 0)),
+            mesh_mapper=ttnn.ShardTensor2dMesh(mesh_device, mesh_shape=mesh_device.shape, dims=table_dims),
         )
 
     def forward(
@@ -193,10 +201,13 @@ class TtMoERoutingSetup(LightweightModule):
 
         if isinstance(ttnn_top_k_experts_indices, torch.Tensor):
             # Standalone/test path: build the same UINT16, TILE, L1 interleaved tensor the gate emits.
+            # Token rows are sequence-sharded over the dispatch axis and
+            # replicated over independent dispatch groups.
+            token_dims = (0, None) if self.cluster_axis == 0 else (None, 0)
             mesh_mapper = ttnn.ShardTensor2dMesh(
                 self.mesh_device,
                 mesh_shape=self.mesh_device.shape,
-                dims=(0, None),
+                dims=token_dims,
             )
             ttnn_top_k_experts_indices = ttnn.from_torch(
                 ttnn_top_k_experts_indices,
@@ -227,7 +238,7 @@ class TtMoERoutingSetup(LightweightModule):
             expert_region_offsets,
         ) = ttnn.experimental.deepseek_prefill.offset_cumsum(
             expert_histograms,
-            cluster_axis=0,
+            cluster_axis=self.cluster_axis,
             num_links=self.num_links,
             experts_per_chip=self.experts_per_chip,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,

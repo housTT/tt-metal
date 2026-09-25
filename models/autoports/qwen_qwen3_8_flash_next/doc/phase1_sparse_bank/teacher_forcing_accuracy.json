@@ -1,0 +1,3857 @@
+{
+  "compatibility_mode": "explicit_host_logits",
+  "decode_measured_tokens": 98,
+  "decode_seconds": 6.6550767779917805,
+  "decode_seconds_per_token": 0.06790894671420185,
+  "decode_tokens_per_second_per_user": 14.725600210065831,
+  "host_service_totals": {
+    "expert_deferred_dma_misses": 0,
+    "expert_direct_slot_h2d_bytes": 0,
+    "expert_direct_slot_h2d_copies": 0,
+    "expert_dma_completion_syncs": 0,
+    "expert_evictions": 0,
+    "expert_h2d_bytes": 0,
+    "expert_h2d_seconds": 0,
+    "expert_hits": 0,
+    "expert_index_h2d_bytes": 0,
+    "expert_index_upload_seconds": 0,
+    "expert_misses": 0,
+    "expert_owner_d2d_bytes": 0,
+    "expert_owner_d2d_copies": 0,
+    "expert_packed_host_hits": 0,
+    "expert_packed_host_misses": 0,
+    "expert_requests": 0,
+    "expert_source_pack_seconds": 0,
+    "expert_waves": 0,
+    "expert_zero_d2d_bytes": 0,
+    "expert_zero_d2d_resets": 0,
+    "expert_zero_d2d_skips": 0,
+    "ple_async_prepare_calls": 98.0,
+    "ple_device_completion_syncs": 0.0,
+    "ple_device_deferred_uploads": 102.0,
+    "ple_device_h2d_bytes": 7290880.0,
+    "ple_device_h2d_seconds": 0.051700446994800586,
+    "ple_device_logical_h2d_bytes": 6164480.0,
+    "ple_direct_read_bytes": 1113600.0,
+    "ple_direct_read_rows": 3480.0,
+    "ple_host_assembly_bytes": 1541120.0,
+    "ple_lookup_calls": 102.0,
+    "ple_lookup_seconds": 0.547496705003141,
+    "ple_parallel_read_calls": 69.0,
+    "ple_parallel_read_seconds": 0.5310089419926953,
+    "ple_parallel_read_shards": 1183.0,
+    "ple_selected_rows": 4816.0,
+    "ple_table_bytes_read": 1113600.0,
+    "ple_table_rows_read": 3480.0,
+    "ple_unique_rows": 4448.0
+  },
+  "phase": "decode",
+  "precision_propagation": {
+    "all_fields_consumed": true,
+    "checks": {
+      "activations.matmul_output_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "all decoder linear output policies"
+      },
+      "activations.model_input_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "embedding output boundary"
+      },
+      "activations.ple_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "PLE consuming layer activation policy"
+      },
+      "activations.residual_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "all layer boundary policies"
+      },
+      "ccl.num_links": {
+        "expected": 2,
+        "observed": 2,
+        "passed": true,
+        "source": "all collective wrappers"
+      },
+      "ccl.packet_bytes": {
+        "expected": 8192,
+        "observed": 8192,
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "ccl.payload_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "all collective wrappers"
+      },
+      "ccl.topology": {
+        "expected": "linear",
+        "observed": "linear",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "config_id": {
+        "expected": "qsa_bfp8_hifi2_lm_head_bf16_hifi2",
+        "observed": "qsa_bfp8_hifi2_lm_head_bf16_hifi2",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "host_backed.expert.device_staging_dtype": {
+        "expected": "bfp4",
+        "observed": "bfp4",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "host_backed.expert.device_staging_layout": {
+        "expected": "tile",
+        "observed": "tile",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "host_backed.expert.execution_weight_dtype": {
+        "expected": "bfp4",
+        "observed": "bfp4",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "host_backed.expert.host_packed_dtype": {
+        "expected": "bfp4",
+        "observed": "bfp4",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "host_backed.expert.host_packed_layout": {
+        "expected": "tile",
+        "observed": "tile",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "host_backed.expert.packed_capacity_per_layer": {
+        "expected": 512,
+        "observed": 512,
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "host_backed.expert.prepack_all": {
+        "expected": true,
+        "observed": true,
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "host_backed.expert.slots_per_layer": {
+        "expected": 10,
+        "observed": 10,
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "host_backed.expert.source_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "host_backed.ple.device_staging_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "live PLE staging object"
+      },
+      "host_backed.ple.device_staging_layout": {
+        "expected": "tile",
+        "observed": "tile",
+        "passed": true,
+        "source": "live PLE staging object"
+      },
+      "host_backed.ple.execution_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "host_backed.ple.host_assembly_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "host_backed.ple.prefill_chunk_rows": {
+        "expected": 128,
+        "observed": 128,
+        "passed": true,
+        "source": "live PLE staging allocation"
+      },
+      "host_backed.ple.row_cache_capacity": {
+        "expected": 8192,
+        "observed": 8192,
+        "passed": true,
+        "source": "live PLE host store"
+      },
+      "host_backed.ple.table_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "mmap table tensor"
+      },
+      "host_backed.ple.table_layout": {
+        "expected": "row_major_mmap",
+        "observed": "row_major_mmap",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "kv_cache.dtype": {
+        "expected": "bfp8",
+        "observed": "bfp8",
+        "passed": true,
+        "source": "live QSA K/V and index cache tensor metadata"
+      },
+      "kv_cache.layout": {
+        "expected": "tile",
+        "observed": "tile",
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "kv_cache.page_block_size": {
+        "expected": 64,
+        "observed": 64,
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "kv_cache.policy": {
+        "expected": "bfp8",
+        "observed": "bfp8",
+        "passed": true,
+        "source": "all constructed QSA layers"
+      },
+      "kv_cache.update_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "all paged decode update tensors"
+      },
+      "logits_sampling.greedy_strategy": {
+        "expected": "full_vocabulary_argmax",
+        "observed": "full_vocabulary_argmax",
+        "passed": true,
+        "source": "device sampler strategy"
+      },
+      "logits_sampling.logits_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "LM-head sampler boundary"
+      },
+      "logits_sampling.sampling_dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "Sampling1D input boundary"
+      },
+      "logits_sampling.sampling_mode": {
+        "expected": "device",
+        "observed": "device",
+        "passed": true,
+        "source": "normal generator default policy"
+      },
+      "parallelism.dense_tp": {
+        "expected": 4,
+        "observed": 4,
+        "passed": true,
+        "source": "live decoder parallel configuration"
+      },
+      "parallelism.expert_mode": {
+        "expected": "resident_ep4",
+        "observed": "resident_ep4",
+        "passed": true,
+        "source": "live decoder parallel configuration"
+      },
+      "parallelism.expert_parallel": {
+        "expected": 4,
+        "observed": 4,
+        "passed": true,
+        "source": "live decoder parallel configuration"
+      },
+      "parallelism.indexer_kv_replication": {
+        "expected": 4,
+        "observed": 4,
+        "passed": true,
+        "source": "live decoder parallel configuration"
+      },
+      "parallelism.kv_replication": {
+        "expected": 2,
+        "observed": 2,
+        "passed": true,
+        "source": "live decoder parallel configuration"
+      },
+      "parallelism.mesh_shape": {
+        "expected": [
+          4,
+          1
+        ],
+        "observed": [
+          4,
+          1
+        ],
+        "passed": true,
+        "source": "live decoder parallel configuration"
+      },
+      "schema_version": {
+        "expected": 1,
+        "observed": 1,
+        "passed": true,
+        "source": "validated constructor policy"
+      },
+      "weight_exceptions.norms.compute_fidelity": {
+        "expected": "hifi4",
+        "observed": "hifi4",
+        "passed": true,
+        "source": "all decoder RMSNorm kernels"
+      },
+      "weight_exceptions.norms.dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "live decoder and final norm tensor metadata"
+      },
+      "weight_exceptions.router_topk_outputs.dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "all router/top-k boundaries"
+      },
+      "weight_groups.attention_output.compute_fidelity": {
+        "expected": "hifi2",
+        "observed": "hifi2",
+        "passed": true,
+        "source": "constructed decoder compute-kernel policy"
+      },
+      "weight_groups.attention_output.dtype": {
+        "expected": "bfp8",
+        "observed": "bfp8",
+        "passed": true,
+        "source": "constructed decoder weight tensors"
+      },
+      "weight_groups.attention_output.policy": {
+        "expected": "bfp8_hifi2",
+        "observed": "bfp8_hifi2",
+        "passed": true,
+        "source": "all constructed decoder layers"
+      },
+      "weight_groups.embedding.dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "embedding tensor metadata"
+      },
+      "weight_groups.embedding.layout": {
+        "expected": "row_major",
+        "observed": "row_major",
+        "passed": true,
+        "source": "embedding tensor metadata"
+      },
+      "weight_groups.final_hyper_down_up.compute_fidelity": {
+        "expected": "hifi2",
+        "observed": "hifi2",
+        "passed": true,
+        "source": "constructed final hyperconnection compute kernel"
+      },
+      "weight_groups.final_hyper_down_up.dtype": {
+        "expected": "bfp8",
+        "observed": "bfp8",
+        "passed": true,
+        "source": "final down/up tensor metadata"
+      },
+      "weight_groups.gdn_projection.compute_fidelity": {
+        "expected": "hifi2",
+        "observed": "hifi2",
+        "passed": true,
+        "source": "constructed decoder compute-kernel policy"
+      },
+      "weight_groups.gdn_projection.dtype": {
+        "expected": "bfp8",
+        "observed": "bfp8",
+        "passed": true,
+        "source": "constructed decoder weight tensors"
+      },
+      "weight_groups.gdn_projection.policy": {
+        "expected": "bfp8_hifi2",
+        "observed": "bfp8_hifi2",
+        "passed": true,
+        "source": "all constructed decoder layers"
+      },
+      "weight_groups.lm_head.compute_fidelity": {
+        "expected": "hifi2",
+        "observed": "hifi2",
+        "passed": true,
+        "source": "constructed LMHead1D compute kernel"
+      },
+      "weight_groups.lm_head.dtype": {
+        "expected": "bf16",
+        "observed": "bf16",
+        "passed": true,
+        "source": "constructed LMHead1D weight metadata"
+      },
+      "weight_groups.lm_head.policy": {
+        "expected": "bf16_hifi2",
+        "observed": "bf16_hifi2",
+        "passed": true,
+        "source": "constructed LMHead1D configuration"
+      },
+      "weight_groups.qsa_input.compute_fidelity": {
+        "expected": "hifi2",
+        "observed": "hifi2",
+        "passed": true,
+        "source": "constructed decoder compute-kernel policy"
+      },
+      "weight_groups.qsa_input.dtype": {
+        "expected": "bfp8",
+        "observed": "bfp8",
+        "passed": true,
+        "source": "constructed decoder weight tensors"
+      },
+      "weight_groups.qsa_input.policy": {
+        "expected": "bfp8_hifi2",
+        "observed": "bfp8_hifi2",
+        "passed": true,
+        "source": "all constructed decoder layers"
+      },
+      "weight_groups.routed_expert.compute_fidelity": {
+        "expected": "lofi",
+        "observed": "lofi",
+        "passed": true,
+        "source": "constructed decoder compute-kernel policy"
+      },
+      "weight_groups.routed_expert.dtype": {
+        "expected": "bfp4",
+        "observed": "bfp4",
+        "passed": true,
+        "source": "constructed decoder weight tensors"
+      },
+      "weight_groups.routed_expert.policy": {
+        "expected": "expert_bfp4_lofi_g40b16_d40b5",
+        "observed": "expert_bfp4_lofi_g40b16_d40b5",
+        "passed": true,
+        "source": "all constructed decoder layers"
+      },
+      "weight_groups.shared_projection.compute_fidelity": {
+        "expected": "lofi",
+        "observed": "lofi",
+        "passed": true,
+        "source": "constructed decoder compute-kernel policy"
+      },
+      "weight_groups.shared_projection.dtype": {
+        "expected": "bfp8",
+        "observed": "bfp8",
+        "passed": true,
+        "source": "constructed decoder weight tensors"
+      },
+      "weight_groups.shared_projection.policy": {
+        "expected": "bfp8_lofi",
+        "observed": "bfp8_lofi",
+        "passed": true,
+        "source": "all constructed decoder layers"
+      }
+    },
+    "config_id": "qsa_bfp8_hifi2_lm_head_bf16_hifi2",
+    "config_path": "/home/ttuser/dev/qwen3.8-flash-next/tt-metal/models/autoports/qwen_qwen3_8_flash_next/doc/datatype_sweep/selected_precision_config.json",
+    "consumed_leaf_count": 67,
+    "layers": [
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 0,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 0,
+          "checkpoint_expert_reads": 0,
+          "checkpoint_read_seconds": 0.0,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 0,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": true,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 1,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 0,
+          "checkpoint_expert_reads": 0,
+          "checkpoint_read_seconds": 0.0,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 1,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": true,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 2,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.11626410300959833,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 2,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 3,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 0,
+          "checkpoint_expert_reads": 0,
+          "checkpoint_read_seconds": 0.0,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 3,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": true,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 4,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.10246751402883092,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 4,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 5,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.10608892099116929,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 5,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 6,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.09825189302500803,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 6,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 7,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.10911701398799778,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 7,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 8,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.10283235702081583,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 8,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 9,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.09864685699176334,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 9,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 10,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.10009166301097139,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 10,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 11,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.1092346780205844,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 11,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 12,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.11139001898300194,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 12,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 13,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.10974256300869456,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 13,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 14,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.10484271999848715,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 14,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 15,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.11519130697706714,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 15,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 16,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.10849537200738268,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 16,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 17,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.11053276895836461,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 17,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 18,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.10402242696909525,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 18,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 19,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.11737354202159622,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 19,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 20,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.11049112098044134,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 20,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 21,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.10827819001497119,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 21,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 22,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.1054907309844566,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 22,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 23,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.11613809701157152,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 23,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 24,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.11052114700214588,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 24,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 25,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.11170365401085292,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 25,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 26,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.11102796997329278,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 26,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 27,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.12613161700392084,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 27,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 28,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.12178320500788686,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 28,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 29,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.12367495600119582,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 29,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 30,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.11662248599532177,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 30,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 31,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.13475910801935242,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 31,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 32,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.12423680399660952,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 32,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 33,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.11689574300908134,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 33,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 34,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.11427810599161603,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 34,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 35,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.1253938440040656,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 35,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 36,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.12221601098462997,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 36,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 37,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.12078516498877434,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 37,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 38,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.11732045100143296,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 38,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 39,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.1314800509808265,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 39,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 40,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.1280449770310952,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 40,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 41,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.12237626096430176,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 41,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 42,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.11458675899302762,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 42,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 43,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.1324337749847473,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 43,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 44,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.12487592597972252,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 44,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 45,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.12928842098881432,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 45,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 46,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "gdn": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.13472238002395898,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 46,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "linear_attention"
+      },
+      {
+        "cache_policy": "bfp8",
+        "cache_tensor_dtypes": [
+          "bfp8"
+        ],
+        "cache_update_dtype": "bf16",
+        "ccl_num_links": 2,
+        "ccl_payload_dtype": "bf16",
+        "ccl_topology": "linear",
+        "host_expert": null,
+        "layer": 47,
+        "live_norm_weight_dtypes": [
+          "bf16"
+        ],
+        "matmul_output_dtype": "bf16",
+        "norm_compute_fidelity": "hifi4",
+        "norm_weight_dtype": "bf16",
+        "ple_activation_dtype": "bf16",
+        "projection_fidelities": {
+          "attention_output": "hifi2",
+          "gdn": "hifi2",
+          "qsa_input": "hifi2",
+          "shared": "lofi"
+        },
+        "projection_policies": {
+          "attention_output": "bfp8_hifi2",
+          "gdn": "bfp8_hifi2",
+          "qsa_input": "bfp8_hifi2",
+          "shared": "bfp8_lofi"
+        },
+        "projection_weight_dtypes": {
+          "attention_output": [
+            "bfp8"
+          ],
+          "qsa_input": [
+            "bfp8"
+          ],
+          "shared": [
+            "bfp8"
+          ]
+        },
+        "resident_expert": {
+          "calls": 0,
+          "checkpoint_bytes": 5033164800,
+          "checkpoint_expert_reads": 512,
+          "checkpoint_read_seconds": 0.13496940902950882,
+          "decode_calls": 0,
+          "expert_host_store_bytes": 0,
+          "expert_route_d2h_bytes_runtime": 0,
+          "expert_weight_h2d_bytes_runtime": 0,
+          "experts_per_device": 128,
+          "host_cache_entries": 0,
+          "kernel": "sparse_bank",
+          "layer": 47,
+          "mode": "resident_ep4",
+          "prefill_calls": 0,
+          "resident_expert_bytes_per_device": 353894400,
+          "weight_cache_enabled": true,
+          "weight_cache_hit": false,
+          "weight_cache_path": "/home/ttuser/.cache/ttnn/models/qwen3.8-flash-next-f5d08274-p300-tp4-ep4-bfp4-v1"
+        },
+        "residual_dtype": "bf16",
+        "routed_expert": {
+          "compute_fidelity": "lofi",
+          "dtype": "bfp4",
+          "policy": "expert_bfp4_lofi_g40b16_d40b5"
+        },
+        "router_output_dtype": "bf16",
+        "type": "qwen_sparse_attention"
+      }
+    ],
+    "lm_head": {
+      "dram_cores": null,
+      "dram_sharded": false,
+      "fidelity": "hifi2",
+      "in0_block_w": null,
+      "input_memory_config": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+      "logits_dtype": "bf16",
+      "per_core_n": null,
+      "per_dram_reader_n": null,
+      "physical_output_tiles": null,
+      "policy": "bf16_hifi2",
+      "program_configs": [
+        "None",
+        "None"
+      ],
+      "rank_slices": [
+        [
+          [
+            0,
+            32768
+          ],
+          [
+            62080,
+            94848
+          ],
+          [
+            124160,
+            156928
+          ],
+          [
+            186240,
+            219008
+          ]
+        ],
+        [
+          [
+            32768,
+            62080
+          ],
+          [
+            94848,
+            124160
+          ],
+          [
+            156928,
+            186240
+          ],
+          [
+            219008,
+            248320
+          ]
+        ]
+      ],
+      "split_sizes": [
+        32768,
+        29312
+      ],
+      "weight_dtype": "bf16",
+      "weight_memory_configs": [
+        "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+        "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)"
+      ],
+      "worker_cores": null,
+      "worker_grid": null
+    }
+  },
+  "prefill": {
+    "rows": 1,
+    "top100_hits": 1,
+    "top100_percent": 100.0,
+    "top1_hits": 1,
+    "top1_percent": 100.0,
+    "top5_hits": 1,
+    "top5_percent": 100.0,
+    "tt_top1_tokens": [
+      1596
+    ]
+  },
+  "prompt_tokens": 201,
+  "reference_rows": 99,
+  "rows": 99,
+  "source_provenance": {
+    "algorithm": "sha256",
+    "digest": "6b0c9511575650f7c682721e081a2f8adca3dd8060815dc7c39cd7d8307d6908",
+    "files": {
+      "demo/full_model.py": "528eb4a63ac07f6b01c0bd901ea34310b69a7e088c0e75da2cb25615a77b1e26",
+      "tests/test_full_model.py": "efcf7ac9eb0bde678199f84b1e9d14f19aebb3f1e0891c51de8c291a5994ccb8",
+      "tt/functional_decoder.py": "337d20071956b3d2ea078da107f090d107ec849a3ac5cdfcd8e6ac7f2319d403",
+      "tt/fused_decoder.py": "fdc1452d73f2efe5c446e635b83b23bca543fc9a903acb67a90aef1a45081ca1",
+      "tt/generator.py": "48114125ef8019acd3f562be9f03fb88feddc865bff1876d82a5246ce6f49c23",
+      "tt/generator_vllm.py": "81b47c4b77ad7d5bb054093dbef668c960c3c79cd62c0ee6fed2edc81f2f6590",
+      "tt/host_weight_cache.py": "f746f99acf50c205e61ac682185c692441c4ef5d89d31807a8a739c7daab7c2e",
+      "tt/model.py": "eb27c493b80def8fc19ca434d8010aaa02cb2b08ae8df6ee0947a6dfe4759a6b",
+      "tt/model_config.py": "807c3dc31ccbc067a70089d12e229322f4fe315096c33f4a8344f20767a205d1",
+      "tt/multichip_decoder.py": "327479aac0fb6b8d95a029bd9deadb84b5e6442a9036452c3fb095cd0cf64005",
+      "tt/optimized_decoder.py": "e4a5b6a898df99adad58e479f35608db3d3cb038dbf2a558a5d97bc0e07a349c",
+      "tt/parallel_config.py": "754a8fce80d1bf538916f339daf1d37500aef81640cb65e95db30ea80b8ec9eb",
+      "tt/precision_config.py": "11e0f7629169f1b6848419e11e179b7e625130eb8916fcbb0b283717801b7a6e",
+      "tt/resident_experts.py": "4563c4d94a7b6cc9be7072162f4d189c99f31bac1ed16ed64d1572ecdf5e9163"
+    }
+  },
+  "top100_hits": 99,
+  "top100_percent": 100.0,
+  "top1_hits": 95,
+  "top1_percent": 95.95959782600403,
+  "top5_hits": 99,
+  "top5_percent": 100.0,
+  "trace_capture_seconds": 1.8597954090000712,
+  "traced": true,
+  "tt_top1_tokens": [
+    1144,
+    11290,
+    6673,
+    3377,
+    13,
+    539,
+    2923,
+    13,
+    14235,
+    1534,
+    1534,
+    4087,
+    71160,
+    13,
+    6558,
+    579,
+    22903,
+    15060,
+    13,
+    271,
+    30177,
+    25,
+    6983,
+    6353,
+    357,
+    7509,
+    5601,
+    364,
+    220,
+    220,
+    24,
+    12283,
+    76,
+    4088,
+    321,
+    17397,
+    506,
+    10482,
+    7808,
+    25950,
+    13,
+    3095,
+    21780,
+    506,
+    6570,
+    4478,
+    274,
+    12754,
+    7294,
+    11,
+    4088,
+    4829,
+    1024,
+    19,
+    3979,
+    11,
+    2583,
+    259,
+    4276,
+    7157,
+    303,
+    10482,
+    7808,
+    13,
+    3095,
+    21780,
+    506,
+    274,
+    10,
+    17,
+    12754,
+    7294,
+    11,
+    4088,
+    4829,
+    220,
+    17,
+    3979,
+    220,
+    17,
+    19,
+    4276,
+    11,
+    2583,
+    259,
+    4276,
+    13,
+    79762,
+    21780,
+    506,
+    274,
+    10,
+    16,
+    14,
+    17,
+    12754,
+    7294,
+    13,
+    7145
+  ],
+  "ttft_seconds": 28.43447794200074
+}

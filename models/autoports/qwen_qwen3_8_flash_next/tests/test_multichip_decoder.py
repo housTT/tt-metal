@@ -1,10 +1,12 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-"""Structural and hardware gates for the fixed-P300 TP2 decoder."""
+"""Structural and hardware gates for the fixed-P300 TP4+EP4 decoder."""
 
 from __future__ import annotations
 
+import hashlib
 import inspect
+import json
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -49,6 +51,10 @@ def _multichip_device_params(*, trace_region_size=None):
 
 
 LAYER_KINDS = (0, 1, 3)
+_legacy_host_backed_tp2_only = pytest.mark.skipif(
+    os.getenv("RUN_QWEN38_HOST_BACKED_TP4") != "1",
+    reason="explicit TP4 host-backed expert diagnostic; selected production path uses resident EP4 experts",
+)
 
 
 def _replicated_upload(tensor, mesh_device, *, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT):
@@ -66,7 +72,7 @@ def _rank_zero_host(tensor):
 
 
 def _fractured_upload(tensor, mesh_device):
-    """Upload R as the stack-internal four-stream/hidden TP2 residual S."""
+    """Upload R as the stack-internal four-stream/hidden TP4 residual S."""
 
     grouped = tensor.reshape(1, 1, tensor.shape[-2] * 4, 2560)
     return ttnn.from_torch(
@@ -156,14 +162,16 @@ def _capture_routing(layer, captures):
 
 def test_multichip_class_and_memory_contract():
     assert issubclass(MultichipDecoder, OptimizedDecoder)
-    assert MultichipDecoder.TARGET_MESH == (1, 2)
+    assert MultichipDecoder.TARGET_MESH == (4, 1)
     assert MultichipDecoder.COLLECTIVE_NUM_LINKS == 2
     assert MultichipDecoder.FABRIC_PACKET_BYTES == 8192
     plan = MultichipMemoryPlan()
-    assert plan.standard_bfp4_expert_bytes == 33_973_862_400
-    assert plan.uniform_bfp2_expert_bytes == 18_874_368_000
-    assert plan.standard_bfp4_fits is False
-    assert plan.max_bfp4_fraction == pytest.approx(0.4442310248480903)
+    assert plan.standard_bfp4_expert_bytes == 16_986_931_200
+    assert plan.uniform_bfp2_expert_bytes == 9_437_184_000
+    assert plan.standard_bfp4_fits is True
+    assert plan.resident_stack_bytes == 25_630_419_968
+    assert plan.resident_stack_headroom_bytes == 8_595_100_672
+    assert plan.resident_stack_fits is True
     assert plan.max_compressed_bfp4_fraction == pytest.approx(0.2449097278071385)
     assert plan.host_expert_cache_bytes == 1_592_524_800
     assert plan.ple_staging_bytes == 819_200
@@ -173,6 +181,15 @@ def test_multichip_class_and_memory_contract():
     assert plan.transient_l1_state_bytes_per_worker == 120_832
     assert plan.host_backed_stack_bytes == 10_236_013_568
     assert plan.host_backed_stack_fits is True
+    assert "resident_contiguous_ep4_bfp4_routed_experts" in MultichipDecoder.OPTIMIZATION_MANIFEST
+    assert "parallel_exact_safetensors_ple_pread" in MultichipDecoder.OPTIMIZATION_MANIFEST
+    assert "ple_lookup_overlapped_with_ingress_and_layer0" in MultichipDecoder.OPTIMIZATION_MANIFEST
+    assert "stack_major_128_token_prefill_microchunks" in MultichipDecoder.OPTIMIZATION_MANIFEST
+    assert "two_segment_resident_full_stack_decode_trace" in MultichipDecoder.OPTIMIZATION_MANIFEST
+    assert "persistent_resident_expert_tensor_cache" in MultichipDecoder.OPTIMIZATION_MANIFEST
+    assert "fused_sigmoid_gates_for_gdn_and_qsa" in MultichipDecoder.OPTIMIZATION_MANIFEST
+    source = inspect.getsource(MultichipDecoder.from_state_dict)
+    assert '"expert_bfp4_lofi_g10b16_d40b5"' in source
 
 
 def test_rank_local_config_contract():
@@ -182,15 +199,17 @@ def test_rank_local_config_contract():
     ep = _rank_local_config(config, 0, expert_parallel=True).text_config
     assert gdn.linear_num_key_heads == 16
     assert gdn.linear_num_value_heads == 48
-    assert qsa.num_attention_heads == 12
+    assert qsa.num_attention_heads == 6
     assert qsa.num_key_value_heads == 1
+    assert qsa.indexer_n_heads == 1
+    assert qsa.indexer_kv_heads == 1
     for local in (gdn, qsa):
-        assert local.moe_intermediate_size == 320
-        assert local.shared_expert_intermediate_size == 320
+        assert local.moe_intermediate_size == 160
+        assert local.shared_expert_intermediate_size == 160
         assert local.num_experts == 512 and local.num_experts_per_tok == 10
         assert local.hidden_size == 2560 and local.hc_count == 4
     assert ep.moe_intermediate_size == 640
-    assert ep.shared_expert_intermediate_size == 320
+    assert ep.shared_expert_intermediate_size == 160
 
 
 def test_rank_local_checkpoint_shapes_without_allocating_weights():
@@ -214,18 +233,20 @@ def test_rank_local_checkpoint_shapes_without_allocating_weights():
         "self_attn.k_proj.weight": torch.empty(512, 2560, device="meta"),
         "self_attn.v_proj.weight": torch.empty(512, 2560, device="meta"),
         "self_attn.o_proj.weight": torch.empty(2560, 6144, device="meta"),
+        "self_attn.indexer.index_qk_proj.weight": torch.empty(640, 2560, device="meta"),
     }
-    for rank in (0, 1):
+    for rank in range(4):
         local = _rank_local_state(state, rank, shard_gdn=False)
-        assert local["mlp.experts.gate_up_proj"].shape == (512, 640, 2560)
-        assert local["mlp.experts.down_proj"].shape == (512, 2560, 320)
+        assert local["mlp.experts.gate_up_proj"].shape == (512, 320, 2560)
+        assert local["mlp.experts.down_proj"].shape == (512, 2560, 160)
         assert local["linear_attn.in_proj_qkv.weight"].shape == (10240, 2560)
         assert local["linear_attn.in_proj_z.weight"].shape == (6144, 2560)
         assert local["linear_attn.conv1d.weight"].shape == (10240, 1, 4)
         assert local["linear_attn.out_proj.weight"].shape == (2560, 6144)
-        assert local["self_attn.q_proj.weight"].shape == (6144, 2560)
+        assert local["self_attn.q_proj.weight"].shape == (3072, 2560)
         assert local["self_attn.k_proj.weight"].shape == (256, 2560)
-        assert local["self_attn.o_proj.weight"].shape == (2560, 3072)
+        assert local["self_attn.o_proj.weight"].shape == (2560, 1536)
+        assert local["self_attn.indexer.index_qk_proj.weight"].shape == (256, 2560)
 
 
 def test_runtime_collective_has_no_host_fallback():
@@ -411,7 +432,7 @@ def test_host_expert_slots_use_direct_coordinate_h2d(monkeypatch, expect_error):
 
 @pytest.mark.skipif(
     os.getenv("RUN_QWEN38_RANK_LOCAL_STAGING_TT") != "1",
-    reason="explicit two-rank topology-preserving H2D regression",
+    reason="explicit rank-local topology-preserving H2D regression",
 )
 @pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
 def test_rank_local_staging_coordinate_write_preserves_parent_topology(bh_1d_mesh_device, device_params):
@@ -429,7 +450,7 @@ def test_rank_local_staging_coordinate_write_preserves_parent_topology(bh_1d_mes
             dtype=ttnn.bfloat16,
             layout=ttnn.TILE_LAYOUT,
         )
-        for rank in range(2)
+        for rank in range(MultichipDecoder.TP_SIZE)
     )
     staging_shards = tuple(ttnn.get_device_tensors(staging))
     target_shards = tuple(ttnn.get_device_tensors(target))
@@ -442,14 +463,14 @@ def test_rank_local_staging_coordinate_write_preserves_parent_topology(bh_1d_mes
         [expected_coordinates[1]],
     ]
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with ThreadPoolExecutor(max_workers=MultichipDecoder.TP_SIZE) as executor:
         futures = tuple(
             executor.submit(ttnn.copy_host_to_device_tensor_at_coordinate, hosts[rank], staging, coordinates[rank])
-            for rank in range(2)
+            for rank in range(MultichipDecoder.TP_SIZE)
         )
         for future in futures:
             future.result()
-    for rank in range(2):
+    for rank in range(MultichipDecoder.TP_SIZE):
         ttnn.copy(staging_shards[rank], target_shards[rank])
     ttnn.synchronize_device(mesh_device)
 
@@ -518,7 +539,7 @@ def test_multichip_fabric_packet_contract(bh_1d_mesh_device, device_params):
     bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
     actual_packet_bytes = ttnn._ttnn.fabric.get_tt_fabric_max_payload_size_bytes()
     print(
-        f"MC_FABRIC_CONTRACT mesh=1x2 packet_bytes={actual_packet_bytes} "
+        f"MC_FABRIC_CONTRACT mesh={MultichipDecoder.TARGET_MESH} packet_bytes={actual_packet_bytes} "
         f"collective_num_links={MultichipDecoder.COLLECTIVE_NUM_LINKS}"
     )
     assert actual_packet_bytes == MultichipDecoder.FABRIC_PACKET_BYTES
@@ -558,14 +579,15 @@ def test_multichip_layer0_decode_structural_smoke(bh_1d_mesh_device, device_para
     ttnn.synchronize_device(mesh_device)
 
     rank_outputs = [ttnn.to_torch(shard) for shard in ttnn.get_device_tensors(output)]
-    assert len(rank_outputs) == 2
+    assert len(rank_outputs) == MultichipDecoder.TP_SIZE
     assert list(output.shape) == [1, 1, 1, 10240]
     assert torch.equal(rank_outputs[0], rank_outputs[1])
 
 
 @pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
+@_legacy_host_backed_tp2_only
 def test_host_backed_layer0_decode_matches_optimized_reference(bh_1d_mesh_device, device_params):
-    """Real route-id D2H, EP2 expert H2D, and TT math match optimized TTNN."""
+    """Real route-id D2H, EP4 expert H2D, and TT math match optimized TTNN."""
 
     torch.manual_seed(20260828)
     bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
@@ -613,7 +635,7 @@ def test_host_backed_layer0_decode_matches_optimized_reference(bh_1d_mesh_device
         if record.valid
     )
     packed = host_backed.host_expert_source.load(first_record.identity.expert_id)
-    for rank in range(2):
+    for rank in range(MultichipDecoder.TP_SIZE):
         slot = host_backed.host_expert_cache.slots[first_slot]
         gate_host = ttnn.to_torch(ttnn.get_device_tensors(slot.gate_up)[rank])
         down_host = ttnn.to_torch(ttnn.get_device_tensors(slot.down)[rank])
@@ -627,7 +649,7 @@ def test_host_backed_layer0_decode_matches_optimized_reference(bh_1d_mesh_device
     assert torch.equal(_rank_zero_host(host_out), ttnn.to_torch(ttnn.get_device_tensors(host_out)[1]))
     metrics = host_backed.host_expert_cache.metrics()
     assert metrics["misses"] >= 10 and metrics["h2d_bytes"] == metrics["misses"] * 2_764_800
-    # Construction-time slots are already exact zero on both ranks, so the
+    # Construction-time slots are already exact zero on every rank, so the
     # first owner upload needs no redundant peer-zero D2D. Exact peer contents
     # were checked against the packed source immediately above.
     assert metrics["zero_d2d_bytes"] == 0
@@ -644,6 +666,7 @@ def test_host_backed_layer0_decode_matches_optimized_reference(bh_1d_mesh_device
     reason="explicit completed owner-H2D bandwidth benchmark",
 )
 @pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
+@_legacy_host_backed_tp2_only
 def test_host_backed_completed_cache_service_bandwidth(bh_1d_mesh_device, device_params, record_property):
     """Measure completed, not enqueue-only, exact expert-cache service."""
 
@@ -662,7 +685,7 @@ def test_host_backed_completed_cache_service_bandwidth(bh_1d_mesh_device, device
         preload = cache.preload_packed_host()
         completed = []
         for wave_index in range(20):
-            first = wave_index * 10
+            first = wave_index * 12
             before = cache.metrics()
             started = time.perf_counter()
             cache.ensure_indexed(range(first, first + 10))
@@ -673,8 +696,8 @@ def test_host_backed_completed_cache_service_bandwidth(bh_1d_mesh_device, device
             after = cache.metrics()
             owner_bytes = int(after["h2d_bytes"] - before["h2d_bytes"])
             assert owner_bytes == 10 * 2_764_800
-            # Each controlled wave advances expert ids by ten, preserving the
-            # per-slot EP2 owner. The peer shard remains exact zero and all ten
+            # Each controlled wave advances expert ids by twelve, preserving the
+            # per-slot EP4 owner. The peer shards remain exact zero and all ten
             # peer resets should therefore be skipped.
             assert int(after["zero_d2d_bytes"] - before["zero_d2d_bytes"]) == 0
             assert int(after["zero_d2d_skips"] - before["zero_d2d_skips"]) == 10
@@ -703,7 +726,7 @@ def test_host_backed_completed_cache_service_bandwidth(bh_1d_mesh_device, device
         # Untimed all-slot exactness guard after the same-owner waves. This
         # catches staging alias/reordering errors and proves skipped peer-zero
         # copies left every non-owner shard exact zero.
-        for expert_id in range(190, 200):
+        for expert_id in range(228, 238):
             slot_index, record = next(
                 (slot_index, record)
                 for slot_index, record in enumerate(cache.directory.records)
@@ -711,18 +734,18 @@ def test_host_backed_completed_cache_service_bandwidth(bh_1d_mesh_device, device
             )
             exact = layer.host_expert_source.load(expert_id)
             slot = cache.slots[slot_index]
-            for rank in range(2):
+            for rank in range(MultichipDecoder.TP_SIZE):
                 gate_host = ttnn.to_torch(ttnn.get_device_tensors(slot.gate_up)[rank])
                 down_host = ttnn.to_torch(ttnn.get_device_tensors(slot.down)[rank])
                 assert H.pcc(exact.gate_up_by_rank[rank], gate_host) >= 0.99
                 assert H.pcc(exact.down_by_rank[rank], down_host) >= 0.99
         before_flip = cache.metrics()
-        cache.ensure_indexed(range(201, 211))
+        cache.ensure_indexed(range(229, 239))
         ttnn.synchronize_device(bh_1d_mesh_device)
         after_flip = cache.metrics()
         assert int(after_flip["zero_d2d_bytes"] - before_flip["zero_d2d_bytes"]) == 10 * EXPERT_PACKED_BYTES_PER_RANK
         assert int(after_flip["zero_d2d_resets"] - before_flip["zero_d2d_resets"]) == 10
-        for expert_id in range(201, 211):
+        for expert_id in range(229, 239):
             slot_index, record = next(
                 (slot_index, record)
                 for slot_index, record in enumerate(cache.directory.records)
@@ -730,7 +753,7 @@ def test_host_backed_completed_cache_service_bandwidth(bh_1d_mesh_device, device
             )
             exact = layer.host_expert_source.load(expert_id)
             slot = cache.slots[slot_index]
-            for rank in range(2):
+            for rank in range(MultichipDecoder.TP_SIZE):
                 gate_host = ttnn.to_torch(ttnn.get_device_tensors(slot.gate_up)[rank])
                 down_host = ttnn.to_torch(ttnn.get_device_tensors(slot.down)[rank])
                 assert H.pcc(exact.gate_up_by_rank[rank], gate_host) >= 0.99
@@ -774,6 +797,7 @@ def test_host_backed_completed_cache_service_bandwidth(bh_1d_mesh_device, device
     reason="explicit pure completed owner-H2D bandwidth benchmark",
 )
 @pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
+@_legacy_host_backed_tp2_only
 def test_host_backed_pure_completed_owner_h2d_bandwidth(bh_1d_mesh_device, device_params, record_property):
     """Measure packed source-to-physical-staging H2D and its final event only."""
 
@@ -818,15 +842,16 @@ def test_host_backed_pure_completed_owner_h2d_bandwidth(bh_1d_mesh_device, devic
 
 @pytest.mark.skipif(
     os.getenv("RUN_QWEN38_HOST_DMA_BENCH") != "1",
-    reason="explicit pure completed dual-owner H2D bandwidth benchmark",
+    reason="explicit pure completed all-owner H2D bandwidth benchmark",
 )
 @pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
+@_legacy_host_backed_tp2_only
 def test_host_backed_pure_completed_dual_owner_h2d_bandwidth(
     bh_1d_mesh_device,
     device_params,
     record_property,
 ):
-    """Measure only two concurrent source-to-physical-staging H2D transfers."""
+    """Measure one concurrent source-to-physical-staging H2D per TP4 rank."""
 
     bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
     checkpoint = SafetensorCheckpoint(H.MODEL_SNAPSHOT)
@@ -839,9 +864,9 @@ def test_host_backed_pure_completed_dual_owner_h2d_bandwidth(
         indexed_width=10,
     )
     try:
-        cache.probe_completed_dual_owner_h2d((0, 1))
-        rows = [cache.probe_completed_dual_owner_h2d((2, 3)) for _ in range(20)]
-        transferred_bytes = 2 * EXPERT_PACKED_BYTES_PER_RANK
+        cache.probe_completed_all_owner_h2d((0, 1, 2, 3))
+        rows = [cache.probe_completed_all_owner_h2d((4, 5, 6, 7)) for _ in range(20)]
+        transferred_bytes = MultichipDecoder.TP_SIZE * EXPERT_PACKED_BYTES_PER_RANK
         assert all(row["owner_h2d_bytes"] == transferred_bytes for row in rows)
         completed_seconds = sorted(float(row["completed_seconds"]) for row in rows)
         total_bytes = sum(int(row["owner_h2d_bytes"]) for row in rows)
@@ -870,8 +895,9 @@ def test_host_backed_pure_completed_dual_owner_h2d_bandwidth(
     reason="explicit multichip HF trajectory diagnostic",
 )
 @pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
+@_legacy_host_backed_tp2_only
 def test_host_backed_layer0_progressing_decode_against_hf(bh_1d_mesh_device, device_params):
-    """Compare the real host-backed TP2 layer with HF across twelve transitions."""
+    """Compare the real host-backed TP4 layer with HF across twelve transitions."""
 
     torch.manual_seed(20260828)
     bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
@@ -923,8 +949,9 @@ def test_host_backed_layer0_progressing_decode_against_hf(bh_1d_mesh_device, dev
 
 
 @pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
+@_legacy_host_backed_tp2_only
 def test_host_backed_real_ple_decode_matches_optimized_reference(bh_1d_mesh_device, device_params):
-    """Real PLE prefill/history/decode plus EP2 experts match optimized TTNN."""
+    """Real PLE prefill/history/decode plus EP4 experts match optimized TTNN."""
 
     torch.manual_seed(20260829)
     bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
@@ -992,8 +1019,34 @@ def test_host_backed_real_ple_decode_matches_optimized_reference(bh_1d_mesh_devi
 
 
 @pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
-def test_host_backed_qsa_paged_prefill_decode_matches_optimized_reference(bh_1d_mesh_device, device_params):
-    """EP2 output matches optimized TTNN while TP2 QSA caches stay exact."""
+@_legacy_host_backed_tp2_only
+def test_host_backed_qsa_paged_prefill_decode_matches_optimized_reference(
+    bh_1d_mesh_device,
+    device_params,
+    record_property,
+):
+    """TP4 host-backed and resident EP4 outputs match on identical QSA inputs."""
+
+    source_root = Path(__file__).parents[1]
+    source_files = (
+        "tt/host_weight_cache.py",
+        "tt/multichip_decoder.py",
+        "tt/optimized_decoder.py",
+        "tt/parallel_config.py",
+        "tt/resident_experts.py",
+        "tests/test_multichip_decoder.py",
+    )
+    source_digest = hashlib.sha256()
+    source_hashes = {}
+    for relative in source_files:
+        payload = (source_root / relative).read_bytes()
+        source_hashes[relative] = hashlib.sha256(payload).hexdigest()
+        source_digest.update(relative.encode())
+        source_digest.update(b"\0")
+        source_digest.update(payload)
+        source_digest.update(b"\0")
+    record_property("source_digest", source_digest.hexdigest())
+    record_property("source_digest_files", json.dumps(source_hashes, sort_keys=True))
 
     torch.manual_seed(20260830)
     bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
@@ -1008,13 +1061,14 @@ def test_host_backed_qsa_paged_prefill_decode_matches_optimized_reference(bh_1d_
         max_batch=1,
         max_seq_len=4096,
     )
-    resident = MultichipDecoder.from_state_dict(
-        state,
+    resident = MultichipDecoder.from_checkpoint_resident(
+        H.MODEL_SNAPSHOT,
         hf_config=config,
         layer_idx=3,
         mesh_device=mesh_device,
         max_batch=1,
         max_seq_len=4096,
+        resident_weight_cache_path=os.environ.get("QWEN38_EXPERT_WEIGHT_CACHE"),
     )
     host_backed = MultichipDecoder.from_checkpoint_host_backed(
         H.MODEL_SNAPSHOT,
@@ -1047,7 +1101,20 @@ def test_host_backed_qsa_paged_prefill_decode_matches_optimized_reference(bh_1d_
         rot_mats=rot,
     )
     ttnn.synchronize_device(mesh_device)
-    assert H.pcc(_rank_zero_host(reference_prefill), _rank_zero_host(host_prefill)) >= 0.995
+    reference_prefill_host = _rank_zero_host(reference_prefill)
+    resident_prefill_host = _rank_zero_host(resident_prefill)
+    host_prefill_host = _rank_zero_host(host_prefill)
+    reference_host_prefill_pcc = H.pcc(reference_prefill_host, host_prefill_host)
+    resident_host_prefill_pcc = H.pcc(resident_prefill_host, host_prefill_host)
+    print(
+        "MC_EXPERT_PATH_AB phase=prefill layer=3 "
+        f"reference_host_pcc={reference_host_prefill_pcc:.8f} "
+        f"resident_host_pcc={resident_host_prefill_pcc:.8f}"
+    )
+    record_property("reference_host_prefill_pcc", reference_host_prefill_pcc)
+    record_property("resident_host_prefill_pcc", resident_host_prefill_pcc)
+    assert reference_host_prefill_pcc >= 0.995
+    assert resident_host_prefill_pcc >= 0.995
     for resident_cache, host_cache in zip(resident.kv_cache, host_backed.kv_cache):
         for resident_rank, host_rank in zip(
             ttnn.get_device_tensors(resident_cache),
@@ -1082,9 +1149,25 @@ def test_host_backed_qsa_paged_prefill_decode_matches_optimized_reference(bh_1d_
         rot_mats=rot,
     )
     ttnn.synchronize_device(mesh_device)
-    assert H.pcc(_rank_zero_host(reference_out), _rank_zero_host(host_out)) >= 0.995
+    reference_decode_host = _rank_zero_host(reference_out)
+    resident_decode_host = _rank_zero_host(resident_out)
+    host_decode_host = _rank_zero_host(host_out)
+    reference_host_decode_pcc = H.pcc(reference_decode_host, host_decode_host)
+    resident_host_decode_pcc = H.pcc(resident_decode_host, host_decode_host)
+    print(
+        "MC_EXPERT_PATH_AB phase=decode layer=3 "
+        f"reference_host_pcc={reference_host_decode_pcc:.8f} "
+        f"resident_host_pcc={resident_host_decode_pcc:.8f}"
+    )
+    record_property("reference_host_decode_pcc", reference_host_decode_pcc)
+    record_property("resident_host_decode_pcc", resident_host_decode_pcc)
+    assert reference_host_decode_pcc >= 0.995
+    assert resident_host_decode_pcc >= 0.995
     assert torch.equal(_rank_zero_host(host_out), ttnn.to_torch(ttnn.get_device_tensors(host_out)[1]))
     assert host_backed.host_expert_cache.metrics()["misses"] >= 10
+    record_property("host_expert_metrics", json.dumps(host_backed.host_expert_cache.metrics(), sort_keys=True))
+    record_property("resident_expert_metrics", json.dumps(resident.resident_experts.metrics(), sort_keys=True))
+    resident.close_host_backing()
     host_backed.close_host_backing()
 
 
@@ -1093,6 +1176,7 @@ def test_host_backed_qsa_paged_prefill_decode_matches_optimized_reference(bh_1d_
     [_multichip_device_params(trace_region_size=100_000_000)],
     indirect=True,
 )
+@_legacy_host_backed_tp2_only
 def test_host_backed_segmented_trace_replay_matches_direct_qsa_decode(bh_1d_mesh_device, device_params):
     """Stable QSA front/back traces bracket exact expert service."""
 
@@ -1201,6 +1285,7 @@ def test_host_backed_segmented_trace_replay_matches_direct_qsa_decode(bh_1d_mesh
     indirect=True,
 )
 @pytest.mark.parametrize("layer_idx", (0, 1))
+@_legacy_host_backed_tp2_only
 def test_host_backed_gdn_segmented_trace_progression(bh_1d_mesh_device, device_params, layer_idx):
     """Progressing GDN/PLE state survives warm capture and changing replay."""
 
@@ -1411,6 +1496,7 @@ def test_host_backed_gdn_segmented_trace_progression(bh_1d_mesh_device, device_p
 
 
 @pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
+@_legacy_host_backed_tp2_only
 def test_host_backed_shared_decode_state_workspace_stack(bh_1d_mesh_device, device_params):
     """Two real GDN layers share one fixed L1 workspace and DRAM state."""
 
@@ -1482,6 +1568,7 @@ def test_host_backed_shared_decode_state_workspace_stack(bh_1d_mesh_device, devi
     [_multichip_device_params(trace_region_size=200_000_000)],
     indirect=True,
 )
+@_legacy_host_backed_tp2_only
 def test_host_backed_shared_workspace_segmented_trace_stack(bh_1d_mesh_device, device_params):
     """Two live layer traces safely reuse one fixed L1 state workspace."""
 
@@ -1755,7 +1842,9 @@ def test_multichip_real_weights_match_optimized_baseline(bh_1d_mesh_device, devi
         baseline_value = _rank_zero_host(baseline_captures[name])
         local_values = [ttnn.to_torch(shard) for shard in ttnn.get_device_tensors(multichip_captures[name])]
         multichip_value = (
-            torch.cat(local_values, dim=-1) if int(multichip_captures[name].shape[-1]) == 1280 else local_values[0]
+            local_values[0]
+            if local_values[0].numel() == baseline_value.numel()
+            else torch.cat(local_values, dim=-1)
         )
         block_pcc = H.pcc(baseline_value, multichip_value)
         print(f"MULTICHIPBLOCKPCC layer={layer_idx} block={name} pcc={block_pcc:.8f}")

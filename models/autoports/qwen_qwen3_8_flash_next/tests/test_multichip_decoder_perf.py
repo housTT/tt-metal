@@ -222,6 +222,94 @@ def _capture_gdn_prefill_pipeline(layer):
     return captures
 
 
+def _capture_gdn_decode_pipeline(layer):
+    """Clone the same narrow boundaries for one eager decode step."""
+
+    captures = {
+        name: []
+        for name in (
+            "hyper_mix",
+            "gdn",
+            "gdn_inputs",
+            "split_gdn",
+            "prefill_conv",
+            "gdn_epilogue",
+            "gdn_norm",
+            "gdn_out_input",
+            "hyper_inject",
+            "routing",
+            "routed",
+            "moe",
+        )
+    }
+
+    def wrap_tuple(name, method_name):
+        original = getattr(layer, method_name)
+
+        def wrapped(*args, **kwargs):
+            output = original(*args, **kwargs)
+            captures[name].append(tuple(ttnn.clone(value, memory_config=ttnn.DRAM_MEMORY_CONFIG) for value in output))
+            return output
+
+        setattr(layer, method_name, wrapped)
+
+    def wrap_tensor(name, method_name, *, capture_inputs=False):
+        original = getattr(layer, method_name)
+
+        def wrapped(*args, **kwargs):
+            inputs = ()
+            if capture_inputs:
+                inputs = tuple(
+                    ttnn.clone(value, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                    for value in args
+                    if isinstance(value, ttnn.Tensor)
+                )
+            output = original(*args, **kwargs)
+            captures[name].append(
+                (inputs, ttnn.clone(output, memory_config=ttnn.DRAM_MEMORY_CONFIG))
+                if capture_inputs
+                else ttnn.clone(output, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            )
+            return output
+
+        setattr(layer, method_name, wrapped)
+
+    wrap_tuple("hyper_mix", "_hyper_mix")
+    wrap_tuple("gdn_inputs", "_gdn_inputs")
+    wrap_tuple("split_gdn", "_split_gdn")
+    wrap_tuple("prefill_conv", "_fused_gdn_prefill_conv")
+    wrap_tensor("gdn", "_gdn_decode", capture_inputs=True)
+    wrap_tensor("gdn_epilogue", "_gdn_epilogue", capture_inputs=True)
+    wrap_tensor("hyper_inject", "_hyper_inject", capture_inputs=True)
+    wrap_tensor("routing", "_routing_from_logits", capture_inputs=True)
+    wrap_tensor("routed", "_routed_experts", capture_inputs=True)
+    wrap_tensor("moe", "_moe", capture_inputs=True)
+
+    original_rms_norm = layer._rms_norm
+
+    def wrapped_rms_norm(x, weight, epsilon, **kwargs):
+        output = original_rms_norm(x, weight, epsilon, **kwargs)
+        if weight is layer.w["gdn_norm"]:
+            captures["gdn_norm"].append(
+                (
+                    ttnn.clone(x, memory_config=ttnn.DRAM_MEMORY_CONFIG),
+                    ttnn.clone(output, memory_config=ttnn.DRAM_MEMORY_CONFIG),
+                )
+            )
+        return output
+
+    layer._rms_norm = wrapped_rms_norm
+    original_linear = layer._linear
+
+    def wrapped_linear(x, weight, **kwargs):
+        if weight is layer.w["gdn_out"]:
+            captures["gdn_out_input"].append(ttnn.clone(x, memory_config=ttnn.DRAM_MEMORY_CONFIG))
+        return original_linear(x, weight, **kwargs)
+
+    layer._linear = wrapped_linear
+    return captures
+
+
 def _capture_host(tensor, *, reduce_partials=False):
     shards = [ttnn.to_torch(shard).float() for shard in ttnn.get_device_tensors(tensor)]
     return sum(shards[1:], shards[0]) if reduce_partials else shards[0]
@@ -939,7 +1027,10 @@ def test_host_backed_warmed_prefill_and_segmented_decode(bh_1d_mesh_device, devi
     [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
     indirect=True,
 )
-@pytest.mark.parametrize("edge", ("baseline_tp", "residual", "host", "ep_host_baseline"))
+@pytest.mark.parametrize(
+    "edge",
+    ("baseline_tp", "residual", "host", "ep_host_baseline", "resident_baseline"),
+)
 def test_gdn_prefill_residual_topology_diagnostic(bh_1d_mesh_device, device_params, edge):
     """AutoFix ladder for the current real-activation layer-0 prefill miss."""
 
@@ -956,7 +1047,19 @@ def test_gdn_prefill_residual_topology_diagnostic(bh_1d_mesh_device, device_para
         max_batch=1,
         max_seq_len=128,
     )
-    hidden, _, _ = _real_activations(0)
+    tricky_reference = None
+    if os.environ.get("QWEN38_MC_DIAG_INPUT") == "tricky125":
+        tricky_reference = torch.load(
+            os.path.join(
+                os.path.dirname(__file__),
+                "../doc/correctness/tricky_prefill_125_layerwise_hf.refpt",
+            ),
+            map_location="cpu",
+            weights_only=False,
+        )
+        hidden = tricky_reference["embedding"].unsqueeze(0)
+    else:
+        hidden, _, _ = _real_activations(0)
     logical = HOST_PREFILL_SEQ_LEN
     logical_hidden = hidden[:, :, :logical].contiguous()
     activation_hash = _sha256_tensors(logical_hidden)
@@ -1007,9 +1110,20 @@ def test_gdn_prefill_residual_topology_diagnostic(bh_1d_mesh_device, device_para
         rhs_output = rhs.prefill_forward_fractured(fractured_hidden)
         lhs_host = ttnn.to_torch(ttnn.get_device_tensors(lhs_output)[0])
         rhs_host = _fractured_host(rhs_output)
-    else:
+    elif edge == "host":
         lhs = MultichipDecoder.from_state_dict(state, fractured_residual=True, **common)
         rhs = MultichipDecoder.from_checkpoint_host_backed(H.MODEL_SNAPSHOT, **common)
+        lhs_output = lhs.prefill_forward_fractured(fractured_hidden)
+        rhs_output = rhs.prefill_forward_fractured(fractured_hidden)
+        lhs_host = _fractured_host(lhs_output)
+        rhs_host = _fractured_host(rhs_output)
+    else:
+        lhs = MultichipDecoder.from_state_dict(state, fractured_residual=True, **common)
+        rhs = MultichipDecoder.from_checkpoint_resident(
+            H.MODEL_SNAPSHOT,
+            resident_weight_cache_path=os.environ.get("QWEN38_EXPERT_WEIGHT_CACHE"),
+            **common,
+        )
         lhs_output = lhs.prefill_forward_fractured(fractured_hidden)
         rhs_output = rhs.prefill_forward_fractured(fractured_hidden)
         lhs_host = _fractured_host(lhs_output)
@@ -1017,8 +1131,6 @@ def test_gdn_prefill_residual_topology_diagnostic(bh_1d_mesh_device, device_para
     del state
     ttnn.synchronize_device(mesh_device)
     if edge == "baseline_tp":
-        _print_gdn_expert_weight_pcc(lhs, rhs)
-        _print_gdn_sparse_stage_pcc(lhs_sparse, rhs_sparse)
         _print_gdn_prefill_pipeline_pcc(lhs_captures, rhs_captures)
     elif edge == "ep_host_baseline":
         baseline_routed = lhs_captures["routed"][0][1]
@@ -1030,7 +1142,358 @@ def test_gdn_prefill_residual_topology_diagnostic(bh_1d_mesh_device, device_para
         "MC_GDN_PREFILL_RESIDUAL_DIAG "
         f"layer=0 edge={edge} seq={logical} activation_sha256={activation_hash} output_pcc={output_pcc:.8f}"
     )
+    if tricky_reference is not None:
+        expected = tricky_reference["hidden_states"][0]
+        print(
+            "MC_GDN_PREFILL_HF_DIAG "
+            f"layer=0 edge={edge} baseline_hf_pcc={H.pcc(expected, lhs_host):.8f} "
+            f"candidate_hf_pcc={H.pcc(expected, rhs_host):.8f}"
+        )
+        if edge == "baseline_tp":
+            hf = tricky_reference["layer0_boundaries"]
+
+            def logical_host(value):
+                host = _capture_host(value)
+                if host.ndim == 4:
+                    host = host[:, 0]
+                return host[:, :logical]
+
+            for label, tt_value, hf_value in (
+                ("attn_hyper_mix.mixed", lhs_captures["hyper_mix"][0][0], hf["attn_hyper_mix"][0]),
+                ("attn_hyper_mix.hyper", lhs_captures["hyper_mix"][0][1], hf["attn_hyper_mix"][1]),
+                ("attn_hyper_mix.injection", lhs_captures["hyper_mix"][0][2], hf["attn_hyper_mix"][2]),
+                ("gdn", lhs_captures["gdn"][0][1], hf["gdn"]),
+                ("mlp_hyper_mix.mixed", lhs_captures["hyper_mix"][1][0], hf["mlp_hyper_mix"][0]),
+                ("mlp_hyper_mix.hyper", lhs_captures["hyper_mix"][1][1], hf["mlp_hyper_mix"][1]),
+                ("mlp_hyper_mix.injection", lhs_captures["hyper_mix"][1][2], hf["mlp_hyper_mix"][2]),
+                ("routed_experts", lhs_captures["routed"][0][1], hf["routed_experts"]),
+                ("moe", lhs_captures["moe"][0][1], hf["moe"]),
+            ):
+                print(
+                    "MC_GDN_PREFILL_HF_BOUNDARY "
+                    f"boundary={label} pcc={H.pcc(hf_value, logical_host(tt_value)):.8f}"
+                )
     assert output_pcc >= H.PCC_BAR
+
+
+@pytest.mark.parametrize(
+    "device_params",
+    [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
+    indirect=True,
+)
+@pytest.mark.parametrize("layer_idx", (0, 1, 3))
+def test_resident_prefill_matches_replicated_current_topology(
+    bh_1d_mesh_device,
+    device_params,
+    layer_idx,
+):
+    """Localize resident EP4 drift before running the expensive full stack."""
+
+    if os.environ.get("QWEN38_MC_RUN_RESIDENT_PREFILL_AB", "0") != "1":
+        pytest.skip("set QWEN38_MC_RUN_RESIDENT_PREFILL_AB=1 for the resident/replicated prefill A/B")
+    del device_params
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    mesh_device = bh_1d_mesh_device
+    max_seq_len = 4096 if layer_idx == 3 else 128
+    common = dict(
+        hf_config=H.target_config(),
+        layer_idx=layer_idx,
+        mesh_device=mesh_device,
+        max_batch=1,
+        max_seq_len=max_seq_len,
+    )
+    state = H.load_real_layer_state(layer_idx)
+    replicated = MultichipDecoder.from_state_dict(state, fractured_residual=True, **common)
+    del state
+    resident = MultichipDecoder.from_checkpoint_resident(
+        H.MODEL_SNAPSHOT,
+        resident_weight_cache_path=os.environ.get("QWEN38_EXPERT_WEIGHT_CACHE"),
+        **common,
+    )
+    hidden_host, ple_host, _ = _real_activations(layer_idx)
+    logical = HOST_PREFILL_SEQ_LEN
+    logical_hidden = hidden_host[:, :, :logical].contiguous()
+    hidden = _fractured_upload(logical_hidden, mesh_device)
+    prefill_kwargs = {}
+    allocated = []
+    if layer_idx == 1:
+        ple = _upload(ple_host[:, :, :logical], mesh_device)
+        allocated.append(ple)
+        prefill_kwargs["ple_embeddings"] = ple
+    elif layer_idx == 3:
+        cos, sin = H.rope_tables(max_seq_len)
+        page_host = H.shuffled_page_table(max_seq_len)
+        page, chunk_pages, rot = _paged_inputs(
+            replicated,
+            mesh_device,
+            page_host,
+            cos,
+            sin,
+            prefill_seq_len=logical,
+        )
+        allocated.extend((page, *chunk_pages, *rot))
+        prefill_kwargs.update(page_table=page, page_tables_per_chunk=chunk_pages, rot_mats=rot)
+
+    lhs_output = replicated.prefill_forward_fractured(hidden, **prefill_kwargs)
+    rhs_output = resident.prefill_forward_fractured(hidden, **prefill_kwargs)
+    ttnn.synchronize_device(mesh_device)
+    output_pcc = H.pcc(_fractured_host(lhs_output), _fractured_host(rhs_output))
+    print(
+        "MC_RESIDENT_PREFILL_AB "
+        f"layer={layer_idx} seq={logical} "
+        f"activation_sha256={_sha256_tensors(logical_hidden)} output_pcc={output_pcc:.8f}"
+    )
+    assert output_pcc >= H.PCC_BAR
+
+    for tensor in (lhs_output, rhs_output, hidden, *allocated):
+        if isinstance(tensor, ttnn.Tensor) and tensor.is_allocated():
+            ttnn.deallocate(tensor)
+    resident.close_host_backing()
+
+
+@pytest.mark.parametrize(
+    "device_params",
+    [{"fabric_config": ttnn.FabricConfig.FABRIC_1D, "trace_region_size": 100_000_000}],
+    indirect=True,
+)
+def test_layer0_first_decode_hf_boundary_diagnostic(bh_1d_mesh_device, device_params):
+    """Localize first-step decode drift inside layer zero without loading all 48 layers."""
+
+    if os.environ.get("QWEN38_MC_RUN_DECODE_HF_DIAG", "0") != "1":
+        pytest.skip("set QWEN38_MC_RUN_DECODE_HF_DIAG=1 for the focused layer-0 decode oracle")
+    del device_params
+    bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+    mesh_device = bh_1d_mesh_device
+    reference = torch.load(
+        os.path.join(
+            os.path.dirname(__file__),
+            "../doc/correctness/aime24_decode1_layerwise_hf.refpt",
+        ),
+        map_location="cpu",
+        weights_only=False,
+    )
+    checkpoint = SafetensorCheckpoint(H.MODEL_SNAPSHOT)
+    embedding_weight = checkpoint.tensor("model.language_model.embed_tokens.weight")
+    prompt_ids = torch.as_tensor(reference["prompt_tokens"], dtype=torch.int64).reshape(1, -1)
+    teacher_id = torch.as_tensor(reference["teacher_token"], dtype=torch.int64).reshape(1, 1)
+    prompt_hidden = torch.nn.functional.embedding(prompt_ids, embedding_weight).repeat(1, 1, 4).unsqueeze(1)
+    teacher_hidden = torch.nn.functional.embedding(teacher_id, embedding_weight).repeat(1, 1, 4).unsqueeze(1)
+
+    state = H.load_real_layer_state(0)
+    layer = OptimizedDecoder.from_state_dict(
+        state,
+        hf_config=H.target_config(),
+        layer_idx=0,
+        mesh_device=mesh_device,
+        max_batch=1,
+        max_seq_len=4096,
+    )
+    del state
+    prompt_device = _upload(prompt_hidden, mesh_device)
+    teacher_device = _upload(teacher_hidden, mesh_device)
+    current_pos = _upload(
+        torch.tensor([prompt_ids.shape[1]], dtype=torch.int32),
+        mesh_device,
+        dtype=ttnn.int32,
+        layout=ttnn.ROW_MAJOR_LAYOUT,
+    )
+    prefill_output = layer.prefill_forward(prompt_device)
+    layer.prepare_decode_state()
+    recurrent_before_decode = ttnn.clone(layer.recurrent_state, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+    captures = _capture_gdn_decode_pipeline(layer)
+    output = layer.decode_forward(teacher_device, current_pos=current_pos)
+    full_device = _upload(torch.cat([prompt_hidden, teacher_hidden], dim=-2), mesh_device)
+    full_output = layer.prefill_forward(full_device)
+    prefix_control_output = layer.prefill_forward(prompt_device)
+    prefix_control_state = ttnn.clone(layer.user_recurrent_state[0], memory_config=ttnn.DRAM_MEMORY_CONFIG)
+    ttnn.synchronize_device(mesh_device)
+
+    def host(value):
+        result = _capture_host(value)
+        if result.ndim == 4:
+            result = result[:, 0]
+        return result
+
+    hf = reference["layer0_boundaries"]
+    full_last = host(full_output)[:, -1:]
+    print(
+        "MC_GDN_DECODE_HF_BOUNDARY "
+        f"boundary=full_sequence_prefill_layer_output pcc={H.pcc(reference['hidden_states'][0], full_last):.8f}"
+    )
+
+    def token_row(value, row):
+        value = host(value)
+        return value.reshape(-1, value.shape[-1])[row : row + 1]
+
+    def core_row(value, row):
+        value = _capture_host(value).reshape(1, -1, 48, 128)
+        return value[:, row : row + 1]
+
+    # The 202-token control is split into 128 + 74 logical rows; row 73 of
+    # the second microchunk is the same token consumed by recurrent decode.
+    full_row = 73
+    for name, decode_value, full_value in (
+        ("mixed_projection", captures["gdn_inputs"][0][0], captures["gdn_inputs"][2][0]),
+        ("z_projection", captures["gdn_inputs"][0][1], captures["gdn_inputs"][2][1]),
+        ("beta_projection", captures["gdn_inputs"][0][2], captures["gdn_inputs"][2][2]),
+        ("g_projection", captures["gdn_inputs"][0][3], captures["gdn_inputs"][2][3]),
+        ("conv_q", captures["split_gdn"][0][0], captures["prefill_conv"][1][0]),
+        ("conv_k", captures["split_gdn"][0][1], captures["prefill_conv"][1][1]),
+        ("conv_v", captures["split_gdn"][0][2], captures["prefill_conv"][1][2]),
+    ):
+        value = H.pcc(token_row(decode_value, 0), token_row(full_value, full_row))
+        print(f"MC_GDN_DECODE_PREFILL_BOUNDARY boundary={name} pcc={value:.8f}")
+    decode_core = captures["gdn_epilogue"][0][0][0]
+    full_core = captures["gdn_epilogue"][2][0][0]
+    # Core tensors are [B, T, H, V], unlike the public [B, 1, T, W]
+    # tensors handled by host(); do not discard their token dimension.
+    decode_core_all = _capture_host(decode_core)
+    full_core_all = _capture_host(full_core)
+    decode_core_host = decode_core_all.reshape(1, 1, 48, 128)
+    full_core_host = full_core_all.reshape(1, -1, 48, 128)[:, full_row : full_row + 1]
+    q_host = token_row(captures["split_gdn"][0][0], 0).reshape(1, 1, 16, 128).float()
+    k_host = token_row(captures["split_gdn"][0][1], 0).reshape(1, 1, 16, 128).float()
+    v_host = token_row(captures["split_gdn"][0][2], 0).reshape(1, 1, 48, 128).float()
+    q_host = q_host.repeat_interleave(3, dim=2)
+    k_host = k_host.repeat_interleave(3, dim=2)
+    q_host = q_host / torch.sqrt(torch.sum(q_host * q_host, dim=-1, keepdim=True) + 1e-6)
+    k_host = k_host / torch.sqrt(torch.sum(k_host * k_host, dim=-1, keepdim=True) + 1e-6)
+    q_host = q_host * (1.0 / math.sqrt(128))
+    q_host = q_host.permute(0, 2, 1, 3)
+    k_host = k_host.permute(0, 2, 1, 3)
+    v_host = v_host.permute(0, 2, 1, 3)
+    beta_host = token_row(captures["gdn_inputs"][0][2], 0).reshape(1, 48, 1, 1).float()
+    g_host = token_row(captures["gdn_inputs"][0][3], 0).reshape(1, 48, 1, 1).float()
+    state_host = _capture_host(recurrent_before_decode).float()
+    decayed = state_host * torch.exp(g_host)
+    memory = k_host @ decayed
+    delta = (v_host - memory) * beta_host
+    updated = decayed + k_host.transpose(-2, -1) @ delta
+    cpu_core = (q_host @ updated).permute(0, 2, 1, 3)
+    print(
+        "MC_GDN_DECODE_PREFILL_BOUNDARY "
+        f"boundary=delta_rule_core pcc={H.pcc(decode_core_host, full_core_host):.8f} "
+        f"decode_shape={tuple(decode_core_all.shape)} full_shape={tuple(full_core_all.shape)} "
+        f"decode_norm={torch.linalg.vector_norm(decode_core_host).item():.8f} "
+        f"full_norm={torch.linalg.vector_norm(full_core_host).item():.8f}"
+    )
+    print(
+        "MC_GDN_DECODE_PREFILL_BOUNDARY "
+        f"boundary=cpu_recurrence_vs_tt_decode pcc={H.pcc(cpu_core, decode_core_host):.8f}"
+    )
+    print(
+        "MC_GDN_DECODE_PREFILL_BOUNDARY "
+        f"boundary=cpu_recurrence_vs_full_prefill pcc={H.pcc(cpu_core, full_core_host):.8f} "
+        f"state_norm={torch.linalg.vector_norm(state_host).item():.8f} state_max={state_host.abs().max().item():.8f}"
+    )
+    decode_gdn = captures["gdn_epilogue"][0][1]
+    full_gdn = captures["gdn_epilogue"][2][1]
+    for name, decode_value, full_value in (
+        ("gdn_norm_input", captures["gdn_norm"][0][0], captures["gdn_norm"][2][0]),
+        ("gdn_norm_output", captures["gdn_norm"][0][1], captures["gdn_norm"][2][1]),
+    ):
+        print(
+            "MC_GDN_DECODE_PREFILL_BOUNDARY "
+            f"boundary={name} pcc={H.pcc(core_row(decode_value, 0), core_row(full_value, full_row)):.8f}"
+        )
+    decode_z = captures["gdn_epilogue"][0][0][1]
+    full_z = captures["gdn_epilogue"][2][0][1]
+    print(
+        "MC_GDN_DECODE_PREFILL_BOUNDARY "
+        f"boundary=gdn_z pcc={H.pcc(token_row(decode_z, 0), token_row(full_z, full_row)):.8f}"
+    )
+    decode_norm_host = core_row(captures["gdn_norm"][0][1], 0).reshape(1, -1)
+    full_norm_host = core_row(captures["gdn_norm"][2][1], full_row).reshape(1, -1)
+    decode_z_host = token_row(decode_z, 0)
+    full_z_host = token_row(full_z, full_row)
+    decode_gate_cpu = decode_norm_host * torch.sigmoid(decode_z_host)
+    full_gate_cpu = full_norm_host * torch.sigmoid(full_z_host)
+    decode_gate_tt = token_row(captures["gdn_out_input"][0], 0)
+    full_gate_tt = token_row(captures["gdn_out_input"][2], full_row)
+    print(
+        "MC_GDN_DECODE_PREFILL_BOUNDARY "
+        f"boundary=cpu_gate_decode_vs_tt pcc={H.pcc(decode_gate_cpu, decode_gate_tt):.8f}"
+    )
+    print(
+        "MC_GDN_DECODE_PREFILL_BOUNDARY "
+        f"boundary=cpu_gate_full_vs_tt pcc={H.pcc(full_gate_cpu, full_gate_tt):.8f}"
+    )
+    print(
+        "MC_GDN_DECODE_PREFILL_BOUNDARY "
+        f"boundary=gdn_out_input pcc={H.pcc(decode_gate_tt, full_gate_tt):.8f}"
+    )
+    print(
+        "MC_GDN_DECODE_PREFILL_BOUNDARY "
+        f"boundary=gdn_output pcc={H.pcc(token_row(decode_gdn, 0), token_row(full_gdn, full_row)):.8f}"
+    )
+
+    def prefix_rows(values, widths):
+        pieces = []
+        for value, width in zip(values[-2:], widths):
+            value = host(value)
+            pieces.append(value.reshape(-1, value.shape[-1])[:width])
+        return torch.cat(pieces, dim=0).float()
+
+    prefix_q = prefix_rows([value[0] for value in captures["prefill_conv"]], (128, 73)).reshape(201, 16, 128)
+    prefix_k = prefix_rows([value[1] for value in captures["prefill_conv"]], (128, 73)).reshape(201, 16, 128)
+    prefix_v = prefix_rows([value[2] for value in captures["prefill_conv"]], (128, 73)).reshape(201, 48, 128)
+    prefix_beta = prefix_rows([value[2] for value in captures["gdn_inputs"]], (128, 73)).reshape(201, 48)
+    prefix_g = prefix_rows([value[3] for value in captures["gdn_inputs"]], (128, 73)).reshape(201, 48)
+    prefix_q = prefix_q.repeat_interleave(3, dim=1)
+    prefix_k = prefix_k.repeat_interleave(3, dim=1)
+    prefix_q = prefix_q / torch.sqrt(torch.sum(prefix_q * prefix_q, dim=-1, keepdim=True) + 1e-6)
+    prefix_k = prefix_k / torch.sqrt(torch.sum(prefix_k * prefix_k, dim=-1, keepdim=True) + 1e-6)
+    cpu_state = torch.zeros(48, 128, 128)
+    for token in range(201):
+        cpu_state = cpu_state * torch.exp(prefix_g[token]).reshape(48, 1, 1)
+        key = prefix_k[token].reshape(48, 1, 128)
+        value = prefix_v[token].reshape(48, 1, 128)
+        delta = (value - key @ cpu_state) * prefix_beta[token].reshape(48, 1, 1)
+        cpu_state = cpu_state + key.transpose(-2, -1) @ delta
+    control_state_host = _capture_host(prefix_control_state).float().reshape(48, 128, 128)
+    print(
+        "MC_GDN_DECODE_PREFILL_BOUNDARY "
+        f"boundary=exported_state_vs_sequential_reference pcc={H.pcc(cpu_state, control_state_host):.8f} "
+        f"relative_l2={(torch.linalg.vector_norm(control_state_host - cpu_state) / torch.linalg.vector_norm(cpu_state)).item():.8f}"
+    )
+    print(
+        "MC_GDN_DECODE_PREFILL_BOUNDARY "
+        f"boundary=repeated_prefill_state pcc={H.pcc(state_host.reshape(48, 128, 128), control_state_host):.8f}"
+    )
+    reports = []
+    for label, tt_value, hf_value in (
+        ("attn_hyper_mix.mixed", captures["hyper_mix"][0][0], hf["attn_hyper_mix"][0]),
+        ("attn_hyper_mix.hyper", captures["hyper_mix"][0][1], hf["attn_hyper_mix"][1]),
+        ("attn_hyper_mix.injection", captures["hyper_mix"][0][2], hf["attn_hyper_mix"][2]),
+        ("gdn", captures["gdn"][0][1], hf["gdn"]),
+        ("mlp_hyper_mix.mixed", captures["hyper_mix"][1][0], hf["mlp_hyper_mix"][0]),
+        ("mlp_hyper_mix.hyper", captures["hyper_mix"][1][1], hf["mlp_hyper_mix"][1]),
+        ("mlp_hyper_mix.injection", captures["hyper_mix"][1][2], hf["mlp_hyper_mix"][2]),
+        ("moe", captures["moe"][0][1], hf["moe"]),
+        ("layer_output", output, reference["hidden_states"][0]),
+    ):
+        value = H.pcc(torch.as_tensor(hf_value), host(tt_value))
+        reports.append((label, value))
+        print(f"MC_GDN_DECODE_HF_BOUNDARY boundary={label} pcc={value:.8f}")
+
+    report_by_label = dict(reports)
+    assert report_by_label["attn_hyper_mix.mixed"] >= 0.99
+    assert report_by_label["gdn"] >= 0.999
+    assert report_by_label["layer_output"] >= 0.998
+    for tensor in (
+        prefill_output,
+        output,
+        full_output,
+        prefix_control_output,
+        prefix_control_state,
+        full_device,
+        prompt_device,
+        teacher_device,
+        current_pos,
+        recurrent_before_decode,
+    ):
+        if isinstance(tensor, ttnn.Tensor) and tensor.is_allocated():
+            ttnn.deallocate(tensor)
 
 
 @pytest.mark.parametrize(

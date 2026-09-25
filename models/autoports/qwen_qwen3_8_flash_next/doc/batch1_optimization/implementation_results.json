@@ -1,0 +1,77 @@
+{
+  "date": "2026-09-03",
+  "workload": {
+    "mesh": "P300 4x1",
+    "parallelism": "TP4+EP4",
+    "batch": 1,
+    "prompt_tokens": 128,
+    "generated_tokens": 128,
+    "measured_decode_tokens": 126,
+    "max_sequence_tokens": 4096,
+    "qsa_selector_compressed_blocks": 512,
+    "sampling": "device greedy",
+    "prefill_schedule": "stack_major",
+    "decode_trace_schedule": "resident_stack"
+  },
+  "baseline": {
+    "prefill_seconds": 1.397435,
+    "ttft_seconds": 1.412479,
+    "decode_seconds_per_token": 0.0875358,
+    "decode_tokens_per_second_per_user": 11.4239
+  },
+  "result": {
+    "prefill_seconds": 1.1637688179616816,
+    "ttft_seconds": 1.17384675698122,
+    "decode_capture_seconds": 1.3217407109914348,
+    "decode_seconds": 11.022407288954128,
+    "decode_seconds_per_token": 0.08747942292820736,
+    "decode_tokens_per_second_per_user": 11.431259678298064,
+    "trace_replays": 126,
+    "trace_segments_per_replay": 2,
+    "runtime_expert_weight_h2d_bytes": 0,
+    "runtime_expert_route_d2h_bytes": 0
+  },
+  "speculative_decode": {
+    "checkpoint_mtp_layers": 1,
+    "enabled": false,
+    "target_multi_token_verifier": false,
+    "state_rollback": false,
+    "ple_ngram_role": "model feature lookup, not a draft-token proposer"
+  },
+  "endpoint": {
+    "workload": {
+      "requests": 3,
+      "max_concurrency": 1,
+      "prompt_tokens": 128,
+      "generated_tokens": 128,
+      "temperature": 0,
+      "ignore_eos": true
+    },
+    "configured_context_262144": {
+      "mean_ttft_ms": 1390.0589560119745,
+      "median_ttft_ms": 1387.087173992768,
+      "p99_ttft_ms": 1397.5384810287505,
+      "mean_tpot_ms": 125.68687395531234,
+      "p99_tpot_ms": 125.73282626936921,
+      "decode_tokens_per_second_per_user": 7.956280306211988,
+      "output_throughput_tokens_per_second": 7.376458417034612
+    },
+    "configured_context_4096": {
+      "warmup_requests": 1,
+      "mean_ttft_ms": 1264.8441300261766,
+      "median_ttft_ms": 1265.1481379871257,
+      "p99_ttft_ms": 1270.5587964353617,
+      "mean_tpot_ms": 86.8357082885712,
+      "p99_tpot_ms": 86.87100670074926,
+      "decode_tokens_per_second_per_user": 11.515999808244946,
+      "output_throughput_tokens_per_second": 10.41225157597828
+    }
+  },
+  "validation": {
+    "full_48_layer_gate": "passed",
+    "stack_vs_layer_major_real_weight_gate": "passed",
+    "chunk_continuation_real_weight_gate": "passed",
+    "reduced_two_segment_trace_gate": "passed",
+    "endpoint_context_capacity_ab": "passed"
+  }
+}

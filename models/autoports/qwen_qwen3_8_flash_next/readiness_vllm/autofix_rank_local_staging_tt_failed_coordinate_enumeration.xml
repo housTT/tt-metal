@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="1.170" timestamp="2026-08-28T22:40:40.412861-04:00" hostname="tt-quietbox"><testcase classname="models.autoports.qwen_qwen3_8_flash_next.tests.test_multichip_decoder" name="test_rank_local_staging_coordinate_write_preserves_parent_topology[blackhole-True-device_params0]" time="1.120"><properties><property name="start_timestamp" value="2026-08-28T22:40:40" /><property name="end_timestamp" value="2026-08-28T22:40:41" /></properties><failure message="AssertionError: assert [(0, 0), (0, 1)] == [(0, 0), (0, 0)]&#10;  &#10;  At index 1 diff: (0, 1) != (0, 0)&#10;  &#10;  Full diff:&#10;    [&#10;        (&#10;            0,...&#10;  &#10;  ...Full output truncated (10 lines hidden), use '-vv' to show">bh_1d_mesh_device = MeshDevice(1x2 grid, 2 devices)
+device_params = {'fabric_config': FabricConfig.FABRIC_1D, 'fabric_router_config': &lt;ttnn._ttnn.fabric.FabricRouterConfig object at 0x72318e00adf0&gt;}
+
+    @pytest.mark.skipif(
+        os.getenv("RUN_QWEN38_RANK_LOCAL_STAGING_TT") != "1",
+        reason="explicit two-rank topology-preserving H2D regression",
+    )
+    @pytest.mark.parametrize("device_params", [_multichip_device_params()], indirect=True)
+    def test_rank_local_staging_coordinate_write_preserves_parent_topology(bh_1d_mesh_device, device_params):
+        """Prove concurrent owner writes touch one rank each without narrowing shared storage."""
+    
+        bh_1d_mesh_device.reshape(ttnn.MeshShape(*MultichipDecoder.TARGET_MESH))
+        mesh_device = bh_1d_mesh_device
+        coordinates = tuple(ttnn.MeshCoordinateRange(mesh_device.shape))
+        expected_coordinates = [tuple(coordinate) for coordinate in coordinates]
+        staging = _replicated_upload(torch.zeros((1, 1, 32, 32), dtype=torch.bfloat16), mesh_device)
+        target = _replicated_upload(torch.zeros((1, 1, 32, 32), dtype=torch.bfloat16), mesh_device)
+        hosts = tuple(
+            ttnn.from_torch(
+                torch.full((1, 1, 32, 32), float(rank + 1), dtype=torch.bfloat16),
+                dtype=ttnn.bfloat16,
+                layout=ttnn.TILE_LAYOUT,
+            )
+            for rank in range(2)
+        )
+        staging_shards = tuple(ttnn.get_device_tensors(staging))
+        target_shards = tuple(ttnn.get_device_tensors(target))
+    
+&gt;       assert [tuple(coordinate) for coordinate in staging.device_coords()] == expected_coordinates
+E       AssertionError: assert [(0, 0), (0, 1)] == [(0, 0), (0, 0)]
+E         
+E         At index 1 diff: (0, 1) != (0, 0)
+E         
+E         Full diff:
+E           [
+E               (
+E                   0,...
+E         
+E         ...Full output truncated (10 lines hidden), use '-vv' to show
+
+models/autoports/qwen_qwen3_8_flash_next/tests/test_multichip_decoder.py:427: AssertionError</failure></testcase></testsuite></testsuites>

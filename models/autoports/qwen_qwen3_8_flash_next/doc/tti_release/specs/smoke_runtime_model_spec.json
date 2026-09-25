@@ -1,0 +1,121 @@
+{
+  "model_id": "id_autoport_Qwen3.8-Flash-Next_p300_smoke",
+  "impl": {
+    "impl_id": "autoport_qwen_qwen3_8_flash_next",
+    "impl_name": "autoport-qwen-qwen3-8-flash-next",
+    "repo_url": "local://tt-metal",
+    "code_path": "models/autoports/qwen_qwen3_8_flash_next"
+  },
+  "hf_model_repo": "Qwen/Qwen3.8-Flash-Next",
+  "model_name": "Qwen3.8-Flash-Next",
+  "inference_engine": "vLLM",
+  "device_type": "P300",
+  "device_model_spec": {
+    "device": "P300",
+    "max_concurrency": 2,
+    "max_context": 262144,
+    "max_tokens_all_users_override": 262144,
+    "default_impl": true,
+    "perf_reference": [
+      {
+        "isl": 8,
+        "osl": 8,
+        "max_concurrency": 1,
+        "num_prompts": 1,
+        "task_type": "text",
+        "targets": {
+          "functional": {
+            "ttft_ms": 60000.0,
+            "tput_user": 0.1,
+            "tput": 0.1,
+            "tolerance": 0.0
+          }
+        }
+      }
+    ],
+    "vllm_args": {
+      "model": "Qwen/Qwen3.8-Flash-Next",
+      "block_size": "64",
+      "max_model_len": "262144",
+      "max_num_seqs": "2",
+      "max_num_batched_tokens": "262144",
+      "max-log-len": "32",
+      "seed": "9472",
+      "additional_config": "{\"tt\": {\"trace_region_size\": 1073741824, \"fabric_config\": \"FABRIC_1D\", \"fabric_packet_payload_bytes\": 8192, \"l1_small_size\": 24576, \"trace_mode\": \"decode_only\"}}"
+    },
+    "override_tt_config": {
+      "trace_region_size": 1073741824,
+      "fabric_config": "FABRIC_1D",
+      "fabric_packet_payload_bytes": 8192,
+      "l1_small_size": 24576,
+      "trace_mode": "decode_only"
+    },
+    "env_vars": {
+      "HF_MODEL": "Qwen/Qwen3.8-Flash-Next",
+      "MESH_DEVICE": "P300",
+      "ARCH_NAME": "blackhole",
+      "TT_VISIBLE_DEVICES": "0,1",
+      "QWEN38_HOST_MISS_WAVE_POLICY": "serial",
+      "QWEN38_HOST_STAGING_DEPTH": "1"
+    },
+    "tensor_cache_timeout": 7200.0,
+    "known_issues": []
+  },
+  "env_vars": {
+    "HF_MODEL": "Qwen/Qwen3.8-Flash-Next",
+    "MESH_DEVICE": "P300",
+    "ARCH_NAME": "blackhole",
+    "TT_VISIBLE_DEVICES": "0,1",
+    "QWEN38_HOST_MISS_WAVE_POLICY": "serial",
+    "QWEN38_HOST_STAGING_DEPTH": "1"
+  },
+  "tt_metal_commit": "60f1562e8ecf709bd778cb86c32dbfa5a06f8cb1",
+  "vllm_commit": "a48857ac68b17c31303e4809f348caaebbf10f74",
+  "hf_weights_repo": "Qwen/Qwen3.8-Flash-Next",
+  "param_count": 125,
+  "min_disk_gb": 380,
+  "min_ram_gb": 200.0,
+  "model_type": "LLM",
+  "repacked": 0,
+  "version": "0.20.0",
+  "docker_image": null,
+  "status": "FUNCTIONAL",
+  "code_link": "local://tt-metal/models/autoports/qwen_qwen3_8_flash_next@60f1562e8ecf709bd778cb86c32dbfa5a06f8cb1",
+  "override_tt_config": {
+    "trace_region_size": 1073741824,
+    "fabric_config": "FABRIC_1D",
+    "fabric_packet_payload_bytes": 8192,
+    "l1_small_size": 24576,
+    "trace_mode": "decode_only"
+  },
+  "supported_modalities": [
+    "text"
+  ],
+  "uses_tensor_model_cache": false,
+  "has_builtin_warmup": true,
+  "metadata": {
+    "autoport_path": "models/autoports/qwen_qwen3_8_flash_next",
+    "context_contract": "models/autoports/qwen_qwen3_8_flash_next/doc/context_contract.json",
+    "host_weight_contract": "models/autoports/qwen_qwen3_8_flash_next/doc/host_weight_contract.json",
+    "checkpoint_revision": "f5d08274bafd880402bd16f5e3e6c514136ec06c",
+    "prompt_mode": "chat",
+    "reasoning_parser_name": "qwen3"
+  },
+  "cli_args": {
+    "model": "Qwen3.8-Flash-Next",
+    "workflow": "benchmarks",
+    "device": "p300",
+    "tt_device": "p300",
+    "impl": "autoport-qwen-qwen3-8-flash-next",
+    "engine": "vllm",
+    "docker_server": false,
+    "local_server": false,
+    "service_port": "8021",
+    "server_url": "http://127.0.0.1",
+    "no_auth": true,
+    "skip_system_sw_validation": true,
+    "disable_trace_capture": true,
+    "limit_samples_mode": "smoke-test",
+    "runtime_model_spec_json": "/home/ttuser/dev/qwen3.8-flash-next/tt-metal/models/autoports/qwen_qwen3_8_flash_next/doc/tti_release/specs/smoke_runtime_model_spec.json"
+  }
+}

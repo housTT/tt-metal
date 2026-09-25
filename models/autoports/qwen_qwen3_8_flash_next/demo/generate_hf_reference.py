@@ -153,8 +153,50 @@ def _aime_prompt(tokenizer, prompt_file: Path):
     return item, messages, rendered, tokens
 
 
+def _manifest_prompt(tokenizer, manifest_path: Path, prompt_id: str):
+    """One teacher-set prompt from ``doc/correctness/teacher_set/manifest.json``.
+
+    An entry carries chat ``messages``; long-context entries add ``document_file``
+    (relative to the manifest), ``document_tokens`` (the document is repeated and
+    truncated to exactly that many tokens), ``document_prefix`` and ``question``.
+    ``template_kwargs`` are passed to ``apply_chat_template`` (e.g. enable_thinking).
+    """
+
+    manifest = json.loads(manifest_path.read_text())
+    entry = next((e for e in manifest["prompts"] if e["id"] == prompt_id), None)
+    if entry is None:
+        raise KeyError(f"prompt id {prompt_id!r} not in {manifest_path}")
+    messages = [dict(m) for m in entry.get("messages", [])]
+    if "document_file" in entry:
+        document = (manifest_path.parent / entry["document_file"]).read_text(errors="replace")
+        target = int(entry.get("document_tokens", 0))
+        if target:
+            ids = tokenizer(document, add_special_tokens=False)["input_ids"]
+            while len(ids) < target:
+                ids = ids + ids
+            document = tokenizer.decode(ids[:target])
+        messages.append(
+            {"role": "user", "content": f"{entry.get('document_prefix', '')}\n\n{document}\n\n{entry['question']}"}
+        )
+    kwargs = dict(entry.get("template_kwargs", {}))
+    rendered = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, **kwargs)
+    encoded = tokenizer.apply_chat_template(
+        messages, tokenize=True, add_generation_prompt=True, return_tensors="pt", **kwargs
+    )
+    tokens = encoded.input_ids if hasattr(encoded, "input_ids") else encoded
+    return entry, messages, rendered, tokens
+
+
 @torch.inference_mode()
-def generate(output: Path, *, expert_cache_capacity: int = 32, threads: int | None = None) -> dict:
+def generate(
+    output: Path,
+    *,
+    expert_cache_capacity: int = 32,
+    threads: int | None = None,
+    manifest: Path | None = None,
+    prompt_id: str | None = None,
+    generation_length: int = 100,
+) -> dict:
     if threads is not None:
         torch.set_num_threads(threads)
     snapshot = H.MODEL_SNAPSHOT
@@ -163,11 +205,23 @@ def generate(output: Path, *, expert_cache_capacity: int = 32, threads: int | No
     from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(snapshot, local_files_only=True)
-    item, messages, rendered, prompt = _aime_prompt(tokenizer, prompt_file)
+    if manifest is not None:
+        if not prompt_id:
+            raise ValueError("--prompt-id is required with --manifest")
+        item, messages, rendered, prompt = _manifest_prompt(tokenizer, manifest, prompt_id)
+        prompt_file = manifest
+        prompt_source = f"teacher_set:{prompt_id}"
+        prompt_index = str(prompt_id)
+        request_tag = f"hf-{prompt_id}"
+    else:
+        item, messages, rendered, prompt = _aime_prompt(tokenizer, prompt_file)
+        prompt_source = "DeepSeek AIME24 first prompt"
+        prompt_index = int(item["index"])
+        request_tag = "hf-aime24"
     load_started = time.perf_counter()
     model, ple_store, experts = _load_oracle(snapshot, expert_cache_capacity=expert_cache_capacity)
     load_seconds = time.perf_counter() - load_started
-    ple_store.reset_request("hf-aime24")
+    ple_store.reset_request(request_tag)
 
     generated = []
     top100_tokens = []
@@ -175,7 +229,7 @@ def generate(output: Path, *, expert_cache_capacity: int = 32, threads: int | No
     step_seconds = []
     past = None
     current = prompt
-    for step in range(100):
+    for step in range(generation_length):
         started = time.perf_counter()
         result = model(input_ids=current, past_key_values=past, use_cache=True, logits_to_keep=1)
         past = result.past_key_values
@@ -187,7 +241,7 @@ def generate(output: Path, *, expert_cache_capacity: int = 32, threads: int | No
         top100_values.append(values.cpu())
         current = token
         step_seconds.append(time.perf_counter() - started)
-        print(f"hf-reference step={step + 1}/100 seconds={step_seconds[-1]:.3f} token={int(token)}", flush=True)
+        print(f"hf-reference step={step + 1}/{generation_length} seconds={step_seconds[-1]:.3f} token={int(token)}", flush=True)
 
     generated_tensor = torch.tensor(generated, dtype=torch.int64)
     source_sha = hashlib.sha256(prompt_file.read_bytes()).hexdigest()
@@ -199,20 +253,22 @@ def generate(output: Path, *, expert_cache_capacity: int = 32, threads: int | No
             "checkpoint_revision": MODEL_REVISION,
             "tokenizer_class": type(tokenizer).__name__,
             "tokenizer_name_or_path": str(tokenizer.name_or_path),
-            "prompt_source": "DeepSeek AIME24 first prompt",
+            "prompt_source": prompt_source,
             "prompt_source_path": str(prompt_file),
             "prompt_source_sha256": source_sha,
-            "prompt_index": int(item["index"]),
+            "prompt_index": prompt_index,
+            "prompt_domain": item.get("domain") if isinstance(item, dict) else None,
             "chat_template": True,
             "chat_template_sha256": chat_sha,
-            "generation_length": 100,
+            "generation_length": generation_length,
             "top_k": 100,
             "sampling": "HF greedy",
             "weight_policy": "persistent non-expert HF BF16 plus exact bounded mmap experts and exact mmap PLE",
             "expert_cache_capacity_per_layer": expert_cache_capacity,
             "generation_command": (
                 "python -m models.autoports.qwen_qwen3_8_flash_next.demo.generate_hf_reference "
-                f"--output {output} --expert-cache-capacity {expert_cache_capacity}"
+                f"--output {output} --expert-cache-capacity {expert_cache_capacity} --generation-length {generation_length}"
+                + (f" --manifest {manifest} --prompt-id {prompt_id}" if manifest is not None else "")
             ),
         },
         "messages": messages,
@@ -258,8 +314,18 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--expert-cache-capacity", type=int, default=32)
     parser.add_argument("--threads", type=int)
+    parser.add_argument("--manifest", type=Path, help="teacher-set manifest JSON (default: the AIME24 prompt)")
+    parser.add_argument("--prompt-id", help="prompt id inside --manifest")
+    parser.add_argument("--generation-length", type=int, default=100)
     args = parser.parse_args()
-    generate(args.output, expert_cache_capacity=args.expert_cache_capacity, threads=args.threads)
+    generate(
+        args.output,
+        expert_cache_capacity=args.expert_cache_capacity,
+        threads=args.threads,
+        manifest=args.manifest,
+        prompt_id=args.prompt_id,
+        generation_length=args.generation_length,
+    )
 
 
 if __name__ == "__main__":

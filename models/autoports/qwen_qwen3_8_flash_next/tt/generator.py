@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-"""Standalone/readiness generator for Qwen3.8-Flash-Next on P300 TP2.
+"""Standalone/readiness generator for Qwen3.8-Flash-Next on P300 TP4+EP4.
 
 The optimized path uses the model's split traces: traced decoder segments,
 traced terminal projection, traced ``Sampling1D`` candidate sampling, direct
@@ -207,6 +207,7 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         self.async_feedback_host_reuses = 0
         self.async_feedback_device_fallbacks = 0
         self._serving_device_feedback_current = False
+        self._serving_pending_token_host: _ServingDecodeHost | None = None
         self._serving_sampling_signature = None
         self._serving_virtual_slots: dict[int, _ServingVirtualSlot] = {}
         self._serving_preempted_sampling: dict[object, tuple[tuple | None, tuple[object, ...] | None]] = {}
@@ -400,6 +401,27 @@ class Qwen38Generator(ModelCapabilitiesMixin):
             if current.request_id == request_id and current.external_generation == external_generation:
                 current.pending_token_host = (host, row)
 
+    def _attach_direct_token_host(self, output: _ServingDecodeOutput, host: _ServingDecodeHost) -> None:
+        """Publish the batch-one async read for the next PLE lookup.
+
+        vLLM already enqueues a compact read of every sampled token.  Reusing
+        that exact host object avoids a second synchronous D2H read from the
+        persistent token tensor before the next trace replay.
+        """
+
+        if output.kind == "tokens" and not output.slot_keys and output.rows == 1:
+            self._serving_pending_token_host = host
+
+    def _consume_direct_ple_token(self, state: Qwen38BatchState) -> torch.Tensor:
+        pending = self._serving_pending_token_host
+        if pending is not None:
+            self._serving_pending_token_host = None
+            values = pending.to_torch(self.model, is_tokens=True)
+            self.async_feedback_host_reuses = getattr(self, "async_feedback_host_reuses", 0) + 1
+            return values.reshape(-1)[:1]
+        self.async_feedback_device_fallbacks = getattr(self, "async_feedback_device_fallbacks", 0) + 1
+        return self.model.sampled_tokens_to_torch(state.token_input, state)
+
     def _consume_virtual_ple_token(self, virtual: _ServingVirtualSlot, state: Qwen38BatchState) -> torch.Tensor:
         """Reuse the plugin's compact D2H instead of issuing a duplicate read."""
 
@@ -540,12 +562,9 @@ class Qwen38Generator(ModelCapabilitiesMixin):
             if int(lengths.numel()) != self.model.max_batch:
                 raise ValueError("compile_prefill prompt_lens must match fixed slots")
         if sampling_params is not None:
-            self.model.set_sampling_params(
-                top_k=getattr(sampling_params, "top_k", 1),
-                top_p=getattr(sampling_params, "top_p", 0.0),
-                temperature=getattr(sampling_params, "temperature", 1.0),
-                seeds=getattr(sampling_params, "seed", None),
-            )
+            # Same bridge as serving: greedy normalization, penalty/logprob
+            # validation and entropy seeds for unseeded stochastic requests.
+            self._apply_serving_sampling_params(sampling_params, reset_seed=True)
 
     def compile_decode(
         self,
@@ -569,12 +588,9 @@ class Qwen38Generator(ModelCapabilitiesMixin):
             if tuple(pages.shape) != tuple(self.model._default_page_table_host.shape):
                 raise ValueError("compile_decode page_table shape does not match model-owned KV blocks")
         if sampling_params is not None:
-            self.model.set_sampling_params(
-                top_k=getattr(sampling_params, "top_k", 1),
-                top_p=getattr(sampling_params, "top_p", 0.0),
-                temperature=getattr(sampling_params, "temperature", 1.0),
-                seeds=getattr(sampling_params, "seed", None),
-            )
+            # Same bridge as serving: greedy normalization, penalty/logprob
+            # validation and entropy seeds for unseeded stochastic requests.
+            self._apply_serving_sampling_params(sampling_params, reset_seed=True)
 
     def prefill_forward(
         self,
@@ -638,39 +654,113 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         if prompt_lens is None:
             prompt_lens = torch.full((token_tensor.shape[0],), token_tensor.shape[1], dtype=torch.int32)
         lengths = torch.as_tensor(prompt_lens, dtype=torch.int32).reshape(-1)
-        if state is None:
-            if token_tensor.shape[0] != self.model.max_batch:
-                raise ValueError(
-                    f"generator model owns {self.model.max_batch} fixed slots; got batch {token_tensor.shape[0]}"
-                )
-            state = self.allocate_batch_state(
-                lengths,
-                request_ids=request_ids,
-                page_table=page_table,
-                active_mask=active_mask,
+        if token_tensor.shape[0] != self.model.max_batch:
+            raise ValueError(
+                f"generator model owns {self.model.max_batch} fixed slots; got batch {token_tensor.shape[0]}"
             )
+        starts = (
+            torch.zeros_like(lengths)
+            if start_pos is None
+            else torch.as_tensor(start_pos, dtype=torch.int32, device="cpu").reshape(-1)
+        )
+        if starts.numel() != self.model.max_batch or lengths.numel() != self.model.max_batch:
+            raise ValueError("prefill lengths and start_pos must match the physical batch")
+        if state is None:
+            # Reuse the trace-bound physical state across vLLM prefill steps
+            # and across sequential batch-one requests.  Position zero below
+            # performs the explicit reset for a new request.
+            state = self.state
+        intermediate = (
+            torch.zeros_like(lengths, dtype=torch.bool)
+            if intermediate_prefill_mask is None
+            else torch.as_tensor(intermediate_prefill_mask, dtype=torch.bool, device="cpu").reshape(-1)
+        )
+        if intermediate.numel() != self.model.max_batch:
+            raise ValueError("intermediate_prefill_mask must match the physical batch")
+        requests = tuple(range(self.model.max_batch)) if request_ids is None else tuple(request_ids)
+        if len(requests) != self.model.max_batch:
+            raise ValueError("request_ids must match the physical batch")
+
+        if bool(torch.all(starts == 0)):
+            if state is None:
+                state = self.allocate_batch_state(
+                    lengths,
+                    request_ids=requests,
+                    page_table=page_table,
+                    active_mask=active_mask,
+                )
+            else:
+                # Keep the live decode trace across sequential batch-one
+                # requests: the trace binds the fixed state buffers and caches,
+                # which a new request only rewrites in place.  It is released
+                # below only when this prefill compiles new programs (the same
+                # guard the virtual-slot path uses); an unconditional release
+                # cost a ~0.6 s recapture on every request's first decode.
+                if os.environ.get("QWEN38_RELEASE_TRACE_PER_REQUEST", "0") == "1" and self.model._trace_ready:
+                    self.model.release_decode_traces()
+                state.prompt_lens = lengths.clone()
+                state.active_mask = lengths > 0
+                state.request_ids = requests
+                if page_table is not None:
+                    pages = torch.as_tensor(page_table, dtype=torch.int32, device="cpu")
+                    if tuple(pages.shape) != tuple(state.page_table_host.shape):
+                        raise ValueError("page-table shape cannot change across batch-one requests")
+                    state.page_table_host = pages.clone()
+                self.model.reset_batch_state(state)
             page_table = None
+        else:
+            if state is None:
+                raise ValueError("chunked prefill continuation requires an existing request state")
+            if state.request_ids != requests:
+                raise ValueError("chunked prefill continuation changed request identity")
+            committed = state.computed_lens
+            if committed is None or not torch.equal(starts, committed):
+                expected = None if committed is None else committed.tolist()
+                raise ValueError(
+                    f"chunked prefill starts {starts.tolist()} do not match committed offsets {expected}"
+                )
+            state.prompt_lens = lengths.clone()
+            state.active_mask = lengths > 0
+
         if empty_slots is not None and tuple(int(value) for value in empty_slots) != state.active_slots:
             raise ValueError("empty_slots must match the active fixed-slot cohort")
-        if sampling_params is not None:
+        is_final_chunk = not bool(torch.any(intermediate))
+        emit_logits = not (on_device_sampling and not is_final_chunk)
+        if sampling_params is not None and is_final_chunk:
             self._apply_serving_sampling_params(sampling_params, reset_seed=True)
             on_device_sampling = True
-        logits = self.model.prefill_forward(
-            token_tensor,
-            state=state,
-            prompt_lens=lengths,
-            page_table=page_table,
-            kv_cache=kv_cache,
-            return_all_logits=return_all_logits,
-        )
+        trace_program_cache_entries = self._snapshot_live_trace_program_cache()
+        try:
+            logits = self.model.prefill_forward(
+                token_tensor,
+                state=state,
+                prompt_lens=lengths,
+                start_pos=starts,
+                is_final_chunk=is_final_chunk,
+                emit_logits=emit_logits,
+                page_table=page_table,
+                kv_cache=kv_cache,
+                return_all_logits=return_all_logits,
+            )
+        except Exception:
+            self._finish_live_trace_prefill(trace_program_cache_entries, failed=True)
+            raise
+        self._finish_live_trace_prefill(trace_program_cache_entries, failed=False)
         self.state = state
+        if not is_final_chunk and on_device_sampling:
+            self._serving_device_feedback_current = False
+            if not read_from_device:
+                return state.token_input
+            return torch.zeros(self.model.max_batch, dtype=torch.int64)
         if on_device_sampling:
+            assert logits is not None
             sampled = self.model.sample_logits(logits, state)
             ttnn.deallocate(logits)
             self._serving_device_feedback_current = True
             if not read_from_device:
                 return sampled
             return self.model.sampled_tokens_to_torch(sampled, state)
+        assert logits is not None
         self._serving_device_feedback_current = False
         if not read_from_device:
             return logits
@@ -1140,8 +1230,9 @@ class Qwen38Generator(ModelCapabilitiesMixin):
             # sampler's persistent token solely for that lookup.  It is never
             # copied back to the device.
             if self._serving_device_feedback_current and not reset_batch:
-                ple_values = self.model.sampled_tokens_to_torch(state.token_input, state)
+                ple_values = self._consume_direct_ple_token(state)
             else:
+                self._serving_pending_token_host = None
                 ple_values = values
             if enable_trace:
                 _, output = self.model.decode_token_out_traced(state, ple_values.reshape(-1, 1))
@@ -1160,6 +1251,7 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         # Explicit compatibility mode: vLLM samples full logits on the host,
         # making its token/position inputs authoritative for this step.
         self.host_sampling_compatibility_calls += 1
+        self._serving_pending_token_host = None
         self.model.copy_tokens(state, values)
         if start_pos is not None:
             positions = torch.as_tensor(start_pos, dtype=torch.int32).reshape(self.model.max_batch)
@@ -1377,6 +1469,7 @@ class Qwen38Generator(ModelCapabilitiesMixin):
         if not isinstance(tt_out, _ServingDecodeOutput):
             return tt_out
         host = tt_out.read(blocking=not async_read)
+        self._attach_direct_token_host(tt_out, host)
         if not async_read:
             self._attach_virtual_token_host(tt_out, host)
             return host
@@ -1461,7 +1554,10 @@ class Qwen38Generator(ModelCapabilitiesMixin):
     def _host_sample(logits, *, top_k, top_p, temperature, seeds=None):
         """Explicit compatibility sampler; never used by optimized metrics."""
 
-        rows = logits[:, -1, :].float()
+        # ``logits_to_torch`` returns the model's ``[1, 1, B, V]`` layout; the
+        # teacher-forcing callers pass ``[B, S, V]`` and sample the last position.
+        logits = torch.as_tensor(logits)
+        rows = logits[:, -1, :].float() if logits.dim() == 3 else logits.float().reshape(-1, logits.shape[-1])
         batch = rows.shape[0]
         k_values = _as_parameter(top_k, batch, dtype=torch.int64)
         p_values = _as_parameter(top_p, batch, dtype=torch.float32)

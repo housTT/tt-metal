@@ -1,17 +1,20 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-"""Full autoregressive Qwen3.8-Flash-Next model for the fixed P300 TP2 mesh.
+"""Full autoregressive Qwen3.8-Flash-Next model for the P300 TP4+EP4 mesh.
 
 The decoder stack is the optimized :class:`MultichipDecoder` graph.  The
-stack-internal residual stays fractured as ``[1, 1, 4*M, 1280]`` for every
+stack-internal residual stays fractured as ``[1, 1, 4*M, 640]`` for every
 layer.  Token embeddings are hidden-sharded at ingress and the only residual
 all-gather is immediately before the checkpoint-exact final hyperconnection
 mixer.  The LM head is vocabulary-sharded and feeds :class:`Sampling1D`
 without a full-vocabulary gather.
 
-Routed experts and PLE rows use the exact, declared host boundary implemented
-by ``host_weight_cache.py``.  Activations, recurrence/KV state, final mixing,
-logits, sampling, token feedback, and position advancement remain on TT.
+All routed-expert weights and routing stay on TT.  Only the PLE n-gram table
+remains behind the exact safetensors host boundary in ``host_weight_cache.py``;
+decode rows use bounded parallel ``pread`` while mmap handles retain structural
+validation and fallback access;
+recurrence/KV state, final mixing, logits, sampling, token feedback, and
+position advancement remain on TT.
 """
 
 from __future__ import annotations
@@ -19,8 +22,11 @@ from __future__ import annotations
 import dataclasses
 import gc
 import math
+import os
 import random
+import secrets
 import time
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Sequence
 
@@ -28,21 +34,27 @@ import torch
 
 import ttnn
 from models.autoports.qwen_qwen3_8_flash_next.tt import functional_decoder as _functional_decoder
+from models.autoports.qwen_qwen3_8_flash_next.tt.functional_decoder import QSA_TOKEN_BUDGET
+from models.autoports.qwen_qwen3_8_flash_next.tt.fused_decoder import COMPRESSED_KEY_ROWS_PER_PAGE
 from models.autoports.qwen_qwen3_8_flash_next.tt.host_weight_cache import Qwen38PLEHostStore, SafetensorCheckpoint
 from models.autoports.qwen_qwen3_8_flash_next.tt.model_config import (
     HF_ADVERTISED_CONTEXT,
     LINEAR_ATTENTION,
     PREFILL_CHUNK,
+    PREFILL_CHUNK_BASE,
     decoder_shapes,
 )
 from models.autoports.qwen_qwen3_8_flash_next.tt.multichip_decoder import (
     COLLECTIVE_NUM_LINKS,
+    DECODE_RESIDUAL_LAYOUTS,
     RESIDUAL_SHARD_WIDTH,
     TARGET_MESH,
+    TP_SIZE,
     HostBackedSegmentedDecodeTrace,
     MultichipDecoder,
     MultichipDecodeStateWorkspace,
     MultichipVirtualDecodeStateBank,
+    ResidentLayerDecodeTrace,
 )
 from models.autoports.qwen_qwen3_8_flash_next.tt.optimized_decoder import PROJECTION_POLICIES, _hifi2, _lofi
 from models.autoports.qwen_qwen3_8_flash_next.tt.precision_config import (
@@ -58,8 +70,12 @@ from models.common.modules.sampling.sampling_1d import Sampling1D, Sampling1DCon
 
 MODEL_ID = "Qwen/Qwen3.8-Flash-Next"
 MODEL_REVISION = "f5d08274bafd880402bd16f5e3e6c514136ec06c"
-DEFAULT_SNAPSHOT = Path(
-    "/home/ttuser/.cache/huggingface/hub/models--Qwen--Qwen3.8-Flash-Next/" f"snapshots/{MODEL_REVISION}"
+DEFAULT_SNAPSHOT = (
+    Path(os.environ.get("HF_HOME", Path.home() / ".cache" / "huggingface")).expanduser()
+    / "hub"
+    / "models--Qwen--Qwen3.8-Flash-Next"
+    / "snapshots"
+    / MODEL_REVISION
 )
 VOCAB_SIZE = 248_320
 HIDDEN_SIZE = 2_560
@@ -97,7 +113,7 @@ class LMHeadPolicySpec:
         return self.logits_dtype or self.weight_dtype
 
     def split_sizes(self, columns_per_rank: int) -> tuple[int, ...]:
-        per_rank = VOCAB_SIZE // 2
+        per_rank = VOCAB_SIZE // TP_SIZE
         if self.dram_splits is not None:
             if per_rank % self.dram_splits:
                 raise ValueError(f"local vocabulary {per_rank} is not divisible by {self.dram_splits} splits")
@@ -129,12 +145,15 @@ def _lm_head_rank_slices(
 ) -> tuple[tuple[tuple[int, int], ...], ...]:
     """Return the exact checkpoint slices placed on each TP rank, split-major."""
 
-    per_rank = VOCAB_SIZE // 2
+    per_rank = VOCAB_SIZE // TP_SIZE
     result = []
     offset = 0
     for split_size in split_sizes:
         result.append(
-            tuple((rank * per_rank + offset, rank * per_rank + offset + int(split_size)) for rank in range(2))
+            tuple(
+                (rank * per_rank + offset, rank * per_rank + offset + int(split_size))
+                for rank in range(TP_SIZE)
+            )
         )
         offset += int(split_size)
     if offset != per_rank:
@@ -223,6 +242,33 @@ def _rope_tables(max_seq_len: int, rotary_dim: int, theta: float) -> tuple[torch
     return embedding.cos().bfloat16(), embedding.sin().bfloat16()
 
 
+def _physical_compressed_ids_host(
+    page_table: torch.Tensor,
+    *,
+    compressed_blocks: int,
+    compressed_per_page: int,
+    rows_per_page: int | None = None,
+) -> torch.Tensor:
+    """Resolve the page-table affine map once on the host.
+
+    Batch-one QSA decode reads this map in every sparse-attention layer.  The
+    page table changes only on admission or block allocation, so rebuilding a
+    full-width generic device gather on every token is pure repeated work.
+    """
+
+    pages = torch.as_tensor(page_table, dtype=torch.int64, device="cpu")
+    if pages.ndim != 2:
+        raise ValueError("page_table must be rank two")
+    blocks = torch.arange(int(compressed_blocks), dtype=torch.int64)
+    virtual_pages = torch.div(blocks, int(compressed_per_page), rounding_mode="floor")
+    if virtual_pages.numel() and int(virtual_pages[-1]) >= int(pages.shape[1]):
+        raise ValueError("compressed index map exceeds the page-table width")
+    in_page = torch.remainder(blocks, int(compressed_per_page))
+    physical_pages = pages[:, virtual_pages]
+    stride = int(compressed_per_page if rows_per_page is None else rows_per_page)
+    return (physical_pages * stride + in_page).to(torch.int32).reshape(1, -1)
+
+
 @dataclasses.dataclass
 class Qwen38BatchState:
     """Explicit fixed-slot state shared by standalone and serving callers.
@@ -240,6 +286,14 @@ class Qwen38BatchState:
     prompt_lens: torch.Tensor
     active_mask: torch.Tensor
     request_ids: tuple[object, ...]
+    # Number of prompt tokens whose layer/cache/recurrent state has actually
+    # been committed.  ``prompt_lens`` is the end offset requested by the
+    # current vLLM prefill step and may be ahead of this during submission.
+    computed_lens: torch.Tensor | None = None
+    # Host mirror of ``current_pos`` (int32 per slot, -1 inactive), refreshed
+    # wherever the model writes or advances device positions.  ``None`` means
+    # unknown; consumers then choose the always-correct decode variant.
+    host_positions: torch.Tensor | None = None
     generation: int = 0
     token_host_copies: int = 0
     position_host_copies: int = 0
@@ -292,9 +346,14 @@ class Qwen38FullModel:
         expert_cache_slots: int | None = None,
         packed_host_experts: int | None = None,
         prepack_host_experts: bool | None = None,
-        lm_head_columns_per_rank: int = LM_HEAD_COLUMNS_PER_RANK,
+        lm_head_columns_per_rank: int | None = None,
         lm_head_policy: str | None = None,
         precision_config: str | Path | dict | None = None,
+        prefill_schedule: str | None = None,
+        expert_weight_cache: str | Path | None = None,
+        decode_trace_schedule: str | None = None,
+        decode_residual: str | None = None,
+        moe_kernel: str | None = None,
     ):
         _require_target_mesh(mesh_device)
         self.snapshot = Path(snapshot).resolve()
@@ -317,11 +376,45 @@ class Qwen38FullModel:
         host_ple_policy = self.precision_config["host_backed"]["ple"]
         configured_slots = int(host_expert_policy["slots_per_layer"])
         configured_packed = int(host_expert_policy["packed_capacity_per_layer"])
+        self.expert_mode = str(self.precision_config.get("parallelism", {}).get("expert_mode", "resident_ep4"))
+        if self.expert_mode not in {"host_backed", "resident_ep4"}:
+            raise ValueError(f"unsupported expert mode {self.expert_mode!r}")
         expert_cache_slots = configured_slots if expert_cache_slots is None else int(expert_cache_slots)
         packed_host_experts = configured_packed if packed_host_experts is None else int(packed_host_experts)
         self.max_batch = int(max_batch)
         self.virtual_slot_capacity = int(virtual_slot_capacity)
         self.max_seq_len = int(max_seq_len)
+        schedule = str(prefill_schedule or os.environ.get("QWEN38_PREFILL_SCHEDULE", "stack_major")).lower()
+        schedule = {"stack": "stack_major", "layer": "layer_major"}.get(schedule, schedule)
+        if schedule not in {"stack_major", "layer_major"}:
+            raise ValueError("prefill_schedule must be 'stack_major' or 'layer_major'")
+        self.prefill_schedule = schedule
+        trace_schedule = str(
+            decode_trace_schedule or os.environ.get("QWEN38_DECODE_TRACE_SCHEDULE", "resident_stack")
+        ).lower()
+        trace_schedule = {"stack": "resident_stack", "layer": "per_layer"}.get(trace_schedule, trace_schedule)
+        if trace_schedule not in {"resident_stack", "per_layer"}:
+            raise ValueError("decode_trace_schedule must be 'resident_stack' or 'per_layer'")
+        self.decode_trace_schedule = trace_schedule
+        residual_layout = str(decode_residual or os.environ.get("QWEN38_DECODE_RESIDUAL", "fractured")).lower()
+        if residual_layout not in DECODE_RESIDUAL_LAYOUTS:
+            raise ValueError(f"decode_residual must be one of {DECODE_RESIDUAL_LAYOUTS}")
+        if residual_layout == "replicated" and int(max_batch) != 1:
+            raise ValueError("the replicated decode residual is validated for max_batch=1 only")
+        # ``fractured``: inter-layer residual is the width-sharded [1,1,4B,640]
+        # ABI (8-9 collectives per layer).  ``replicated``: the full
+        # [1,1,B,10240] residual is kept on every rank, both hyper mixers run
+        # locally and each block needs one all-reduce (1-2 collectives/layer).
+        self.decode_residual = residual_layout
+        self.moe_kernel = str(moe_kernel or os.environ.get("QWEN38_MOE_KERNEL", "sparse_bank"))
+        if self.moe_kernel not in {"dispatch", "sparse_bank"}:
+            raise ValueError("moe_kernel must be 'dispatch' or 'sparse_bank'")
+        configured_expert_cache = expert_weight_cache or os.environ.get("QWEN38_EXPERT_WEIGHT_CACHE")
+        self.expert_weight_cache = (
+            None if configured_expert_cache is None else Path(configured_expert_cache).expanduser().resolve()
+        )
+        if self.expert_weight_cache is not None:
+            self.expert_weight_cache.mkdir(parents=True, exist_ok=True)
         if not 1 <= self.max_batch <= 32:
             raise ValueError("max_batch must be in [1, 32]")
         if not 1 <= self.virtual_slot_capacity <= 32:
@@ -348,7 +441,7 @@ class Qwen38FullModel:
                     f"{_functional_decoder.QSA_BLOCK_TOPK} selector; got {self.max_seq_len}"
                 )
         self.is_full_stack = self.layer_indices == all_layers
-        self.prepack_host_experts = (
+        self.prepack_host_experts = self.expert_mode == "host_backed" and (
             bool(host_expert_policy["prepack_all"]) and self.is_full_stack
             if prepack_host_experts is None
             else bool(prepack_host_experts)
@@ -359,7 +452,11 @@ class Qwen38FullModel:
             self.checkpoint,
             row_cache_capacity=int(host_ple_policy["row_cache_capacity"]),
         )
-        self.decode_state_workspace = MultichipDecodeStateWorkspace(mesh_device) if self.max_batch == 1 else None
+        # The shared L1 state workspace costs two 3.1 MB copies per GDN layer
+        # per token; ``QWEN38_GDN_STATE_WORKSPACE=0`` keeps each layer's state
+        # in its own persistent DRAM tensors instead.
+        use_workspace = self.max_batch == 1 and os.environ.get("QWEN38_GDN_STATE_WORKSPACE", "1") == "1"
+        self.decode_state_workspace = MultichipDecodeStateWorkspace(mesh_device) if use_workspace else None
         self.layers: list[MultichipDecoder] = []
         self._closed = False
         self._trace_ready = False
@@ -368,7 +465,16 @@ class Qwen38FullModel:
         self._trace_state: Qwen38BatchState | None = None
         self.ingress_trace_id = None
         self.ingress_trace_output = None
-        self.layer_traces: list[HostBackedSegmentedDecodeTrace] = []
+        self.resident_prefix_trace_id = None
+        self.resident_stack_trace_id = None
+        self.resident_prefix_output = None
+        self.resident_trace_variants: dict[str, dict] = {}
+        self._active_qsa_variant = None
+        # Dense paged attention below the QSA budget (Phase 1c); the selector
+        # variant is captured on demand when a request crosses the budget.
+        self.qsa_dense_below_budget = os.environ.get("QWEN38_QSA_DENSE_BELOW_BUDGET", "1") == "1"
+        self._resident_stack_workspace_retained = False
+        self.layer_traces: list[HostBackedSegmentedDecodeTrace | ResidentLayerDecodeTrace] = []
         self.terminal_trace_id = None
         self.trace_logits = None
         self.sampling_trace_id = None
@@ -378,6 +484,9 @@ class Qwen38FullModel:
         self.model_only_trace_replays = 0
         self.trace_page_table_changes = 0
         self.last_decode_timing: dict[str, float | int] | None = None
+        # Per-slot stack-major prefill timing (see ``_prefill_slot_stack_major``).
+        self.last_prefill_timing: dict[str, object] | None = None
+        self.prefill_timing_totals = {"slots": 0, "microchunks": 0, "seconds": 0.0, "tokens": 0}
         self.decode_timing_totals = {
             "replay_tokens": 0.0,
             "total_submit_seconds": 0.0,
@@ -421,10 +530,17 @@ class Qwen38FullModel:
         self._virtual_sampling_trace_mode_switches = 0
         configured_lm_head = self.precision_config["weight_groups"]["lm_head"]["policy"]
         self.lm_head_policy = str(lm_head_policy or configured_lm_head)
+        if lm_head_columns_per_rank is None:
+            # One 62,080-column matmul per rank avoids the 401 us concat of two
+            # splits seen in the decode profile; the historical two-split
+            # geometry is kept behind QWEN38_LM_HEAD_COLUMNS_PER_RANK=32768.
+            lm_head_columns_per_rank = int(os.environ.get("QWEN38_LM_HEAD_COLUMNS_PER_RANK", VOCAB_SIZE // TP_SIZE))
 
         try:
             self._load_endpoints(lm_head_columns_per_rank, self.lm_head_policy)
             self._load_layers(expert_cache_slots, packed_host_experts)
+            for layer in self.layers:
+                layer.decode_residual_layout = self.decode_residual
             if self.prepack_host_experts:
                 self.preload_packed_host_experts()
             self._load_rope()
@@ -499,12 +615,47 @@ class Qwen38FullModel:
         if final_policy["compute_fidelity"] != "hifi2":
             raise ValueError("the current final hyperconnection kernel exposes only HiFi2")
         self.final_hyper_compute = _hifi2()
+        # The mixer divides the low-rank projection by hc_count before SiLU.
+        # Fold that exact power-of-two scale into the weight so the decode
+        # graph loses one op; the block-float exponent shift is lossless.
+        self.final_mixer_mode = str(os.environ.get("QWEN38_FINAL_MIXER", "dram_sharded"))
+        if self.final_mixer_mode not in {"dram_sharded", "auto"}:
+            raise ValueError("QWEN38_FINAL_MIXER must be 'dram_sharded' or 'auto'")
+        down_host = (down.float() / HC_COUNT).to(torch.bfloat16).transpose(0, 1).reshape(1, 1, HC_WIDTH, HC_LOWRANK)
         self.final_down_weight = _upload_replicated(
-            down.transpose(0, 1).reshape(1, 1, HC_WIDTH, HC_LOWRANK),
+            down_host,
             self.mesh_device,
             dtype=dtype_object(final_policy["dtype"]),
         )
-        del down
+        self.final_down_dram_weight = None
+        self.final_down_interleaved_weight = None
+        if self.final_mixer_mode == "dram_sharded":
+            # M=1 weight stream: DRAM-width-sharded weight + width-sharded
+            # activation instead of the 10-core auto heuristic (120 us).
+            from models.autoports.qwen_qwen3_8_flash_next.tt.optimized_decoder import OptimizedDecoder
+
+            dram_weight = ttnn.to_memory_config(
+                self.final_down_weight, OptimizedDecoder._dram_weight_memory_config(self.final_down_weight)
+            )
+            # The DRAM-sharded program accepts one 32-row tile.  Keep the
+            # interleaved copy (6.5 MB) for multi-row diagnostic projections
+            # (``return_all_logits``) and for the MTP draft head.
+            self.final_down_interleaved_weight = self.final_down_weight
+            # Keep the canonical attribute pointing at the live weight for the
+            # precision summary and the close-time deallocation list.
+            self.final_down_weight = dram_weight
+            self.final_down_dram_weight = dram_weight
+            activation_config, sharded_cores = OptimizedDecoder._dram_activation_memory_config(HC_WIDTH)
+            self.final_down_activation_config = activation_config
+            k_tiles = HC_WIDTH // 32
+            n_tiles = math.ceil(HC_LOWRANK / (32 * 8)) * 8
+            self.final_down_program_config = ttnn.MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(
+                in0_block_w=OptimizedDecoder._largest_divisor(k_tiles // sharded_cores),
+                per_core_M=1,
+                per_core_N=math.ceil(n_tiles / sharded_cores),
+                fused_activation=None,
+            )
+        del down, down_host
         up = self.checkpoint.tensor(f"{final_prefix}.input_mix_weight_up.weight")
         self.final_up_weight = _upload_replicated(
             up.transpose(0, 1).reshape(1, 1, HC_LOWRANK, HC_WIDTH),
@@ -586,7 +737,11 @@ class Qwen38FullModel:
         lazy_weights = []
         for split_index, (split_size, split_rank_slices) in enumerate(zip(split_sizes, rank_slices)):
             rank_parts = [lm_weight[start:end].transpose(0, 1) for start, end in split_rank_slices]
-            combined = torch.cat(rank_parts, dim=-1).contiguous().reshape(1, 1, HIDDEN_SIZE, 2 * split_size)
+            combined = (
+                torch.cat(rank_parts, dim=-1)
+                .contiguous()
+                .reshape(1, 1, HIDDEN_SIZE, TP_SIZE * split_size)
+            )
             weight_memcfg = ttnn.DRAM_MEMORY_CONFIG if weights_memcfgs is None else weights_memcfgs[split_index]
             lazy_weights.append(
                 LazyWeight(
@@ -631,20 +786,33 @@ class Qwen38FullModel:
             host_expert_policy = self.precision_config["host_backed"]["expert"]
             host_ple_policy = self.precision_config["host_backed"]["ple"]
             kwargs.update(
-                expert_host_packed_dtype=host_expert_policy["host_packed_dtype"],
-                expert_host_packed_layout=host_expert_policy["host_packed_layout"],
-                expert_device_staging_dtype=host_expert_policy["device_staging_dtype"],
-                expert_device_staging_layout=host_expert_policy["device_staging_layout"],
                 ple_staging_dtype=host_ple_policy["device_staging_dtype"],
                 ple_staging_layout=host_ple_policy["device_staging_layout"],
-                ple_prefill_rows=int(host_ple_policy["prefill_chunk_rows"]),
+                # The staging buffer holds one physical microchunk; the ranked
+                # policy value is the 128-row base that PREFILL_CHUNK multiplies.
+                ple_prefill_rows=max(int(host_ple_policy["prefill_chunk_rows"]), PREFILL_CHUNK),
             )
+            if self.expert_mode == "host_backed":
+                kwargs.update(
+                    expert_host_packed_dtype=host_expert_policy["host_packed_dtype"],
+                    expert_host_packed_layout=host_expert_policy["host_packed_layout"],
+                    expert_device_staging_dtype=host_expert_policy["device_staging_dtype"],
+                    expert_device_staging_layout=host_expert_policy["device_staging_layout"],
+                )
+            else:
+                kwargs["resident_weight_cache_path"] = self.expert_weight_cache
+                kwargs["moe_kernel"] = self.moe_kernel
             if (
                 self.decode_state_workspace is not None
                 and self.text_config.layer_types[layer_index] == LINEAR_ATTENTION
             ):
                 kwargs["decode_state_workspace"] = self.decode_state_workspace
-            layer = MultichipDecoder.from_checkpoint_host_backed(
+            constructor = (
+                MultichipDecoder.from_checkpoint_resident
+                if self.expert_mode == "resident_ep4"
+                else MultichipDecoder.from_checkpoint_host_backed
+            )
+            layer = constructor(
                 self.checkpoint,
                 hf_config=self.hf_config,
                 layer_idx=layer_index,
@@ -652,10 +820,16 @@ class Qwen38FullModel:
                 max_batch=self.max_batch,
                 max_seq_len=self.max_seq_len,
                 block_size=BLOCK_SIZE,
-                expert_cache_slots=expert_cache_slots,
-                packed_host_experts=packed_host_experts,
                 ple_store=self.ple_store if layer_index == 1 else None,
-                **kwargs,
+                **(
+                    kwargs
+                    if self.expert_mode == "resident_ep4"
+                    else {
+                        **kwargs,
+                        "expert_cache_slots": expert_cache_slots,
+                        "packed_host_experts": packed_host_experts,
+                    }
+                ),
             )
             self.layers.append(layer)
         self._kv_cache = tuple(
@@ -665,7 +839,9 @@ class Qwen38FullModel:
         )
         self.max_num_blocks = min(
             (int(layer.max_num_blocks) for layer in self.layers if layer.shapes.layer_type != LINEAR_ATTENTION),
-            default=0,
+            # A reduced GDN-only model has no attention allocation, but still
+            # carries the normal persistent page-table ABI through endpoints.
+            default=self.max_batch * math.ceil(self.max_seq_len / BLOCK_SIZE),
         )
         self.attention_cache_lifecycle["standalone_allocations"] = sum(
             4 for layer in self.layers if layer.shapes.layer_type != LINEAR_ATTENTION
@@ -688,7 +864,7 @@ class Qwen38FullModel:
         if num_blocks < math.ceil(self.max_seq_len / BLOCK_SIZE):
             raise ValueError("vLLM cache pool cannot hold one advertised-context request")
         if (local_heads, block_size, head_dim) != (1, BLOCK_SIZE, 256):
-            raise ValueError("Qwen3.8 TP2 cache requires one local KV head, 64-token pages, and head_dim=256")
+            raise ValueError("Qwen3.8 TP4 cache requires one replicated local KV head, 64-token pages, and head_dim=256")
         if self._trace_ready:
             self.release_decode_traces()
 
@@ -726,7 +902,7 @@ class Qwen38FullModel:
                     (
                         num_blocks,
                         1,
-                        BLOCK_SIZE // int(layer.shapes.indexer_compress_ratio),
+                        COMPRESSED_KEY_ROWS_PER_PAGE,
                         int(layer.shapes.indexer_head_dim),
                     ),
                     dtype=layer.fused_index_key_cache.dtype,
@@ -791,13 +967,53 @@ class Qwen38FullModel:
         rope_parameters = getattr(self.text_config, "rope_parameters", {})
         theta = float(rope_parameters.get("rope_theta", getattr(self.text_config, "rope_theta", 10_000_000.0)))
         cos, sin = _rope_tables(self.max_seq_len, rotary_dim, theta)
+        # The tables are only ever read by ``ttnn.embedding`` row gathers
+        # (``_rotation_rows``), and that op converts a TILE weight to ROW_MAJOR
+        # on every call: at the advertised 262,144-token capacity that was an
+        # untilize of the whole [max_seq_len, 64] table per QSA layer per token.
+        # Keep them ROW_MAJOR so the gather reads rows directly.  Untilize is
+        # lossless, so the gathered rows are bit-identical.
+        rope_layout = (
+            ttnn.ROW_MAJOR_LAYOUT if os.environ.get("QWEN38_ROPE_ROW_MAJOR", "1") == "1" else ttnn.TILE_LAYOUT
+        )
         self.rot_mats = (
-            _upload_replicated(cos.reshape(1, 1, self.max_seq_len, rotary_dim), self.mesh_device),
-            _upload_replicated(sin.reshape(1, 1, self.max_seq_len, rotary_dim), self.mesh_device),
+            _upload_replicated(cos.reshape(1, 1, self.max_seq_len, rotary_dim), self.mesh_device, layout=rope_layout),
+            _upload_replicated(sin.reshape(1, 1, self.max_seq_len, rotary_dim), self.mesh_device, layout=rope_layout),
         )
         del cos, sin
 
+    def _build_sharded_argmax_constants(self) -> None:
+        """Per-rank vocab offset and the rank arange used by ``_sharded_argmax``."""
+
+        self.argmax_mode = str(os.environ.get("QWEN38_ARGMAX", "gather"))
+        if self.argmax_mode not in {"gather", "sharded"}:
+            raise ValueError("QWEN38_ARGMAX must be 'gather' or 'sharded'")
+        self.argmax_vocab_offset = None
+        self.argmax_rank_arange = None
+        if self.argmax_mode != "sharded":
+            return
+        mesh_rows, mesh_cols = (int(value) for value in self.mesh_device.shape)
+        per_rank = VOCAB_SIZE // TP_SIZE
+        host = torch.zeros((mesh_rows, mesh_cols, 1, 1, 1, 1), dtype=torch.int32)
+        for rank in range(TP_SIZE):
+            row, col = divmod(rank, mesh_cols)
+            host[row, col] = rank * per_rank
+        offset = ttnn.from_torch(
+            host,
+            mesh_mapper=ttnn.ShardTensor2dMesh(self.mesh_device, mesh_shape=self.mesh_device.shape, dims=(0, 1)),
+            layout=ttnn.TILE_LAYOUT,
+            device=self.mesh_device,
+            dtype=ttnn.int32,
+        )
+        self.argmax_vocab_offset = ttnn.squeeze(ttnn.squeeze(offset, dim=0), dim=0)
+        self.argmax_rank_arange = _upload_replicated(
+            torch.arange(TP_SIZE, dtype=torch.float32).reshape(1, 1, 1, TP_SIZE),
+            self.mesh_device,
+            dtype=ttnn.float32,
+        )
+
     def _build_sampler(self) -> None:
+        self._build_sharded_argmax_constants()
         self.sampling = Sampling1D.from_config(
             Sampling1DConfig(
                 vocab_size=VOCAB_SIZE,
@@ -836,6 +1052,30 @@ class Qwen38FullModel:
             dtype=ttnn.int32,
             layout=ttnn.ROW_MAJOR_LAYOUT,
         )
+        qsa_layer = next(
+            (layer for layer in self.layers if layer.shapes.layer_type != LINEAR_ATTENTION),
+            None,
+        )
+        self.decode_physical_compressed_ids = None
+        if qsa_layer is not None:
+            compressed_per_page = self.block_size // qsa_layer.shapes.indexer_compress_ratio
+            physical_ids = _physical_compressed_ids_host(
+                page_host,
+                compressed_blocks=int(qsa_layer.const["compressed_blocks"]),
+                compressed_per_page=compressed_per_page,
+            rows_per_page=COMPRESSED_KEY_ROWS_PER_PAGE,
+            )
+            self.decode_physical_compressed_ids = _upload_replicated(
+                physical_ids,
+                self.mesh_device,
+                dtype=ttnn.uint32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+            )
+            # All QSA layers share one stable logical-to-physical page map.
+            # Captured B1 traces consume the same fixed tensor address.
+            for layer in self.layers:
+                if layer.shapes.layer_type != LINEAR_ATTENTION:
+                    layer.decode_physical_compressed_ids = self.decode_physical_compressed_ids
         mapper = _replicated_mapper(self.mesh_device)
         self.sampling_k = _upload_replicated(
             torch.ones(self.max_batch, dtype=torch.int32),
@@ -860,6 +1100,25 @@ class Qwen38FullModel:
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
         self._default_page_table_host = page_host
+
+    def _refresh_decode_physical_compressed_ids(self, page_table: torch.Tensor) -> None:
+        target = self.decode_physical_compressed_ids
+        if target is None:
+            return
+        qsa_layer = next(layer for layer in self.layers if layer.shapes.layer_type != LINEAR_ATTENTION)
+        compressed_per_page = self.block_size // qsa_layer.shapes.indexer_compress_ratio
+        physical_ids = _physical_compressed_ids_host(
+            page_table,
+            compressed_blocks=int(qsa_layer.const["compressed_blocks"]),
+            compressed_per_page=compressed_per_page,
+            rows_per_page=COMPRESSED_KEY_ROWS_PER_PAGE,
+        )
+        _copy_host_to_device(
+            physical_ids,
+            target,
+            dtype=ttnn.uint32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
 
     def _allocate_virtual_decode_state_bank(self) -> None:
         if self.virtual_slot_capacity == 1:
@@ -923,6 +1182,7 @@ class Qwen38FullModel:
             prompt_lens=lengths,
             active_mask=active,
             request_ids=requests,
+            computed_lens=torch.zeros_like(lengths),
         )
         self.reset_batch_state(state)
         self._virtual_physical_state = state
@@ -1272,16 +1532,19 @@ class Qwen38FullModel:
         positions = torch.where(state.active_mask, state.prompt_lens, torch.full_like(state.prompt_lens, -1))
         _copy_host_to_device(tokens, state.token_input, dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT)
         _copy_host_to_device(positions, state.current_pos, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT)
+        state.host_positions = positions.to(torch.int32).clone()
         _copy_host_to_device(
             state.page_table_host,
             state.page_table,
             dtype=ttnn.int32,
             layout=ttnn.ROW_MAJOR_LAYOUT,
         )
+        self._refresh_decode_physical_compressed_ids(state.page_table_host)
         state.token_host_copies += 1
         state.position_host_copies += 1
         state.page_table_host_copies += 1
         state.generation += 1
+        state.computed_lens = torch.zeros_like(state.prompt_lens)
         # Expert slots contain immutable model weights and are a model-wide
         # cache, not request state.  Preserve their directory across requests
         # so hits remain valid and a new request cannot force an unnecessary
@@ -1299,6 +1562,7 @@ class Qwen38FullModel:
             state.page_table_unchanged_skips += 1
             return False
         _copy_host_to_device(pages, state.page_table, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT)
+        self._refresh_decode_physical_compressed_ids(pages)
         state.page_table_host = pages.clone()
         state.page_table_host_copies += 1
         self.trace_page_table_changes += 1
@@ -1337,9 +1601,16 @@ class Qwen38FullModel:
         if force_argmax != self._sampling_force_argmax and self._trace_ready:
             self.release_decode_traces()
         self._sampling_force_argmax = force_argmax
-        if force_argmax or seeds is None:
+        if force_argmax:
             self._sampling_seed_rngs = None
         else:
+            if seeds is None:
+                # Stochastic sampling must never run on the sampler's static
+                # default seed buffer: without a per-step refresh every traced
+                # step re-seeds the device PRNG identically and decodes a fixed
+                # quantile (DEVSTACK-294).  Unseeded callers get an entropy
+                # stream here, the same way the serving bridge does.
+                seeds = [secrets.randbelow(0x7FFFFFFE) + 1 for _ in range(self.max_batch)]
             values = (int(seeds),) * self.max_batch if isinstance(seeds, int) else tuple(int(seed) for seed in seeds)
             if len(values) != self.max_batch:
                 raise ValueError(f"seeds must contain exactly {self.max_batch} values")
@@ -1362,8 +1633,10 @@ class Qwen38FullModel:
     def _advance_sampling_seeds(self) -> None:
         """Refresh explicit non-greedy request seeds through the persistent buffer."""
 
-        if self._sampling_force_argmax or self._sampling_seed_rngs is None:
+        if self._sampling_force_argmax:
             return
+        if self._sampling_seed_rngs is None:
+            raise RuntimeError("stochastic device sampling is active without per-row seed streams")
         values = torch.tensor(
             [rng.randint(1, 0x7FFFFFFE) for rng in self._sampling_seed_rngs],
             dtype=torch.int32,
@@ -1400,7 +1673,7 @@ class Qwen38FullModel:
         rows = int(embedded.shape[-2])
         if rows == 1:
             # Preserve the original decode ingress exactly.  At a single row
-            # both reshapes reduce to the same rank-three [1, 1, 1280] view,
+            # both reshapes reduce to the same rank-three [1, 1, 640] view,
             # so the captured graph still contains only the existing repeat.
             expanded = ttnn.reshape(embedded, (1, 1, 1, RESIDUAL_SHARD_WIDTH))
             expanded = ttnn.repeat(expanded, (1, 1, HC_COUNT, 1))
@@ -1409,7 +1682,7 @@ class Qwen38FullModel:
             # Put the four hyper-connection streams next to each prefill token
             # without the generic tiled-reshape or repeat-interleave composite
             # paths. Nearest-neighbour width expansion of NHWC
-            # ``[1, 1, rows, 1280]`` produces the exact token-major ordering
+            # ``[1, 1, rows, 640]`` produces the exact token-major ordering
             # ``A,A,A,A,B,B,B,B,...`` required by the fractured residual ABI.
             row_major = ttnn.to_layout(embedded, ttnn.ROW_MAJOR_LAYOUT)
             rank4 = ttnn.unsqueeze_to_4D(row_major)
@@ -1426,11 +1699,52 @@ class Qwen38FullModel:
         _functional_decoder._free(expanded, residual)
         return residual
 
+    def embed_tokens_decode(self, token_ids) -> object:
+        """Decode ingress in the selected residual layout.
+
+        ``fractured`` keeps the exact existing ``[1,1,4,640]`` graph.
+        ``replicated`` all-gathers the hidden-sharded embedding row once and
+        repeats it into the four hyper-connection streams: ``[1,1,1,10240]``.
+        """
+
+        if self.decode_residual != "replicated":
+            return self.embed_tokens(token_ids)
+        embedded = ttnn.embedding(
+            token_ids,
+            self.embedding_weight,
+            layout=ttnn.TILE_LAYOUT,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        if embedded.dtype != self.model_input_dtype:
+            converted = ttnn.typecast(embedded, self.model_input_dtype)
+            ttnn.deallocate(embedded)
+            embedded = converted
+        rows = int(embedded.shape[-2])
+        local = ttnn.reshape(embedded, (1, 1, rows, RESIDUAL_SHARD_WIDTH))
+        layer = self.layers[0]
+        full = ttnn.all_gather(
+            local,
+            dim=3,
+            cluster_axis=layer.collective_axis,
+            num_links=layer.collective_num_links,
+            topology=layer.collective_topology,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        _functional_decoder._free(local, embedded, full)
+        _functional_decoder._free(embedded, full)
+        residual = ttnn.repeat(full, (1, 1, 1, HC_COUNT))
+        ttnn.deallocate(full)
+        return residual
+
     def final_hidden(self, residual) -> object:
         compute_residual = residual
         if residual.dtype != ttnn.bfloat16:
             compute_residual = ttnn.typecast(residual, ttnn.bfloat16)
-        gathered = self.layers[-1].gather_residual(compute_residual)
+        if int(compute_residual.shape[-1]) == HC_WIDTH:
+            # Replicated decode residual: already the full four-stream width.
+            gathered = compute_residual
+        else:
+            gathered = self.layers[-1].gather_residual(compute_residual)
         normed = _functional_decoder.FunctionalDecoder._rms_norm(
             gathered,
             self.final_norm_weight,
@@ -1439,14 +1753,33 @@ class Qwen38FullModel:
         )
         _functional_decoder._free(gathered, residual, normed)
         _functional_decoder._free(compute_residual, residual, normed)
-        low = ttnn.linear(
-            normed,
-            self.final_down_weight,
-            dtype=ttnn.bfloat16,
-            compute_kernel_config=self.final_hyper_compute,
-        )
-        scaled = ttnn.multiply(low, 1.0 / HC_COUNT)
-        ttnn.deallocate(low)
+        rows = math.prod(_shape(normed)[:-1])
+        if self.final_down_dram_weight is not None and rows <= 32:
+            flat = normed if int(normed.shape[-1]) == HC_WIDTH else ttnn.reshape(normed, (1, 1, -1, HC_WIDTH))
+            sharded_in = ttnn.to_memory_config(flat, self.final_down_activation_config)
+            low_sharded = ttnn.linear(
+                sharded_in,
+                self.final_down_dram_weight,
+                dtype=ttnn.bfloat16,
+                compute_kernel_config=self.final_hyper_compute,
+                program_config=self.final_down_program_config,
+                memory_config=ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG,
+            )
+            ttnn.deallocate(sharded_in)
+            _functional_decoder._free(flat, normed, low_sharded)
+            scaled = ttnn.to_memory_config(low_sharded, ttnn.L1_MEMORY_CONFIG)
+            ttnn.deallocate(low_sharded)
+            if int(scaled.shape[-1]) != HC_LOWRANK:
+                trimmed = ttnn.slice(scaled, [0, 0, 0, 0], [1, 1, int(scaled.shape[-2]), HC_LOWRANK])
+                ttnn.deallocate(scaled)
+                scaled = trimmed
+        else:
+            scaled = ttnn.linear(
+                normed,
+                self.final_down_interleaved_weight if self.final_down_dram_weight is not None else self.final_down_weight,
+                dtype=ttnn.bfloat16,
+                compute_kernel_config=self.final_hyper_compute,
+            )
         low = ttnn.silu(scaled)
         ttnn.deallocate(scaled)
         mix = ttnn.linear(
@@ -1456,7 +1789,6 @@ class Qwen38FullModel:
             compute_kernel_config=self.final_hyper_compute,
         )
         ttnn.deallocate(low)
-        rows = math.prod(_shape(normed)[:-1])
         norm_groups = ttnn.reshape(normed, (rows, HC_COUNT, HIDDEN_SIZE))
         mix_groups = ttnn.reshape(mix, (rows, HC_COUNT, HIDDEN_SIZE))
         mixed = ttnn.multiply(
@@ -1565,16 +1897,23 @@ class Qwen38FullModel:
                     "ccl_payload_dtype": layer.collective_payload_dtype,
                     "ccl_num_links": int(layer.collective_num_links),
                     "ccl_topology": "linear",
-                    "host_expert": {
-                        "packed_dtype": layer.host_expert_cache.packed_dtype,
-                        "packed_layout": layer.host_expert_cache.packed_layout,
-                        "staging_dtype": layer.host_expert_cache.staging_dtype,
-                        "staging_layout": layer.host_expert_cache.staging_layout,
-                        "slots": int(layer.host_expert_cache.capacity),
-                        "packed_capacity": int(layer.host_expert_cache.packed_host_capacity),
-                        "device_bytes_per_rank": int(layer.host_expert_cache.device_bytes_per_rank),
-                        "packed_host_bytes": int(layer.host_expert_cache.packed_host_bytes),
-                    },
+                    "host_expert": (
+                        None
+                        if layer.host_expert_cache is None
+                        else {
+                            "packed_dtype": layer.host_expert_cache.packed_dtype,
+                            "packed_layout": layer.host_expert_cache.packed_layout,
+                            "staging_dtype": layer.host_expert_cache.staging_dtype,
+                            "staging_layout": layer.host_expert_cache.staging_layout,
+                            "slots": int(layer.host_expert_cache.capacity),
+                            "packed_capacity": int(layer.host_expert_cache.packed_host_capacity),
+                            "device_bytes_per_rank": int(layer.host_expert_cache.device_bytes_per_rank),
+                            "packed_host_bytes": int(layer.host_expert_cache.packed_host_bytes),
+                        }
+                    ),
+                    "resident_expert": (
+                        None if layer.resident_experts is None else layer.resident_experts.metrics()
+                    ),
                 }
             )
 
@@ -1586,6 +1925,18 @@ class Qwen38FullModel:
         def material(path, value, source):
             observed[path] = value
             sources[path] = source
+
+        if "parallelism" in config:
+            parallel = self.layers[0].parallel_config
+            for path, runtime_value in (
+                ("parallelism.mesh_shape", list(tuple(int(value) for value in self.mesh_device.shape))),
+                ("parallelism.dense_tp", int(parallel.dense_tp)),
+                ("parallelism.expert_parallel", int(parallel.expert_parallel)),
+                ("parallelism.expert_mode", self.expert_mode),
+                ("parallelism.kv_replication", int(parallel.kv_replication)),
+                ("parallelism.indexer_kv_replication", int(parallel.indexer_kv_replication)),
+            ):
+                material(path, runtime_value, "live decoder parallel configuration")
 
         material(
             "weight_groups.embedding.dtype",
@@ -1641,11 +1992,12 @@ class Qwen38FullModel:
             lm_head["logits_dtype"],
             "Sampling1D input boundary",
         )
-        material(
-            "host_backed.expert.prepack_all",
-            bool(self.prepack_host_experts),
-            "full-model preload mode",
-        )
+        if self.expert_mode == "host_backed":
+            material(
+                "host_backed.expert.prepack_all",
+                bool(self.prepack_host_experts),
+                "full-model preload mode",
+            )
         material(
             "host_backed.ple.row_cache_capacity",
             int(self.ple_store.row_cache_capacity),
@@ -1669,7 +2021,9 @@ class Qwen38FullModel:
             )
             material(
                 "host_backed.ple.prefill_chunk_rows",
-                int(ple_layer.ple_staging.prefill_rows),
+                # The ranked policy fixes the 128-row quantum; a larger
+                # QWEN38_PREFILL_CHUNK multiplies the staging rows by an integer.
+                int(ple_layer.ple_staging.prefill_rows) * PREFILL_CHUNK_BASE // PREFILL_CHUNK,
                 "live PLE staging allocation",
             )
 
@@ -1793,7 +2147,7 @@ class Qwen38FullModel:
             "device sampler strategy",
         )
 
-        if layers:
+        if layers and layers[0]["host_expert"] is not None:
             host = layers[0]["host_expert"]
             for path, key in (
                 ("host_backed.expert.host_packed_dtype", "packed_dtype"),
@@ -1891,7 +2245,149 @@ class Qwen38FullModel:
 
     # ---------------------------------------------------------------- prefill
 
-    def _prefill_page_inputs(self, layer, state: Qwen38BatchState, slot: int, seq_len: int):
+    def _embed_prefill_tokens(self, prompt: torch.Tensor):
+        """Upload and embed one logical prefill slice."""
+
+        logical = int(prompt.shape[-1])
+        token_host = ttnn.from_torch(
+            prompt.to(torch.int32).reshape(1, 1, 1, logical),
+            dtype=ttnn.uint32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            mesh_mapper=_replicated_mapper(self.mesh_device),
+        )
+        token_device = ttnn.to_device(token_host, self.mesh_device, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        residual = self.embed_tokens(token_device)
+        ttnn.deallocate(token_device)
+        return residual
+
+    def _prefill_slot_stack_major(
+        self,
+        prompt: torch.Tensor,
+        *,
+        state: Qwen38BatchState,
+        slot: int,
+        chunk_start: int,
+        page_device,
+        chunk_pages,
+        retain_all_tokens: bool,
+    ):
+        """Run fixed 128-token microchunks through the complete layer stack."""
+
+        logical_total = int(prompt.shape[-1])
+        plan = self.layers[0].prefill_chunk_plan(logical_total)
+        if chunk_pages is not None and len(chunk_pages) != len(plan):
+            raise ValueError("QSA page-table microchunks do not match the stack-major prefill plan")
+        completed = []
+        final_residual = None
+        # Per-microchunk wall time.  Eager ops return once enqueued, so without
+        # a sync this measures host dispatch; QWEN38_PREFILL_TIMING_SYNC=1 adds a
+        # device sync per microchunk so the figure includes device completion.
+        timing_sync = os.environ.get("QWEN38_PREFILL_TIMING_SYNC", "0") == "1"
+        chunk_timings: list[dict[str, float | int]] = []
+        slot_started = time.perf_counter()
+        for chunk_index, (start, logical, padded) in enumerate(plan):
+            chunk_started = time.perf_counter()
+            micro_prompt = prompt[:, start : start + logical].contiguous()
+            residual = self._embed_prefill_tokens(micro_prompt)
+            physical_rows = HC_COUNT * padded
+            if int(residual.shape[-2]) != physical_rows:
+                padded_residual = ttnn.pad(
+                    residual,
+                    [(0, 0), (0, 0), (0, physical_rows - int(residual.shape[-2])), (0, 0)],
+                    0.0,
+                )
+                _functional_decoder._free(residual, padded_residual)
+                residual = padded_residual
+
+            global_start = chunk_start + start
+            for layer in self.layers:
+                if layer.shapes.has_ple:
+                    output = layer.prefill_microchunk_host_backed_fractured(
+                        residual,
+                        input_ids=micro_prompt,
+                        request_id=state.request_ids[slot],
+                        logical=logical,
+                        user_id=slot,
+                        chunk_start=global_start,
+                        reset_state=global_start == 0,
+                    )
+                else:
+                    kwargs = {
+                        "logical": logical,
+                        "user_id": slot,
+                        "chunk_start": global_start,
+                        "reset_state": global_start == 0,
+                    }
+                    if layer.shapes.layer_type != LINEAR_ATTENTION:
+                        kwargs.update(
+                            page_table=page_device,
+                            chunk_page_table=chunk_pages[chunk_index],
+                            rot_mats=self.rot_mats,
+                        )
+                    output = layer.prefill_microchunk_forward_fractured(residual, **kwargs)
+                _functional_decoder._free(residual, output)
+                residual = output
+
+            if logical != padded:
+                trimmed = ttnn.slice(
+                    residual,
+                    [0, 0, 0, 0],
+                    [1, 1, HC_COUNT * logical, RESIDUAL_SHARD_WIDTH],
+                )
+                _functional_decoder._free(residual, trimmed)
+                residual = trimmed
+            if retain_all_tokens:
+                completed.append(residual)
+            elif chunk_index + 1 == len(plan):
+                final_residual = residual
+            else:
+                ttnn.deallocate(residual)
+            if timing_sync:
+                ttnn.synchronize_device(self.mesh_device)
+            chunk_timings.append(
+                {
+                    "chunk_index": chunk_index,
+                    "chunk_start": chunk_start + start,
+                    "logical": logical,
+                    "padded": padded,
+                    "seconds": time.perf_counter() - chunk_started,
+                }
+            )
+        slot_seconds = time.perf_counter() - slot_started
+        self.last_prefill_timing = {
+            "slot": slot,
+            "chunk_start": chunk_start,
+            "logical_tokens": logical_total,
+            "microchunks": len(plan),
+            "seconds": slot_seconds,
+            "seconds_per_microchunk": slot_seconds / max(1, len(plan)),
+            "synced": timing_sync,
+            "chunks": chunk_timings,
+        }
+        self.prefill_timing_totals["slots"] += 1
+        self.prefill_timing_totals["microchunks"] += len(plan)
+        self.prefill_timing_totals["seconds"] += slot_seconds
+        self.prefill_timing_totals["tokens"] += logical_total
+
+        if retain_all_tokens:
+            if len(completed) == 1:
+                return completed[0]
+            output = ttnn.concat(completed, dim=-2)
+            for residual in completed:
+                ttnn.deallocate(residual)
+            return output
+        assert final_residual is not None
+        return final_residual
+
+    def _prefill_page_inputs(
+        self,
+        layer,
+        state: Qwen38BatchState,
+        slot: int,
+        seq_len: int,
+        *,
+        start_pos: int = 0,
+    ):
         row_host = state.page_table_host[slot : slot + 1]
         row_device = _upload_replicated(
             row_host,
@@ -1901,12 +2397,17 @@ class Qwen38FullModel:
         )
         chunks = []
         for start, logical, _ in layer.prefill_chunk_plan(seq_len):
-            first = start // BLOCK_SIZE
+            global_start = start_pos + start
+            if global_start % BLOCK_SIZE:
+                raise ValueError(
+                    "Qwen3.8 chunked prefill continuation must start on a 64-token page boundary"
+                )
+            first = global_start // BLOCK_SIZE
             # vLLM allocates pages for logical prompt tokens, not for the
             # model's internal 128-row compute padding.  Passing padded pages
             # here makes an unallocated zero-filled block-table tail writable;
             # when the real page is physical block 0, padding overwrites it.
-            last = (start + math.ceil(logical / BLOCK_SIZE) * BLOCK_SIZE) // BLOCK_SIZE
+            last = (global_start + math.ceil(logical / BLOCK_SIZE) * BLOCK_SIZE) // BLOCK_SIZE
             chunks.append(
                 _upload_replicated(
                     row_host[:, first:last],
@@ -1926,8 +2427,16 @@ class Qwen38FullModel:
         page_table: torch.Tensor | None = None,
         kv_cache=None,
         return_all_logits: bool = False,
+        start_pos: Sequence[int] | torch.Tensor | None = None,
+        is_final_chunk: bool = True,
+        emit_logits: bool = True,
+        return_residual: bool = False,
     ):
         """Fill cache/state for mixed logical prompts and return per-slot logits.
+
+        ``return_residual`` (batch one, complete prefill) returns the fractured
+        ``[1,1,4*prompt,640]`` residual after the last layer instead of logits;
+        the MTP draft head consumes it.  The caller owns the returned tensor.
 
         Physical 128-token chunk/page/tile padding is entirely internal.  Each
         active fixed slot may have a different logical length.  ``kv_cache``
@@ -1941,60 +2450,110 @@ class Qwen38FullModel:
         if page_table is not None:
             self.update_page_table(state, page_table)
         lengths = state.prompt_lens if prompt_lens is None else torch.as_tensor(prompt_lens, dtype=torch.int32)
-        if not torch.equal(lengths.reshape(-1), state.prompt_lens):
+        lengths = lengths.reshape(-1)
+        if not torch.equal(lengths, state.prompt_lens):
             raise ValueError("prompt_lens must match the batch state used to allocate cache slots")
+        starts = (
+            torch.zeros_like(lengths)
+            if start_pos is None
+            else torch.as_tensor(start_pos, dtype=torch.int32, device="cpu").reshape(-1)
+        )
+        if starts.numel() != self.max_batch:
+            raise ValueError("start_pos must contain one offset per physical batch slot")
+        committed = state.computed_lens
+        if committed is None:
+            committed = torch.zeros_like(lengths)
+            state.computed_lens = committed
+        if not torch.equal(starts, committed):
+            raise ValueError(
+                f"prefill continuation starts {starts.tolist()} do not match committed offsets {committed.tolist()}"
+            )
+        active_rows = state.active_mask if state.active_mask is not None else lengths > 0
+        if bool(torch.any((lengths <= starts) & active_rows)):
+            raise ValueError("each prefill chunk must advance its committed prompt offset")
         ids = torch.as_tensor(tokens, dtype=torch.int64, device="cpu")
         if ids.ndim != 2 or ids.shape[0] != self.max_batch:
             raise ValueError(f"prefill tokens must be [{self.max_batch}, padded_prompt_width]")
-        if int(ids.shape[1]) < int(state.prompt_lens.max()):
+        if int(ids.shape[1]) < int(lengths.max()):
             raise ValueError("prefill token width is shorter than a logical prompt")
-        if return_all_logits and self.max_batch != 1:
-            raise ValueError("all-token logits are a batch-one diagnostic path")
+        if return_residual:
+            if self.prefill_schedule != "stack_major" or not emit_logits:
+                raise ValueError("return_residual requires the stack-major schedule with emitted outputs")
+            return_all_logits = True
+        if return_all_logits and len(state.active_slots) != 1:
+            raise ValueError("all-token logits are a single-active-slot diagnostic path")
+        if return_all_logits and (bool(torch.any(starts != 0)) or not is_final_chunk):
+            raise ValueError("all-token logits require a complete prefill beginning at position zero")
+        residual_output = None
 
         per_slot_logits: list[object | None] = [None] * self.max_batch
         first_active_logits = None
         for slot in state.active_slots:
-            logical = int(state.prompt_lens[slot])
+            chunk_start = int(starts[slot])
+            chunk_end = int(lengths[slot])
+            logical = chunk_end - chunk_start
 
-            prompt = ids[slot : slot + 1, :logical].contiguous()
-            token_host = ttnn.from_torch(
-                prompt.to(torch.int32).reshape(1, 1, 1, logical),
-                dtype=ttnn.uint32,
-                layout=ttnn.ROW_MAJOR_LAYOUT,
-                mesh_mapper=_replicated_mapper(self.mesh_device),
-            )
-            token_device = ttnn.to_device(token_host, self.mesh_device, memory_config=ttnn.DRAM_MEMORY_CONFIG)
-            residual = self.embed_tokens(token_device)
-            ttnn.deallocate(token_device)
+            prompt = ids[slot : slot + 1, chunk_start:chunk_end].contiguous()
             page_device = chunk_pages = None
             qsa_layer = next(
                 (layer for layer in self.layers if layer.shapes.layer_type != LINEAR_ATTENTION),
                 None,
             )
             if qsa_layer is not None:
-                page_device, chunk_pages = self._prefill_page_inputs(qsa_layer, state, slot, logical)
+                page_device, chunk_pages = self._prefill_page_inputs(
+                    qsa_layer,
+                    state,
+                    slot,
+                    logical,
+                    start_pos=chunk_start,
+                )
             try:
-                for layer in self.layers:
-                    if layer.shapes.has_ple:
-                        output = layer.prefill_forward_host_backed_fractured(
-                            residual,
-                            input_ids=prompt,
-                            request_id=state.request_ids[slot],
-                            user_id=slot,
-                        )
-                    else:
-                        kwargs = {"user_id": slot}
-                        if layer.shapes.layer_type != LINEAR_ATTENTION:
-                            kwargs.update(
-                                page_table=page_device,
-                                page_tables_per_chunk=chunk_pages,
-                                rot_mats=self.rot_mats,
+                if self.prefill_schedule == "stack_major":
+                    residual = self._prefill_slot_stack_major(
+                        prompt,
+                        state=state,
+                        slot=slot,
+                        chunk_start=chunk_start,
+                        page_device=page_device,
+                        chunk_pages=chunk_pages,
+                        retain_all_tokens=return_all_logits,
+                    )
+                else:
+                    residual = self._embed_prefill_tokens(prompt)
+                    for layer in self.layers:
+                        if layer.shapes.has_ple:
+                            output = layer.prefill_forward_host_backed_fractured(
+                                residual,
+                                input_ids=prompt,
+                                request_id=state.request_ids[slot],
+                                user_id=slot,
+                                chunk_start=chunk_start,
                             )
-                        output = layer.prefill_forward_fractured(residual, **kwargs)
-                    _functional_decoder._free(residual, output)
-                    residual = output
+                        else:
+                            kwargs = {
+                                "user_id": slot,
+                                "chunk_start": chunk_start,
+                                "reset_state": chunk_start == 0,
+                            }
+                            if layer.shapes.layer_type != LINEAR_ATTENTION:
+                                kwargs.update(
+                                    page_table=page_device,
+                                    page_tables_per_chunk=chunk_pages,
+                                    rot_mats=self.rot_mats,
+                                )
+                            output = layer.prefill_forward_fractured(residual, **kwargs)
+                        _functional_decoder._free(residual, output)
+                        residual = output
+                if not emit_logits:
+                    ttnn.deallocate(residual)
+                    continue
                 if not return_all_logits:
-                    start = HC_COUNT * (logical - 1)
+                    residual_logical = (
+                        self.layers[0].prefill_chunk_plan(logical)[-1][1]
+                        if self.prefill_schedule == "stack_major"
+                        else logical
+                    )
+                    start = HC_COUNT * (residual_logical - 1)
                     last = ttnn.slice(
                         residual,
                         [0, 0, start, 0],
@@ -2002,6 +2561,9 @@ class Qwen38FullModel:
                     )
                     _functional_decoder._free(residual, last)
                     residual = last
+                if return_residual:
+                    residual_output = residual
+                    continue
                 slot_logits = self.project_logits(residual)
                 ttnn.deallocate(residual)
                 per_slot_logits[slot] = slot_logits
@@ -2013,8 +2575,22 @@ class Qwen38FullModel:
                     for chunk in chunk_pages:
                         _deallocate(chunk)
 
-        for layer in self.layers:
-            layer.prepare_decode_state()
+        state.computed_lens = lengths.clone()
+        if is_final_chunk:
+            for layer in self.layers:
+                layer.prepare_decode_state()
+            positions = torch.where(state.active_mask, lengths, torch.full_like(lengths, -1))
+            for layer in self.layers:
+                seed_ring = getattr(layer, "seed_compressed_index_ring", None)
+                if seed_ring is not None:
+                    seed_ring(positions, state.page_table)
+            _copy_host_to_device(positions, state.current_pos, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT)
+            state.host_positions = positions.to(torch.int32).clone()
+            state.position_host_copies += 1
+        if not emit_logits:
+            return None
+        if return_residual:
+            return residual_output
         if return_all_logits:
             return per_slot_logits[state.active_slots[0]]
         assert first_active_logits is not None
@@ -2058,11 +2634,23 @@ class Qwen38FullModel:
         return layer.ple_staging.upload_decode(full)
 
     def _decode_stack_eager(self, state: Qwen38BatchState, ple_input_ids: torch.Tensor):
-        residual = self.embed_tokens(state.token_input)
+        residual = self.decode_residual_eager(state, ple_input_ids)
+        logits = self.project_logits(residual)
+        ttnn.deallocate(residual)
+        return logits
+
+    def decode_residual_eager(self, state: Qwen38BatchState, ple_input_ids: torch.Tensor):
+        """Eager decode of ``state.token_input``; returns the fractured residual after the last layer.
+
+        The MTP draft head consumes this wide residual together with the next
+        token.  The caller owns the returned tensor and advances positions.
+        """
+
+        residual = self.embed_tokens_decode(state.token_input)
         for layer in self.layers:
             if layer.shapes.has_ple:
                 ple_embeddings = self._stage_active_ple_decode(layer, state, ple_input_ids)
-                output = layer.decode_forward_fractured(
+                output = layer.decode_step(
                     residual,
                     current_pos=state.current_pos,
                     ple_embeddings=ple_embeddings,
@@ -2071,12 +2659,10 @@ class Qwen38FullModel:
                 kwargs = {"current_pos": state.current_pos}
                 if layer.shapes.layer_type != LINEAR_ATTENTION:
                     kwargs.update(page_table=state.page_table, rot_mats=self.rot_mats)
-                output = layer.decode_forward_fractured(residual, **kwargs)
+                output = layer.decode_step(residual, **kwargs)
             _functional_decoder._free(residual, output)
             residual = output
-        logits = self.project_logits(residual)
-        ttnn.deallocate(residual)
-        return logits
+        return residual
 
     def decode_forward(
         self,
@@ -2128,7 +2714,9 @@ class Qwen38FullModel:
                 dtype=ttnn.int32,
                 layout=ttnn.ROW_MAJOR_LAYOUT,
             )
+            state.host_positions = positions.clone()
             state.position_host_copies += 1
+        self._apply_qsa_variant(self._select_qsa_variant(state))
         if enable_trace:
             if self.max_batch != 1:
                 raise RuntimeError("host-backed segmented token-out trace is currently a batch-one optimized path")
@@ -2150,6 +2738,8 @@ class Qwen38FullModel:
 
     def sample_logits(self, logits, state: Qwen38BatchState, *, advance_seed: bool = True):
         if self._sampling_force_argmax:
+            if self.argmax_mode == "sharded":
+                return self._sharded_argmax(logits, state.token_input)
             sampled, _ = self.sampling.decode_forward(
                 logits,
                 tt_out_tok=state.token_input,
@@ -2169,6 +2759,65 @@ class Qwen38FullModel:
     def _sample_logits_for_decode_trace(self, logits, state: Qwen38BatchState):
         return self.sample_logits(logits, state, advance_seed=False)
 
+    def _sharded_argmax(self, logits, tt_out_tok):
+        """Greedy token from vocab-sharded logits without gathering the vocabulary.
+
+        Each rank reduces its 62,080-wide shard to (max, global index); the
+        four pairs are all-gathered and the winner selected on device.  This
+        replaces the 248,320-wide logits all-gather + untilize + argmax
+        (~1.0 ms) with two four-element gathers and a quarter-width argmax.
+        """
+
+        layer = self.layers[0]
+        rows = int(logits.shape[-2])
+        local_max = ttnn.max(logits, dim=-1, keepdim=True)
+        row_major = ttnn.untilize(logits, use_multicore=True)
+        local_idx = ttnn.argmax(row_major, dim=-1, keepdim=True)
+        ttnn.deallocate(row_major)
+        local_idx_i32 = ttnn.typecast(local_idx, ttnn.int32)
+        ttnn.deallocate(local_idx)
+        local_idx_tiled = ttnn.to_layout(local_idx_i32, ttnn.TILE_LAYOUT)
+        ttnn.deallocate(local_idx_i32)
+        global_idx = ttnn.add(local_idx_tiled, self.argmax_vocab_offset)
+        ttnn.deallocate(local_idx_tiled)
+        gather = dict(
+            dim=3,
+            cluster_axis=layer.collective_axis,
+            num_links=layer.collective_num_links,
+            topology=layer.collective_topology,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        gathered_max = ttnn.all_gather(local_max, **gather)
+        ttnn.deallocate(local_max)
+        gathered_idx = ttnn.all_gather(global_idx, **gather)
+        ttnn.deallocate(global_idx)
+        gathered_max_rm = ttnn.untilize(gathered_max, use_multicore=False)
+        ttnn.deallocate(gathered_max)
+        best = ttnn.argmax(gathered_max_rm, dim=-1, keepdim=True)
+        ttnn.deallocate(gathered_max_rm)
+        best_f = ttnn.typecast(ttnn.to_layout(best, ttnn.TILE_LAYOUT), ttnn.float32)
+        ttnn.deallocate(best)
+        onehot = ttnn.eq(self.argmax_rank_arange, best_f)
+        ttnn.deallocate(best_f)
+        idx_f = ttnn.typecast(gathered_idx, ttnn.float32)
+        ttnn.deallocate(gathered_idx)
+        picked = ttnn.multiply(onehot, idx_f)
+        ttnn.deallocate(onehot)
+        ttnn.deallocate(idx_f)
+        selected = ttnn.sum(picked, dim=-1, keepdim=True)
+        ttnn.deallocate(picked)
+        selected_u32 = ttnn.typecast(ttnn.typecast(selected, ttnn.int32), ttnn.uint32)
+        ttnn.deallocate(selected)
+        selected_rm = ttnn.to_layout(selected_u32, ttnn.ROW_MAJOR_LAYOUT)
+        ttnn.deallocate(selected_u32)
+        token_row = ttnn.reshape(selected_rm, (1, 1, 1, rows))
+        if rows != self.max_batch:
+            token_row = ttnn.slice(token_row, [0, 0, 0, 0], [1, 1, 1, self.max_batch])
+        ttnn.copy(token_row, tt_out_tok)
+        _functional_decoder._free(token_row, selected_rm, tt_out_tok)
+        _functional_decoder._free(selected_rm, tt_out_tok)
+        return tt_out_tok
+
     # --------------------------------------------------------------- tracing
 
     def _trace_layer_kwargs(self, layer, state, ple_input_ids):
@@ -2179,12 +2828,15 @@ class Qwen38FullModel:
             kwargs.update(ple_input_ids=ple_input_ids, request_ids=state.request_ids)
         return kwargs
 
+    def _layer_trace_class(self):
+        return ResidentLayerDecodeTrace if self.expert_mode == "resident_ep4" else HostBackedSegmentedDecodeTrace
+
     def _warm_trace_programs(self, state: Qwen38BatchState, ple_input_ids: torch.Tensor) -> None:
-        warm_residual = self.embed_tokens(state.token_input)
+        warm_residual = self.embed_tokens_decode(state.token_input)
         warm_logits = None
         try:
             for layer in self.layers:
-                HostBackedSegmentedDecodeTrace.warm_programs(
+                self._layer_trace_class().warm_programs(
                     layer,
                     warm_residual,
                     **self._trace_layer_kwargs(layer, state, ple_input_ids),
@@ -2197,6 +2849,252 @@ class Qwen38FullModel:
             _deallocate(warm_logits)
             _deallocate(warm_residual)
 
+    def _capture_resident_stack_traces(
+        self,
+        state: Qwen38BatchState,
+        ple_input_ids: torch.Tensor,
+    ) -> None:
+        """Capture resident decode as two graphs around the sole host PLE boundary."""
+
+        started = time.perf_counter()
+        original_tokens = self.sampled_tokens_to_torch(state.token_input)
+        original_positions = ttnn.to_torch(ttnn.get_device_tensors(state.current_pos)[0]).reshape(-1).to(torch.int32)
+        state.host_positions = original_positions.clone()
+        variant = self._select_qsa_variant(state)
+        self._apply_qsa_variant(variant)
+        self._warm_trace_programs(state, ple_input_ids)
+        self.copy_tokens(state, original_tokens)
+        _copy_host_to_device(
+            original_positions,
+            state.current_pos,
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+        )
+        state.position_host_copies += 1
+
+        ple_index = next((index for index, layer in enumerate(self.layers) if layer.shapes.has_ple), len(self.layers))
+        ple_layer = None if ple_index == len(self.layers) else self.layers[ple_index]
+        prefix_capture_open = suffix_capture_open = False
+        if self.decode_state_workspace is not None:
+            self.decode_state_workspace.retain_trace()
+            self._resident_stack_workspace_retained = True
+        try:
+            self.mesh_device.set_program_cache_misses_allowed(False)
+            self.resident_prefix_trace_id = ttnn.begin_trace_capture(self.mesh_device, cq_id=0)
+            prefix_capture_open = True
+            residual = self.embed_tokens_decode(state.token_input)
+            for layer in self.layers[:ple_index]:
+                kwargs = {"current_pos": state.current_pos}
+                if layer.shapes.layer_type != LINEAR_ATTENTION:
+                    kwargs.update(page_table=state.page_table, rot_mats=self.rot_mats)
+                output = layer.decode_step(residual, **kwargs)
+                _functional_decoder._free(residual, output)
+                residual = output
+            self.resident_prefix_output = residual
+            ttnn.end_trace_capture(self.mesh_device, self.resident_prefix_trace_id, cq_id=0)
+            prefix_capture_open = False
+            ttnn.mark_corruptible(self.resident_prefix_output)
+            ttnn.execute_trace(self.mesh_device, self.resident_prefix_trace_id, cq_id=0, blocking=True)
+
+            if ple_layer is not None:
+                embeddings = ple_layer.host_ple_store.prepare(state.request_ids, ple_input_ids)
+                ple_layer.ple_staging.upload_decode(embeddings)
+
+            self._advance_sampling_seeds()
+            self.resident_stack_trace_id = ttnn.begin_trace_capture(self.mesh_device, cq_id=0)
+            suffix_capture_open = True
+            residual = self.resident_prefix_output
+            for layer_index, layer in enumerate(self.layers[ple_index:], start=ple_index):
+                kwargs = {"current_pos": state.current_pos}
+                if layer.shapes.layer_type != LINEAR_ATTENTION:
+                    kwargs.update(page_table=state.page_table, rot_mats=self.rot_mats)
+                if layer.shapes.has_ple:
+                    kwargs["ple_embeddings"] = layer.ple_staging.decode
+                output = layer.decode_step(residual, **kwargs)
+                if layer_index != ple_index:
+                    _functional_decoder._free(residual, output)
+                residual = output
+            self.trace_logits = self.project_logits(residual)
+            if residual is not self.resident_prefix_output:
+                _functional_decoder._free(residual, self.trace_logits)
+            self._sample_logits_for_decode_trace(self.trace_logits, state)
+            ttnn.plus_one(state.current_pos, skip_negative_entries=True)
+            ttnn.end_trace_capture(self.mesh_device, self.resident_stack_trace_id, cq_id=0)
+            suffix_capture_open = False
+            ttnn.mark_corruptible(self.trace_logits)
+            ttnn.execute_trace(self.mesh_device, self.resident_stack_trace_id, cq_id=0, blocking=True)
+        except BaseException:
+            HostBackedSegmentedDecodeTrace._finish_failed_capture(
+                self.mesh_device,
+                self.resident_stack_trace_id,
+                suffix_capture_open,
+            )
+            HostBackedSegmentedDecodeTrace._finish_failed_capture(
+                self.mesh_device,
+                self.resident_prefix_trace_id,
+                prefix_capture_open,
+            )
+            self.resident_stack_trace_id = None
+            self.resident_prefix_trace_id = None
+            self.release_decode_traces()
+            raise
+        finally:
+            self.mesh_device.set_program_cache_misses_allowed(True)
+
+        self._trace_state = state
+        self._trace_ready = True
+        self._trace_execution_mode = "token_out"
+        self._trace_sampling_force_argmax = self._sampling_force_argmax
+        self.trace_capture_seconds = time.perf_counter() - started
+        self._active_qsa_variant = variant
+        self.resident_trace_variants[variant] = {
+            "prefix_trace_id": self.resident_prefix_trace_id,
+            "stack_trace_id": self.resident_stack_trace_id,
+            "prefix_output": self.resident_prefix_output,
+            "logits": self.trace_logits,
+        }
+        self._advance_host_positions(state)
+
+    # ------------------------------------------------- QSA decode variants
+
+    QSA_DENSE_MARGIN = 8
+
+    def _select_qsa_variant(self, state: Qwen38BatchState) -> str:
+        """``dense`` while every active position is safely below the QSA budget.
+
+        The selector keeps the 512 most relevant 4-token blocks; while fewer
+        than 512 complete blocks are visible it selects all of them, so dense
+        causal attention over the paged cache is the same function.  Unknown
+        host positions select the always-valid selector variant.
+        """
+
+        if not self.qsa_dense_below_budget or not any(
+            layer.shapes.layer_type != LINEAR_ATTENTION for layer in self.layers
+        ):
+            return "selector"
+        if os.environ.get("QWEN38_QSA_FORCE_DENSE", "0") == "1":
+            # Diagnostic only: dense causal attention over the whole prefix at
+            # every position, bypassing the top-512-block selector.  Not the
+            # reference function beyond the budget; used to localize accuracy
+            # differences between the selector/gather path and the caches.
+            return "dense"
+        positions = state.host_positions
+        if positions is None:
+            return "selector"
+        active = positions[positions >= 0]
+        if active.numel() == 0:
+            return "selector"
+        if int(active.max()) < QSA_TOKEN_BUDGET - self.QSA_DENSE_MARGIN:
+            return "dense"
+        return "selector"
+
+    def _apply_qsa_variant(self, variant: str) -> None:
+        for layer in self.layers:
+            if layer.shapes.layer_type != LINEAR_ATTENTION:
+                layer.qsa_dense_decode = variant == "dense"
+
+    @staticmethod
+    def _advance_host_positions(state: Qwen38BatchState) -> None:
+        if state.host_positions is None:
+            return
+        state.host_positions = torch.where(
+            state.host_positions >= 0, state.host_positions + 1, state.host_positions
+        )
+
+    def _switch_qsa_variant(self, state: Qwen38BatchState, ple_input_ids: torch.Tensor, variant: str) -> bool:
+        """Activate the resident traces of ``variant``; capture them if missing.
+
+        Returns True when a capture consumed this decode step (the caller must
+        not replay again).
+        """
+
+        if variant == self._active_qsa_variant:
+            return False
+        if self._active_qsa_variant is not None:
+            self.resident_trace_variants[self._active_qsa_variant] = {
+                "prefix_trace_id": self.resident_prefix_trace_id,
+                "stack_trace_id": self.resident_stack_trace_id,
+                "prefix_output": self.resident_prefix_output,
+                "logits": self.trace_logits,
+            }
+        stored = self.resident_trace_variants.get(variant)
+        if stored is not None:
+            self.resident_prefix_trace_id = stored["prefix_trace_id"]
+            self.resident_stack_trace_id = stored["stack_trace_id"]
+            self.resident_prefix_output = stored["prefix_output"]
+            self.trace_logits = stored["logits"]
+            self._active_qsa_variant = variant
+            self._apply_qsa_variant(variant)
+            return False
+        # Capture the other variant (this executes one real decode step).
+        self.resident_prefix_trace_id = None
+        self.resident_stack_trace_id = None
+        self.resident_prefix_output = None
+        self.trace_logits = None
+        self._active_qsa_variant = None
+        self._capture_resident_stack_traces(state, ple_input_ids)
+        return True
+
+    def _replay_resident_stack_traces(self, state: Qwen38BatchState, ple_input_ids: torch.Tensor) -> None:
+        """Submit two resident graphs while preparing PLE rows under layer zero."""
+
+        variant = self._select_qsa_variant(state)
+        if self._switch_qsa_variant(state, ple_input_ids, variant):
+            return
+        if self.resident_prefix_trace_id is None or self.resident_stack_trace_id is None:
+            raise RuntimeError("resident stack traces are incomplete")
+        started = time.perf_counter()
+        ple_layer = next((layer for layer in self.layers if layer.shapes.has_ple), None)
+        ple_future = (
+            None
+            if ple_layer is None
+            else ple_layer.host_ple_store.prepare_async(state.request_ids, ple_input_ids)
+        )
+        workspace_scope = (
+            self.decode_state_workspace.serialize_replay()
+            if self.decode_state_workspace is not None
+            else nullcontext()
+        )
+        prefix_started = time.perf_counter()
+        with workspace_scope:
+            ttnn.execute_trace(self.mesh_device, self.resident_prefix_trace_id, cq_id=0, blocking=False)
+            prefix_submit_seconds = time.perf_counter() - prefix_started
+            ple_started = time.perf_counter()
+            if ple_layer is not None:
+                ple_layer.ple_staging.upload_decode(ple_future.result())
+            ple_seconds = time.perf_counter() - ple_started
+            self._advance_sampling_seeds()
+            suffix_started = time.perf_counter()
+            ttnn.execute_trace(self.mesh_device, self.resident_stack_trace_id, cq_id=0, blocking=False)
+            suffix_submit_seconds = time.perf_counter() - suffix_started
+
+        self.trace_replays += 1
+        self._advance_host_positions(state)
+        total = time.perf_counter() - started
+        self.last_decode_timing = {
+            "total_submit_seconds": total,
+            "layer_boundary_seconds": prefix_submit_seconds + suffix_submit_seconds,
+            "expert_service_seconds": 0.0,
+            "route_read_and_tt_stall_seconds": 0.0,
+            "expert_cache_control_dma_submit_seconds": 0.0,
+            "layer_trace_submit_seconds": prefix_submit_seconds + suffix_submit_seconds,
+            "ple_service_seconds": ple_seconds,
+            "trace_replay_index": self.trace_replays,
+            "trace_segments": 2,
+            "layers": [],
+        }
+        self.decode_timing_totals["replay_tokens"] += 1.0
+        for name in (
+            "total_submit_seconds",
+            "layer_boundary_seconds",
+            "expert_service_seconds",
+            "route_read_and_tt_stall_seconds",
+            "expert_cache_control_dma_submit_seconds",
+            "layer_trace_submit_seconds",
+            "ple_service_seconds",
+        ):
+            self.decode_timing_totals[name] += float(self.last_decode_timing[name])
+
     def capture_decode_traces(
         self,
         state: Qwen38BatchState,
@@ -2204,7 +3102,7 @@ class Qwen38FullModel:
         *,
         execution_mode: str = "token_out",
     ) -> None:
-        """Capture ingress, every host-split layer, terminal, sampling, and position traces.
+        """Capture ingress, every decoder layer, terminal, sampling, and position traces.
 
         Capture deploys the first decode token exactly once, matching the
         existing segmented-layer contract.  The caller consumes
@@ -2215,11 +3113,19 @@ class Qwen38FullModel:
         self._require_state_buffers(state)
         if execution_mode not in {"token_out", "model_only"}:
             raise ValueError("execution_mode must be 'token_out' or 'model_only'")
-        if self.max_batch != 1:
-            raise RuntimeError("segmented full-stack capture currently requires max_batch=1")
+        if self.max_batch != 1 and self.expert_mode != "resident_ep4":
+            raise RuntimeError("host-backed segmented full-stack capture currently requires max_batch=1")
         if self._trace_ready:
             if state is not self._trace_state:
                 raise RuntimeError("decode traces are already bound to another state")
+            return
+        if (
+            self.decode_trace_schedule == "resident_stack"
+            and self.expert_mode == "resident_ep4"
+            and self.max_batch == 1
+            and execution_mode == "token_out"
+        ):
+            self._capture_resident_stack_traces(state, ple_input_ids)
             return
         started = time.perf_counter()
         original_tokens = self.sampled_tokens_to_torch(state.token_input)
@@ -2237,7 +3143,7 @@ class Qwen38FullModel:
         try:
             self.mesh_device.set_program_cache_misses_allowed(False)
             self.ingress_trace_id = ttnn.begin_trace_capture(self.mesh_device, cq_id=0)
-            self.ingress_trace_output = self.embed_tokens(state.token_input)
+            self.ingress_trace_output = self.embed_tokens_decode(state.token_input)
             ttnn.end_trace_capture(self.mesh_device, self.ingress_trace_id, cq_id=0)
             ttnn.mark_corruptible(self.ingress_trace_output)
             # Trace capture registers commands but does not deploy them.  The
@@ -2250,7 +3156,7 @@ class Qwen38FullModel:
         residual = self.ingress_trace_output
         try:
             for layer in self.layers:
-                trace = HostBackedSegmentedDecodeTrace.capture(
+                trace = self._layer_trace_class().capture(
                     layer,
                     residual,
                     programs_prepared=True,
@@ -2292,7 +3198,15 @@ class Qwen38FullModel:
     def _replay_decode_traces(self, state: Qwen38BatchState, ple_input_ids: torch.Tensor) -> None:
         if not self._trace_ready or state is not self._trace_state:
             raise RuntimeError("decode traces are not captured for this state")
+        if self.resident_stack_trace_id is not None:
+            self._replay_resident_stack_traces(state, ple_input_ids)
+            return
         started = time.perf_counter()
+        ple_future = None
+        if self.expert_mode == "resident_ep4":
+            ple_trace = next((trace for trace in self.layer_traces if trace.layer.shapes.has_ple), None)
+            if ple_trace is not None:
+                ple_future = ple_trace.layer.host_ple_store.prepare_async(state.request_ids, ple_input_ids)
         ttnn.execute_trace(self.mesh_device, self.ingress_trace_id, cq_id=0, blocking=False)
         layer_seconds = 0.0
         expert_seconds = 0.0
@@ -2304,10 +3218,13 @@ class Qwen38FullModel:
         for trace in self.layer_traces:
             kwargs = {}
             if trace.layer.shapes.has_ple:
-                kwargs = {
-                    "ple_input_ids": ple_input_ids,
-                    "request_ids": state.request_ids,
-                }
+                if ple_future is None:
+                    kwargs = {
+                        "ple_input_ids": ple_input_ids,
+                        "request_ids": state.request_ids,
+                    }
+                else:
+                    kwargs = {"ple_embeddings": ple_future.result()}
             layer_started = time.perf_counter()
             trace.replay(**kwargs)
             layer_seconds += time.perf_counter() - layer_started
@@ -2374,14 +3291,22 @@ class Qwen38FullModel:
         if not self._trace_ready:
             self.capture_decode_traces(state, ple_input_ids, execution_mode="model_only")
             return self.trace_logits
+        ple_future = None
+        if self.expert_mode == "resident_ep4":
+            ple_trace = next((trace for trace in self.layer_traces if trace.layer.shapes.has_ple), None)
+            if ple_trace is not None:
+                ple_future = ple_trace.layer.host_ple_store.prepare_async(state.request_ids, ple_input_ids)
         ttnn.execute_trace(self.mesh_device, self.ingress_trace_id, cq_id=0, blocking=False)
         for trace in self.layer_traces:
             kwargs = {}
             if trace.layer.shapes.has_ple:
-                kwargs = {
-                    "ple_input_ids": ple_input_ids,
-                    "request_ids": state.request_ids,
-                }
+                if ple_future is None:
+                    kwargs = {
+                        "ple_input_ids": ple_input_ids,
+                        "request_ids": state.request_ids,
+                    }
+                else:
+                    kwargs = {"ple_embeddings": ple_future.result()}
             trace.replay(**kwargs)
         ttnn.execute_trace(self.mesh_device, self.terminal_trace_id, cq_id=0, blocking=False)
         self.model_only_trace_replays += 1
@@ -2395,6 +3320,27 @@ class Qwen38FullModel:
     def release_decode_traces(self) -> None:
         terminal_output = self.trace_logits
         ingress_output = self.ingress_trace_output
+        resident_prefix_output = self.resident_prefix_output
+        active_ids = {self.resident_stack_trace_id, self.resident_prefix_trace_id}
+        for stored in list(self.resident_trace_variants.values()):
+            for key in ("stack_trace_id", "prefix_trace_id"):
+                trace_id = stored.get(key)
+                if trace_id is not None and trace_id not in active_ids:
+                    ttnn.release_trace(self.mesh_device, trace_id)
+            for key in ("prefix_output", "logits"):
+                tensor = stored.get(key)
+                if tensor is not None and tensor is not terminal_output and tensor is not resident_prefix_output:
+                    _deallocate(tensor)
+        self.resident_trace_variants = {}
+        self._active_qsa_variant = None
+        for trace_id_name in (
+            "resident_stack_trace_id",
+            "resident_prefix_trace_id",
+        ):
+            trace_id = getattr(self, trace_id_name, None)
+            if trace_id is not None:
+                ttnn.release_trace(self.mesh_device, trace_id)
+                setattr(self, trace_id_name, None)
         for trace_id_name in (
             "position_trace_id",
             "sampling_trace_id",
@@ -2412,6 +3358,11 @@ class Qwen38FullModel:
             self.ingress_trace_id = None
         _deallocate(terminal_output)
         _deallocate(ingress_output)
+        _deallocate(resident_prefix_output)
+        self.resident_prefix_output = None
+        if self._resident_stack_workspace_retained:
+            self.decode_state_workspace.release_trace()
+            self._resident_stack_workspace_retained = False
         self.ingress_trace_output = None
         self.trace_logits = None
         self._trace_ready = False
@@ -2463,6 +3414,12 @@ class Qwen38FullModel:
             "ple_unique_rows": float(ple["unique_rows"]),
             "ple_table_rows_read": float(ple["table_rows_read"]),
             "ple_table_bytes_read": float(ple["table_bytes_read"]),
+            "ple_direct_read_rows": float(ple["direct_read_rows"]),
+            "ple_direct_read_bytes": float(ple["direct_read_bytes"]),
+            "ple_parallel_read_calls": float(ple["parallel_read_calls"]),
+            "ple_parallel_read_shards": float(ple["parallel_read_shards"]),
+            "ple_parallel_read_seconds": float(ple["parallel_read_seconds"]),
+            "ple_async_prepare_calls": float(ple["async_prepare_calls"]),
             "ple_host_assembly_bytes": float(ple["h2d_bytes"]),
             "ple_lookup_seconds": float(ple["lookup_seconds"]),
             "ple_device_h2d_bytes": float(ple_device.get("h2d_bytes", 0)),
@@ -2476,6 +3433,7 @@ class Qwen38FullModel:
         """Compact non-monotonic host-store occupancy and preload snapshot."""
 
         experts = [layer.host_expert_cache.metrics() for layer in self.layers if layer.host_expert_cache is not None]
+        resident = [layer.resident_experts.metrics() for layer in self.layers if layer.resident_experts is not None]
         ple = self.ple_store.metrics()
         preload = self.host_preload_report or {}
         return {
@@ -2488,15 +3446,61 @@ class Qwen38FullModel:
             "expert_preload_entries": float(preload.get("loaded_entries", 0)),
             "expert_preload_bytes": float(preload.get("packed_host_bytes", 0)),
             "expert_preload_seconds": float(preload.get("seconds", 0)),
+            "resident_expert_layers": float(len(resident)),
+            "resident_expert_bytes_per_device": sum(
+                float(item.get("resident_expert_bytes_per_device", 0)) for item in resident
+            ),
+            "resident_expert_host_store_bytes": sum(
+                float(item.get("expert_host_store_bytes", 0)) for item in resident
+            ),
             "ple_row_cache_entries": float(ple["row_cache_entries"]),
             "ple_history_entries": float(ple["history_entries"]),
         }
 
     def runtime_fallback_audit(self, state: Qwen38BatchState) -> dict[str, object]:
+        mtp_config = getattr(self.text_config, "mtp", {})
+        mtp_layers = getattr(self.text_config, "mtp_num_hidden_layers", None)
+        if mtp_layers is None:
+            mtp_layers = (
+                mtp_config.get("num_hidden_layers", 0)
+                if isinstance(mtp_config, dict)
+                else getattr(mtp_config, "num_hidden_layers", 0)
+            )
         return {
+            "execution_policy": {
+                "physical_batch": self.max_batch,
+                "max_sequence_tokens": self.max_seq_len,
+                "qsa_selector_compressed_blocks": next(
+                    (
+                        int(layer.const["compressed_blocks"])
+                        for layer in self.layers
+                        if layer.shapes.layer_type != LINEAR_ATTENTION
+                    ),
+                    0,
+                ),
+                "expert_mode": self.expert_mode,
+                "prefill_schedule": self.prefill_schedule,
+                "prefill_microchunk_tokens": PREFILL_CHUNK,
+                "decode_trace_schedule": self.decode_trace_schedule,
+                "decode_residual": self.decode_residual,
+                "moe_kernel": self.moe_kernel,
+                "qsa_dense_below_budget": self.qsa_dense_below_budget,
+                "active_qsa_variant": self._active_qsa_variant,
+                "decode_trace_segments": 2 if self.resident_stack_trace_id is not None else None,
+                "resident_expert_weight_cache": (
+                    None if self.expert_weight_cache is None else str(self.expert_weight_cache)
+                ),
+            },
+            "speculative_decode": {
+                "checkpoint_mtp_layers": int(mtp_layers or 0),
+                "enabled": False,
+                "target_multi_token_verifier": False,
+                "state_rollback": False,
+                "ple_ngram_role": "model feature lookup, not a draft-token proposer",
+            },
             "declared_host_work": {
                 "model_load_exact_expert_prepack": self.prepack_host_experts,
-                "expert_route_id_read_and_exact_weight_dma": True,
+                "expert_route_id_read_and_exact_weight_dma": self.expert_mode == "host_backed",
                 "ple_ngram_hash_row_lookup_and_dma": True,
                 "caller_visible_compact_token_readback": True,
                 "explicit_non_greedy_seed_control_h2d": self._sampling_seed_rngs is not None,
@@ -2517,11 +3521,18 @@ class Qwen38FullModel:
                 "page_table": "state with stable model buffer",
                 "tokens_and_positions": "device feedback after request reset",
                 "expert_store": (
-                    "per-layer exact mmap source, model-load packed-host preload, and fixed TT slots"
-                    if self.prepack_host_experts
-                    else "per-layer exact mmap source, lazy packed-host cache, and fixed TT slots"
+                    "128 complete BFP4 experts per TT device with contiguous EP4 ownership"
+                    if self.expert_mode == "resident_ep4"
+                    else (
+                        "per-layer exact mmap source, model-load packed-host preload, and fixed TT slots"
+                        if self.prepack_host_experts
+                        else "per-layer exact mmap source, lazy packed-host cache, and fixed TT slots"
+                    )
                 ),
-                "ple_store": "shared exact mmap table with request-isolated two-token history",
+                "ple_store": (
+                    "shared exact safetensors table with parallel direct-row reads, "
+                    "mmap validation, and request-isolated two-token history"
+                ),
             },
             "counters": {
                 "trace_replays": self.trace_replays,
@@ -2542,9 +3553,13 @@ class Qwen38FullModel:
                 None,
             ),
             "experts": {
-                str(layer.shapes.layer_idx): layer.host_expert_cache.metrics()
+                str(layer.shapes.layer_idx): (
+                    layer.resident_experts.metrics()
+                    if layer.resident_experts is not None
+                    else layer.host_expert_cache.metrics()
+                )
                 for layer in self.layers
-                if layer.host_expert_cache is not None
+                if layer.resident_experts is not None or layer.host_expert_cache is not None
             },
         }
 
@@ -2602,6 +3617,7 @@ class Qwen38FullModel:
             "decode_token_input",
             "decode_current_pos",
             "decode_page_table",
+            "decode_physical_compressed_ids",
             "sampling_k",
             "sampling_p",
             "sampling_temp",

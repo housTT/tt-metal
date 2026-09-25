@@ -20,7 +20,10 @@ from models.autoports.qwen_qwen3_8_flash_next.tt.host_weight_cache import (
     PLE_EMBED_DIM,
     PLE_LOGICAL_ROWS,
     PLE_PADDED_ROWS,
+    PLE_ROW_BYTES,
+    PLE_ROWS_PER_SHARD,
     PLE_TABLE_BYTES,
+    TP_SIZE,
     DeviceExpertSlot,
     ExpertCacheMetrics,
     ExpertIdentity,
@@ -202,15 +205,15 @@ def test_checkpoint_capacity_constants_and_manifests(checkpoint, ple_store):
     assert all(len(entry["blob_sha256"]) == 64 for entry in ple_store.manifest)
 
 
-def test_checkpoint_expert_ep2_packing_is_exact(checkpoint):
+def test_checkpoint_expert_ep4_packing_is_exact(checkpoint):
     source = Qwen38ExpertHostSource(checkpoint, layer_idx=3)
     packed = source.load(17)
     fused = checkpoint.indexed_tensor(source.gate_up_key, 17)
     down = checkpoint.indexed_tensor(source.down_key, 17)
     expected_gate_up = torch.cat((fused[:640].T, fused[640:].T), dim=-1)
     expected_down = down.T
-    owner = 17 % 2
-    for rank in range(2):
+    owner = 17 % TP_SIZE
+    for rank in range(TP_SIZE):
         if rank == owner:
             assert torch.equal(packed.gate_up_by_rank[rank][0, 0], expected_gate_up)
             assert torch.equal(packed.down_by_rank[rank][0, 0], expected_down)
@@ -270,21 +273,24 @@ def test_expert_slot_same_owner_reuse_skips_redundant_peer_zero(monkeypatch):
     cache.zero_by_rank = (
         DeviceExpertSlot("zero-gate-0", "zero-down-0"),
         DeviceExpertSlot("zero-gate-1", "zero-down-1"),
+        DeviceExpertSlot("zero-gate-2", "zero-down-2"),
+        DeviceExpertSlot("zero-gate-3", "zero-down-3"),
     )
     cache._metrics = ExpertCacheMetrics()
 
-    def prepared(*, expert_id, reset_non_owner):
+    def prepared(*, expert_id, reset_non_owner, previous_owner):
         return PreparedExpertSlotLoad(
             slot=0,
             identity=ExpertIdentity(4, expert_id),
             generation=1,
             packed=None,
-            gate_shards=("slot-gate-0", "slot-gate-1"),
-            down_shards=("slot-down-0", "slot-down-1"),
+            gate_shards=("slot-gate-0", "slot-gate-1", "slot-gate-2", "slot-gate-3"),
+            down_shards=("slot-down-0", "slot-down-1", "slot-down-2", "slot-down-3"),
             reset_non_owner=reset_non_owner,
+            previous_owner=previous_owner,
         )
 
-    same_owner = prepared(expert_id=2, reset_non_owner=False)
+    same_owner = prepared(expert_id=2, reset_non_owner=False, previous_owner=2)
     cache._enqueue_prepared_d2d(same_owner)
     assert copies == []
     cache._account_submitted((same_owner,), 0.0)
@@ -297,7 +303,7 @@ def test_expert_slot_same_owner_reuse_skips_redundant_peer_zero(monkeypatch):
     assert cache._metrics.zero_d2d_skips == 1
 
     copies.clear()
-    changed_owner = prepared(expert_id=3, reset_non_owner=True)
+    changed_owner = prepared(expert_id=3, reset_non_owner=True, previous_owner=0)
     cache._enqueue_prepared_d2d(changed_owner)
     assert copies == [
         ("zero-gate-0", "slot-gate-0"),
@@ -317,7 +323,7 @@ def test_expert_slot_owner_ledger_is_conservative_after_failure():
         PreparedExpertSlotLoad(1, ExpertIdentity(1, 3), 1, None, (), (), True),
     )
     cache._mark_slot_owners(prepared, failed=False)
-    assert cache._slot_last_owner == [0, 1]
+    assert cache._slot_last_owner == [2, 3]
     cache._mark_slot_owners(prepared, failed=True)
     assert cache._slot_last_owner == [-1, -1]
 
@@ -491,6 +497,46 @@ def test_ple_duplicate_row_cache_and_metrics(ple_store):
     assert after["table_rows_read"] == middle["table_rows_read"]
     assert after["selected_rows"] - before["selected_rows"] == 2 * ids.numel()
     assert after["h2d_bytes"] - before["h2d_bytes"] == 2 * 2 * 3 * PLE_EMBED_DIM * 2
+
+
+def test_ple_independent_shards_use_exact_parallel_direct_reads(checkpoint):
+    store = Qwen38PLEHostStore(checkpoint, row_cache_capacity=0)
+    try:
+        ids = (torch.arange(16, dtype=torch.int64) * PLE_ROWS_PER_SHARD).reshape(1, 1, 16)
+        embeddings = store.lookup_rows(ids)
+        metrics = store.metrics()
+
+        assert metrics["parallel_read_calls"] == 1
+        assert metrics["parallel_read_shards"] == 16
+        assert metrics["direct_read_rows"] == 16
+        assert metrics["direct_read_bytes"] == 16 * PLE_ROW_BYTES
+        for head in range(16):
+            key = f"model.language_model.layers.1.ple.ple_embedding.ngram_embedding.shard_{head}.weight"
+            expected = checkpoint.indexed_tensor(key, 0)
+            start = head * 160
+            assert torch.equal(embeddings[0, 0, start : start + 160], expected)
+    finally:
+        store.close()
+
+
+def test_ple_async_prepare_matches_sync_and_advances_history(checkpoint):
+    async_store = Qwen38PLEHostStore(checkpoint, row_cache_capacity=0)
+    sync_store = Qwen38PLEHostStore(checkpoint, row_cache_capacity=0)
+    try:
+        first = torch.tensor([[7]], dtype=torch.int64)
+        second = torch.tensor([[11]], dtype=torch.int64)
+        assert torch.equal(
+            async_store.prepare_async(["request"], first, reset=True).result(),
+            sync_store.prepare(["request"], first, reset=True),
+        )
+        assert torch.equal(
+            async_store.prepare_async(["request"], second).result(),
+            sync_store.prepare(["request"], second),
+        )
+        assert async_store.metrics()["async_prepare_calls"] == 2
+    finally:
+        async_store.close()
+        sync_store.close()
 
 
 def test_host_contract_json_numbers_are_serializable(checkpoint, ple_store):

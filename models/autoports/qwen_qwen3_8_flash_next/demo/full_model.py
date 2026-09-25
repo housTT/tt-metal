@@ -141,7 +141,11 @@ def _degeneracy(tokens: torch.Tensor, text: str) -> dict[str, object]:
         "adjacent_token_repeats": adjacent_repeats,
         "repeated_four_grams": repeated_four_grams,
         "latin_letter_fraction": latin / max(latin + other_letters, 1),
-        "mechanically_degenerate": dominant > 0.35 or adjacent_repeats > len(values) // 4,
+        # Phrase loops ("4*8=32? 4*8=32? ...") repeat whole 4-grams without a
+        # dominant single token, so they count as degenerate too (DEVSTACK-294).
+        "mechanically_degenerate": (
+            dominant > 0.35 or adjacent_repeats > len(values) // 4 or repeated_four_grams > len(values) // 2
+        ),
     }
 
 
@@ -221,12 +225,19 @@ def run_qualitative_suite(generator, reference: str | Path | dict, *, enable_tra
             top_p=0.0,
             temperature=1.0,
             request_ids=(f"qualitative-{prompt_id}",),
-            stop_on_eos=False,
+            stop_on_eos=True,
         )[0]
         hf_text = str(item["reference_text"])
         tt_text = generator.tokenizer.decode(tt_tokens.tolist(), skip_special_tokens=True)
-        mismatches = torch.nonzero(tt_tokens != hf_tokens, as_tuple=False).flatten()
+        common_tokens = min(int(tt_tokens.numel()), int(hf_tokens.numel()))
+        mismatches = torch.nonzero(
+            tt_tokens[:common_tokens] != hf_tokens[:common_tokens],
+            as_tuple=False,
+        ).flatten()
         first_divergence = int(mismatches[0]) if len(mismatches) else None
+        matching_prefix_tokens = first_divergence if first_divergence is not None else common_tokens
+        eos_token_ids = {int(token) for token in getattr(generator.model, "eos_token_ids", ())}
+        stopped_on_eos = bool(tt_tokens.numel() and int(tt_tokens[-1]) in eos_token_ids)
         results.append(
             {
                 "id": prompt_id,
@@ -238,7 +249,10 @@ def run_qualitative_suite(generator, reference: str | Path | dict, *, enable_tra
                 "hf_completion": hf_text,
                 "tt_completion": tt_text,
                 "first_divergence": first_divergence,
-                "matching_prefix_tokens": generation_length if first_divergence is None else first_divergence,
+                "matching_prefix_tokens": matching_prefix_tokens,
+                "generation_tokens": int(tt_tokens.numel()),
+                "finish_reason": "eos" if stopped_on_eos else "length",
+                "stopped_on_eos": stopped_on_eos,
                 "hf_review": _degeneracy(hf_tokens, hf_text),
                 "tt_review": _degeneracy(tt_tokens, tt_text),
                 "metrics": generator.last_metrics.report(),

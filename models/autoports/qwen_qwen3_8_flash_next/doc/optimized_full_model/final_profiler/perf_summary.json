@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "model_id": "Qwen/Qwen3.8-Flash-Next",
+  "target": "P300 Blackhole 1x2",
+  "selected_lm_head_policy": "bfp8_hifi2",
+  "watcher_enabled": false,
+  "tt_perf_report_advice_enabled": true,
+  "windows": {
+    "layer0_gdn_token_out": {
+      "ops": 195,
+      "device_time_us": 3216.2155,
+      "host_gap_us": 87497.747,
+      "sampling_ops": 3,
+      "sampling_device_time_us": 488.3635,
+      "raw_sha256": "421c5593dca1283d1f24d1d92b3ad3eff4ff94bd48fe4a4665f2ce96c94af6b0"
+    },
+    "layer1_ple_gdn_token_out": {
+      "ops": 265,
+      "device_time_us": 3632.1865,
+      "host_gap_us": 111426.29,
+      "sampling_ops": 3,
+      "sampling_device_time_us": 490.012,
+      "raw_sha256": "ef35319356cf6017a0a3b0942a0a0a7b2f463c55a5af5d60c9300f7225d3f371"
+    },
+    "layer3_qsa_token_out": {
+      "ops": 285,
+      "device_time_us": 4570.0085,
+      "host_gap_us": 97662.964,
+      "sampling_ops": 3,
+      "sampling_device_time_us": 489.821,
+      "raw_sha256": "2254fe1ab04e335f6d683e63c48e0c63627fac765769a629c8d71b58a53a65fd"
+    },
+    "layer0_warmed_prefill": {
+      "ops": 201,
+      "device_time_us": 5718.428,
+      "host_gap_us": 6386.355,
+      "raw_sha256": "fa125521c9633bccfb2068fea26f060815bd74d54c0e6a76adf8c18377d8b21e"
+    }
+  },
+  "conclusions": [
+    "Exact segmented route/cache/DMA waiting explains the largest report gaps and is independently charged in the corrected physical lower bound.",
+    "Selected BFP8/HiFi2 LM-head rows are approximately 192-235 microseconds in the profiler and are not the token-out bottleneck.",
+    "The 0.488-0.490 ms sampling window does not contain generic sampler TopK and is not dominant.",
+    "Inherited matmul, fidelity, CCL, and residual policies remain selected because rejected alternatives lack a stable speed/accuracy win."
+  ]
+}

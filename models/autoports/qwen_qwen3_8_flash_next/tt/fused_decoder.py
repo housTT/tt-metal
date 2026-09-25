@@ -15,7 +15,9 @@ folds constant scales.  Measured prefill/decode contains no host conversion.
 from __future__ import annotations
 
 import math
+import os
 
+import torch
 import ttnn
 from models.demos.blackhole.qwen36.tt.gdn.fused_chunk import chunk_gated_delta_rule_fused_adapter
 from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_ops import l2_norm_ttnn
@@ -28,8 +30,18 @@ from .functional_decoder import (
     _pad_seq,
     _round_up,
     _shape,
+    QSA_TOKEN_BUDGET,
 )
 from .model_config import LINEAR_ATTENTION, QWEN_SPARSE_ATTENTION
+
+# The compressed-index key cache stores 16 block keys per 64-token page but is
+# paged by ``paged_fill_cache`` / ``paged_update_cache`` on its *padded* tile
+# height (32 rows).  Allocate one full tile per page and address rows as
+# ``page * 32 + (block & 15)`` so the writers and the reader agree; rows 16-31
+# of every page are never read.  (With a 16-row cache, keys with
+# ``block % 32 >= 16`` landed in tile padding and prefill tile ``i`` landed on
+# page ``i`` instead of ``2i``: half the blocks read back as zero, more aliased.)
+COMPRESSED_KEY_ROWS_PER_PAGE = 32
 
 
 class FusedDecoder(FunctionalDecoder):
@@ -60,6 +72,7 @@ class FusedDecoder(FunctionalDecoder):
         "dedicated_rms_norm_l2",
         "rms_norm_scale_weight_fold",
         "persistent_recurrent_gdn_decode_l1_exp_and_mac",
+        "single_program_recurrent_gdn_decode",
         "packed_gdn_projection_bias",
         "fir_ternary_mac",
         "hyper_inject_scalar_mac",
@@ -67,6 +80,7 @@ class FusedDecoder(FunctionalDecoder):
         "static_compressed_address_precompute",
         "persistent_static_block_rope_rows",
         "persistent_compressed_index_key_cache",
+        "batch1_cached_physical_compressed_page_map",
         "binary_input_gate_activations",
         "consumer_fused_silu",
         "scaled_sum_to_mean",
@@ -77,6 +91,9 @@ class FusedDecoder(FunctionalDecoder):
         """Build the proven functional state, then perform setup-only packing."""
 
         layer = super().from_state_dict(*args, **kwargs)
+        # This is the selected decode path.  The explicit zero override is
+        # retained only for controlled performance comparisons.
+        layer.fused_recurrent_gdn = os.environ.get("QWEN38_FUSED_RECURRENT_GDN", "1") != "0"
         w = layer.w
         s = layer.shapes
 
@@ -203,8 +220,22 @@ class FusedDecoder(FunctionalDecoder):
             layer.fused_block_cos = None
             layer.fused_block_sin = None
             layer.fused_index_key_cache = ttnn.zeros(
-                (layer.max_num_blocks, 1, compressed_per_page, s.indexer_head_dim),
+                (layer.max_num_blocks, 1, COMPRESSED_KEY_ROWS_PER_PAGE, s.indexer_head_dim),
                 dtype=ttnn.bfloat16,
+                layout=ttnn.TILE_LAYOUT,
+                device=layer.mesh_device,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
+            # Decode needs only the four raw indexer taps of the current group.
+            # Gathering them out of the capacity-sized paged ``indexer_cache``
+            # untilized the whole [max_tokens, 128] table every token (the
+            # embedding gather converts a TILE weight in full).  Keep a 4-slot
+            # ring per user instead, in the cache dtype so its rows round the
+            # same way as the paged cache rows the gather used to read.
+            indexer_cache = getattr(layer, "indexer_cache", None)
+            layer.fused_index_tap_ring = ttnn.zeros(
+                (layer.max_batch, 1, 32, s.indexer_head_dim),
+                dtype=indexer_cache.dtype if indexer_cache is not None else ttnn.bfloat8_b,
                 layout=ttnn.TILE_LAYOUT,
                 device=layer.mesh_device,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
@@ -551,6 +582,14 @@ class FusedDecoder(FunctionalDecoder):
             group_count=s.hc_count,
         )
         normed = ttnn.reshape(normed_public, (self.max_batch, 1, 1, s.hc_hidden_size))
+        if getattr(self, "speculative_pair", False):
+            # Two consecutive tokens as rows 0/1: row 1's conv history is row
+            # 0's history advanced by row 0's input (see _gdn_decode_pair).
+            if self.max_batch != 2:
+                raise RuntimeError("the speculative pair step needs a batch-2 PLE decode")
+            normed0 = self._row(normed, 0)
+            self._shift_taps_into_row1(self.fused_ple_conv_state, normed0)
+            ttnn.deallocate(normed0)
         acc = None
         for tap in range(s.ple_conv_kernel_size):
             index = tap * s.ple_conv_dilation
@@ -627,7 +666,73 @@ class FusedDecoder(FunctionalDecoder):
         s = self.shapes
         padded = int(x.shape[-2])
         mixed, z, beta, g = self._gdn_inputs(x)
+        q, k, v = self._fused_gdn_prefill_conv(mixed, user_id=user_id, logical=logical, padded=padded)
 
+        # Padded positions must be identity recurrence updates (beta=g=0).
+        if logical != padded:
+            positions = ttnn.arange(0, padded, 1, device=self.mesh_device, dtype=ttnn.int32)
+            valid = ttnn.lt(positions, logical)
+            valid = ttnn.reshape(valid, (1, 1, padded, 1))
+            beta = ttnn.multiply(beta, valid)
+            g = ttnn.multiply(g, valid)
+            ttnn.deallocate(positions)
+            ttnn.deallocate(valid)
+
+        beta = ttnn.reshape(beta, (1, padded, s.linear_num_value_heads))
+        g = ttnn.reshape(g, (1, padded, s.linear_num_value_heads))
+        fused_norm = os.environ.get("QWEN38_GDN_PREFILL_FUSED_NORM", "1") == "1"
+        core, state = chunk_gated_delta_rule_fused_adapter(
+            q,
+            k,
+            v,
+            beta,
+            g,
+            initial_state=self.user_recurrent_state[user_id],
+            device=self.mesh_device,
+            return_o_bh=fused_norm,
+            qkv_head_dims=(
+                s.linear_num_key_heads,
+                s.linear_key_head_dim,
+                s.linear_num_value_heads,
+                s.linear_value_head_dim,
+            ),
+            const_tiles=self.const["gdn_tiles"],
+        )
+        self._update_prefill_state(self.user_recurrent_state[user_id], state)
+        if fused_norm:
+            # Head-major [B*H, T, V] output feeds the fused per-head RMSNorm ×
+            # sigmoid(z) kernel, which emits the time-first [B, T, H*V] rows the
+            # output projection consumes.  Replaces the token/head relayouts,
+            # the norm, the sigmoid, and the multiply (~0.45 ms per layer per
+            # microchunk in the prefill profile).
+            z_rows = ttnn.reshape(z, (1, padded, s.linear_value_width))
+            gated = ttnn.experimental.kda.sigmoid_gated_rms_norm(
+                core,
+                z_rows,
+                self.w["gdn_norm"],
+                s.linear_num_value_heads,
+                epsilon=s.rms_norm_eps,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                output_dtype=ttnn.bfloat16,
+            )
+            _free(z_rows, z, gated)
+            ttnn.deallocate(z)
+            ttnn.deallocate(core)
+            flat = ttnn.reshape(gated, (*_shape(x)[:-1], s.linear_value_width))
+            _free(gated, flat)
+            out = self._linear(flat, self.w["gdn_out"])
+            ttnn.deallocate(flat)
+            return out
+        core = ttnn.reshape(
+            core,
+            (1, padded, s.linear_num_value_heads, s.linear_value_head_dim),
+        )
+        return self._gdn_epilogue(core, z, public_shape=_shape(x))
+
+    def _fused_gdn_prefill_conv(self, mixed, *, user_id: int, logical: int, padded: int):
+        """Run the dedicated BF16 QKV causal-convolution/SILU kernel."""
+
+        s = self.shapes
         # The fused kernel is BF16 row-major at its input boundary.  Keep the
         # persistent functional state FP32 and update it from the original
         # projection so decode semantics remain unchanged.
@@ -662,56 +767,250 @@ class FusedDecoder(FunctionalDecoder):
         ttnn.deallocate(mixed_rm)
         ttnn.deallocate(history_rm)
         ttnn.deallocate(mixed)
+        return q, k, v
 
-        # Padded positions must be identity recurrence updates (beta=g=0).
-        if logical != padded:
-            positions = ttnn.arange(0, padded, 1, device=self.mesh_device, dtype=ttnn.int32)
-            valid = ttnn.lt(positions, logical)
-            valid = ttnn.reshape(valid, (1, 1, padded, 1))
-            beta = ttnn.multiply(beta, valid)
-            g = ttnn.multiply(g, valid)
-            ttnn.deallocate(positions)
-            ttnn.deallocate(valid)
+    # ------------------------------------------------ speculative pair (k=1)
 
-        beta = ttnn.reshape(beta, (1, padded, s.linear_num_value_heads))
-        g = ttnn.reshape(g, (1, padded, s.linear_num_value_heads))
-        core, state = chunk_gated_delta_rule_fused_adapter(
-            q,
-            k,
-            v,
-            beta,
-            g,
-            initial_state=self.user_recurrent_state[user_id],
-            device=self.mesh_device,
-            qkv_head_dims=(
-                s.linear_num_key_heads,
-                s.linear_key_head_dim,
-                s.linear_num_value_heads,
-                s.linear_value_head_dim,
-            ),
-            const_tiles=self.const["gdn_tiles"],
-        )
-        self._update_prefill_state(self.user_recurrent_state[user_id], state)
-        core = ttnn.reshape(
-            core,
-            (1, padded, s.linear_num_value_heads, s.linear_value_head_dim),
-        )
-        return self._gdn_epilogue(core, z, public_shape=_shape(x))
+    @staticmethod
+    def _row(tensor, row: int):
+        shape = [int(v) for v in tensor.shape]
+        return ttnn.slice(tensor, [row] + [0] * (len(shape) - 1), [row + 1] + shape[1:])
 
-    def _gdn_decode(self, x):
+    def _copy_row(self, tensor, src: int, dst: int) -> None:
+        """``tensor[dst] = tensor[src]`` for a persistent two-row state tensor."""
+
+        source = self._row(tensor, src)
+        both = ttnn.concat([source, source], dim=0)
+        ttnn.copy(both, tensor)
+        ttnn.deallocate(both)
+        ttnn.deallocate(source)
+
+    def _shift_taps_into_row1(self, taps, newest_row0) -> None:
+        """Row 1 of every tap := row 0's history advanced by row 0's own input.
+
+        ``taps`` is the ordered tuple of ``[2, 1, 1, W]`` persistent tap
+        tensors (oldest first); ``newest_row0`` is the ``[1, 1, 1, W]`` input
+        of row 0.  Afterwards row 1 sees exactly the history row 1 would have
+        if row 0 had been processed one step earlier.
+        """
+
+        row0 = [self._row(tap, 0) for tap in taps]
+        shifted = row0[1:] + [newest_row0]
+        for tap, old0, new1 in zip(taps, row0, shifted):
+            both = ttnn.concat([old0, new1], dim=0)
+            ttnn.copy(both, tap)
+            ttnn.deallocate(both)
+        for value in row0:
+            ttnn.deallocate(value)
+
+    def commit_speculative_pair(self, accept: bool) -> None:
+        """After a two-row speculative step, make row 0 the sequence's true state.
+
+        Row 0 holds the state after the first token, row 1 after both.  On
+        acceptance row 1 is copied into row 0; on rejection row 0 is already
+        right (row 1 is re-synchronized from row 0 at the next pair step).
+        """
+
+        if not accept:
+            return
         s = self.shapes
-        batch = self.max_batch
+        if s.layer_type == LINEAR_ATTENTION:
+            state0, state1 = self._pair_states()
+            ttnn.copy(state1, state0)
+            for tap in self.fused_conv_state:
+                self._copy_row(tap, 1, 0)
+        if s.has_ple:
+            for tap in self.fused_ple_conv_state:
+                self._copy_row(tap, 1, 0)
+
+    @property
+    def gdn_kernel_head_repeat(self) -> bool:
+        """Expand the 16 key/query heads inside the recurrent kernel's reader."""
+
+        return bool(self.fused_recurrent_gdn) and os.environ.get("QWEN38_GDN_KERNEL_HEAD_REPEAT", "1") == "1"
+
+    def _gdn_epilogue_decode(self, core, z, *, public_shape):
+        """Decode epilogue: per-head RMSNorm x sigmoid(z) x weight, then the output projection.
+
+        With ``QWEN38_GDN_DECODE_FUSED_NORM=1`` the norm, sigmoid, multiply and
+        the head->row relayout run in the ``sigmoid_gated_rms_norm`` kernel
+        (head-major ``[B*H, 1, V]`` in, time-first ``[B, 1, H*V]`` out), the
+        same kernel the prefill epilogue uses; otherwise the composite path.
+        """
+
+        s = self.shapes
+        if os.environ.get("QWEN38_GDN_DECODE_FUSED_NORM", "0") != "1":
+            return self._gdn_epilogue(core, z, public_shape=public_shape)
+        batch = int(core.shape[0])
+        heads = s.linear_num_value_heads
+        core_heads = ttnn.reshape(core, (batch * heads, 1, s.linear_value_head_dim))
+        gate = ttnn.reshape(z, (batch, 1, s.linear_value_width))
+        gated = ttnn.experimental.kda.sigmoid_gated_rms_norm(
+            core_heads,
+            gate,
+            self.w["gdn_norm"],
+            heads,
+            epsilon=s.rms_norm_eps,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            output_dtype=ttnn.bfloat16,
+        )
+        _free(core_heads, core, gated)
+        _free(gate, z, gated)
+        ttnn.deallocate(core)
+        ttnn.deallocate(z)
+        flat = ttnn.reshape(gated, (*public_shape[:-1], s.linear_value_width))
+        _free(gated, flat)
+        out = self._linear(flat, self.w["gdn_out"])
+        ttnn.deallocate(flat)
+        return out
+
+    def _pair_states(self):
+        """Per-row persistent recurrent states of the speculative pair.
+
+        Row 0 is the sequence's own state (the prefill result lives in
+        ``user_recurrent_state[0]``); row 1 is the shadow that receives row 0's
+        state advanced by row 0's token and is then advanced by row 1's.
+        """
+
+        return self.user_recurrent_state[0], self.user_recurrent_state[1]
+
+    def _gdn_decode_pair(self, x):
+        """Two consecutive tokens of one sequence as rows 0 and 1 of a batch-2 step.
+
+        Projections, conv FIR and epilogue run batched; the recurrence runs
+        row by row on separate per-row state tensors: row 0 advances S0, S0 is
+        copied into S1, row 1 advances S1.  Afterwards S0 is the state after
+        the first token and S1 after both (see :meth:`commit_speculative_pair`).
+        """
+
+        s = self.shapes
+        if self.max_batch != 2 or not self.fused_recurrent_gdn:
+            raise RuntimeError("the speculative pair step needs a fused batch-2 GDN decode")
         mixed_public, z, beta, g = self._gdn_inputs(x)
-        mixed = ttnn.reshape(mixed_public, (batch, 1, 1, s.linear_qkv_width))
-        ttnn.deallocate(mixed_public)
+        mixed = ttnn.reshape(mixed_public, (2, 1, 1, s.linear_qkv_width))
+        mixed0 = self._row(mixed, 0)
+        self._shift_taps_into_row1(self.fused_conv_state, mixed0)
+        ttnn.deallocate(mixed0)
         acc = ttnn.multiply(self.fused_conv_state[0], self.w["conv_tap_0"])
         for tap in range(1, s.linear_conv_kernel_dim - 1):
             acc = self._fir_term(self.fused_conv_state[tap], self.w[f"conv_tap_{tap}"], acc)
         acc = self._fir_term(mixed, self.w[f"conv_tap_{s.linear_conv_kernel_dim - 1}"], acc)
+        conv = ttnn.silu(acc)
+        ttnn.deallocate(acc)
+        q, k, v = self._split_gdn(conv)
+        ttnn.deallocate(conv)
+        q = ttnn.reshape(q, (2, 1, s.linear_num_key_heads, s.linear_key_head_dim))
+        k = ttnn.reshape(k, (2, 1, s.linear_num_key_heads, s.linear_key_head_dim))
+        v = ttnn.reshape(v, (2, 1, s.linear_num_value_heads, s.linear_value_head_dim))
+        repeat = s.linear_num_value_heads // s.linear_num_key_heads
+        if not self.gdn_kernel_head_repeat:
+            q = ttnn.repeat_interleave(q, repeat, dim=2)
+            k = ttnn.repeat_interleave(k, repeat, dim=2)
+        beta = ttnn.reshape(beta, (2, 1, s.linear_num_value_heads))
+        g = ttnn.reshape(g, (2, 1, s.linear_num_value_heads))
+        state0, state1 = self._pair_states()
+        cores = []
+        for row, state in ((0, state0), (1, state1)):
+            if row == 1:
+                ttnn.copy(state0, state1)
+            parts = [self._row(t, row) for t in (q, k, v, beta, g)]
+            core, _ = self._recurrent_gdn_decode(*parts, state=state, batch=1)
+            for part in parts:
+                ttnn.deallocate(part)
+            cores.append(core)
+        core = ttnn.concat(cores, dim=0)
+        for value in cores:
+            ttnn.deallocate(value)
         for tap in range(s.linear_conv_kernel_dim - 2):
             ttnn.copy(self.fused_conv_state[tap + 1], self.fused_conv_state[tap])
         ttnn.copy(mixed, self.fused_conv_state[-1])
         _free(mixed, mixed_public, *self.fused_conv_state)
+        ttnn.deallocate(mixed_public)
+        for tensor in (q, k, v, beta, g):
+            ttnn.deallocate(tensor)
+        return self._gdn_epilogue_decode(core, z, public_shape=_shape(x))
+
+    @property
+    def gdn_fused_step(self) -> bool:
+        """Run conv taps, SiLU, q/k norm, recurrence, norm and gate in one kernel."""
+
+        return bool(self.fused_recurrent_gdn) and os.environ.get("QWEN38_GDN_FUSED_STEP", "1") == "1"
+
+    def _gdn_decode_fused_step(self, x, mixed, z, beta, g):
+        """``ttnn.experimental.kda.gdn_decode_step``: one program for the whole GDN step.
+
+        Inputs are the tiled fp32 mixed projection ``[B,1,1,W]``, the three
+        persistent conv taps, the fp32 tap weights, ``beta``/``g`` as
+        ``[B,H,1,1]``, the recurrent state (updated in place) and the bf16
+        gate ``z``.  The kernel returns the gated, normalized head output
+        ``[B,1,1,H*V]`` in bf16, ready for the output projection.
+        """
+
+        s = self.shapes
+        batch = self.max_batch
+        heads = s.linear_num_value_heads
+        state_memory = self.recurrent_state.memory_config()
+        beta_row = ttnn.reshape(beta, (batch, heads, 1, 1), memory_config=state_memory)
+        g_row = ttnn.reshape(g, (batch, heads, 1, 1), memory_config=state_memory)
+        gate = ttnn.reshape(z, (batch, 1, 1, s.linear_value_width))
+        norm_row = self.__dict__.get("_gdn_norm_row")
+        if norm_row is None or not norm_row.is_allocated():
+            norm_row = ttnn.reshape(self.w["gdn_norm"], (1, 1, 1, s.linear_value_head_dim))
+            self._gdn_norm_row = norm_row
+        out, _ = ttnn.experimental.kda.gdn_decode_step(
+            mixed,
+            *self.fused_conv_state,
+            *(self.w[f"conv_tap_{tap}"] for tap in range(s.linear_conv_kernel_dim)),
+            beta_row,
+            g_row,
+            self.recurrent_state,
+            gate,
+            norm_row,
+            heads,
+            s.linear_key_head_dim,
+            s.linear_value_head_dim,
+            state_output=self.recurrent_state,
+            qk_head_repeat=heads // s.linear_num_key_heads,
+            qk_norm_epsilon=1e-6,
+            norm_epsilon=s.rms_norm_eps,
+            output_dtype=(
+                ttnn.bfloat16 if os.environ.get("QWEN38_GDN_FUSED_STEP_DTYPE", "fp32") == "bf16" else ttnn.float32
+            ),
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            compute_kernel_config=ttnn.WormholeComputeKernelConfig(
+                math_fidelity=ttnn.MathFidelity.HiFi4,
+                math_approx_mode=False,
+                fp32_dest_acc_en=True,
+                packer_l1_acc=False,
+            ),
+        )
+        for tap in range(s.linear_conv_kernel_dim - 2):
+            ttnn.copy(self.fused_conv_state[tap + 1], self.fused_conv_state[tap])
+        ttnn.copy(mixed, self.fused_conv_state[-1])
+        for tensor in (beta_row, g_row, gate, beta, g, z):
+            _free(tensor, out)
+        flat = ttnn.reshape(out, (*_shape(x)[:-1], s.linear_value_width))
+        _free(out, flat)
+        result = self._linear(flat, self.w["gdn_out"])
+        ttnn.deallocate(flat)
+        return result
+
+    def _gdn_decode(self, x):
+        if getattr(self, "speculative_pair", False):
+            return self._gdn_decode_pair(x)
+        s = self.shapes
+        batch = self.max_batch
+        mixed_public, z, beta, g = self._gdn_inputs(x)
+        mixed = ttnn.reshape(mixed_public, (batch, 1, 1, s.linear_qkv_width))
+        if self.gdn_fused_step:
+            result = self._gdn_decode_fused_step(x, mixed, z, beta, g)
+            _free(mixed, mixed_public, *self.fused_conv_state)
+            ttnn.deallocate(mixed_public)
+            return result
+        acc = ttnn.multiply(self.fused_conv_state[0], self.w["conv_tap_0"])
+        for tap in range(1, s.linear_conv_kernel_dim - 1):
+            acc = self._fir_term(self.fused_conv_state[tap], self.w[f"conv_tap_{tap}"], acc)
+        acc = self._fir_term(mixed, self.w[f"conv_tap_{s.linear_conv_kernel_dim - 1}"], acc)
         conv = ttnn.silu(acc)
         ttnn.deallocate(acc)
         q, k, v = self._split_gdn(conv)
@@ -720,16 +1019,23 @@ class FusedDecoder(FunctionalDecoder):
         k = ttnn.reshape(k, (batch, 1, s.linear_num_key_heads, s.linear_key_head_dim))
         v = ttnn.reshape(v, (batch, 1, s.linear_num_value_heads, s.linear_value_head_dim))
         repeat = s.linear_num_value_heads // s.linear_num_key_heads
-        q = ttnn.repeat_interleave(q, repeat, dim=2)
-        k = ttnn.repeat_interleave(k, repeat, dim=2)
+        if not self.gdn_kernel_head_repeat:
+            q = ttnn.repeat_interleave(q, repeat, dim=2)
+            k = ttnn.repeat_interleave(k, repeat, dim=2)
         beta = ttnn.reshape(beta, (batch, 1, s.linear_num_value_heads))
         g = ttnn.reshape(g, (batch, 1, s.linear_num_value_heads))
         core, state = self._recurrent_gdn_decode(q, k, v, beta, g)
+        for tap in range(s.linear_conv_kernel_dim - 2):
+            ttnn.copy(self.fused_conv_state[tap + 1], self.fused_conv_state[tap])
+        ttnn.copy(mixed, self.fused_conv_state[-1])
+        _free(mixed, mixed_public, *self.fused_conv_state)
+        ttnn.deallocate(mixed_public)
         for tensor in (q, k, v, beta, g):
             ttnn.deallocate(tensor)
-        ttnn.copy(state, self.recurrent_state)
-        _free(state, self.recurrent_state)
-        return self._gdn_epilogue(core, z, public_shape=_shape(x))
+        if not self.fused_recurrent_gdn:
+            ttnn.copy(state, self.recurrent_state)
+            _free(state, self.recurrent_state)
+        return self._gdn_epilogue_decode(core, z, public_shape=_shape(x))
 
     def prepare_decode_state(self) -> None:
         s = self.shapes
@@ -763,11 +1069,16 @@ class FusedDecoder(FunctionalDecoder):
                 ttnn.copy(piece, target)
                 _free(piece, self.ple_conv_state, target)
 
-    def _recurrent_gdn_decode(self, q, k, v, beta, g):
-        """One FP32 recurrent step with adjacent eltwise operations folded."""
+    def _recurrent_gdn_decode(self, q, k, v, beta, g, *, state=None, batch=None):
+        """One FP32 recurrent step with adjacent eltwise operations folded.
+
+        ``state``/``batch`` default to the layer's batched decode state; the
+        speculative pair passes one row and its own per-row state tensor.
+        """
 
         s = self.shapes
-        batch = self.max_batch
+        batch = self.max_batch if batch is None else int(batch)
+        recurrent_state = self.recurrent_state if state is None else state
         heads = s.linear_num_value_heads
         key_dim = s.linear_key_head_dim
         value_dim = s.linear_value_head_dim
@@ -776,29 +1087,75 @@ class FusedDecoder(FunctionalDecoder):
         # workspace.  Follow that active owner so multichip recurrence remains
         # entirely L1 while standalone updates cannot silently migrate the
         # canonical state back to the unsafe persistent-L1 placement.
-        state_memory = self.recurrent_state.memory_config()
+        state_memory = recurrent_state.memory_config()
 
-        # l2_norm(q) / sqrt(K) == rms_norm(q, eps/K) / K.  This
-        # collapses the functional five-op normalization plus scale to two ops.
-        q_row = ttnn.rms_norm(
-            q,
-            epsilon=1e-6 / key_dim,
-            weight=self.fused_q_norm_weight,
-            memory_config=state_memory,
-        )
-        q_row = ttnn.reshape(q_row, (batch, heads, 1, key_dim), memory_config=state_memory)
-        k_row = ttnn.rms_norm(
-            k,
-            epsilon=1e-6 / key_dim,
-            weight=self.fused_k_norm_weight,
-            memory_config=state_memory,
-        )
-        k_row = ttnn.reshape(k_row, (batch, heads, 1, key_dim), memory_config=state_memory)
+        kernel_qk_norm = self.fused_recurrent_gdn and os.environ.get("QWEN38_GDN_KERNEL_QK_NORM", "0") == "1"
+        if kernel_qk_norm:
+            # The kernel L2-normalizes q/k (eps 1e-6) and scales q by 1/sqrt(K).
+            q_row = ttnn.permute(q, (0, 2, 1, 3), memory_config=state_memory)
+            k_row = ttnn.permute(k, (0, 2, 1, 3), memory_config=state_memory)
+        elif self.fused_recurrent_gdn:
+            q_norm = self._l2norm(q)
+            q_scaled = ttnn.multiply(q_norm, 1.0 / math.sqrt(key_dim), memory_config=state_memory)
+            ttnn.deallocate(q_norm)
+            q_row = ttnn.permute(q_scaled, (0, 2, 1, 3), memory_config=state_memory)
+            _free(q_scaled, q_row)
+            k_norm = self._l2norm(k)
+            k_row = ttnn.permute(k_norm, (0, 2, 1, 3), memory_config=state_memory)
+            _free(k_norm, k_row)
+        else:
+            # l2_norm(q) / sqrt(K) == rms_norm(q, eps/K) / K.  This
+            # collapses the functional five-op normalization plus scale to two ops.
+            q_row = ttnn.rms_norm(
+                q,
+                epsilon=1e-6 / key_dim,
+                weight=self.fused_q_norm_weight,
+                memory_config=state_memory,
+            )
+            q_row = ttnn.reshape(q_row, (batch, heads, 1, key_dim), memory_config=state_memory)
+            k_row = ttnn.rms_norm(
+                k,
+                epsilon=1e-6 / key_dim,
+                weight=self.fused_k_norm_weight,
+                memory_config=state_memory,
+            )
+            k_row = ttnn.reshape(k_row, (batch, heads, 1, key_dim), memory_config=state_memory)
         v_row = ttnn.reshape(v, (batch, heads, value_dim), memory_config=state_memory)
         beta_row = ttnn.reshape(beta, (batch, heads, 1, 1), memory_config=state_memory)
         g_row = ttnn.reshape(g, (batch, heads, 1, 1), memory_config=state_memory)
 
-        state = self.recurrent_state
+        if self.fused_recurrent_gdn:
+            # q/k normalization remains in the proven TTNN path.  The
+            # sequential state transition is one device program: decay,
+            # memory read, delta, rank-one update, and output read.  One head
+            # is assigned per core, replacing seven small launches and three
+            # tiny matmuls on the T=1 decode critical path.
+            v_tile = ttnn.reshape(v_row, (batch, heads, 1, value_dim), memory_config=state_memory)
+            core, updated_state = ttnn.experimental.kda.recurrent_gated_delta_rule(
+                q_row,
+                k_row,
+                v_tile,
+                beta_row,
+                g_row,
+                recurrent_state,
+                state_output=recurrent_state,
+                memory_config=state_memory,
+                qk_head_repeat=(heads // s.linear_num_key_heads) if self.gdn_kernel_head_repeat else 1,
+                qk_norm_epsilon=1e-6 if kernel_qk_norm else 0.0,
+                compute_kernel_config=ttnn.WormholeComputeKernelConfig(
+                    math_fidelity=ttnn.MathFidelity.HiFi4,
+                    math_approx_mode=False,
+                    fp32_dest_acc_en=True,
+                    packer_l1_acc=False,
+                ),
+            )
+            core = ttnn.reshape(core, (batch, 1, heads, value_dim), memory_config=state_memory)
+            _free(q_row, core, updated_state)
+            _free(k_row, core, updated_state)
+            _free(v_tile, v_row, v)
+            return core, updated_state
+
+        state = recurrent_state
         state = ttnn.multiply(
             state,
             g_row,
@@ -830,7 +1187,7 @@ class FusedDecoder(FunctionalDecoder):
         delta = ttnn.subtract(v_row, memory, memory_config=state_memory)
         ttnn.deallocate(memory)
 
-        k_col = ttnn.reshape(k_row, (batch, heads, key_dim, 1), memory_config=state_memory)
+        k_col = ttnn.transpose(k_row, -2, -1, memory_config=state_memory)
         delta_row = ttnn.reshape(delta, (batch, heads, 1, value_dim), memory_config=state_memory)
         outer_compute = ttnn.WormholeComputeKernelConfig(
             math_fidelity=ttnn.MathFidelity.HiFi2,
@@ -1026,10 +1383,22 @@ class FusedDecoder(FunctionalDecoder):
             batch=1,
             tokens=count,
         )
-        self.fused_block_cos = ttnn.to_memory_config(block_cos, ttnn.DRAM_MEMORY_CONFIG)
-        self.fused_block_sin = ttnn.to_memory_config(block_sin, ttnn.DRAM_MEMORY_CONFIG)
-        _free(block_cos, self.fused_block_cos)
-        _free(block_sin, self.fused_block_sin)
+        # Decode reads these tables through ``ttnn.embedding`` row gathers, which
+        # untilize a TILE weight in full on every call ([compressed_blocks, 64]
+        # per QSA layer per token at the configured capacity).  Store them
+        # ROW_MAJOR; the prefill slice re-tilizes its few rows before RoPE.
+        block_cos_dram = ttnn.to_memory_config(block_cos, ttnn.DRAM_MEMORY_CONFIG)
+        block_sin_dram = ttnn.to_memory_config(block_sin, ttnn.DRAM_MEMORY_CONFIG)
+        _free(block_cos, block_cos_dram)
+        _free(block_sin, block_sin_dram)
+        if os.environ.get("QWEN38_ROPE_ROW_MAJOR", "1") == "1":
+            self.fused_block_cos = ttnn.to_layout(block_cos_dram, ttnn.ROW_MAJOR_LAYOUT)
+            self.fused_block_sin = ttnn.to_layout(block_sin_dram, ttnn.ROW_MAJOR_LAYOUT)
+            _free(block_cos_dram, self.fused_block_cos)
+            _free(block_sin_dram, self.fused_block_sin)
+        else:
+            self.fused_block_cos = block_cos_dram
+            self.fused_block_sin = block_sin_dram
         self.fused_block_rot_source = rot_source
 
     def _compressed_index_prefill(self, raw_heads, chunk_page_table, *, chunk_start: int, rot_mats):
@@ -1065,18 +1434,34 @@ class FusedDecoder(FunctionalDecoder):
             [0, 0, first_group, 0],
             [1, 1, first_group + groups, s.rotary_dim],
         )
-        keys = self._apply_rope(keys, cos, sin, s.rotary_dim)
-        ttnn.deallocate(cos)
-        ttnn.deallocate(sin)
-        fill = ttnn.typecast(keys, self.fused_index_key_cache.dtype)
+        # The block tables are ROW_MAJOR (see ``_ensure_static_block_rope``);
+        # the rotary kernel needs TILE cos/sin, so tilize only these few rows.
+        cos_tiled = ttnn.to_layout(cos, ttnn.TILE_LAYOUT) if cos.layout != ttnn.TILE_LAYOUT else cos
+        sin_tiled = ttnn.to_layout(sin, ttnn.TILE_LAYOUT) if sin.layout != ttnn.TILE_LAYOUT else sin
+        _free(cos, cos_tiled)
+        _free(sin, sin_tiled)
+        keys = self._apply_rope(keys, cos_tiled, sin_tiled, s.rotary_dim)
+        ttnn.deallocate(cos_tiled)
+        ttnn.deallocate(sin_tiled)
+        # One 32-row tile per 64-token page: the page's 16 keys in rows 0-15,
+        # zeros in rows 16-31 (see COMPRESSED_KEY_ROWS_PER_PAGE).
+        per_page = self.block_size // s.indexer_compress_ratio
+        pages = groups // per_page
+        paged = ttnn.reshape(keys, (1, pages, per_page, s.indexer_head_dim))
+        _free(keys, paged)
+        padded = ttnn.pad(paged, [(0, 0), (0, 0), (0, COMPRESSED_KEY_ROWS_PER_PAGE - per_page), (0, 0)], 0.0)
+        _free(paged, padded)
+        tiles = ttnn.reshape(padded, (1, 1, pages * COMPRESSED_KEY_ROWS_PER_PAGE, s.indexer_head_dim))
+        _free(padded, tiles)
+        fill = ttnn.typecast(tiles, self.fused_index_key_cache.dtype)
         ttnn.experimental.paged_fill_cache(
             self.fused_index_key_cache,
             fill,
             chunk_page_table,
             batch_idx=0,
         )
-        _free(fill, keys)
-        ttnn.deallocate(keys)
+        _free(tiles, fill)
+        ttnn.deallocate(fill)
         _free(cache_heads, raw_heads)
 
     def _qsa_prefill(
@@ -1118,28 +1503,99 @@ class FusedDecoder(FunctionalDecoder):
         ttnn.deallocate(v)
         ttnn.deallocate(raw_index)
         _free(raw_heads, raw_index)
-        selected, valid = self._selected_virtual_tokens(index_q, page_table, positions, rot_mats)
-        ttnn.deallocate(index_q)
-        attention = self._gathered_qsa_attention(q, selected, valid, page_table)
+        if self._dense_prefill_chunk(chunk_start, length):
+            # Every complete block is selected while the visible prefix is under
+            # the QSA budget, so causal attention over the paged cache is the
+            # same function as selector + gather + masked SDPA (12 ms per layer
+            # per microchunk in the profile, mostly the 2,080-row K/V gathers).
+            ttnn.deallocate(index_q)
+            attention = self._dense_qsa_prefill_attention(q, page_table, chunk_start)
+        else:
+            selected, valid = self._selected_virtual_tokens(index_q, page_table, positions, rot_mats)
+            ttnn.deallocate(index_q)
+            attention = self._gathered_qsa_attention(q, selected, valid, page_table)
         ttnn.deallocate(q)
         ttnn.deallocate(positions)
         return self._qsa_epilogue(attention, gate, decode=False)
 
-    def _compressed_index_decode(self, current_pos, page_table, rot_mats):
-        """Update one rolling compressed key per user from the four raw taps."""
+    def _dense_prefill_chunk(self, chunk_start: int, length: int) -> bool:
+        """True when the whole microchunk stays below the QSA token budget."""
+
+        if os.environ.get("QWEN38_QSA_DENSE_PREFILL", "1") != "1":
+            return False
+        return chunk_start + length <= QSA_TOKEN_BUDGET
+
+    def _dense_qsa_prefill_attention(self, q, page_table, chunk_start: int):
+        """Chunked causal SDPA of one 128-row microchunk against the paged cache."""
 
         s = self.shapes
+        sdpa_config = getattr(self, "prefill_sdpa_config", None)
+        if sdpa_config is None:
+            # Layers built directly (layer-level tests) skip ``from_state_dict``,
+            # which is where the model parses this; fall back to the same default.
+            from .optimized_decoder import OptimizedDecoder  # subclass of this module; import lazily
+
+            sdpa_config = OptimizedDecoder._parse_sdpa_config(
+                os.environ.get("QWEN38_OPT_PREFILL_SDPA_CONFIG", OptimizedDecoder.DEFAULT_PREFILL_SDPA_CONFIG),
+                decode=False,
+            )
+        grid_x, grid_y, q_chunk, k_chunk = sdpa_config
+        q_chunk = int(os.environ.get("QWEN38_QSA_DENSE_PREFILL_Q_CHUNK", q_chunk or 32))
+        k_chunk = int(os.environ.get("QWEN38_QSA_DENSE_PREFILL_K_CHUNK", k_chunk or 64))
+        if chunk_start % q_chunk or chunk_start % k_chunk:
+            raise ValueError(f"chunk_start {chunk_start} must be a multiple of the SDPA chunk sizes {q_chunk}/{k_chunk}")
+        sdpa_cfg = ttnn.SDPAProgramConfig(
+            compute_with_storage_grid_size=ttnn.CoreCoord(grid_x, grid_y),
+            q_chunk_size=q_chunk,
+            k_chunk_size=k_chunk,
+            exp_approx_mode=False,
+        )
+        out = ttnn.transformer.chunked_scaled_dot_product_attention(
+            q,
+            self.kv_cache[0],
+            self.kv_cache[1],
+            page_table,
+            chunk_start,
+            scale=1.0 / math.sqrt(s.head_dim),
+            program_config=sdpa_cfg,
+            compute_kernel_config=(
+                self.compute_cfg if os.environ.get("QWEN38_QSA_DENSE_COMPUTE", "default") == "model" else None
+            ),
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        token_out = ttnn.permute(out, (0, 2, 1, 3))
+        ttnn.deallocate(out)
+        return token_out
+
+    def seed_compressed_index_ring(self, lengths, page_table) -> None:
+        """Load the tap ring with the prefill taps of the trailing partial group.
+
+        Called once after the final prefill chunk.  ``lengths`` is a host int
+        tensor ``[max_batch]`` of committed prefill lengths (inactive users may
+        be negative).  Slots for positions at or past the length are written by
+        decode before their group completes, so their content here is unused.
+        """
+
+        s = self.shapes
+        if s.layer_type != QWEN_SPARSE_ATTENTION or getattr(self, "speculative_pair", False):
+            return
+        ratio = s.indexer_compress_ratio
         batch = self.max_batch
-        group_ids = ttnn.bitwise_right_shift(current_pos, int(math.log2(s.indexer_compress_ratio)))
-        group_starts = ttnn.multiply(group_ids, s.indexer_compress_ratio)
-        group_starts = ttnn.reshape(group_starts, (batch, 1, 1, 1))
-        group_offsets = ttnn.reshape(self.const["index_token_offsets"], (1, 1, 1, s.indexer_compress_ratio))
-        virtual = ttnn.add(group_starts, group_offsets)
-        ttnn.deallocate(group_starts)
-        _free(group_offsets, self.const["index_token_offsets"], virtual)
+        lengths = torch.as_tensor(lengths, dtype=torch.int64).reshape(-1)[:batch].clamp(min=0)
+        if lengths.numel() < batch:
+            lengths = torch.cat([lengths, torch.zeros(batch - lengths.numel(), dtype=torch.int64)])
+        group_start = (lengths // ratio) * ratio
+        virtual_host = group_start.view(batch, 1, 1, 1) + torch.arange(ratio, dtype=torch.int64).view(1, 1, 1, ratio)
+        virtual = ttnn.from_torch(
+            virtual_host.to(torch.int32),
+            dtype=ttnn.int32,
+            layout=ttnn.TILE_LAYOUT,
+            device=self.mesh_device,
+            mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device) if hasattr(self.mesh_device, "shape") else None,
+        )
         physical = self._virtual_to_physical_tokens(virtual, page_table)
         ttnn.deallocate(virtual)
-        physical = ttnn.reshape(physical, (1, batch * s.indexer_compress_ratio))
+        physical = ttnn.reshape(physical, (1, batch * ratio))
         raw_weight = ttnn.reshape(
             self.indexer_cache,
             (self.max_num_blocks * self.block_size, s.indexer_head_dim),
@@ -1147,7 +1603,49 @@ class FusedDecoder(FunctionalDecoder):
         raw = _embedding_tiled_output(physical, raw_weight)
         _free(raw_weight, self.indexer_cache, raw)
         ttnn.deallocate(physical)
-        raw = ttnn.reshape(raw, (batch, 1, s.indexer_compress_ratio, s.indexer_head_dim))
+        raw = ttnn.reshape(raw, (batch, 1, ratio, s.indexer_head_dim))
+        padded = ttnn.pad(raw, [(0, 0), (0, 0), (0, 32 - ratio), (0, 0)], 0.0)
+        _free(raw, padded)
+        seed = ttnn.typecast(padded, self.fused_index_tap_ring.dtype)
+        _free(padded, seed)
+        ttnn.copy(seed, self.fused_index_tap_ring)
+        _free(seed, self.fused_index_tap_ring)
+
+    def _compressed_index_decode(self, current_pos, page_table, rot_mats, *, from_ring: bool = False):
+        """Update one rolling compressed key per user from the four raw taps."""
+
+        s = self.shapes
+        batch = self.max_batch
+        group_ids = ttnn.bitwise_right_shift(current_pos, int(math.log2(s.indexer_compress_ratio)))
+        if from_ring:
+            # The four taps of the current group are in the per-user ring (see
+            # ``_qsa_decode``).  Read them the way the gather produced them:
+            # cache dtype -> bf16 (exact), four logical rows, then the mean.
+            ring = ttnn.typecast(self.fused_index_tap_ring, ttnn.bfloat16)
+            raw = ttnn.slice(
+                ring,
+                [0, 0, 0, 0],
+                [batch, 1, s.indexer_compress_ratio, s.indexer_head_dim],
+            )
+            _free(ring, raw)
+        else:
+            group_starts = ttnn.multiply(group_ids, s.indexer_compress_ratio)
+            group_starts = ttnn.reshape(group_starts, (batch, 1, 1, 1))
+            group_offsets = ttnn.reshape(self.const["index_token_offsets"], (1, 1, 1, s.indexer_compress_ratio))
+            virtual = ttnn.add(group_starts, group_offsets)
+            ttnn.deallocate(group_starts)
+            _free(group_offsets, self.const["index_token_offsets"], virtual)
+            physical = self._virtual_to_physical_tokens(virtual, page_table)
+            ttnn.deallocate(virtual)
+            physical = ttnn.reshape(physical, (1, batch * s.indexer_compress_ratio))
+            raw_weight = ttnn.reshape(
+                self.indexer_cache,
+                (self.max_num_blocks * self.block_size, s.indexer_head_dim),
+            )
+            raw = _embedding_tiled_output(physical, raw_weight)
+            _free(raw_weight, self.indexer_cache, raw)
+            ttnn.deallocate(physical)
+            raw = ttnn.reshape(raw, (batch, 1, s.indexer_compress_ratio, s.indexer_head_dim))
         keys = ttnn.mean(raw, dim=2, keepdim=False)
         ttnn.deallocate(raw)
         keys = ttnn.reshape(keys, (batch, 1, 1, s.indexer_head_dim))
@@ -1171,12 +1669,23 @@ class FusedDecoder(FunctionalDecoder):
         ttnn.deallocate(keys)
         update = ttnn.pad(update, [(0, 0), (0, 0), (0, 31), (0, 0)], 0.0)
         update = ttnn.to_memory_config(update, self.decode_index_mem_cfg)
+        # Row inside the 32-row-per-page cache: (g >> 4) * 32 + (g & 15).
+        per_page = self.block_size // s.indexer_compress_ratio
+        page_rows = ttnn.multiply(
+            ttnn.bitwise_right_shift(group_ids, int(math.log2(per_page))),
+            COMPRESSED_KEY_ROWS_PER_PAGE,
+        )
+        in_page = ttnn.bitwise_and(group_ids, per_page - 1)
+        update_rows = ttnn.add(page_rows, in_page)
+        ttnn.deallocate(page_rows)
+        ttnn.deallocate(in_page)
         ttnn.experimental.paged_update_cache(
             self.fused_index_key_cache,
             update,
-            update_idxs_tensor=group_ids,
+            update_idxs_tensor=update_rows,
             page_table=page_table,
         )
+        ttnn.deallocate(update_rows)
         ttnn.deallocate(update)
         ttnn.deallocate(group_ids)
 
@@ -1194,33 +1703,104 @@ class FusedDecoder(FunctionalDecoder):
         k_update = padded_heads(k, self.decode_head_mem_cfg)
         v_update = padded_heads(v, self.fused_decode_value_mem_cfg)
         raw_update = padded_heads(raw_index, self.decode_index_mem_cfg)
-        ttnn.experimental.paged_fused_update_cache(
-            self.kv_cache[0],
-            k_update,
-            self.kv_cache[1],
-            v_update,
-            update_idxs_tensor=current_pos,
-            page_table=page_table,
-        )
-        ttnn.experimental.paged_update_cache(
-            self.indexer_cache,
-            raw_update,
-            update_idxs_tensor=current_pos,
-            page_table=page_table,
-        )
+        if getattr(self, "speculative_pair", False):
+            # Two consecutive positions of one sequence share cache tiles, and
+            # the paged update is a per-user read-modify-write of a tile, so a
+            # batched update races.  Update one row at a time (update index -1
+            # skips a user) and refresh the compressed key with both rows at
+            # the same position so the two writes are identical.
+            update_passes = self.pair_update_positions
+            compressed_passes = self.pair_dup_positions
+        else:
+            update_passes = (current_pos,)
+            compressed_passes = (current_pos,)
+        for pass_positions in update_passes:
+            ttnn.experimental.paged_fused_update_cache(
+                self.kv_cache[0],
+                k_update,
+                self.kv_cache[1],
+                v_update,
+                update_idxs_tensor=pass_positions,
+                page_table=page_table,
+            )
+            ttnn.experimental.paged_update_cache(
+                self.indexer_cache,
+                raw_update,
+                update_idxs_tensor=pass_positions,
+                page_table=page_table,
+            )
+        from_ring = not getattr(self, "speculative_pair", False) and os.environ.get("QWEN38_INDEX_TAP_RING", "1") == "1"
+        if from_ring:
+            # Mirror this token's raw tap into slot (pos mod 4) of the per-user
+            # ring so the compressed key below needs no capacity-sized gather.
+            ring_slot = ttnn.bitwise_and(current_pos, s.indexer_compress_ratio - 1)
+            ttnn.experimental.paged_update_cache(
+                self.fused_index_tap_ring,
+                raw_update,
+                update_idxs_tensor=ring_slot,
+            )
+            ttnn.deallocate(ring_slot)
         ttnn.deallocate(k_update)
         ttnn.deallocate(v_update)
         ttnn.deallocate(raw_update)
         for tensor in (k, v, raw_index):
             _free(tensor, k_update, v_update, raw_update)
 
-        self._compressed_index_decode(current_pos, page_table, rot_mats)
+        for pass_positions in compressed_passes:
+            self._compressed_index_decode(pass_positions, page_table, rot_mats, from_ring=from_ring)
 
-        selected, valid = self._selected_virtual_tokens(index_q, page_table, positions, rot_mats)
-        ttnn.deallocate(index_q)
-        attention = self._gathered_qsa_attention(q, selected, valid, page_table)
+        if getattr(self, "qsa_dense_decode", False):
+            # Below the 2,048-token budget every complete block is selected, so
+            # the selector is the identity: attend densely over the paged cache
+            # and skip scoring, top-k, and the two 2,080-row K/V gathers.  The
+            # compressed index cache above stays current for the long path.
+            ttnn.deallocate(index_q)
+            attention = self._dense_qsa_attention(q, current_pos, page_table)
+        else:
+            selected, valid = self._selected_virtual_tokens(index_q, page_table, positions, rot_mats)
+            ttnn.deallocate(index_q)
+            attention = self._gathered_qsa_attention(q, selected, valid, page_table)
         ttnn.deallocate(q)
         return self._qsa_epilogue(attention, gate, decode=True)
+
+    def _dense_qsa_attention(self, q, current_pos, page_table):
+        """Causal paged SDPA over the whole visible prefix (batch-one decode)."""
+
+        s = self.shapes
+        batch = int(q.shape[0])
+        decode_q = ttnn.permute(q, (2, 0, 1, 3))
+        grid_x, grid_y, q_chunk, k_chunk = self.decode_sdpa_config
+        # head_dim=256 flash-decode has a known cross-chunk reduction cliff for
+        # some chunk geometries (see tt_transformers Gemma-2 notes); keep the
+        # chunking identical to the validated selector path unless overridden.
+        k_chunk = int(os.environ.get("QWEN38_QSA_DENSE_K_CHUNK", 128))
+        q_chunk = int(os.environ.get("QWEN38_QSA_DENSE_Q_CHUNK", q_chunk))
+        sdpa_cfg = ttnn.SDPAProgramConfig(
+            compute_with_storage_grid_size=ttnn.CoreCoord(grid_x, grid_y),
+            q_chunk_size=q_chunk,
+            k_chunk_size=k_chunk,
+            exp_approx_mode=False,
+        )
+        out = ttnn.transformer.paged_scaled_dot_product_attention_decode(
+            decode_q,
+            self.kv_cache[0],
+            self.kv_cache[1],
+            page_table_tensor=page_table,
+            cur_pos_tensor=current_pos,
+            scale=1.0 / math.sqrt(s.head_dim),
+            program_config=sdpa_cfg,
+            # The forced fp32-accumulate compute config corrupts the cross-chunk
+            # online-softmax reduction at head_dim=256 (tt_transformers Gemma-2
+            # note); the op's default compute config is numerically right.
+            compute_kernel_config=(
+                self.compute_cfg if os.environ.get("QWEN38_QSA_DENSE_COMPUTE", "default") == "model" else None
+            ),
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        ttnn.deallocate(decode_q)
+        token_out = ttnn.reshape(out, (batch, 1, s.num_attention_heads, s.head_dim))
+        _free(out, token_out)
+        return token_out
 
     def _physical_compressed_ids(self, page_table, *, batch: int, tokens: int):
         """Map compressed blocks with a single integer ternary affine op."""
@@ -1246,7 +1826,7 @@ class FusedDecoder(FunctionalDecoder):
             in_page,
             physical_pages,
             self.fused_index_scalar_one,
-            value=per_page,
+            value=COMPRESSED_KEY_ROWS_PER_PAGE,
         )
         ttnn.deallocate(physical_pages)
         _free(in_page, self.fused_index_in_page)
@@ -1262,14 +1842,22 @@ class FusedDecoder(FunctionalDecoder):
 
         key_weight = ttnn.reshape(
             self.fused_index_key_cache,
-            (self.max_num_blocks * per_page, s.indexer_head_dim),
+            (self.max_num_blocks * COMPRESSED_KEY_ROWS_PER_PAGE, s.indexer_head_dim),
         )
-        physical_ids = self._physical_compressed_ids(page_table, batch=batch, tokens=tokens)
-        physical_ids = ttnn.typecast(physical_ids, ttnn.uint32)
-        physical_ids = ttnn.reshape(physical_ids, (1, batch * count))
+        cached_physical_ids = getattr(self, "decode_physical_compressed_ids", None)
+        # The logical-to-physical compressed-block map depends only on the
+        # page table, not on the query-token count.  A physical-B1 model owns
+        # the whole cached map in one stable row, so both decode and every
+        # resumable prefill chunk can bypass the gather/affine subgraph.
+        if batch == self.max_batch and cached_physical_ids is not None:
+            physical_ids = cached_physical_ids
+        else:
+            physical_ids = self._physical_compressed_ids(page_table, batch=batch, tokens=tokens)
+            physical_ids = ttnn.typecast(physical_ids, ttnn.uint32)
+            physical_ids = ttnn.reshape(physical_ids, (1, batch * count))
         keys = _embedding_tiled_output(physical_ids, key_weight)
         _free(key_weight, self.fused_index_key_cache, keys)
-        ttnn.deallocate(physical_ids)
+        _free(physical_ids, cached_physical_ids)
         keys = ttnn.reshape(keys, (batch, 1, count, s.indexer_head_dim))
         if batch > 1:
             # The default matmul broadcasts the one key head only for the
