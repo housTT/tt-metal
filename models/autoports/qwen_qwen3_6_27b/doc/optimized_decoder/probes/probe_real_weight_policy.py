@@ -29,6 +29,7 @@ from transformers.cache_utils import DynamicCache
 import ttnn
 from models.autoports.qwen_qwen3_6_27b.reference import hf_reference as ref
 from models.autoports.qwen_qwen3_6_27b.tests import harness as H
+from models.autoports.qwen_qwen3_6_27b.tt import optimized_decoder as OD
 from models.autoports.qwen_qwen3_6_27b.tt.optimized_decoder import (
     BFP8_POLICY,
     DEFAULT_GEOMETRY,
@@ -54,6 +55,21 @@ def candidates():
     yield "bfp4 MLP incl. down (rest bfp8)", bfp4_mlp, DEFAULT_GEOMETRY
     yield "bfp4 attention only (rest bfp8)", dataclasses.replace(
         bfp8, name="bfp4-attn", attn_weight=ttnn.bfloat4_b, gdn_z_weight=ttnn.bfloat4_b, gdn_out_weight=ttnn.bfloat4_b
+    ), DEFAULT_GEOMETRY
+    yield "in_proj_qkv at BFP4", dataclasses.replace(
+        DEFAULT_POLICY, name="opt-v1-bfp4-gdnqkv", gdn_qkv_weight=ttnn.bfloat4_b
+    ), DEFAULT_GEOMETRY
+    yield "no fp32 dest acc on the state roles at decode", dataclasses.replace(
+        DEFAULT_POLICY, name="opt-v1-no-state-fp32acc-decode", state_fp32_acc_decode=False
+    ), DEFAULT_GEOMETRY
+    yield "in_proj_qkv at HiFi2 + no state fp32 dest acc at decode", dataclasses.replace(
+        DEFAULT_POLICY,
+        name="opt-v1-hifi2-gdnqkv-no-state-fp32acc",
+        gdn_qkv_fidelity=OD.HIFI2,
+        state_fp32_acc_decode=False,
+    ), DEFAULT_GEOMETRY
+    yield "in_proj_qkv at HiFi2 (stage 2's value)", dataclasses.replace(
+        DEFAULT_POLICY, name="opt-v1-hifi2-gdnqkv", gdn_qkv_fidelity=OD.HIFI2
     ), DEFAULT_GEOMETRY
     yield "bfp4 MLP + bfp4 attention", dataclasses.replace(
         bfp4_mlp,
@@ -106,6 +122,19 @@ def measure(mesh, layer_idx, policy, geometry) -> dict:
         worst_traced = min(worst_traced, H.pcc(golden, runner.replay(token, torch.tensor([SEQ + step]))))
     runner.release()
     out["traced_decode_pcc"] = worst_traced
+
+    # ``in_proj_qkv``'s output *is* the float32 state the causal conv carries, so any candidate that
+    # touches its dtype or fidelity has to be checked against HF's own cache object, not only against
+    # the layer output.  ``linear_attention`` only.
+    if lut.config.layer_types[layer_idx] == "linear_attention":
+        H.run_tt_prefill(lut, hidden)
+        cache3 = DynamicCache(config=lut.config)
+        H.reference_prefill(lut, hidden, cache3)
+        conv_state, recurrent_state = H.read_linear_state(lut, user_id=0)
+        out["conv_state_pcc"] = H.pcc(cache3.layers[layer_idx].conv_states[0].to(torch.float32), conv_state.T)
+        out["recurrent_state_pcc"] = H.pcc(
+            cache3.layers[layer_idx].recurrent_states[0].to(torch.float32), recurrent_state
+        )
     return out
 
 
@@ -125,7 +154,9 @@ def main() -> int:
                 print(
                     f"  {kind:17s} {label:34s} prefill {row.get('prefill_pcc', float('nan')):.6f}  "
                     f"decode {row.get('decode_pcc', float('nan')):.6f}  "
-                    f"traced {row.get('traced_decode_pcc', float('nan')):.6f}"
+                    f"traced {row.get('traced_decode_pcc', float('nan')):.6f}  "
+                    f"conv {row.get('conv_state_pcc', float('nan')):.6f} "
+                    f"rec {row.get('recurrent_state_pcc', float('nan')):.6f}"
                     + (f"  ERROR {row['error']}" if row.get("error") else ""),
                     flush=True,
                 )

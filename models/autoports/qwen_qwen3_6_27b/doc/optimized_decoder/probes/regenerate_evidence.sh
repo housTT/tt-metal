@@ -4,7 +4,7 @@
 # Device-facing steps run strictly one at a time - never a watcher run and a profiler run together -
 # and the two generators at the end read only committed files.
 #
-#   usage: regenerate_evidence.sh [tracy|suite|probes|docs|all]
+#   usage: regenerate_evidence.sh [tracy|suite|probes|longprobes|realprobes|docs|all]
 #
 # `tracy` is the long pole (12 profiled windows, a few minutes each). Watch it with:
 #   tail -f models/autoports/qwen_qwen3_6_27b/doc/optimized_decoder/logs/regenerate.log
@@ -32,12 +32,42 @@ run_probes() {
   source "$REPO/models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/ttenv.sh" > /dev/null
   python "$PROBES/probe_blockfloat_distribution.py" > "$LOGS/probe_blockfloat_distribution.log" 2>&1
   python "$PROBES/probe_matmul_policy.py" > "$LOGS/probe_matmul_policy.log" 2>&1
+  python "$PROBES/probe_prefill_grid_alignment.py" > "$LOGS/probe_prefill_grid_alignment.log" 2>&1
   python "$PROBES/probe_optimized.py" policy > "$LOGS/probe_optimized_policy.log" 2>&1
   python "$PROBES/probe_optimized.py" geometry > "$LOGS/probe_optimized_geometry.log" 2>&1
   python "$PROBES/probe_optimized.py" prefill > "$LOGS/probe_optimized_prefill.log" 2>&1
   python "$PROBES/probe_optimized.py" isolation > "$LOGS/probe_optimized_isolation.log" 2>&1
   python "$PROBES/probe_projection_packing.py" > "$LOGS/probe_projection_packing.log" 2>&1
+  python "$PROBES/probe_bfp4_gateup.py" > "$LOGS/probe_bfp4_gateup.log" 2>&1
+  python "$PROBES/probe_recurrence_advice.py" > "$LOGS/probe_recurrence_advice.log" 2>&1
+  python "$PROBES/probe_norm_repeat_order.py" > "$LOGS/probe_norm_repeat_order.log" 2>&1
+  python "$PROBES/probe_stream_grid.py" > "$LOGS/probe_stream_grid.log" 2>&1
   python "$PROBES/probe_real_weight_policy.py" > "$LOGS/probe_real_weight_policy.log" 2>&1
+}
+
+# The full-context attributions. Separated only because each one prefills 262143 tokens per arm and
+# builds an HF reference over the same, so this group costs more than everything else combined.
+run_longprobes() {
+  source "$REPO/models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/ttenv.sh" > /dev/null
+  python "$PROBES/probe_long_context_precision.py" > "$LOGS/probe_long_context_precision.log" 2>&1
+  python "$PROBES/probe_long_context_mlp.py" > "$LOGS/probe_long_context_mlp.log" 2>&1
+  python "$PROBES/probe_long_context_fp32acc.py" > "$LOGS/probe_long_context_fp32acc.log" 2>&1
+  python "$PROBES/probe_long_context_linear.py" > "$LOGS/probe_long_context_linear.log" 2>&1
+}
+
+# The real-checkpoint half of the full-context evidence, plus the two probes that attribute it.  Split
+# from `longprobes` only because it is the most expensive group in the stage: every arm prefills 262143
+# tokens with the real weights loaded.  `run_realweight_longcontext.sh` is the same thing as one script.
+run_realprobes() {
+  source "$REPO/models/autoports/qwen_qwen3_6_27b/doc/functional_decoder/ttenv.sh" > /dev/null
+  python "$PROBES/probe_long_context_precision.py" --real-weights \
+    > "$LOGS/probe_long_context_precision_real.log" 2>&1
+  python "$PROBES/probe_long_context_linear.py" --real-weights \
+    > "$LOGS/probe_long_context_linear_real.log" 2>&1
+  python "$PROBES/probe_scale_vs_length.py" > "$LOGS/probe_scale_vs_length.log" 2>&1
+  python "$PROBES/probe_prefill_fidelity_roles.py" > "$LOGS/probe_prefill_fidelity_roles.log" 2>&1
+  python "$PROBES/probe_fidelity_gain.py" > "$LOGS/probe_fidelity_gain.log" 2>&1
+  bash "$PROBES/probe_sdpa_peakiness.sh"
 }
 
 run_suite() {
@@ -58,6 +88,9 @@ run_docs() {
   python -m models.autoports.qwen_qwen3_6_27b.scripts.collect_evidence \
     "$LOGS/suite_main.log" "$LOGS/long_context.log" "$LOGS/watcher_run.log" \
     --out "$ART/pcc_evidence.json"
+  # The contract block reads pcc_evidence.json, and make_doc_tables reads both, so this order is the
+  # only correct one.  `finalize_evidence.sh` is the same sequence as a standalone script.
+  python "$PROBES/make_contract_block.py"
   python "$PROBES/make_doc_tables.py"
   python -m pytest models/autoports/qwen_qwen3_6_27b/tests/test_optimized_decoder_docs.py -v
 }
@@ -65,9 +98,11 @@ run_docs() {
 case "$WHAT" in
   tracy) run_tracy ;;
   probes) run_probes ;;
+  longprobes) run_longprobes ;;
+  realprobes) run_realprobes ;;
   suite) run_suite ;;
   docs) run_docs ;;
-  all) run_probes; run_tracy; run_suite; run_docs ;;
+  all) run_probes; run_longprobes; run_realprobes; run_tracy; run_suite; run_docs ;;
   *) echo "bad argument $WHAT"; exit 2 ;;
 esac
 echo "== $(date -Is) done: $WHAT"

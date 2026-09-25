@@ -219,6 +219,29 @@ def policy_candidates():
         gdn_z_weight=ttnn.bfloat4_b,
         gdn_out_weight=ttnn.bfloat4_b,
     )
+    yield "in_proj_qkv at HiFi2 (stage 2's value)", dataclasses.replace(
+        DEFAULT_POLICY, name="opt-v1-hifi2-gdnqkv", gdn_qkv_fidelity=OD.HIFI2
+    )
+    yield "in_proj_qkv at HiFi4", dataclasses.replace(
+        DEFAULT_POLICY, name="opt-v1-hifi4-gdnqkv", gdn_qkv_fidelity=OD.HIFI4
+    )
+    # The dtype x fidelity cross-product OPT-014 asks for on this role: BFP4 at the shipped LoFi and at
+    # stage 2's HiFi2, so "BFP4 is rejected" is a statement about the dtype and not about one pairing.
+    yield "in_proj_qkv at BFP4", dataclasses.replace(
+        DEFAULT_POLICY, name="opt-v1-bfp4-gdnqkv", gdn_qkv_weight=ttnn.bfloat4_b
+    )
+    yield "in_proj_qkv at BFP4 + HiFi2", dataclasses.replace(
+        DEFAULT_POLICY, name="opt-v1-bfp4-hifi2-gdnqkv", gdn_qkv_weight=ttnn.bfloat4_b, gdn_qkv_fidelity=OD.HIFI2
+    )
+    yield "no fp32 dest acc on the state roles at decode", dataclasses.replace(
+        DEFAULT_POLICY, name="opt-v1-no-state-fp32acc-decode", state_fp32_acc_decode=False
+    )
+    yield "in_proj_qkv at HiFi2 + no state fp32 dest acc at decode", dataclasses.replace(
+        DEFAULT_POLICY,
+        name="opt-v1-hifi2-gdnqkv-no-state-fp32acc",
+        gdn_qkv_fidelity=OD.HIFI2,
+        state_fp32_acc_decode=False,
+    )
     yield "shipped", DEFAULT_POLICY
 
 
@@ -249,6 +272,13 @@ def geometry_candidates(legal_cores):
     yield "SiLU fused into the gate matmul epilogue", dataclasses.replace(DEFAULT_GEOMETRY, fuse_gate_silu=True)
     yield "SDPA 1 core per head (stage 1's pinned value)", dataclasses.replace(DEFAULT_GEOMETRY, sdpa_cores_per_head=1)
     yield "SDPA 8 cores per head", dataclasses.replace(DEFAULT_GEOMETRY, sdpa_cores_per_head=8)
+    yield "in_proj_ab DRAM-sharded + separate bias add", dataclasses.replace(DEFAULT_GEOMETRY, dram_sharded_ab=True)
+    # Both of these are the *alternative* to the shipped default, which is why they are phrased as the
+    # thing being tried: the shipped stream grid is row-wise and the shipped q/k order is expand-then-
+    # norm, both because the arm below lost.  ``probe_stream_grid.py`` and ``probe_norm_repeat_order.py``
+    # measure each of them on more axes than a single decode time.
+    yield "rectangular 8x4 stream core grid", dataclasses.replace(DEFAULT_GEOMETRY, rectangular_stream=True)
+    yield "q/k norm before the expand, on a batch axis", dataclasses.replace(DEFAULT_GEOMETRY, norm_before_repeat=True)
 
 
 def in0_block_w_candidates(layer_kind: str, baseline: dict):
@@ -300,6 +330,23 @@ def run_policy(mesh, kinds, real_weights=False):
                 geometry = FUSED_BASELINE_GEOMETRY if policy.name == "fused-baseline" else DEFAULT_GEOMETRY
                 lut = build(mesh, layer_idx, policy=policy, geometry=geometry, real_weights=real_weights)
                 row["config"] = lut.tt_layer.config_summary()
+                # A row labelled "shipped" has to *be* the shipped configuration.  An earlier revision
+                # of this log had a "shipped" row that was really the bfp4-mlp-attn arm, measured at 16
+                # cores with the gate SiLU fused, and every percentage derived from that row was wrong
+                # in a way nothing else in the artifacts could catch.  So the label is checked against
+                # the built layer rather than trusted.
+                if label == "shipped":
+                    decode = row["config"]["decode"]
+                    assert row["config"]["policy"] == DEFAULT_POLICY.name, (
+                        f"the 'shipped' row was built with policy {row['config']['policy']!r}, "
+                        f"not {DEFAULT_POLICY.name!r}"
+                    )
+                    assert decode["cores"] == DEFAULT_GEOMETRY.cores, (
+                        f"the 'shipped' row was built at {decode['cores']} cores, " f"not {DEFAULT_GEOMETRY.cores}"
+                    )
+                    assert (
+                        decode["gate_silu_fused"] == DEFAULT_GEOMETRY.fuse_gate_silu
+                    ), "the 'shipped' row's fused-SiLU setting does not match the shipped geometry"
                 row.update(measure_all(lut, mesh))
             except Exception as exc:  # noqa: BLE001 - a blocker is a result
                 row["error"] = f"{type(exc).__name__}: {exc}"[:400]
@@ -392,6 +439,25 @@ def run_prefill(mesh, kinds):
             "in0_block_w=8 on every prefill projection",
             DEFAULT_GEOMETRY,
             PrefillGeometry(in0_block_w={role: 8 for role in dram_roles}),
+        ),
+        # The *ceiling* on the per-role search, rather than a value forced on every role.  With the L1
+        # model exact, a higher ceiling only moves the roles it fits - at 16 that is ``wgate`` and
+        # ``in_proj_z`` - so these arms answer "is a deeper reduction block faster where it fits?"
+        # without also asking every other role to do something illegal.
+        (
+            "in0_block_w ceiling 4 (per-role search)",
+            DEFAULT_GEOMETRY,
+            PrefillGeometry(max_block_w=4),
+        ),
+        (
+            "in0_block_w ceiling 16 (per-role search)",
+            DEFAULT_GEOMETRY,
+            PrefillGeometry(max_block_w=16),
+        ),
+        (
+            "in0_block_w ceiling 32 (per-role search)",
+            DEFAULT_GEOMETRY,
+            PrefillGeometry(max_block_w=32),
         ),
         (
             "explicit 2D grid 8x8 on the MLP",

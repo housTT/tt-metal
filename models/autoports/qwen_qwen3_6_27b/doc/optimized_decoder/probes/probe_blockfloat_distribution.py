@@ -63,6 +63,25 @@ def relative_error(tensor: torch.Tensor, bits: int) -> float:
     return float((q - tensor).norm() / tensor.norm())
 
 
+def systematic_gain(tensor: torch.Tensor, bits: int) -> float:
+    """Best-fit scale of the quantised weight onto the original: ``<w, q> / <w, w>``.
+
+    Separate from :func:`relative_error` because they answer different questions and only this one is
+    relevant to a *scale* failure.  Relative error is symmetric noise; this is the systematic part - a
+    shared exponent rounds elements far below the block maximum toward zero, so a block with a large
+    intra-block dynamic range loses magnitude rather than just gaining noise.
+
+    It is here because the real-weight full-context scale failures needed this ruled out, and it is:
+    the shrink is at most ~1e-3 (BFP4) and ~2e-5 (BFP8), while the failures are 3-4 %.  Real weights do
+    shrink several times more than the stand-in, which is consistent with their larger intra-block
+    range, but several times a hundredth of a percent is still a hundredth of a percent.
+    """
+    q = quantise(tensor.to(torch.float32), bits)
+    a = tensor.to(torch.float64).flatten()
+    b = q.to(torch.float64).flatten()
+    return float((a @ b) / (a @ a))
+
+
 def block_inequality(tensor: torch.Tensor) -> float:
     """Mean ratio of a block's maximum to its RMS - 1.0 means every element is the maximum.
 
@@ -93,6 +112,7 @@ def main() -> int:
                 row[f"{label}_block_peak_over_rms"] = round(block_inequality(tensor), 4)
                 for fmt, bits in MANTISSA_BITS.items():
                     row[f"{label}_{fmt}_rel_err"] = round(relative_error(tensor, bits), 6)
+                    row[f"{label}_{fmt}_gain"] = round(systematic_gain(tensor, bits), 8)
             row["bfp4_err_ratio_synthetic_over_real"] = round(
                 row["synthetic_bfp4_b_rel_err"] / row["real_bfp4_b_rel_err"], 3
             )
@@ -104,7 +124,8 @@ def main() -> int:
                 f"bfp8 real {row['real_bfp8_b_rel_err']:.6f} vs {row['synthetic_bfp8_b_rel_err']:.6f}  "
                 f"block peak/rms real {row['real_block_peak_over_rms']:.3f} vs "
                 f"{row['synthetic_block_peak_over_rms']:.3f}  "
-                f"kurtosis real {row['real_kurtosis']:.2f} vs {row['synthetic_kurtosis']:.2f}",
+                f"kurtosis real {row['real_kurtosis']:.2f} vs {row['synthetic_kurtosis']:.2f}  "
+                f"bfp8 gain real {row['real_bfp8_b_gain']:.8f} bfp4 gain real {row['real_bfp4_b_gain']:.8f}",
                 flush=True,
             )
     return 0

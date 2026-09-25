@@ -96,7 +96,21 @@ def main() -> int:
                 for role in ("wqkv", "mlp_gate", "mlp_down", "in_proj_qkv", "in_proj_z", "out_proj")
             },
             "kv_cache": str(DEFAULT_POLICY.kv_cache),
-            "float32_destination_accumulation_roles": ["in_proj_qkv", "in_proj_ab"],
+            # Derived per phase from the policy, not listed: the two phases differ (see
+            # ``PrecisionPolicy.prefill_fp32_acc_roles`` and ``state_fp32_acc_decode``), and a
+            # hand-written list here would not say which phase it meant.
+            "float32_destination_accumulation_roles": {
+                phase: sorted(
+                    role
+                    for role in DEFAULT_POLICY._WEIGHT_FIELD
+                    if DEFAULT_POLICY.fp32_acc(role, decode=(phase == "decode"))
+                )
+                for phase in ("prefill", "decode")
+            },
+            "math_fidelity_decode": {
+                role: str(DEFAULT_POLICY.fidelity(role, decode=True))
+                for role in ("wqkv", "mlp_gate", "mlp_down", "in_proj_qkv", "in_proj_z", "out_proj")
+            },
             "state_left_alone": (
                 "norms, the carried conv/recurrent state, chunk_gated_delta_rule and the recurrence "
                 "matmuls keep stage 2's HiFi4 + float32-destination contract"
@@ -197,7 +211,31 @@ def main() -> int:
             "scale_records": evidence["num_scale_records"],
             "min_pcc": round(evidence["min_pcc"], 6),
             "min_pcc_record": evidence.get("min_pcc_record"),
-            "pcc_records_below_bar": 0,
+            "pcc_records_below_synthetic_stress_bar": sum(
+                1
+                for rec in evidence["records"]
+                if isinstance(rec.get("value"), (int, float))
+                and not isinstance(rec.get("value"), bool)
+                and "_scale" not in rec.get("metric", "")
+                and rec["value"] < SYNTHETIC_PCC_BAR
+            ),
+            "pcc_records_below_acceptance_bar": sum(
+                1
+                for rec in evidence["records"]
+                if isinstance(rec.get("value"), (int, float))
+                and not isinstance(rec.get("value"), bool)
+                and "_scale" not in rec.get("metric", "")
+                and rec["value"] < contract["acceptance"]["pcc_bar"]
+            ),
+            "records_below_acceptance_bar_note": (
+                "Counted, not asserted, and the count is expected to be large: the synthetic-weight "
+                "cases hold the stress bar, not the acceptance bar, for the measured reason in "
+                "bar_note.  What must be zero is the count below the *stress* bar, and what must "
+                "clear the acceptance bar is real_weight_min_pcc.  The fused stage carried a "
+                "hard-coded 'pcc_records_below_bar: 0' that happened to be true there; recomputing it "
+                "here against the acceptance bar shows it would have been false, so it is replaced by "
+                "these two honest counts."
+            ),
             "scale_range": [round(v, 6) for v in evidence["scale_range"]] if evidence.get("scale_range") else None,
             "scale_tolerance": [0.98, 1.02],
             "real_weight_min_pcc": min(

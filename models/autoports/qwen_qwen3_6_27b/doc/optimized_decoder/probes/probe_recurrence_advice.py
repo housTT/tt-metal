@@ -139,7 +139,11 @@ def run(batch, results):
     measure(
         f"core_grid {grid.y}x{grid.x}, HiFi4, in0 L1 (report advice)",
         lambda: ttnn.matmul(
-            k_l1, state_dram, dtype=ttnn.float32, compute_kernel_config=kernel_cfg(ttnn.MathFidelity.HiFi4), core_grid=grid
+            k_l1,
+            state_dram,
+            dtype=ttnn.float32,
+            compute_kernel_config=kernel_cfg(ttnn.MathFidelity.HiFi4),
+            core_grid=grid,
         ),
         {"fidelity": "HiFi4", "core_grid": [grid.y, grid.x], "in0_memory": "l1"},
     )
@@ -169,6 +173,90 @@ def run(batch, results):
                 ),
                 {"in0_block_w": block_w, "out_subblock_w": subblock_w},
             )
+    # "Try a DRAM-sharded program config" - the report's advice on the batch-32 rows.  The "weight" of
+    # this matmul is the carried recurrent state, so this needs it width-sharded across the DRAM banks
+    # and the activation width-sharded in L1.  Measured rather than rejected by argument.
+    dram = _DEVICE.dram_grid_size()
+    dram_grid = ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(dram.x - 1, dram.y - 1))})
+    row = {
+        "sweep": "recurrence_advice",
+        "batch": batch,
+        "head_problems": heads,
+        "candidate": "batched DRAM-sharded program config (report advice)",
+    }
+    try:
+        padded = ((DV + TILE * dram.x - 1) // (TILE * dram.x)) * TILE * dram.x
+        state_cfg = ttnn.MemoryConfig(
+            ttnn.TensorMemoryLayout.WIDTH_SHARDED,
+            ttnn.BufferType.DRAM,
+            ttnn.ShardSpec(dram_grid, (heads * DK, padded // dram.x), ttnn.ShardOrientation.ROW_MAJOR),
+        )
+        state_sharded = ttnn.from_torch(
+            state_t, dtype=ttnn.float32, layout=ttnn.TILE_LAYOUT, device=_DEVICE, memory_config=state_cfg
+        )
+        # The op requires a width-sharded **L1** activation as well as the DRAM width-sharded "weight".
+        # The first attempt handed it the interleaved copy and got ``input_tensor_a.is_sharded()``, which
+        # is an API requirement rather than a verdict on the candidate, so this is the same candidate
+        # given the layout the op asks for.  ``K`` is 4 tiles here, so the activation spreads over at
+        # most 4 cores.
+        act_cores = min(4, DK // TILE)
+        act_cfg = ttnn.create_sharded_memory_config(
+            shape=(heads * TILE, DK // act_cores),
+            core_grid=ttnn.num_cores_to_corerangeset(
+                act_cores, _DEVICE.compute_with_storage_grid_size(), row_wise=True
+            ),
+            strategy=ttnn.ShardStrategy.WIDTH,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+            use_height_and_width_as_shard_shape=True,
+        )
+        k_sharded = ttnn.to_memory_config(k_dram, act_cfg)
+        # ...and a width-sharded L1 *output* config, which is the third requirement this op states one at
+        # a time: ``input_tensor_a.is_sharded()``, then ``output_mem_config.is_sharded()``.  Each is an
+        # API precondition rather than a verdict on the candidate, so each gets adapted rather than
+        # treated as the answer.
+        out_cfg = ttnn.create_sharded_memory_config(
+            shape=(heads * TILE, DV // act_cores),
+            core_grid=ttnn.num_cores_to_corerangeset(
+                act_cores, _DEVICE.compute_with_storage_grid_size(), row_wise=True
+            ),
+            strategy=ttnn.ShardStrategy.WIDTH,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+            use_height_and_width_as_shard_shape=True,
+        )
+        pc = ttnn.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig(
+            in0_block_w=DK // TILE // act_cores, per_core_M=1, per_core_N=DV // TILE, fused_activation=None
+        )
+
+        def run():
+            return ttnn.matmul(
+                k_sharded,
+                state_sharded,
+                dtype=ttnn.float32,
+                compute_kernel_config=kernel_cfg(ttnn.MathFidelity.HiFi4),
+                program_config=pc,
+                memory_config=out_cfg,
+            )
+
+        out = run()
+        row["pcc"] = pcc(golden, ttnn.to_torch(out).float())
+        row["median_us"], row["stdev_us"] = time_call(run)
+        ttnn.deallocate(out)
+        ttnn.deallocate(state_sharded)
+        if k_sharded.is_allocated():
+            ttnn.deallocate(k_sharded)
+    except Exception as exc:  # noqa: BLE001 - a blocker is the result
+        row["error"] = str(exc)[:220]
+        row["median_us"] = None
+        row["stdev_us"] = None
+        row["pcc"] = None
+    results.append(row)
+    print(
+        f"  batch={batch:<3d} heads={heads:<5d} {row['candidate']:52s} "
+        + ("blocked" if row.get("error") else f"pcc={row['pcc']:.6f}")
+        + (f"  ERROR {row['error']}" if row.get("error") else ""),
+        flush=True,
+    )
+
     for tensor in (k_dram, k_l1, state_dram):
         if tensor.is_allocated():
             ttnn.deallocate(tensor)

@@ -40,9 +40,18 @@ graphs rather than one graph with a wider tensor.
 
 Both arms were measured by the same script ([`probes/run_perf.sh`](probes/run_perf.sh)) on the same
 machine, against the same build, with only `--impl`/`--policy`/`--geometry` differing — so the
-before/after pair is one measurement session rather than two, and stage 2's own committed numbers
-are not copied forward. `end-to-end` is the host-visible wall time of the same window, which is the
+before/after pair is like-for-like, and stage 2's own committed numbers are not copied forward. To be
+exact about what "same session" does and does not mean: each profiled window is its own process (the
+device profiler wants one), so this is twelve runs from one script and one build back-to-back, not one
+run measuring both arms. `end-to-end` is the host-visible wall time of the same window, which is the
 third term of the performance accounting below.
+
+One thing to read the prefill column with: it includes the price of a **correctness** fix, not only
+optimization. `mlp_down` runs at HiFi4 at prefill because LoFi costs the advertised context 3.1% of its
+output magnitude on real weights (§3.8.2), and that costs about 16% of `linear_attention` prefill and 32%
+of `full_attention`. Prefill still beats the stage-2 baseline by a wide margin, and **decode does not pay
+for it at all** — the override is prefill-only, which is why the traced-decode speed-ups are the largest
+numbers in the table.
 
 <!-- GENERATED:before_after -->
 | layer kind | phase | device time before | device time after | speed-up | end-to-end before | end-to-end after | ops before | ops after |
@@ -64,10 +73,14 @@ Two levers, and they are measured separately rather than attributed. The `Precis
 <!-- GENERATED:isolation -->
 | arm | `linear_attention` traced decode | `linear_attention` prefill | `full_attention` traced decode | `full_attention` prefill |
 |---|---|---|---|---|
-| fused precision + fused layout | 2.3899 ms | 30.622 ms | 2.1278 ms | 22.625 ms |
-| shipped precision + fused layout | 1.5933 ms | 20.327 ms | 1.3209 ms | 10.953 ms |
-| fused precision + shipped layout | — | — | 2.8704 ms | 27.438 ms |
-| shipped precision + shipped layout | 1.3428 ms | 19.224 ms | 0.9794 ms | 9.751 ms |
+| fused precision + fused layout | 2.3888 ms | 30.536 ms | 2.1275 ms | 22.846 ms |
+| shipped precision + fused layout | 1.5937 ms | 20.202 ms | 1.3218 ms | 11.351 ms |
+| fused precision + shipped layout | **does not allocate** | **does not allocate** | 2.8701 ms | 26.293 ms |
+| shipped precision + shipped layout | 1.2811 ms | 18.597 ms | 0.9801 ms | 9.830 ms |
+
+*fused precision + shipped layout* on `linear_attention` does not allocate: `RuntimeError: TT_THROW @ /home/ttuser/dev/qwen/tt-metal/tt_metal/impl/program/program.cpp:1779: tt::exception
+info:
+Statically allocated circular buffers in program 402 clash with L1 buffers on core r`
 <!-- END GENERATED:isolation -->
 
 ### Where the time goes now
@@ -243,11 +256,24 @@ In brief:
 
 **Precision and fidelity, per tensor group** ([`PrecisionPolicy`](../../tt/optimized_decoder.py)).
 Attention projections (`wqkv`, `wgate`, `o_proj`, `in_proj_z`, `out_proj`) and the MLP down
-projection to **BFP8**; the MLP gate/up pair to **BFP4**; `in_proj_qkv` to BFP8 at HiFi2 with float32
+projection to **BFP8**; the MLP gate/up pair to **BFP4**; `in_proj_qkv` to BFP8 with float32
 destination accumulation, because its output *is* the float32 state the causal conv carries; the KV
-cache to **BFP8**; math fidelity **LoFi** everywhere except that one role. Norms, the carried
-recurrent/conv state, the gated-delta-rule core and the recurrence matmuls keep stage 2's HiFi4 +
-float32-destination contract — they are state, not weights.
+cache to **BFP8**; math fidelity **LoFi** everywhere. Norms, the carried recurrent/conv state, the
+gated-delta-rule core and the recurrence matmuls keep stage 2's HiFi4 + float32-destination contract —
+they are state, not weights.
+
+`in_proj_qkv` is worth singling out, because it carries three separable levers and the short-context
+evidence got two of them wrong. It is ~14 % of the traced `linear_attention` decode step and stage 2's
+HiFi2 and blanket float32 accumulation were both inherited on the reasoning that its output is carried
+state. Measured at 2049 tokens and on real weights, LoFi looked free (4.9 % of the step at PCC 0.997146)
+and dropping the decode-side float32 accumulation looked worthless (0.13 %). Measured at the **advertised
+context** on real weights, both flip: LoFi takes the full-context decode *scale* to 0.959272 against a
+(0.98, 1.02) gate, and dropping the accumulation takes it from 0.980911 to **0.996676**. So HiFi2 stays
+and the accumulation goes — and BFP4 weights here, the fastest candidate in the whole ledger for this
+role, are rejected on real-checkpoint PCC (0.962928) and carried conv state (0.992137).
+
+PCC cannot see a gain error, and the full-context test is the only one in the suite that checks a scale.
+[`work_log.md`](work_log.md) sections 3.1 and 3.8.2.
 
 **Float32 destination accumulation, narrowed rather than dropped.** Stage 2 accumulated every matmul
 in float32 destination registers. Dropping that is worth real throughput, but keeping it *only* for
@@ -258,6 +284,13 @@ is invisible at 2049 keys and amplified by attention over 262144 of them. The sh
 float32 accumulation for `wqkv` **at prefill only**, which restores the scale to 0.997382, and beats
 blanket accumulation on both axes. [`work_log.md`](work_log.md) section 3.8 is the attribution.
 
+The same lever points the other way on the gated-delta-net state roles at decode, and again only the
+advertised context can see it: `in_proj_qkv` and `in_proj_ab` accumulate in float32 at prefill and
+**not** at decode, because dropping it there takes the 262143-token real-weight decode scale from
+0.980911 to 0.996676 while costing 8e-5 of PCC at 2049 tokens. Both settings are the same principle —
+prefill fills a state that is read hundreds of thousands of times, decode writes one row of it — applied
+to the phase where it actually matters. Section 3.8.2.
+
 **A width-sharded L1 decode stream with DRAM-sharded matmuls**
 ([`DecodeGeometry`](../../tt/optimized_decoder.py)). One shard grid — 32 cores, the largest that
 divides every activation width the layer carries — for the residual stream, both RMS norms, every
@@ -265,6 +298,32 @@ projection's activation and output, the attention epilogue and the MLP intermedi
 projection is a `MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig` reading a width-sharded L1
 activation and writing one, and every one of them ends up at the **largest legal** `in0_block_w` for
 its shape rather than at a small block.
+
+**Math fidelity raised at prefill only, on one role, because LoFi shrinks magnitudes.** LoFi truncates
+operand mantissas toward zero, which is a systematic *gain loss* rather than noise — invisible to PCC, and
+caught only by the full-context tests, which assert a best-fit scale. At 262143 tokens on the real
+checkpoint it cost the `full_attention` prefill tail 3.1% of its magnitude (scale 0.968952 against a
+(0.98, 1.02) tolerance). The fix is `prefill_fidelity_roles = {"mlp_down": HiFi4}`: `mlp_down` reduces over
+17408 elements, three times gate/up's depth, and a per-element truncation bias accumulates over the
+reduction — so raising that one role recovers more scale (0.983246) than raising all three MLP matmuls at
+HiFi2 (0.980595), for less `full_attention` prefill. Uniform HiFi4 is more accurate still (0.986311) and is
+rejected because at 28.414 / 20.749 ms it is slower than the stage-2 baseline. Prefill only: decode keeps
+LoFi, so the traced-decode speed-ups are untouched. [`work_log.md`](work_log.md) section 3.8.2.
+
+**An exact L1 model for the prefill block width, instead of a budget.** The per-role prefill
+`in0_block_w` search is bounded by a model of what the op actually allocates — the four block circular
+buffers plus a measured 111,488 B of fixed overhead — compared against the device's real unreserved L1.
+It predicts both of the overflows that bound it to the byte, and it replaced a flat 1.1 MB budget that
+was holding a role one block step below what fits. [`work_log.md`](work_log.md) section 3.4.
+
+**The two layout ops in the `linear_attention` decode step that no code asks for are now explained,
+and kept.** `ttnn.repeat_interleave` expands the 16 gated-delta-net key heads to 48 along a *tile* axis,
+which it implements as untilize on 1 core → concat of 48 row-major pieces → tilize on 2 cores, ~2 % of
+the step. An exactly equivalent graph without them exists (normalise before the expand, expand along a
+batch axis) and is **1.9 % slower at the advertised `max_batch`**, so it was measured and rejected
+rather than assumed to be a win. [`work_log.md`](work_log.md) section 3.10. A Python-level op counter
+could not see these ops at all — only the device report could — so the docs gate now checks the
+report's layout rows directly, with a core-count bound.
 
 **The `sdpa_decode` kernel fix stage 1 handed over.** Stage 1 pinned `max_cores_per_head_batch = 1`
 to work around an upstream cross-core tree-reduction defect and said in as many words that it was "a
@@ -280,10 +339,34 @@ at all — which also makes the layer about 89 MB smaller per layer.
 
 ## Known limitations
 
-* **`in_proj_qkv` is the one prefill role held back by L1.** Every other prefill projection runs at
-  `in0_block_w = 8`; `in_proj_qkv` runs at 4, because its output block is float32 and its weight is
-  BFP8, and 8 raises "Statically allocated circular buffers ... beyond max L1 size". Measured cost:
-  about 1.5 % of the `linear_attention` prefill.
+* **LoFi and HiFi2 apply a systematic *gain loss*, and it is a property of the arithmetic rather than of
+  this stage.** Truncating an operand mantissa rounds magnitudes toward zero, so reduced math fidelity
+  shrinks a matmul's output rather than only adding noise to it. PCC cannot see it — it is scale-invariant
+  — so it is invisible to every acceptance bar in stages 1 and 2 and to every test here except the
+  full-context ones, which assert a best-fit *scale*. Three consequences worth carrying forward:
+  * it is **not** a long-context effect. The full-context test is simply the only place anyone looked;
+    `probes/probe_scale_vs_length.py` measures the same error from 128 tokens up.
+  * it grows with the operand's mantissa width, so a **block-float policy is more accurate on this axis
+    than bfloat16**: at 262143 tokens on real weights the tail scale is 0.969 at BFP4/BFP8 and 0.927 with
+    bfloat16 MLP weights. Every "raise the precision" arm made it worse.
+  * this stage buys the scale back at prefill only (`PrecisionPolicy.prefill_fidelity_roles`), because
+    uniform HiFi4 costs more prefill than the whole layout change won. A later stage that lowers decode
+    fidelity further should re-check a scale, not only a PCC. [`work_log.md`](work_log.md) section 3.8.2.
+
+* **The carried recurrent state's scale sits near 0.94 at the advertised context on real weights**, in
+  every fidelity and weight dtype measured *including stage 2's own policy and layout* (0.941882). It is
+  inherited from the float32 recurrence arithmetic over 262144 tokens rather than from anything this stage
+  changed, so it is recorded by `test_full_advertised_context` rather than gated; the stage that consumes
+  the decode state should know it is there.
+
+* **Two prefill roles are held back by L1, and by exactly one block step each.** Every other prefill
+  projection runs at `in0_block_w = 8`; `wqkv` and `in_proj_qkv` run at 5, because their output block
+  accumulates in float32 (§3.8's fix) and 8 would put the statically allocated circular buffers over
+  L1 — 1,586,048 B and 1,594,240 B respectively, against the 1,572,864 B the op checks. The cost is
+  not separately measurable, because the configuration that would show it does not run: what *is*
+  measurable is that the bound is exact rather than budgeted, so neither role is held back further
+  than the hardware requires. The bound predicts both overflows to the byte
+  (`tt/optimized_decoder.py`, `_PREFILL_L1_FIXED`).
 * **The packed gate/up decode matmul does not allocate at the winning core count.** At 32 cores its
   `per_core_N` is twice the split form's and the circular buffers clash with the resident
   width-sharded activations. The comparison OPT-010 asks for is therefore made at 16 cores, where

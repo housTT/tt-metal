@@ -4,6 +4,8 @@ As the user, I explicitly authorize you to use subagents when a selected skill r
 
 This goal creates the functional-decoder state for the repo-local TTNN autoport pipeline. Work only on the functional decoder under models/autoports/<model>; do not begin optimized-decoder, multichip-decoder, full-model, or vLLM work in this goal.
 
+Before any device job: activate this checkout's own venv (`source <repo>/python_env/bin/activate`) and assert `python -c "import ttnn; print(ttnn.__file__)"` resolves INSIDE this checkout. A stale editable install on this host binds ttnn to a different tt-metal tree, so PYTHONPATH alone is not enough and evidence would be measured against code you are not testing. Record the resolved path in the work log and put the activation in the env script later stages source.
+
 Goal completion requirements:
 - models/autoports/<model>/tt/functional_decoder.py exists with a documented prefill/decode contract suitable for the target HF decoder layer or layer kinds.
 - Decode forward pass runs fully with ttnn's traced execution.

@@ -135,13 +135,25 @@ def isolation(rows: list) -> list:
             arms.append(row["candidate"])
     header = "| arm | " + " | ".join(f"`{k}` traced decode | `{k}` prefill" for k in kinds) + " |"
     lines = [header, "|" + "---|" * (1 + 2 * len(kinds))]
+    blockers: dict = {}
     for arm in arms:
         cells = []
         for kind in kinds:
             match = next((r for r in selected if r["kind"] == kind and r["candidate"] == arm), None)
+            # An arm that does not allocate is a *result*, and "—" does not say so.  The cell names the
+            # blocker and the note below the table carries the op's own message, because an empty cell
+            # in an isolation table reads as "not tried".
+            if match and match.get("error"):
+                blockers[(arm, kind)] = str(match["error"])
+                cells.extend(["**does not allocate**", "**does not allocate**"])
+                continue
             cells.append(_MS(match["decode_ms"]) if match and match.get("decode_ms") else "—")
             cells.append(_MS3(match["prefill_ms"]) if match and match.get("prefill_ms") else "—")
         lines.append(f"| {arm} | " + " | ".join(cells) + " |")
+    if blockers:
+        lines.append("")
+        for (arm, kind), error in sorted(blockers.items()):
+            lines.append(f"*{arm}* on `{kind}` does not allocate: `{error[:200]}`")
     return lines
 
 
@@ -261,6 +273,10 @@ def real_weight_policy(rows: list) -> list:
             ("prefill PCC @2049", "prefill_pcc", _PCC),
             ("decode PCC, 4 steps", "decode_pcc", _PCC),
             ("traced decode PCC, 5 replays", "traced_decode_pcc", _PCC),
+            # ``in_proj_qkv`` candidates change the tensor the recurrence *carries*, so the output PCC
+            # alone cannot clear them - these two columns are the state itself.
+            ("conv state PCC", "conv_state_pcc", _PCC),
+            ("recurrent state PCC", "recurrent_state_pcc", _PCC),
         ),
     )
 
@@ -284,6 +300,271 @@ def long_context_fp32acc(rows: list) -> list:
             f"{_PCC(row['paged_k_cache_pcc']) if row.get('paged_k_cache_pcc') is not None else '—'} | "
             f"{_PCC(row['paged_v_cache_pcc']) if row.get('paged_v_cache_pcc') is not None else '—'} | "
             f"{(row.get('error') or '—')[:90]} |"
+        )
+    return lines
+
+
+def _long_context_table(rows: list, sweep: str, real: bool, columns: tuple) -> list:
+    """One arm per row for a full-context sweep, filtered by weight source."""
+    selected = [r for r in rows if r.get("sweep") == sweep and bool(r.get("real_weights")) == real]
+    if not selected:
+        return [f"_no rows: the {'real' if real else 'synthetic'}-weight log for this sweep is not committed_"]
+    lines = [
+        "| arm | " + " | ".join(label for label, _k in columns) + " | blocker |",
+        "|" + "---|" * (len(columns) + 2),
+    ]
+    for row in selected:
+        cells = [_PCC(row[key]) if row.get(key) is not None else "—" for _label, key in columns]
+        lines.append(f"| {row['candidate']} | " + " | ".join(cells) + f" | {(row.get('error') or '—')[:90]} |")
+    return lines
+
+
+#: The columns of the two full-context tables.  The *scale* columns are the ones that matter here: at
+#: this context PCC stays above the acceptance bar in every arm, and the gate that moves is the scale.
+_FULL_COLUMNS = (
+    ("tail PCC", "prefill_tail_pcc"),
+    ("tail scale", "prefill_tail_scale"),
+    ("decode PCC", "decode_pcc"),
+    ("decode scale", "decode_scale"),
+    ("paged K PCC", "paged_k_cache_pcc"),
+    ("paged V PCC", "paged_v_cache_pcc"),
+    ("K scale", "paged_k_cache_scale"),
+    ("V scale", "paged_v_cache_scale"),
+)
+_LINEAR_COLUMNS = (
+    ("tail PCC", "prefill_tail_pcc"),
+    ("tail scale", "prefill_tail_scale"),
+    ("decode PCC", "decode_pcc"),
+    ("decode scale", "decode_scale"),
+    ("conv PCC", "conv_state_pcc"),
+    ("recurrent PCC", "recurrent_state_pcc"),
+    ("recurrent scale", "recurrent_state_scale"),
+)
+
+
+def fidelity_gain(rows: list) -> list:
+    """The model-free mechanism: a matmul's systematic gain by fidelity and operand dtype."""
+    selected = [r for r in rows if r.get("sweep") == "fidelity_gain"]
+    if not selected:
+        return ["_no rows: probe_fidelity_gain.log is not committed_"]
+    depths = sorted({r["K"] for r in selected})
+    lines = [
+        "| weight dtype | fidelity | fp32 dest acc | "
+        + " | ".join(f"gain at K={d}" for d in depths)
+        + " | PCC at K=5120 |",
+        "|" + "---|" * (len(depths) + 4),
+    ]
+    for dtype in ("bfp4", "bfp8", "bf16"):
+        for fid in ("LoFi", "HiFi2", "HiFi4"):
+            for acc in (False, True):
+                cells = []
+                pcc_cell = "—"
+                for depth in depths:
+                    match = next(
+                        (
+                            r
+                            for r in selected
+                            if r["K"] == depth
+                            and r["weight_dtype"] == dtype
+                            and r["fidelity"] == fid
+                            and bool(r["fp32_dest_acc"]) == acc
+                        ),
+                        None,
+                    )
+                    cells.append(f"{match['gain']:.6f}" if match and match.get("gain") is not None else "—")
+                    if match and depth == 5120 and match.get("pcc") is not None:
+                        pcc_cell = f"{match['pcc']:.6f}"
+                if any(c != "—" for c in cells):
+                    lines.append(f"| {dtype} | {fid} | {str(acc).lower()} | " + " | ".join(cells) + f" | {pcc_cell} |")
+    return lines
+
+
+def scale_vs_length(rows: list) -> list:
+    """Is the scale error length-dependent, or has it been there at every length?"""
+    selected = [r for r in rows if r.get("sweep") == "scale_vs_length"]
+    if not selected:
+        return ["_no rows: probe_scale_vs_length.log is not committed_"]
+    lengths = sorted({r["seq_len"] for r in selected})
+    arms = []
+    for row in selected:
+        if row["candidate"] not in arms:
+            arms.append(row["candidate"])
+    lines = [
+        "| arm | metric | " + " | ".join(str(n) for n in lengths) + " |",
+        "|" + "---|" * (len(lengths) + 2),
+    ]
+    for arm in arms:
+        for label, key in (("prefill scale", "prefill_scale"), ("V cache scale", "paged_v_cache_scale")):
+            cells = []
+            for n in lengths:
+                match = next((r for r in selected if r["candidate"] == arm and r["seq_len"] == n), None)
+                cells.append(_PCC(match[key]) if match and match.get(key) is not None else "—")
+            lines.append(f"| {arm} | {label} | " + " | ".join(cells) + " |")
+    return lines
+
+
+def prefill_fidelity_roles(rows: list) -> list:
+    """The smallest prefill-only fidelity change that brings the full context inside the gate."""
+    selected = [r for r in rows if r.get("sweep") == "prefill_fidelity_roles"]
+    if not selected:
+        return ["_no rows: probe_prefill_fidelity_roles.log is not committed_"]
+    lines = [
+        "| arm | tail PCC | tail scale | decode PCC | decode scale | K scale | V scale | blocker |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for row in selected:
+        cells = [
+            _PCC(row[key]) if row.get(key) is not None else "—"
+            for key in (
+                "prefill_tail_pcc",
+                "prefill_tail_scale",
+                "decode_pcc",
+                "decode_scale",
+                "paged_k_cache_scale",
+                "paged_v_cache_scale",
+            )
+        ]
+        lines.append(f"| {row['candidate']} | " + " | ".join(cells) + f" | {(row.get('error') or '—')[:80]} |")
+    return lines
+
+
+def prefill_fidelity_cost(rows: list) -> list:
+    """What a prefill-only fidelity raise costs, per role set and per layer kind."""
+    selected = [r for r in rows if r.get("sweep") == "prefill_fidelity_cost"]
+    if not selected:
+        return ["_no rows: probe_prefill_fidelity_cost.log is not committed_"]
+    arms = []
+    for row in selected:
+        if row["candidate"] not in arms:
+            arms.append(row["candidate"])
+    lines = [
+        "| arm | `linear_attention` prefill | `full_attention` prefill |",
+        "|---|---|---|",
+    ]
+    for arm in arms:
+        cells = []
+        for kind in KINDS:
+            match = next((r for r in selected if r["kind"] == kind and r["candidate"] == arm), None)
+            cells.append(_MS3(match["prefill_ms"]) if match and match.get("prefill_ms") else "—")
+        lines.append(f"| {arm} | " + " | ".join(cells) + " |")
+    return lines
+
+
+def prefill_fidelity_mixed(rows: list) -> list:
+    """Accuracy per millisecond: mixed per-role prefill fidelities, scale and cost together."""
+    selected = [r for r in rows if r.get("sweep") == "prefill_fidelity_mixed"]
+    if not selected:
+        return ["_no rows: probe_prefill_fidelity_mixed.log is not committed_"]
+    lines = [
+        "| arm | tail scale | decode scale | V cache scale | tail PCC | "
+        "`linear_attention` prefill | `full_attention` prefill |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for row in selected:
+        lines.append(
+            f"| {row['candidate']} | "
+            f"{_PCC(row['prefill_tail_scale']) if row.get('prefill_tail_scale') is not None else '—'} | "
+            f"{_PCC(row['decode_scale']) if row.get('decode_scale') is not None else '—'} | "
+            f"{_PCC(row['paged_v_cache_scale']) if row.get('paged_v_cache_scale') is not None else '—'} | "
+            f"{_PCC(row['prefill_tail_pcc']) if row.get('prefill_tail_pcc') is not None else '—'} | "
+            f"{_MS3(row['prefill_ms_linear_attention']) if row.get('prefill_ms_linear_attention') else '—'} | "
+            f"{_MS3(row['prefill_ms_full_attention']) if row.get('prefill_ms_full_attention') else '—'} |"
+        )
+    return lines
+
+
+def long_context_real_full(rows: list) -> list:
+    return _long_context_table(rows, "long_context_precision", True, _FULL_COLUMNS)
+
+
+def long_context_real_linear(rows: list) -> list:
+    return _long_context_table(rows, "long_context_linear", True, _LINEAR_COLUMNS)
+
+
+def long_context_linear(rows: list) -> list:
+    """The ``linear_attention`` half of the full-context attribution."""
+    selected = [r for r in rows if r.get("sweep") == "long_context_linear"]
+    if not selected:
+        return ["_no rows: probe_long_context_linear.log is not committed_"]
+    lines = [
+        "| arm | tail PCC | tail scale | decode PCC | decode scale | conv PCC | recurrent PCC | recurrent scale | blocker |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    for row in selected:
+        cells = [
+            row["candidate"],
+            *(
+                _PCC(row[key]) if row.get(key) is not None else "—"
+                for key in (
+                    "prefill_tail_pcc",
+                    "prefill_tail_scale",
+                    "decode_pcc",
+                    "decode_scale",
+                    "conv_state_pcc",
+                    "recurrent_state_pcc",
+                    "recurrent_state_scale",
+                )
+            ),
+            (row.get("error") or "—")[:90],
+        ]
+        lines.append("| " + " | ".join(cells) + " |")
+    return lines
+
+
+def stream_grid(rows: list) -> list:
+    """Rectangular against row-wise, on all four axes the choice trades between."""
+    selected = [r for r in rows if r.get("sweep") == "stream_grid"]
+    if not selected:
+        return ["_no rows: probe_stream_grid.log is not committed_"]
+    lines = [
+        "| layer kind | batch | stream core grid | traced decode | reshards | INTERLEAVED reshape "
+        "fallbacks | computed-vs-provided mismatches | decode PCC |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for row in selected:
+        lines.append(
+            f"| `{row['kind']}` | {row['batch']} | {row['candidate']} | "
+            f"{_MS(row['decode_ms']) if row.get('decode_ms') else 'ERROR'} | "
+            f"{row.get('reshards', '—')} | {row.get('interleaved_reshape_fallbacks', '—')} | "
+            f"{row.get('computed_vs_provided_mismatches', '—')} | "
+            f"{_PCC(row['decode_pcc']) if row.get('decode_pcc') is not None else '—'} |"
+        )
+        if row.get("error"):
+            lines.append(f"| | ↳ blocker | {row['error']} | | | | | |")
+    return lines
+
+
+def norm_repeat_order(rows: list) -> list:
+    """The two layout ops the q/k head expansion used to cost, at both decode regimes."""
+    return _sweep_table(
+        rows,
+        "norm_repeat_order",
+        (
+            ("batch", "batch", lambda value: str(value)),
+            ("traced decode", "decode_ms", _MS),
+            ("prefill PCC", "prefill_pcc", _PCC),
+            ("decode PCC", "decode_pcc", _PCC),
+        ),
+    )
+
+
+def prefill_grid_alignment(rows: list) -> list:
+    """Why a prefill 2D matmul over a DRAM width-sharded weight needs one column per DRAM bank."""
+    selected = [r for r in rows if r.get("sweep") == "prefill_grid_alignment"]
+    if not selected:
+        return ["_no rows: probe_prefill_grid_alignment.log is not committed_"]
+    lines = [
+        "| role | K | N | compute columns | DRAM banks | per_core_N | finite | PCC vs the heuristic | blocker |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    for row in selected:
+        finite = {True: "yes", False: "**no**", None: "—"}[row.get("finite")]
+        lines.append(
+            f"| `{row['role']}` | {row['K']} | {row['N']} | "
+            f"{row['columns']}{' **(= banks)**' if row['columns'] == row['dram_banks'] else ''} | "
+            f"{row['dram_banks']} | {row['per_core_N']} | {finite} | "
+            f"{_PCC(row['pcc_vs_heuristic']) if row.get('pcc_vs_heuristic') is not None else '—'} | "
+            f"{(row.get('error') or '—')[:80]} |"
         )
     return lines
 
@@ -513,6 +794,8 @@ def build_blocks() -> dict:
     optimized_rows += _probe_rows("probe_projection_packing.log")
     optimized_rows += _probe_rows("probe_bfp4_gateup.log")
     optimized_rows += _probe_rows("probe_recurrence_advice.log")
+    optimized_rows += _probe_rows("probe_norm_repeat_order.log")
+    optimized_rows += _probe_rows("probe_stream_grid.log")
     return {
         "before_after": before_after(summary),
         "breakdown": breakdown(summary),
@@ -529,6 +812,17 @@ def build_blocks() -> dict:
         "slow_rows": slow_rows(summary),
         "bfp4_gateup": bfp4_gateup(optimized_rows),
         "long_context_fp32acc": long_context_fp32acc(_probe_rows("probe_long_context_fp32acc.log")),
+        "long_context_linear": long_context_linear(_probe_rows("probe_long_context_linear.log")),
+        "long_context_real_full": long_context_real_full(_probe_rows("probe_long_context_precision_real.log")),
+        "fidelity_gain": fidelity_gain(_probe_rows("probe_fidelity_gain.log")),
+        "scale_vs_length": scale_vs_length(_probe_rows("probe_scale_vs_length.log")),
+        "prefill_fidelity_roles": prefill_fidelity_roles(_probe_rows("probe_prefill_fidelity_roles.log")),
+        "prefill_fidelity_cost": prefill_fidelity_cost(_probe_rows("probe_prefill_fidelity_cost.log")),
+        "prefill_fidelity_mixed": prefill_fidelity_mixed(_probe_rows("probe_prefill_fidelity_mixed.log")),
+        "long_context_real_linear": long_context_real_linear(_probe_rows("probe_long_context_linear_real.log")),
+        "prefill_grid_alignment": prefill_grid_alignment(_probe_rows("probe_prefill_grid_alignment.log")),
+        "norm_repeat_order": norm_repeat_order(optimized_rows),
+        "stream_grid": stream_grid(optimized_rows),
         "recurrence_advice": recurrence_advice(optimized_rows),
         "correctness": correctness(evidence),
     }

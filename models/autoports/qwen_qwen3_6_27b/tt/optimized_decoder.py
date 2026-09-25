@@ -52,7 +52,7 @@ MLP holds one extra copy of the gate/up weight so each phase can run its measure
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 import ttnn
@@ -166,6 +166,37 @@ class PrecisionPolicy:
     mlp_fidelity: object = LOFI
 
     gdn_qkv_weight: object = ttnn.bfloat8_b
+    #: ``in_proj_qkv``'s math fidelity.  **HiFi2**, and the reason is the advertised context.
+    #:
+    #: This role is about 14 % of the traced ``linear_attention`` decode step and its output *is* the
+    #: float32 state the causal convolution carries, which is why the higher fidelity was inherited
+    #: without being swept - "the state deserves accuracy" is a plausible reason and it was the only
+    #: one on the record.  Swept, LoFi is worth **4.9 % of the traced decode step and 3.2 % of prefill**
+    #: (1.2810 vs 1.3469 ms, 18.553 vs 19.160 ms) and it clears the acceptance bar on the real
+    #: checkpoint with margin: prefill 0.999309, decode 0.997146, traced decode 0.998837, and - the two
+    #: numbers that actually matter for a state producer - conv state 0.999869 and recurrent state
+    #: 0.999714, against 0.999958 / 0.999849 at HiFi2.  HiFi4 costs 11 % of the step for 4e-4 of PCC.
+    #:
+    #: BFP4 *weights* on this role are rejected on **real-weight** evidence rather than synthetic, which
+    #: is the distinction OPT-012 insists on: decode 0.962928 and conv state 0.992137, both below the
+    #: bar, even though BFP4+LoFi would have been 6.1 % faster than the shipped configuration.
+    #:
+    #: **And LoFi is rejected, by the one measurement that could see it.**  Every 2049-token and
+    #: real-weight number above says LoFi is free.  At the advertised context it is not: this role builds
+    #: the recurrent state over all 262143 tokens, and there the full-context decode *scale* comes back
+    #: at 0.959272 on real weights and 0.978149 on the stand-in, against a (0.98, 1.02) tolerance - the
+    #: real-weight arm is the one that failed ``test_full_advertised_context`` outright.  The carried
+    #: recurrent state's own scale goes with it, 0.923884 against HiFi2's 0.938657.  HiFi2 holds both
+    #: gates (0.980911 real, 0.982941 synthetic) and the whole difference is invisible to PCC, which is
+    #: 0.9993 vs 0.9995 either way.
+    #:
+    #: A gain error in a carried state is exactly what a scale-ratio gate exists to catch, and this is why
+    #: the fidelity of a *state producer* cannot be chosen on short-context evidence however good that
+    #: evidence looks.
+    #:
+    #: ``logs/probe_optimized_policy.log`` has the latencies, ``logs/probe_real_weight_policy.log`` the
+    #: real-weight PCCs including the state, and ``logs/probe_long_context_linear_real.log`` is the arm
+    #: that decided it.
     gdn_qkv_fidelity: object = HIFI2
     gdn_z_weight: object = ttnn.bfloat8_b
     gdn_out_weight: object = ttnn.bfloat8_b
@@ -218,6 +249,46 @@ class PrecisionPolicy:
     #: where float32 destination accumulation costs the most relative to the work done.
     prefill_fp32_acc_roles: tuple = ("wqkv",)
 
+    #: Per-role math fidelity that applies at **prefill only**, overriding the role's own field.
+    #:
+    #: The mirror of :attr:`decode_fidelity`, and it exists for the same reason
+    #: :attr:`prefill_fp32_acc_roles` does: the two phases have different accuracy contracts.  Prefill
+    #: is what fills the KV cache and builds the recurrent state, and those are read hundreds of
+    #: thousands of times afterwards, so a systematic error there is amplified in a way the same error
+    #: at decode is not.  Decode is where fidelity costs the most relative to the work done.
+    #:
+    #: **``mlp_down`` at HiFi4**, and it is the whole fix for §3.8.2's full-context scale failure.
+    #:
+    #: LoFi truncates the operand mantissa toward zero, which is a systematic *gain loss* rather than
+    #: symmetric noise (§3.8.2 establishes this model-free).  A per-element truncation bias accumulates
+    #: over the reduction, so the role that shows it worst is the one that reduces deepest - ``mlp_down``
+    #: over 17408 elements, three times ``mlp_gate``/``mlp_up``'s depth - and raising *only* that one role
+    #: is both the most accurate and nearly the cheapest option measured:
+    #:
+    #:     arm                                    tail scale   linear prefill   full prefill
+    #:     shipped LoFi                           0.968952       19.146 ms        9.794 ms   (FAILS 0.98)
+    #:     HiFi2 on wqkv + all three MLP matmuls  0.980595       22.261 ms       13.508 ms
+    #:     **HiFi4 on mlp_down only**             **0.983246**   22.345 ms       12.989 ms
+    #:     HiFi4 on wqkv + mlp_down               0.983887       22.346 ms       14.572 ms
+    #:     HiFi2 wqkv+gate/up, HiFi4 mlp_down     0.983698       24.400 ms       15.697 ms
+    #:     HiFi4 on all three MLP matmuls         0.985473       28.394 ms       19.195 ms   (see below)
+    #:
+    #: Uniform HiFi4 is the most accurate and is **not shippable**: at 28.394 and 19.195 ms it is slower
+    #: than the stage-2 baseline this stage is measured against (25.830 and 17.780), so it would give back
+    #: more than the whole layout change won.  Adding ``wqkv`` buys 6e-4 of tail scale and a tidier paged V
+    #: cache for 1.58 ms of ``full_attention`` prefill, and makes the *decode* scale slightly worse
+    #: (0.991326 against 0.993796), so the V-cache scale error it fixes was not the thing that mattered.
+    #: ``o_proj`` is marginally harmful.  ``logs/probe_prefill_fidelity_{roles,cost,mixed}.log``.
+    #:
+    #: Prefill-only, for the reason :attr:`prefill_fp32_acc_roles` is: prefill fills the cache and builds
+    #: the state that the next 262144 reads all depend on, and decode - where fidelity costs the most per
+    #: unit of work, and which this stage optimises hardest - writes one row.  Decode keeps LoFi.
+    #:
+    #: A dict makes this frozen dataclass unhashable, which is fine here - policies are only ever dict
+    #: *values* (``test_optimized_decoder_perf.POLICIES``) and are never hashed - but a future caller that
+    #: wants a policy in a set or as a key has to normalise this field to a tuple of pairs first.
+    prefill_fidelity_roles: Optional[dict] = field(default_factory=lambda: {"mlp_down": HIFI4})
+
     _WEIGHT_FIELD = {
         "wqkv": "attn_weight",
         "wgate": "attn_weight",
@@ -255,16 +326,60 @@ class PrecisionPolicy:
             # recurrence's decay and is four output tiles, so there is nothing to trade.
             if role != "in_proj_ab":
                 return self.decode_fidelity
+        if not decode and role in (self.prefill_fidelity_roles or {}):
+            return self.prefill_fidelity_roles[role]
         return getattr(self, self._FIDELITY_FIELD[role])
+
+    #: Roles whose *output* is a float32 tensor the gated-delta-rule recurrence carries, and which
+    #: therefore accumulate in float32 destination registers at prefill.
+    STATE_ROLES = ("in_proj_qkv", "in_proj_ab")
+
+    #: The subset of :data:`STATE_ROLES` that :attr:`state_fp32_acc_decode` applies to.
+    #:
+    #: ``in_proj_ab`` is deliberately *not* here.  It is four output tiles of state arithmetic feeding the
+    #: recurrence's decay (§3.5), so its accumulation precision is worth nothing in either direction, and
+    #: it is the one role whose decode matmul shares the prefill compute-kernel config.  Excluding it
+    #: keeps the policy a description of what the code does rather than a claim the code does not honour.
+    STATE_ROLES_DECODE_OVERRIDE = ("in_proj_qkv",)
+
+    #: Keep float32 destination accumulation on :data:`STATE_ROLES` at **decode**.
+    #:
+    #: Separable from the prefill setting because the two phases write different things: at prefill
+    #: ``in_proj_qkv`` produces 2048 rows that become the conv window and the initial recurrent state,
+    #: while at decode it produces one row convolved into an existing state.  And worth separating on
+    #: cost, because float32 destination accumulation halves matmul throughput and this role is about
+    #: 14 % of the traced ``linear_attention`` decode step.
+    #:
+    #: **Off**, and the reason is the advertised context rather than the 0.13 % of decode it saves.
+    #:
+    #: On short-context evidence this knob looks worthless in both directions: dropping the accumulation
+    #: is worth 0.13 % of the traced step (1.3452 vs 1.3469 ms) and costs 8e-5 of real-checkpoint decode
+    #: PCC at 2049 tokens (0.998419 -> 0.998339).  At BFP8 weights this matmul sits on the bandwidth
+    #: ceiling rather than the compute one, so halving its FLOP throughput costs almost nothing - and
+    #: buying it back gains almost nothing.  The first pass through this stage rejected it on exactly
+    #: that reasoning.
+    #:
+    #: The full-context arm says otherwise.  At 262143 tokens on the real checkpoint the
+    #: ``linear_attention`` decode *scale* is 0.980911 with float32 accumulation on and **0.996676** with
+    #: it off, against a (0.98, 1.02) tolerance - a gate passing by 0.0009 becomes one passing by 0.0167,
+    #: and the off setting beats even the fused control's 0.988000.  A carried state is read for every one
+    #: of the next 262144 steps, so its gain error is the thing worth optimising here, not 0.13 % of one
+    #: step.  ``logs/probe_long_context_linear_real.log`` is the arm; §3.8.2 is the write-up.
+    state_fp32_acc_decode: bool = False
 
     def fp32_acc(self, role: str, decode: bool = False) -> bool:
         """Whether this role's matmul accumulates in float32 destination registers.
 
-        The two roles whose *output* is a float32 tensor the recurrence carries always do; the roles
-        in :attr:`prefill_fp32_acc_roles` do at prefill only; :attr:`fp32_dest_acc_all` restores the
-        fused stage's blanket setting for the baseline arm.
+        The two roles whose *output* is a float32 tensor the recurrence carries do in both phases,
+        subject to :attr:`state_fp32_acc_decode` at decode; the roles in
+        :attr:`prefill_fp32_acc_roles` do at prefill only; :attr:`fp32_dest_acc_all` restores the fused
+        stage's blanket setting for the baseline arm.
         """
-        if self.fp32_dest_acc_all or role in ("in_proj_qkv", "in_proj_ab"):
+        if self.fp32_dest_acc_all:
+            return True
+        if role in self.STATE_ROLES:
+            if decode and role in self.STATE_ROLES_DECODE_OVERRIDE:
+                return self.state_fp32_acc_decode
             return True
         return not decode and role in self.prefill_fp32_acc_roles
 
@@ -293,6 +408,9 @@ FUSED_BASELINE_POLICY = PrecisionPolicy(
     decode_fidelity=None,
     fp32_dest_acc_all=True,
     prefill_fp32_acc_roles=(),
+    # Stage 2 had no per-role prefill fidelity at all, so the baseline arm must opt out of this stage's
+    # ``mlp_down`` override explicitly or it would not be stage 2's configuration.
+    prefill_fidelity_roles=None,
 )
 
 #: BFP8 everywhere a block-float weight is legal - the conservative fallback, and the arm the
@@ -374,6 +492,46 @@ class DecodeGeometry:
     #: Keep the decode residual stream width-sharded in L1 across both norms and both residual
     #: adds.  ``False`` restores the fused stage's DRAM-interleaved residual (OPT-003).
     sharded_stream: bool = True
+    #: Build the decode stream's shard grid as a rectangle instead of ``num_cores_to_corerangeset``'s
+    #: row-wise fill.  **Measured and not taken**, and the measurement is the point:
+    #:
+    #: 32 cores on this device's 11x10 grid fill row-wise as two ragged ranges whose bounding box is
+    #: 33, and ops that check rectangularity rather than core count degrade on that - `ttnn.reshape`
+    #: on a width-sharded tensor falls back to INTERLEAVED.  A rectangular 8x4 grid fixes that in
+    #: principle and loses in practice, because
+    #: ``MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig`` computes its *own* output grid
+    #: row-wise and overrides whatever the caller provides ("Mismatch between computed MemoryConfig
+    #: ... Using computed config", six times per step).  Every DRAM-sharded matmul therefore lands on
+    #: the ragged grid anyway and the next op reshards it back: 9 and 11 memory-config conversions per
+    #: step against 6 and 8, for no time (1.3522 vs 1.3480 ms and 0.9762 vs 0.9799 ms - a wash both
+    #: ways).  And the fallbacks it was meant to remove are already gone: the explicit ``z`` unshard in
+    #: :meth:`_linear_attention_decode` took the INTERLEAVED reshape count to **zero on both grids**.
+    #: ``logs/probe_stream_grid.log`` is the table.
+    rectangular_stream: bool = False
+    #: Give ``in_proj_ab`` the DRAM-sharded decode matmul too, with ``dt_bias`` added as a separate
+    #: elementwise op instead of the matmul's bias row.  ``False`` keeps stage 2's interleaved,
+    #: bias-folded, measured-``core_grid`` form.  This is the arm that makes §3.5's claim measurable
+    #: rather than self-referential.
+    dram_sharded_ab: bool = False
+    #: Normalise the gated-delta-net ``q``/``k`` heads **before** expanding them to the value-head
+    #: count, and expand along a batch axis instead of a tile axis.  **Measured and not taken.**
+    #:
+    #: The shipped order is stage 2's: reshape the 16 key heads to ``[1, B, 16, dk]``,
+    #: ``repeat_interleave`` to 48 on ``dim=2``, then normalise.  ``dim=2`` is a *tile* axis, so that
+    #: repeat runs as ``untilize_with_unpadding`` on 1 core -> ``concat`` of 48 pieces ->
+    #: ``tilize_with_val_padding`` on 2 cores, and the device report shows the pair twice per step at
+    #: about 2 % of the traced ``linear_attention`` decode step.  Removing it looks free: the norm is
+    #: per-head over the last dim and the expanded copies are identical, so
+    #: ``norm(repeat(x)) == repeat(norm(x))`` exactly, which makes "normalise 16 heads, then expand on
+    #: ``dim=1`` of ``[1, B*16, 1, dk]``" an equivalent graph with no layout change in it at all.
+    #:
+    #: It is equivalent - the PCC is identical to six decimals at both regimes - and it is **slower
+    #: where it matters**: a wash at batch 1 (1.3479 vs 1.3487 ms, inside the spread) and 1.9 % worse
+    #: at the advertised ``max_batch`` of 32 (4.2317 vs 4.1519 ms), because the batch-axis repeat over
+    #: 512 -> 1536 entries costs more than the tile-axis one plus its layout round-trip.  So the two
+    #: one-and-two-core layout ops stay, now with a measured reason rather than as an unexplained row
+    #: in the report.  ``logs/probe_norm_repeat_order.log`` is the table; ``True`` runs the arm.
+    norm_before_repeat: bool = False
     #: Fuse the SiLU into the split gate matmul's epilogue.  Turned off automatically if this
     #: build's program config rejects a fused activation, and then the SiLU rides the following
     #: multiply exactly as it does in the packed form.
@@ -444,11 +602,20 @@ class PrefillGeometry:
     grids: Optional[dict] = None
     in0_block_w: Optional[dict] = None
 
+    #: Ceiling on the per-role ``in0_block_w`` search, or ``None`` for :data:`_PREFILL_MAX_BLOCK_W`.
+    #: A knob rather than a constant because the shipped ceiling has to be *measured*: with the L1
+    #: model exact, whether a deeper block is faster or slower is a question about the op, not about
+    #: what fits.
+    max_block_w: Optional[int] = None
+
     def grid(self, role: str):
         return (self.grids or {}).get(role)
 
     def block_w(self, role: str):
         return (self.in0_block_w or {}).get(role)
+
+    def cap(self) -> int:
+        return self.max_block_w or _PREFILL_MAX_BLOCK_W
 
 
 DEFAULT_PREFILL_GEOMETRY = PrefillGeometry()
@@ -468,6 +635,33 @@ def _divisors(value: int) -> list:
     return [d for d in range(1, value + 1) if value % d == 0]
 
 
+def _rectangular_core_range(cores: int, grid) -> ttnn.CoreRangeSet:
+    """A **rectangular** ``CoreRangeSet`` of exactly ``cores`` cores, widest first.
+
+    Reached only through :attr:`DecodeGeometry.rectangular_stream`, which is **off** by default; see
+    that attribute for the measurement that decided it.  The short version: this exists because
+    ``ttnn.num_cores_to_corerangeset`` fills rows and leaves a ragged last row - 32 cores on this
+    device's 11x10 grid come back as ``{[0-0 - 10-1], [0-2 - 9-2]}``, whose bounding box is 33 - and
+    ops that check *rectangularity* rather than core count degrade on that, ``ttnn.reshape`` by falling
+    back to INTERLEAVED.  It turned out to be the wrong fix for that problem: the DRAM-sharded matmul
+    overrides the output grid with its own row-wise one, so a rectangular stream buys three extra
+    reshards per step, and the fallbacks were removed instead by not reshaping a width-sharded tensor
+    at all.  It stays because a measured-and-rejected arm has to remain runnable.
+    """
+    best = None
+    for width in range(min(cores, grid.x), 0, -1):
+        if cores % width:
+            continue
+        height = cores // width
+        if height <= grid.y:
+            best = (width, height)
+            break
+    if best is None:
+        raise ValueError(f"no rectangle of {cores} cores fits a {grid.x}x{grid.y} grid")
+    width, height = best
+    return ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(width - 1, height - 1))})
+
+
 def _mem_config_eq(left, right) -> bool:
     """``==`` on two memory configs, tolerating a binding that does not implement it."""
     try:
@@ -485,11 +679,41 @@ def _mem_config_eq(left, right) -> bool:
 #: this bound is what makes the 2D config legal rather than a nicety.
 _PREFILL_OUT_BLOCK_TILES = 160
 
-#: Largest ``in0_block_w`` a prefill 2D matmul may take, and the L1 budget its block circular
-#: buffers must fit.  8 is where the measured curve flattens: 2 is 5 % slower and 16 is not a divisor
-#: of every ``K`` here.
+#: Default ceiling on the per-role ``in0_block_w`` search at prefill; :attr:`PrefillGeometry.cap`
+#: overrides it, which is how ``probe_optimized.py prefill`` sweeps it.
+#:
+#: Every ``K`` this model reduces over is 160, 192 or 544 tiles, and 16 divides all three, so the
+#: ceiling is a *measured* choice and not an arithmetic one - the L1 model below already rejects
+#: whatever does not fit, and at 16 that is every role except ``wgate`` and ``in_proj_z``.  See
+#: ``work_log.md`` section 3.4 for the sweep this value comes from.
 _PREFILL_MAX_BLOCK_W = 8
-_PREFILL_L1_BUDGET = 1_100_000
+
+#: Row count :meth:`OptimizedDecoder.config_summary` reports its derived prefill configs at.  Prefill
+#: runs at every padded chunk length the public API allows, so a summary has to name one; 2048 is the
+#: length every perf table in ``doc/optimized_decoder/`` is measured at.
+_PREFILL_SUMMARY_ROWS = 2048
+
+#: Fixed L1 a prefill 2D multicast matmul allocates on top of the four blocks modelled below.
+#:
+#: This replaced a flat 1.1 MB budget, which was a guess in both directions: it held
+#: ``linear_attention``'s ``in_proj_qkv`` at 4 when 5 fits, and it would have allowed configurations
+#: that do not.  The four block circular buffers - double-buffered ``in0`` and ``in1``, the output
+#: block in the output dtype, and a float32 accumulation intermediate when the role accumulates in
+#: float32 but does *not* output it - are exactly modelled; what is left over is the sender-side
+#: ``in1`` buffer and the multicast semaphores, which do not depend on ``in0_block_w``.
+#:
+#: That leftover is **measured, twice, on two roles whose modelled totals differ by 270 KB**, and it
+#: is the same both times.  Forcing ``in0_block_w = 8``:
+#:
+#: * ``in_proj_qkv`` models 1,482,752 B and the op reports "Statically allocated circular buffers ...
+#:   grow to 1594240 B which is beyond max L1 size of 1572864 B" -> 111,488 B over;
+#: * ``wqkv`` models 1,474,560 B and the op reports "grow to 1586048 B" -> 111,488 B over.
+#:
+#: So the model plus this constant reproduces what the op allocates *exactly*, and the comparison is
+#: against ``ttnn.get_max_worker_l1_unreserved_size()`` (1,532,032 B here, 40 KB under the 1,572,864 B
+#: the op checks), which is the margin.  No fudge factor: if this bound ever rejects a block size that
+#: would have fit, the arithmetic is wrong and can be corrected rather than re-tuned.
+_PREFILL_L1_FIXED = 111_488
 
 #: Bytes one tile occupies in each dtype, used only to size the *fallback* ``in0_block_w``
 #: estimate.  A shipped value comes from :data:`DEFAULT_IN0_BLOCK_W`, which is measured.
@@ -619,7 +843,11 @@ class OptimizedDecoder(FusedDecoder):
                 f"this {s.layer_type} layer's decode path shards; legal values here are {legal}"
             )
         self.decode_cores = cores
-        self.decode_core_range = ttnn.num_cores_to_corerangeset(cores, grid, row_wise=True)
+        self.decode_core_range = (
+            _rectangular_core_range(cores, grid)
+            if self.decode_geometry.rectangular_stream
+            else ttnn.num_cores_to_corerangeset(cores, grid, row_wise=True)
+        )
 
         self._stream_cfgs: dict = {}
         self.decode_stream_mem_cfg = self._stream_cfg(s.hidden_size)
@@ -638,6 +866,9 @@ class OptimizedDecoder(FusedDecoder):
 
         dram = self.mesh_device.dram_grid_size()
         self.dram_banks = dram.x
+        #: Unreserved L1 per core, read from the device rather than assumed: it is what the prefill
+        #: ``in0_block_w`` search is allowed to fill (see :data:`_PREFILL_L1_MARGIN`).
+        self.l1_size = ttnn.get_max_worker_l1_unreserved_size()
         self.dram_shard_grid = ttnn.CoreRangeSet(
             {ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(dram.x - 1, dram.y - 1))}
         )
@@ -648,6 +879,13 @@ class OptimizedDecoder(FusedDecoder):
         for role, (k, n) in self.role_shapes.items():
             if not self._role_is_dram_sharded(role):
                 continue
+            if (n // ttnn.TILE_SIZE) % cores or (k // ttnn.TILE_SIZE) % cores:
+                raise ValueError(
+                    f"role {role!r} ({k} x {n}) cannot be DRAM-sharded at cores={cores}: its "
+                    f"{k // ttnn.TILE_SIZE} x {n // ttnn.TILE_SIZE} tile shape does not divide the "
+                    "stream's core count, so neither its activation nor its output has a legal "
+                    "width shard"
+                )
             self.weight_mem_cfg[role] = self._dram_sharded_weight_cfg(k, n)
             self.decode_in_cfg[role] = self._stream_cfg(k)
             self.decode_out_cfg[role] = self._stream_cfg(n)
@@ -689,9 +927,10 @@ class OptimizedDecoder(FusedDecoder):
             return False
         if role == "in_proj_ab":
             # Four output tiles with a fused bias row.  The DRAM-sharded matmul has no bias slot to
-            # fold ``dt_bias`` into, so this role keeps the fused stage's measured ``core_grid``
-            # form; the alternative is measured in ``work_log.md`` section 3.5.
-            return False
+            # fold ``dt_bias`` into, so by default this role keeps the fused stage's measured
+            # ``core_grid`` form; :attr:`DecodeGeometry.dram_sharded_ab` is the arm that measures the
+            # alternative (DRAM-sharded matmul plus a separate bias add).
+            return self.decode_geometry.dram_sharded_ab
         if role == "mlp_gate_up" and self.decode_geometry.split_gate_up_decode:
             return False
         if role in ("mlp_gate", "mlp_up") and not self.decode_geometry.split_gate_up_decode:
@@ -820,23 +1059,23 @@ class OptimizedDecoder(FusedDecoder):
         if override is not None:
             x, y = override
         elif role in self.weight_mem_cfg:
-            # The weight is width-sharded across this chip's DRAM banks, so one column of compute
-            # cores must line up with exactly one bank's shard.  Measured, not assumed: with the
-            # column count set to any other divisor of the output tile count the matmul returns
-            # non-finite values rather than failing validation - `x = 10` on the 160-tile-wide
-            # `o_proj` / `mlp_down` / `out_proj` and the 320-tile-wide `in_proj_qkv` all produced
-            # NaN, while `x = 8` (= the bank count) is correct to PCC 0.99937 against the
-            # heuristic's own output on the same weights
-            # (``logs/probe_prefill_grid_alignment.log``).  Every ``N`` this model projects to is a
-            # multiple of 8 tiles, so ``per_core_N`` stays exact.
-            x = self.dram_banks
+            # The weight is width-sharded across this chip's DRAM banks, and the compute grid may not
+            # have more columns than there are banks to feed them.  Measured, not assumed, and the
+            # measurement is narrower than it first looked: `logs/probe_prefill_grid_alignment.log`
+            # runs this config at *every* legal column count for every DRAM width-sharded role, and
+            # column counts of 2, 4, 5, 6 and 8 are all correct to the same PCC against
+            # ``ttnn.linear``'s heuristic on an interleaved copy of the weight (0.99937-0.99997,
+            # identical across column counts), while **10** returns non-finite values rather than
+            # failing validation - on the 160-tile-wide ``o_proj`` / ``mlp_down`` / ``out_proj`` and on
+            # the 320-tile-wide ``in_proj_qkv`` alike.  So the rule is a *bound*, not an equality, and
+            # the bound is this chip's 8 DRAM banks.
+            #
+            # The largest legal column count is taken because it is the widest grid: every ``N`` this
+            # model projects to is a multiple of 8 tiles, so that is 8 here, and ``per_core_N`` stays
+            # exact.  Writing it as a bound rather than pinning it to ``dram_banks`` keeps a role whose
+            # ``N`` is *not* a multiple of the bank count legal instead of unbuildable.
+            x = _largest_divisor_at_most(n_tiles, min(self.grid.x, self.dram_banks))
             y = _largest_divisor_at_most(m_tiles, self.grid.y)
-            if n_tiles % x:
-                raise ValueError(
-                    f"role {role!r} has {n_tiles} output tiles, which is not a multiple of this "
-                    f"chip's {x} DRAM banks; a DRAM width-sharded weight needs one bank per compute "
-                    "column"
-                )
         else:
             x = _largest_divisor_at_most(n_tiles, self.grid.x)
             y = _largest_divisor_at_most(m_tiles, self.grid.y)
@@ -848,23 +1087,27 @@ class OptimizedDecoder(FusedDecoder):
             if candidate * out_block_w <= _PREFILL_OUT_BLOCK_TILES:
                 out_block_h = candidate
         # ``in0_block_w`` up to :data:`_PREFILL_MAX_BLOCK_W`, largest first, subject to the block
-        # circular buffers fitting L1.  Prefill has no resident width-sharded activations competing
-        # for L1, so the budget is much larger than the decode one - but not unlimited: measured,
-        # ``in0_block_w=8`` on every projection is 1.5 % faster for ``full_attention`` and raises
-        # "Statically allocated circular buffers ... beyond max L1 size" for ``linear_attention``,
-        # whose ``in_proj_qkv`` has a float32 output block and a BFP8 weight
-        # (``logs/probe_optimized_prefill.log``).  That is the one role this bound holds back, and it
-        # is the reason the bound is computed per role rather than set globally.
+        # circular buffers fitting this core's real L1 with :data:`_PREFILL_L1_MARGIN` for the buffers
+        # the estimate does not model.  Prefill has no resident width-sharded activations competing for
+        # L1, so this is a much larger allowance than the decode one, and it is per role rather than
+        # global because only two roles are anywhere near it - the two with a float32 output block.
+        # ``linear_attention``'s ``in_proj_qkv`` is the one role the bound actually holds back, and it
+        # is held back by a *measured* overflow rather than a chosen budget.
         weight_bytes = _TILE_BYTES.get(self.policy.weight_dtype(role), 2048)
-        out_bytes = _TILE_BYTES[ttnn.float32 if self.policy.fp32_acc(role) else ttnn.bfloat16]
+        out_dtype = self.role_out_dtype(role)
+        out_bytes = _TILE_BYTES[out_dtype]
+        # A role that accumulates in float32 destination registers but packs a narrower output needs a
+        # separate float32 intermediate to carry partials across ``in0_block_w`` blocks; one that
+        # already outputs float32 accumulates into the output block itself.
+        interm_bytes = _TILE_BYTES[ttnn.float32] if self.policy.fp32_acc(role) and out_dtype != ttnn.float32 else 0
         block_w = 1
         for candidate in _divisors(k_tiles):
-            if candidate > _PREFILL_MAX_BLOCK_W:
+            if candidate > self.prefill_geometry.cap():
                 break
             l1 = 2 * candidate * out_block_h * _TILE_BYTES[ttnn.bfloat16]
             l1 += 2 * candidate * out_block_w * weight_bytes
-            l1 += out_block_h * out_block_w * out_bytes
-            if l1 <= _PREFILL_L1_BUDGET:
+            l1 += out_block_h * out_block_w * (out_bytes + interm_bytes)
+            if l1 + _PREFILL_L1_FIXED <= self.l1_size:
                 block_w = candidate
         block_w = self.prefill_geometry.block_w(role) or block_w
         budget = 2 if self.policy.fp32_acc(role) else 4
@@ -987,6 +1230,16 @@ class OptimizedDecoder(FusedDecoder):
 
     # ------------------------------------------------------------- primitives
 
+    #: Output dtype per role, as the forward passes request it.  This is a *declaration* rather than a
+    #: second copy: :meth:`_project` asserts the caller's ``dtype`` against it, so the prefill L1 model
+    #: in :meth:`_prefill_program_cfg` - which has only the role name to work from - cannot silently
+    #: disagree with what the op is actually asked to pack.  Only the two roles that feed the
+    #: recurrence's float32 state carry a float32 output.
+    ROLE_OUT_DTYPE = {"in_proj_qkv": ttnn.float32, "in_proj_ab": ttnn.float32}
+
+    def role_out_dtype(self, role: str):
+        return self.ROLE_OUT_DTYPE.get(role, ttnn.bfloat16)
+
     def _project(self, x, role: str, *, decode: bool, dtype, program_cfg=None):
         """One projection, with this stage's memory/program/compute config for ``role``.
 
@@ -995,6 +1248,10 @@ class OptimizedDecoder(FusedDecoder):
         always does.  Prefill takes the explicit 2D program config when one is configured and
         ``ttnn.linear``'s heuristic otherwise.
         """
+        assert dtype == self.role_out_dtype(role), (
+            f"role {role!r} is declared to output {self.role_out_dtype(role)} in ROLE_OUT_DTYPE but is "
+            f"being asked for {dtype}; the prefill L1 model reads the declaration, so the two must agree"
+        )
         weight = self.w[self.WEIGHT_KEY[role]]
         kernel_cfg = self.role_kernel_cfg_decode[role] if decode else self.role_kernel_cfg[role]
         if decode and role in self.decode_program_cfg:
@@ -1244,16 +1501,35 @@ class OptimizedDecoder(FusedDecoder):
             interleaved = ttnn.sharded_to_interleaved(mixed_qkv, ttnn.DRAM_MEMORY_CONFIG)
             ttnn.deallocate(mixed_qkv)
             mixed_qkv = interleaved
-        ab_in = x if not x.memory_config().is_sharded() else ttnn.sharded_to_interleaved(x, ttnn.DRAM_MEMORY_CONFIG)
-        ab = ttnn.linear(
-            ab_in,
-            self.w["in_proj_ab"],
-            bias=self.w["in_proj_ab_bias"],
-            dtype=ttnn.float32,
-            compute_kernel_config=self.role_kernel_cfg["in_proj_ab"],
-            core_grid=self.ab_matmul_grid[phase],
-        )
-        _free(ab_in, x, ab)
+        if decode and "in_proj_ab" in self.decode_program_cfg:
+            # The DRAM-sharded arm: no bias slot, so ``dt_bias`` becomes its own elementwise add.
+            ab_sharded = self._project(x, "in_proj_ab", decode=True, dtype=ttnn.float32)
+            ab = ttnn.add(ab_sharded, self.w["in_proj_ab_bias"])
+            ttnn.deallocate(ab_sharded)
+            if ab.memory_config().is_sharded():
+                interleaved = ttnn.sharded_to_interleaved(ab, ttnn.DRAM_MEMORY_CONFIG)
+                ttnn.deallocate(ab)
+                ab = interleaved
+        else:
+            ab_in = x if not x.memory_config().is_sharded() else ttnn.sharded_to_interleaved(x, ttnn.DRAM_MEMORY_CONFIG)
+            ab = ttnn.linear(
+                ab_in,
+                self.w["in_proj_ab"],
+                bias=self.w["in_proj_ab_bias"],
+                dtype=ttnn.float32,
+                # Phase-appropriate, not always the prefill config: this call is reached from both
+                # phases (``phase`` already selects the core grid), so taking ``role_kernel_cfg``
+                # unconditionally would silently ignore any decode-side policy for this role.  The two
+                # configs are identical for ``in_proj_ab`` today - see ``STATE_ROLES_DECODE_OVERRIDE`` -
+                # and this keeps them identical *because* the policy says so rather than by accident.
+                compute_kernel_config=(
+                    self.role_kernel_cfg_decode["in_proj_ab"]
+                    if phase == "decode"
+                    else self.role_kernel_cfg["in_proj_ab"]
+                ),
+                core_grid=self.ab_matmul_grid[phase],
+            )
+            _free(ab_in, x, ab)
         lead = _shape(ab)[:-1]
         starts = [0] * len(lead)
         b = ttnn.slice(ab, [*starts, 0], [*lead, s.num_v_heads])
@@ -1351,7 +1627,7 @@ class OptimizedDecoder(FusedDecoder):
 
         def to_heads(flat, num_heads, head_dim, repeat: int, scale=None, dense: bool = False):
             t = ttnn.reshape(flat, (1, batch, num_heads, head_dim))
-            if repeat > 1:
+            if repeat > 1 and not self.decode_geometry.norm_before_repeat:
                 rep = ttnn.repeat_interleave(t, repeat, dim=2)
                 _free(t, flat, rep)
                 t = rep
@@ -1362,6 +1638,15 @@ class OptimizedDecoder(FusedDecoder):
                 ttnn.deallocate(normed)
             if dense:
                 return t
+            if repeat > 1 and self.decode_geometry.norm_before_repeat:
+                # ``dim=1`` of ``[1, B*num_heads, 1, head_dim]`` is a batch axis: entry ``b*num_heads+h``
+                # becomes ``b*num_heads*repeat + h*repeat + r``, which is exactly the head order the
+                # ``dim=2`` repeat produced, and no tile has to be rebuilt to get it.
+                rows = ttnn.reshape(t, (1, batch * num_heads, 1, head_dim))
+                _free(t, flat, rows)
+                out = ttnn.repeat_interleave(rows, repeat, dim=1)
+                _free(rows, flat, out)
+                return out
             return ttnn.reshape(t, (1, batch * nv, 1, head_dim))
 
         root_dk = math.sqrt(s.head_k_dim)
@@ -1435,6 +1720,19 @@ class OptimizedDecoder(FusedDecoder):
 
         core = ttnn.reshape(out, (1, batch, nv, s.head_v_dim))
         _free(out, core)
+        # ``z`` came back from a DRAM-sharded matmul, and that op picks its **own** output shard grid
+        # rather than the one it is handed: the runtime says so - "Mismatch between computed
+        # MemoryConfig(... grid=[{0,0}-{10,1}, {0,2}-{9,2}] ...) and provided MemoryConfig(...
+        # grid=[{0,0}-{7,3}] ...). Using computed config" - and the grid it computes is the ragged
+        # row-wise one whose bounding box is 33 cores for 32 shards.  ``ttnn.reshape`` requires a
+        # *rectangular* grid and silently falls back to DRAM interleaved when it does not get one, so
+        # the rank change below would be an uncounted host-invisible DRAM round trip.  Doing the
+        # conversion explicitly makes it one counted op instead of a silent fallback; the small-batch
+        # branch consumes ``z`` as an interleaved rank-4 tensor anyway.
+        if z.memory_config().is_sharded():
+            z_interleaved = ttnn.sharded_to_interleaved(z, ttnn.DRAM_MEMORY_CONFIG)
+            ttnn.deallocate(z)
+            z = z_interleaved
         z_heads = ttnn.reshape(z, (1, batch, nv, s.head_v_dim))
         core16 = ttnn.typecast(core, ttnn.bfloat16)
         normed = self._rms_norm(core16, self.w["gated_norm"])
@@ -1585,12 +1883,24 @@ class OptimizedDecoder(FusedDecoder):
                     "input_memory": "l1_width_sharded",
                     "output_memory": "l1_width_sharded",
                 }
-            grid = self.prefill_geometry.grid(role)
-            if grid is not None:
+            # The *derived* prefill config at the canonical measured length, not the override that
+            # produced it.  Recording the override was how a stale hand-written table once described a
+            # configuration the layer never ran; this records what the op is actually handed.
+            prefill_pc = self._prefill_program_cfg(role, _PREFILL_SUMMARY_ROWS)
+            if prefill_pc is not None:
                 entry["prefill_program_config"] = {
                     "class": "MatmulMultiCoreReuseMultiCastProgramConfig",
-                    "grid": list(grid),
-                    "in0_block_w": self.prefill_geometry.block_w(role),
+                    "rows": _PREFILL_SUMMARY_ROWS,
+                    "grid": [prefill_pc.compute_with_storage_grid_size.x, prefill_pc.compute_with_storage_grid_size.y],
+                    "in0_block_w": prefill_pc.in0_block_w,
+                    "in0_block_w_ceiling": self.prefill_geometry.cap(),
+                    "out_block_h": prefill_pc.out_block_h,
+                    "out_block_w": prefill_pc.out_block_w,
+                    "out_subblock_h": prefill_pc.out_subblock_h,
+                    "out_subblock_w": prefill_pc.out_subblock_w,
+                    "per_core_M": prefill_pc.per_core_M,
+                    "per_core_N": prefill_pc.per_core_N,
+                    "out_dtype": str(self.role_out_dtype(role)),
                 }
             summary["roles"][role] = entry
         return summary

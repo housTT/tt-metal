@@ -41,6 +41,7 @@ instrument that must agree is how the fused stage's own reviews found stale numb
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import pathlib
 import re
@@ -99,13 +100,16 @@ LAYER_KINDS = [
 #:   identical quantisation noise sits on a proportionally smaller signal, and 1 - PCC - which is a
 #:   noise-to-signal ratio - is correspondingly larger on the stand-in.
 #:
-#: OPT-012 is explicit that such a case may not veto a policy that passes on real weights, and the
-#: real-weight evidence for the shipped policy is 0.999411 / 0.997708 / 0.998741 (``linear_attention``
-#: prefill / decode / traced) and 0.999081 / 0.999253 / 0.998238 (``full_attention``) - all with room
-#: against 0.995.  This bar is therefore a *stress* bar, chosen from the measured synthetic minimum
-#: with margin - the measured minimum over the whole suite is **0.983746**, on ``full_attention``
-#: batched decode - and its purpose is to catch a regression in the paths those cases cover, not to
-#: certify precision.  The margin is deliberate rather than tight: these are deterministic values on
+#: OPT-012 is explicit that such a case may not veto a policy that passes on real weights.  The
+#: real-weight evidence for the shipped policy is the real-weight table in ``work_log.md`` section 2.1,
+#: generated from ``logs/probe_real_weight_policy.log``, and
+#: ``test_synthetic_bar_is_justified_by_the_real_weight_evidence`` asserts its worst value against
+#: ``H.PCC_BAR`` - the numbers are deliberately not restated here, because a second copy of them in a
+#: docstring is a copy that goes stale on the next re-measurement, and this one had.
+#:
+#: This bar is therefore a *stress* bar, chosen from the measured synthetic minimum with margin - the
+#: minimum over the whole suite is in the generated correctness table in section 4 - and its purpose is
+#: to catch a regression in the paths those cases cover, not to certify precision.  The margin is deliberate rather than tight: these are deterministic values on
 #: this build, but a bar sitting a few ten-thousandths under the measured minimum would fail on any
 #: unrelated numerical change and teach a later stage to loosen it, which is exactly what this
 #: constant must not become.  ``test_synthetic_bar_is_justified_by_the_real_weight_evidence`` pins the
@@ -642,7 +646,7 @@ _RESHARD_OPS = ("interleaved_to_sharded", "sharded_to_interleaved", "to_memory_c
 #: fused suite made its version one: a budget leaves room for new unnecessary reshards under a test
 #: whose docstring says there are none.
 #:
-#: ``linear_attention`` at batch 1 (5):
+#: ``linear_attention`` at batch 1 (6):
 #:   1 the caller's DRAM-interleaved hidden state onto the stream grid;
 #:   1 the normed stream tensor off the stream grid for ``in_proj_ab``, whose bias fold needs the
 #:     interleaved, ``core_grid``-placed matmul (see ``_gdn_inputs``);
@@ -650,10 +654,15 @@ _RESHARD_OPS = ("interleaved_to_sharded", "sharded_to_interleaved", "to_memory_c
 #:     slice/concat chain;
 #:   1 the gated recurrence result onto the stream grid for ``out_proj`` - the recurrence itself is
 #:     float32 interleaved state arithmetic and stays that way;
+#:   1 ``in_proj_z``'s output off the DRAM-sharded matmul's own output grid, because the small-batch
+#:     branch changes its rank and ``ttnn.reshape`` cannot do that on a width-sharded tensor without
+#:     silently falling back to INTERLEAVED - so it is done explicitly and counted here instead of
+#:     happening invisibly (see ``_linear_attention_decode``).  Absent at batch 32, whose
+#:     group-reduction branch consumes ``z`` flat and sharded;
 #:   1 the final ``sharded_to_interleaved`` back to the public output contract.
 #:
-#: ``linear_attention`` at the advertised ``max_batch`` (4): the same list **minus** the ``out_proj``
-#: conversion.  At batch 32 the z-gated norm takes the group-reduction branch, whose ``ttnn.multiply``
+#: ``linear_attention`` at the advertised ``max_batch`` (4): the same list **minus** the ``in_proj_z``
+#: conversion above and **minus** the ``out_proj`` one.  At batch 32 the z-gated norm takes the group-reduction branch, whose ``ttnn.multiply``
 #: with the width-sharded ``in_proj_z`` output propagates that shard to its result, so ``out_proj``'s
 #: input is already on the stream grid.  The small-batch branch reshapes ``z`` to
 #: ``[1, batch, heads, head_dim]`` first and loses it.  One fewer conversion at the wider batch is
@@ -668,7 +677,7 @@ _RESHARD_OPS = ("interleaved_to_sharded", "sharded_to_interleaved", "to_memory_c
 #:   1 the concat result onto the stream grid for the epilogue;
 #:   1 the final ``sharded_to_interleaved`` back to the public output contract.
 EXPECTED_DECODE_RESHARDS = {
-    ("linear_attention", 1): 5,
+    ("linear_attention", 1): 6,
     ("linear_attention", 32): 4,
     ("full_attention", 1): 8,
     ("full_attention", 32): 8,
@@ -1053,6 +1062,56 @@ def test_bfp8_policy_also_passes(mesh_device, layer_idx):
     assert value >= H.PCC_BAR
 
 
+@pytest.mark.parametrize("max_batch", [1, 32])
+def test_norm_before_expand_matches_expand_before_norm(mesh_device, max_batch):
+    """Reordering the gated-delta-net q/k norm and head expansion changes nothing numerically.
+
+    The shipped geometry normalises the 16 key heads and *then* expands them to the 48 value heads on
+    a batch axis; stage 2 expanded first, on a tile axis, which cost an untilize/concat/tilize
+    round-trip on one and two cores.  The reorder is only sound because the norm is per-head over the
+    last dim and the expanded copies are identical, so ``norm(repeat(x)) == repeat(norm(x))``.
+
+    That is an algebraic claim about the two graphs, so this compares the two graphs against each
+    other at the *acceptance* bar rather than each against the HF reference: if the reorder were not
+    exact, the difference would show up here first and with nothing else moving.  ``linear_attention``
+    only - the other layer kind has no gated delta net.
+    """
+    shipped = _build(mesh_device, H.LINEAR_LAYER_IDX, max_batch=max_batch, max_seq_len=8192)
+    hidden = ref.synthetic_hidden_states(shipped.config, 1, 2049, _stats())
+    prefill_shipped = H.run_tt_prefill(shipped, hidden)
+    H.prepare_decode(shipped)
+    token = ref.synthetic_hidden_states(shipped.config, max_batch, 1, _stats(), seed=77)
+    positions = torch.full((max_batch,), 2049)
+    decode_shipped = H.run_tt_decode(shipped, token, positions)
+    conv_shipped, recurrent_shipped = H.read_linear_state(shipped, user_id=0)
+    H.release_layers()
+
+    other = _build(
+        mesh_device,
+        H.LINEAR_LAYER_IDX,
+        max_batch=max_batch,
+        max_seq_len=8192,
+        geometry=dataclasses.replace(DEFAULT_GEOMETRY, norm_before_repeat=False),
+    )
+    prefill_other = H.run_tt_prefill(other, hidden)
+    H.prepare_decode(other)
+    decode_other = H.run_tt_decode(other, token, positions)
+    conv_other, recurrent_other = H.read_linear_state(other, user_id=0)
+
+    for label, left, right in (
+        ("prefill", prefill_shipped, prefill_other),
+        ("decode", decode_shipped, decode_other),
+        ("conv state", conv_shipped, conv_other),
+        ("recurrent state", recurrent_shipped, recurrent_other),
+    ):
+        value = H.pcc(left, right)
+        H.record("optimized_norm_expand_order_pcc", value, kind="linear_attention", batch=max_batch, tensor=label)
+        assert value >= H.PCC_BAR, (
+            f"reordering the q/k norm and head expansion moved the {label} by more than the acceptance "
+            f"bar allows (PCC {value}); the reorder is only valid if the two graphs agree"
+        )
+
+
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
 def test_packed_gate_up_decode_is_still_correct(mesh_device, layer_idx):
     """The rejected packed-gate/up decode arm still works, so its measurement is a real candidate.
@@ -1082,19 +1141,30 @@ def test_packed_gate_up_decode_is_still_correct(mesh_device, layer_idx):
 
 @pytest.mark.timeout(0)
 @pytest.mark.long_context
+@pytest.mark.parametrize("weights", ["synthetic", "real"])
 @pytest.mark.parametrize("layer_idx", LAYER_KINDS)
-def test_full_advertised_context(mesh_device, layer_idx, request):
+def test_full_advertised_context(mesh_device, layer_idx, weights, request):
     """Prefill 262143 tokens and decode at position 262143 through the optimized graph.
 
     Same reference construction as the earlier stages' test of the same name.  This is the capacity
     contract: the optimized policy must not have cost the advertised context, in either direction -
     not the length, and not the accuracy at that length.
+
+    Run at both weight sources.  The synthetic arm is the stress arm - stand-in weights on a
+    stand-in activation distribution, held to :data:`SYNTHETIC_PCC_BAR` for the reason
+    :func:`test_synthetic_bar_is_justified_by_the_real_weight_evidence` pins - and the ``real`` arm
+    is the one that speaks for the advertised capability, held to the acceptance bar ``H.PCC_BAR``.
+    Every shorter-context test in this suite has both arms; the advertised context needs them too,
+    because a precision policy that only holds on a stand-in distribution has not been shown to hold
+    at 262143 tokens on the shipped weights.
     """
     if not request.config.getoption("--long-context"):
         pytest.skip("needs --long-context")
+    real = weights == "real"
+    bar = H.PCC_BAR if real else SYNTHETIC_PCC_BAR
     context = ref.load_text_config().max_position_embeddings
     assert LONG_PROMPT + 1 == context
-    lut = _build(mesh_device, layer_idx, max_batch=1, max_seq_len=context)
+    lut = _build(mesh_device, layer_idx, max_batch=1, max_seq_len=context, real_weights=real)
     tail = LONG_TAIL[_kind(lut)]
     stats = _stats()
     hidden = ref.synthetic_hidden_states(lut.config, 1, LONG_PROMPT, stats)
@@ -1122,10 +1192,14 @@ def test_full_advertised_context(mesh_device, layer_idx, request):
         keys, values = H.read_paged_kv(lut, user_id=0, seq_len=LONG_PROMPT)
         ref_keys, ref_values = H.reference_cache_kv(lut, cache, LONG_PROMPT)
         k_pcc, v_pcc = H.pcc(ref_keys, keys), H.pcc(ref_values, values)
-        H.record("optimized_full_context_paged_k_cache_pcc", k_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
-        H.record("optimized_full_context_paged_v_cache_pcc", v_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
-        assert k_pcc >= SYNTHETIC_PCC_BAR, f"paged K cache at {LONG_PROMPT} tokens: PCC {k_pcc}"
-        assert v_pcc >= SYNTHETIC_PCC_BAR, f"paged V cache at {LONG_PROMPT} tokens: PCC {v_pcc}"
+        H.record(
+            "optimized_full_context_paged_k_cache_pcc", k_pcc, weights=weights, kind=_kind(lut), seq_len=LONG_PROMPT
+        )
+        H.record(
+            "optimized_full_context_paged_v_cache_pcc", v_pcc, weights=weights, kind=_kind(lut), seq_len=LONG_PROMPT
+        )
+        assert k_pcc >= bar, f"paged K cache at {LONG_PROMPT} tokens: PCC {k_pcc}"
+        assert v_pcc >= bar, f"paged V cache at {LONG_PROMPT} tokens: PCC {v_pcc}"
     else:
         golden, cache = H.reference_prefill_segmented(lut, hidden, LONG_SEGMENT)
         golden = golden[:, -tail:, :]
@@ -1135,16 +1209,40 @@ def test_full_advertised_context(mesh_device, layer_idx, request):
         ref_recurrent = cache.layers[lut.layer_idx].recurrent_states[0].to(torch.float32)
         conv_pcc = H.pcc(ref_conv, conv_state.T)
         rec_pcc = H.pcc(ref_recurrent, recurrent_state)
-        H.record("optimized_full_context_conv_state_pcc", conv_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
-        H.record("optimized_full_context_recurrent_state_pcc", rec_pcc, kind=_kind(lut), seq_len=LONG_PROMPT)
-        assert conv_pcc >= SYNTHETIC_PCC_BAR, f"conv state after {LONG_PROMPT} tokens: PCC {conv_pcc}"
-        assert rec_pcc >= SYNTHETIC_PCC_BAR, f"recurrent state after {LONG_PROMPT} tokens: PCC {rec_pcc}"
+        H.record(
+            "optimized_full_context_conv_state_pcc", conv_pcc, weights=weights, kind=_kind(lut), seq_len=LONG_PROMPT
+        )
+        H.record(
+            "optimized_full_context_recurrent_state_pcc", rec_pcc, weights=weights, kind=_kind(lut), seq_len=LONG_PROMPT
+        )
+        # Recorded, not asserted.  The carried state's *scale* drifts low at this context on real
+        # weights - about 0.94 - and it does so at every fidelity and weight dtype measured
+        # (``logs/probe_long_context_linear_real.log``), so it is not something this stage's precision
+        # policy controls, and a threshold here would be a threshold on inherited behaviour that this
+        # stage cannot move.  It is recorded because a drifting carried state should be visible in the
+        # evidence rather than discovered by the stage that consumes the state.
+        for metric, value in (
+            ("optimized_full_context_conv_state_scale", H.scale_ratio(ref_conv, conv_state.T)),
+            ("optimized_full_context_recurrent_state_scale", H.scale_ratio(ref_recurrent, recurrent_state)),
+        ):
+            H.record(metric, value, weights=weights, kind=_kind(lut), seq_len=LONG_PROMPT)
+        assert conv_pcc >= bar, f"conv state after {LONG_PROMPT} tokens: PCC {conv_pcc}"
+        assert rec_pcc >= bar, f"recurrent state after {LONG_PROMPT} tokens: PCC {rec_pcc}"
 
     tail_pcc = H.pcc(golden, got[:, -tail:, :])
-    H.record("optimized_full_context_prefill_tail_pcc", tail_pcc, kind=_kind(lut), seq_len=LONG_PROMPT, tail=tail)
-    assert tail_pcc >= SYNTHETIC_PCC_BAR, f"prefill tail at {LONG_PROMPT} tokens: PCC {tail_pcc}"
+    H.record(
+        "optimized_full_context_prefill_tail_pcc",
+        tail_pcc,
+        weights=weights,
+        kind=_kind(lut),
+        seq_len=LONG_PROMPT,
+        tail=tail,
+    )
+    assert tail_pcc >= bar, f"prefill tail at {LONG_PROMPT} tokens: PCC {tail_pcc}"
     tail_scale = H.scale_ratio(golden, got[:, -tail:, :])
-    H.record("optimized_full_context_prefill_tail_scale", tail_scale, kind=_kind(lut), seq_len=LONG_PROMPT)
+    H.record(
+        "optimized_full_context_prefill_tail_scale", tail_scale, weights=weights, kind=_kind(lut), seq_len=LONG_PROMPT
+    )
     assert (
         SCALE_TOLERANCE[0] <= tail_scale <= SCALE_TOLERANCE[1]
     ), f"prefill tail at {LONG_PROMPT} tokens is scaled by {tail_scale}, outside {SCALE_TOLERANCE}"
@@ -1154,10 +1252,12 @@ def test_full_advertised_context(mesh_device, layer_idx, request):
     golden_decode = H.reference_decode(lut, token, LONG_PROMPT, cache)
     decoded = H.run_tt_decode(lut, token, torch.tensor([LONG_PROMPT]))
     decode_pcc = H.pcc(golden_decode, decoded)
-    H.record("optimized_full_context_decode_pcc", decode_pcc, kind=_kind(lut), position=LONG_PROMPT)
-    assert decode_pcc >= SYNTHETIC_PCC_BAR, f"decode at position {LONG_PROMPT}: PCC {decode_pcc}"
+    H.record("optimized_full_context_decode_pcc", decode_pcc, weights=weights, kind=_kind(lut), position=LONG_PROMPT)
+    assert decode_pcc >= bar, f"decode at position {LONG_PROMPT}: PCC {decode_pcc}"
     decode_scale = H.scale_ratio(golden_decode, decoded)
-    H.record("optimized_full_context_decode_scale", decode_scale, kind=_kind(lut), position=LONG_PROMPT)
+    H.record(
+        "optimized_full_context_decode_scale", decode_scale, weights=weights, kind=_kind(lut), position=LONG_PROMPT
+    )
     assert (
         SCALE_TOLERANCE[0] <= decode_scale <= SCALE_TOLERANCE[1]
     ), f"decode at position {LONG_PROMPT} is scaled by {decode_scale}, outside {SCALE_TOLERANCE}"

@@ -124,7 +124,9 @@ def run_shape(label, m, k, n, dt_name, results):
     w_inter = ttnn.from_torch(
         w_t, dtype=dtype, layout=ttnn.TILE_LAYOUT, device=_DEVICE, memory_config=ttnn.DRAM_MEMORY_CONFIG
     )
-    w_shard = ttnn.from_torch(w_t, dtype=dtype, layout=ttnn.TILE_LAYOUT, device=_DEVICE, memory_config=dram_sharded_cfg(k, n))
+    w_shard = ttnn.from_torch(
+        w_t, dtype=dtype, layout=ttnn.TILE_LAYOUT, device=_DEVICE, memory_config=dram_sharded_cfg(k, n)
+    )
     k_tiles, n_tiles, m_tiles = k // TILE, n // TILE, m // TILE
 
     def record(candidate, median, stdev, value, extra=None, error=None):
@@ -196,38 +198,46 @@ def run_shape(label, m, k, n, dt_name, results):
         lambda: ttnn.linear(act_dram, w_inter, dtype=ttnn.bfloat16, compute_kernel_config=ck),
     )
 
-    # 3. explicit 1D multicast over several grids, weight interleaved and DRAM width-sharded
+    # 3. explicit 1D multicast over several grids, weight interleaved and DRAM width-sharded.
+    #
+    # ``in0_block_w`` is swept rather than fixed.  It is the one knob that decides how much of the
+    # reduction each core holds at a time, so on a candidate whose whole point is "more cores than the
+    # DRAM-sharded reader gets", leaving it at one value would compare a swept baseline (the shipped
+    # arm above picks its ``in0_block_w`` from an L1 budget) against an unswept alternative - exactly
+    # the shape of comparison that makes a rejection unsound.  Candidates are the divisors of the
+    # reduction depth up to 16; past that the doubled-buffered in0 block stops fitting alongside the
+    # output block on the smaller grids, and the op reports it.
     for grid in ((8, 8), (11, 10), (8, 4), (11, 5)):
         total = grid[0] * grid[1]
         per_core_n = math.ceil(n_tiles / total)
-        block_w = _largest_at_most(k_tiles, 8)
         subblock_w = _largest_at_most(per_core_n, 4)
-        for weight_label, weight in (("interleaved", w_inter), ("dram-sharded", w_shard)):
-            pc1d = ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
-                compute_with_storage_grid_size=grid,
-                in0_block_w=block_w,
-                out_subblock_h=1,
-                out_subblock_w=subblock_w,
-                out_block_h=m_tiles,
-                out_block_w=per_core_n,
-                per_core_M=m_tiles,
-                per_core_N=per_core_n,
-                fuse_batch=True,
-                fused_activation=None,
-                mcast_in0=True,
-            )
-            measure(
-                f"1D mcast {grid[0]}x{grid[1]} w={weight_label}",
-                lambda pc1d=pc1d, weight=weight: ttnn.linear(
-                    act_dram,
-                    weight,
-                    program_config=pc1d,
-                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
-                    dtype=ttnn.bfloat16,
-                    compute_kernel_config=ck,
-                ),
-                {"cores": total, "in0_block_w": block_w, "per_core_N": per_core_n},
-            )
+        for block_w in [d for d in _divisors(k_tiles) if d <= 16]:
+            for weight_label, weight in (("interleaved", w_inter), ("dram-sharded", w_shard)):
+                pc1d = ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
+                    compute_with_storage_grid_size=grid,
+                    in0_block_w=block_w,
+                    out_subblock_h=1,
+                    out_subblock_w=subblock_w,
+                    out_block_h=m_tiles,
+                    out_block_w=per_core_n,
+                    per_core_M=m_tiles,
+                    per_core_N=per_core_n,
+                    fuse_batch=True,
+                    fused_activation=None,
+                    mcast_in0=True,
+                )
+                measure(
+                    f"1D mcast {grid[0]}x{grid[1]} in0_block_w={block_w} w={weight_label}",
+                    lambda pc1d=pc1d, weight=weight: ttnn.linear(
+                        act_dram,
+                        weight,
+                        program_config=pc1d,
+                        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                        dtype=ttnn.bfloat16,
+                        compute_kernel_config=ck,
+                    ),
+                    {"cores": total, "in0_block_w": block_w, "per_core_N": per_core_n},
+                )
 
     # 4. explicit 2D config, weight DRAM width-sharded (the prefill form, at one tile row)
     banks = _DEVICE.dram_grid_size().x

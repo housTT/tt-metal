@@ -1,28 +1,37 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-"""Which precision group costs the **full-context** ``full_attention`` prefill tail its PCC.
+"""What costs the **full-context** ``full_attention`` prefill tail its accuracy, and its *scale*.
 
-`test_full_advertised_context` prefills 262143 tokens and compares the last 256 query rows against
-the real HF layer.  At the shipped policy that tail came back at PCC 0.9594 where stage 2 measured
-0.998030, and nothing in the 2049-token tests shows it: the same policy is at 0.999103 there.  A 256
-000-key attention is a different numerical problem from a 2049-key one - the chunked SDPA merges 512
-k chunks, and stage 1 characterised that merge as a one-sided loss in the softmax denominator - so a
-precision group that is free at 2049 keys need not be free at 262144.
+`test_full_advertised_context` prefills 262143 tokens and compares the last 256 query rows against the
+real HF layer.  A 262144-key attention is a different numerical problem from a 2049-key one - the
+chunked SDPA merges 512 k chunks, and stage 1 characterised that merge as a one-sided loss in the
+softmax denominator - so a precision group that is free at 2049 keys need not be free here.  This probe
+attributes it by changing one group at a time against the same reference construction the test uses: a
+K/V cache built from ``k_proj``/``v_proj`` + ``k_norm`` + RoPE and the real HF layer over the last 256
+queries.
 
-This probe attributes the loss.  It runs the same reference construction the test uses - a K/V cache
-built from ``k_proj``/``v_proj`` + ``k_norm`` + RoPE and the real HF layer over the last 256 queries -
-against the device path at four settings, changing one group at a time:
+It grew twice, and both times because a measurement contradicted the reason for the previous arm set:
 
-1. the shipped policy;
-2. the shipped policy with a **bfloat16 KV cache** (the group the chunked SDPA reads 262144 times);
-3. the shipped policy with **bfloat16 attention weights** (the group that produces what is cached);
-4. the fused stage's policy, as the control that reproduces stage 2's number.
+* first for the **PCC** loss the shipped policy showed on synthetic weights, which §3.8 traced to
+  ``wqkv``'s destination-accumulation precision - the arms for the KV cache dtype, the attention weight
+  dtype and the SDPA core count are from that round;
+* then for the **scale** loss the shipped policy shows on the **real checkpoint**, where none of those
+  arms is the cause and the fused control *passes*.  The later arms bisect the remaining difference
+  between the control and the shipped configuration - accumulation policy, MLP weight dtype, fidelity,
+  and precision-versus-layout - because "the control passes and we changed several things" is not an
+  attribution.
 
-Each arm reports the tail PCC, the best-fit tail *scale* (the quantity the SDPA merge defect moves,
-which PCC cannot see) and the un-paged K/V cache PCC, so a cache-precision cause and an
-attention-merge cause are distinguishable rather than conflated.
+Every arm reports the tail PCC, the best-fit tail *scale*, the decode PCC and scale, and the un-paged
+K/V cache PCC **and scale**.  The scale columns are the point: a uniform shrink of the V cache gives an
+attention output a few percent small while the cache PCC stays at 0.9999, because PCC cannot see a
+scale, and that is indistinguishable from an SDPA merge defect if you only look at PCC.
+
+``--real-weights`` runs every arm on the real checkpoint.  Neither stage 1 nor stage 2 ran the
+advertised context on real weights - ``real_weights=True`` appears only in their 8192-token tests - so
+that mode is where this stage found the failures it is now attributing.
 
     python models/autoports/qwen_qwen3_6_27b/doc/optimized_decoder/probes/probe_long_context_precision.py
+        [--real-weights]
 """
 
 from __future__ import annotations
@@ -60,9 +69,7 @@ def candidates():
     yield "shipped + bfloat16 KV cache, SDPA 1 core", dataclasses.replace(
         DEFAULT_POLICY, name="opt-v1-bf16kv", kv_cache=ttnn.bfloat16
     ), dataclasses.replace(DEFAULT_GEOMETRY, sdpa_cores_per_head=1)
-    yield "shipped (bfp8 KV), SDPA 1 core", DEFAULT_POLICY, dataclasses.replace(
-        DEFAULT_GEOMETRY, sdpa_cores_per_head=1
-    )
+    yield "shipped (bfp8 KV), SDPA 1 core", DEFAULT_POLICY, dataclasses.replace(DEFAULT_GEOMETRY, sdpa_cores_per_head=1)
     yield "shipped + bfloat16 KV cache (SDPA 8 cores)", dataclasses.replace(
         DEFAULT_POLICY, name="opt-v1-bf16kv", kv_cache=ttnn.bfloat16
     ), DEFAULT_GEOMETRY
@@ -72,7 +79,35 @@ def candidates():
     yield "shipped + bf16 KV + bf16 attention weights, SDPA 1 core", dataclasses.replace(
         DEFAULT_POLICY, name="opt-v1-bf16kv-bf16attn", kv_cache=ttnn.bfloat16, attn_weight=ttnn.bfloat16
     ), dataclasses.replace(DEFAULT_GEOMETRY, sdpa_cores_per_head=1)
+    # The control passes and the shipped policy does not, on **real weights**, so the gap has to be
+    # bisected rather than guessed: these walk the remaining groups one at a time.  The cache dtype, the
+    # attention weight dtype and the SDPA core count are all covered above and none of them is it.
+    yield "shipped + float32 dest acc on every projection, both phases", dataclasses.replace(
+        DEFAULT_POLICY, name="opt-v1-fp32acc-all", fp32_dest_acc_all=True
+    ), DEFAULT_GEOMETRY
+    yield "shipped + bfloat16 MLP weights", dataclasses.replace(
+        DEFAULT_POLICY, name="opt-v1-bf16mlp", mlp_weight=ttnn.bfloat16, mlp_down_weight=ttnn.bfloat16
+    ), DEFAULT_GEOMETRY
+    yield "shipped + HiFi4 on every projection", dataclasses.replace(
+        DEFAULT_POLICY,
+        name="opt-v1-hifi4",
+        attn_fidelity=ttnn.MathFidelity.HiFi4,
+        mlp_fidelity=ttnn.MathFidelity.HiFi4,
+        gdn_proj_fidelity=ttnn.MathFidelity.HiFi4,
+    ), DEFAULT_GEOMETRY
+    yield "fused precision on the shipped layout", dataclasses.replace(
+        FUSED_BASELINE_POLICY, name="fused-precision-opt-layout"
+    ), DEFAULT_GEOMETRY
+    yield "shipped precision on the fused layout", DEFAULT_POLICY, FUSED_BASELINE_GEOMETRY
     yield "fused-stage policy (control)", FUSED_BASELINE_POLICY, FUSED_BASELINE_GEOMETRY
+
+
+#: ``--real-weights`` runs every arm on the real checkpoint instead of the stand-in state dict.  The
+#: full-context test is the only place a *state-building* or *cache-building* precision can be checked,
+#: and on real weights it finds things the stand-in does not: the shipped policy's real-weight
+#: full-context scale is materially worse than its synthetic one, which no 2049-token or synthetic
+#: full-context arm shows.
+REAL_WEIGHTS = "--real-weights" in sys.argv
 
 
 def measure(mesh, policy, geometry) -> dict:
@@ -82,6 +117,7 @@ def measure(mesh, policy, geometry) -> dict:
         H.FULL_LAYER_IDX,
         max_batch=1,
         max_seq_len=context,
+        real_weights=REAL_WEIGHTS,
         decoder_cls=OptimizedDecoder,
         policy=policy,
         decode_geometry=geometry,
@@ -101,6 +137,12 @@ def measure(mesh, policy, geometry) -> dict:
         "kv_cache_dtype": str(lut.tt_layer.kv_cache[0].dtype),
         "paged_k_cache_pcc": H.pcc(ref_keys, keys),
         "paged_v_cache_pcc": H.pcc(ref_values, values),
+        # The *scale* of the cache, not just its correlation.  A uniform shrink of the V cache produces
+        # exactly the signature these runs show - an attention output a few percent small with a cache
+        # PCC still at 0.9999 - because PCC is scale-invariant and cannot see it.  On K a scale error
+        # changes how peaked the softmax is instead, so the two are reported separately.
+        "paged_k_cache_scale": H.scale_ratio(ref_keys, keys),
+        "paged_v_cache_scale": H.scale_ratio(ref_values, values),
         "prefill_tail_pcc": H.pcc(golden, got[:, -TAIL:, :]),
         "prefill_tail_scale": H.scale_ratio(golden, got[:, -TAIL:, :]),
     }
@@ -120,6 +162,7 @@ def main() -> int:
             row = {
                 "sweep": "long_context_precision",
                 "kind": "full_attention",
+                "real_weights": REAL_WEIGHTS,
                 "candidate": label,
                 "policy": policy.name,
                 "sdpa_cores_per_head": geometry.sdpa_cores_per_head,
@@ -137,7 +180,9 @@ def main() -> int:
                 f"decode_pcc {row.get('decode_pcc', float('nan')):.6f} "
                 f"decode_scale {row.get('decode_scale', float('nan')):.6f}  "
                 f"K {row.get('paged_k_cache_pcc', float('nan')):.6f} "
-                f"V {row.get('paged_v_cache_pcc', float('nan')):.6f}"
+                f"V {row.get('paged_v_cache_pcc', float('nan')):.6f}  "
+                f"K_scale {row.get('paged_k_cache_scale', float('nan')):.6f} "
+                f"V_scale {row.get('paged_v_cache_scale', float('nan')):.6f}"
                 + (f"  ERROR {row['error']}" if row.get("error") else ""),
                 flush=True,
             )
