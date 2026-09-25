@@ -649,6 +649,10 @@ class MuseGlimmerModel(LightweightModule):
         self.mesh_device = mesh_device
         self.plan = plan
         self.layers = layers
+        #: Decoder layers whose *output* is captured for the DFlash drafter.  Empty
+        #: unless a caller arms it, so the non-speculative path pays nothing.
+        self._tap_indices: frozenset[int] = frozenset()
+        self._tap_outputs: dict[int, ttnn.Tensor] = {}
         self.embed_weight = embed_weight
         self.embed_norm = embed_norm
         self.final_norm = final_norm
@@ -1186,6 +1190,56 @@ class MuseGlimmerModel(LightweightModule):
                 ttnn.deallocate(zeros)
         self.release_sliding_tails()
 
+    def trim_sliding_tails(self, logical_len: int, padded_len: int) -> None:
+        """Drop the pad positions from retained sliding K/V tails.
+
+        ``prefill_tokens_to_device`` pads a prompt up to a tile, so a prefill of a
+        67-token prompt actually writes K/V for 96 positions and the tails it
+        retains are 96 rows long.  A *continuation* prefill at the logical
+        ``start_pos`` then rejects them, because
+        ``FunctionalDecoder.sliding_kv_tail_len(67)`` is 67::
+
+            ValueError: sliding_kv_tail k must be shaped (1, 1, 67, 128)
+                        for start_pos=67, got (1, 1, 96, 128)
+
+        Nothing in the original bring-up hit this: ``keep_sliding_tails`` exists
+        for *chunked* prefill, whose chunks are tile-aligned, and plain decode
+        starts at ``cur_pos = prompt_len`` and never asks for a tail.  Speculative
+        decoding is the first caller to continue after a padded prompt prefill.
+
+        Exact only while ``padded_len <= sliding_window``: the tail then holds
+        positions ``0..padded_len-1`` in order, so a prefix trim is precisely what
+        an unpadded prefill would have produced.  Past the window the tail holds
+        ``[padded_len - window, padded_len)`` and the range wanted for
+        ``logical_len`` begins earlier than that, so the rows simply are not
+        present - which raises rather than silently approximating.
+        """
+        if not self._sliding_tails or logical_len == padded_len:
+            return
+        window = int(self.config.sliding_window or 0)
+        if window and padded_len > window:
+            raise NotImplementedError(
+                f"cannot trim sliding tails for padded_len={padded_len} > sliding_window={window}: "
+                f"the rows for positions [{logical_len - window}, {padded_len - window}) were never "
+                "retained. Prefill the prompt at a tile-aligned length instead."
+            )
+        trimmed: list[tuple[ttnn.Tensor, ttnn.Tensor] | None] = []
+        for tail in self._sliding_tails:
+            if tail is None:
+                trimmed.append(None)
+                continue
+            kept = []
+            for tensor in tail:
+                shape = tuple(tensor.shape)
+                if int(shape[-2]) == logical_len:
+                    kept.append(tensor)
+                    continue
+                sliced = ttnn.slice(tensor, [0, 0, 0, 0], [shape[0], shape[1], logical_len, shape[3]])
+                ttnn.deallocate(tensor)
+                kept.append(sliced)
+            trimmed.append((kept[0], kept[1]))
+        self._sliding_tails = trimmed
+
     def release_sliding_tails(self) -> None:
         if not self._sliding_tails:
             self._sliding_tails = None
@@ -1409,6 +1463,7 @@ class MuseGlimmerModel(LightweightModule):
                 ttnn.deallocate(tails[position][0])
                 ttnn.deallocate(tails[position][1])
                 tails[position] = None
+            self._capture_tap(layer, out)
             ttnn.deallocate(hidden)
             hidden = out
         self._sliding_tails = next_tails if keep_sliding_tails else None
@@ -1493,9 +1548,59 @@ class MuseGlimmerModel(LightweightModule):
                 page_table=page_table,
                 rope_pos_ids=rope_pos_ids if layer.config.uses_rope else None,
             )
+            self._capture_tap(layer, out)
             ttnn.deallocate(hidden)
             hidden = out
         return hidden
+
+    # ------------------------------------------------------------- DFlash taps
+
+    def arm_hidden_state_taps(self, layer_indices: Sequence[int] | None) -> None:
+        """Capture the *output* of the named decoder layers on subsequent forwards.
+
+        The DFlash drafter is conditioned on the target's hidden states at
+        ``target_layer_ids`` (``[1, 13, 25, 37, 49]`` for this checkpoint).  HF
+        expresses that as ``model_outputs.hidden_states[i + 1]``, i.e. the output
+        of layer ``i`` -- ``hidden_states[0]`` there is the embedding, so the
+        ``+ 1`` is an offset into that list and *not* a layer-index shift.
+
+        Pass ``None`` to disarm.  Indices are true checkpoint layer indices
+        (``layer.config.layer_idx``), which matters because a partially
+        instantiated model's ``self.layers`` is not indexed by them.
+        """
+        self.release_hidden_state_taps()
+        wanted = frozenset(int(i) for i in layer_indices) if layer_indices else frozenset()
+        if wanted:
+            available = {layer.config.layer_idx for layer in self.layers}
+            missing = sorted(wanted - available)
+            if missing:
+                raise ValueError(f"cannot tap layers {missing}: not instantiated in this model")
+        self._tap_indices = wanted
+
+    def _capture_tap(self, layer, out: ttnn.Tensor) -> None:
+        """Clone a tapped layer output; the caller frees it as the next residual."""
+        if not self._tap_indices:
+            return
+        layer_idx = layer.config.layer_idx
+        if layer_idx not in self._tap_indices:
+            return
+        # ``ttnn.clone`` refuses to change layout ("mixed sharded/interleaved layout not
+        # currently supported"), and the decode residual crosses layer boundaries
+        # width-sharded in L1.  Convert first when sharded, clone only when not.
+        if out.is_sharded():
+            self._tap_outputs[layer_idx] = ttnn.sharded_to_interleaved(out, ttnn.DRAM_MEMORY_CONFIG)
+        else:
+            self._tap_outputs[layer_idx] = ttnn.clone(out, memory_config=out.memory_config())
+
+    def take_hidden_state_taps(self) -> dict[int, ttnn.Tensor]:
+        """Hand over the captured tensors; ownership transfers to the caller."""
+        captured, self._tap_outputs = self._tap_outputs, {}
+        return captured
+
+    def release_hidden_state_taps(self) -> None:
+        for tensor in self._tap_outputs.values():
+            ttnn.deallocate(tensor)
+        self._tap_outputs = {}
 
     def decode_logits(self, hidden: ttnn.Tensor) -> ttnn.Tensor:
         """Terminal norm + LM head on the decode boundary layout."""
