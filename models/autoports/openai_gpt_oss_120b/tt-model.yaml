@@ -254,7 +254,7 @@ card:
     | MMLU, generative, 25% of each subject (3,529 questions) | 90.0% | 85.3% |
     | MMMLU, 14 languages, 5% of each (9,842 questions) | 81.3% | 82.2% |
     | HLE, 500 text-only questions, official judge prompt with gpt-oss-120b as judge (published: o3-mini judge) | 14.9% | 13.2% (66/500) |
-    | SWE-bench Verified, first 50 instances by id, mini-swe-agent (published: 500 instances, OpenAI scaffold) | 62.4% | 40.0% (20/50; 23 runs ended without a patch on agent format errors) |
+    | SWE-bench Verified, first 50 instances by id, mini-swe-agent (published: 500 instances, OpenAI scaffold) | 62.4% | 50.0% (25/50; tool-calling scaffold 20/50, the 23 instances it left without a patch re-run with XML text actions: 13 patches, 5 resolved) |
     | IFEval, prompt-level strict ([frozebench run of gpt-oss-120b](https://frozebench.com/runs/openai-mirror%2Fgpt-oss-120b__ifeval__2025-10-20T07-31-55.208086)) | 78.2% | 85.8% (464/541, stderr 1.5) |
     | IFEval, instruction-level strict | not published | 90.2% |
     | IFEval, prompt-level loose / instruction-level loose | not published | 88.9% / 92.2% |
@@ -341,12 +341,21 @@ card:
       are queued, and half-full batches of 16 of 32 sequences produced corrupted
       output. Those runs were submitted in fixed batches of 32 to avoid both; see
       Accuracy.
-    - Tools. The served API has no built-in Python or browser tool, so OpenAI's
-      "with tools" results do not apply. Function calling uses the OpenAI tool
-      format (`tool_parser: openai`). With mini-swe-agent's tool-calling scaffold,
-      23 of 50 SWE-bench Verified runs ended on repeated format errors (a response
-      with empty content and no parsed tool call); that scaffold is not a reliable
-      way to drive this server.
+    - Tools and agent scaffolds. The served API has no built-in Python or
+      browser tool, so OpenAI's "with tools" results do not apply. Function
+      calling uses the OpenAI tool format (`tool_parser: openai`). With
+      mini-swe-agent's tool-calling scaffold, 23 of 50 SWE-bench Verified runs
+      ended on repeated format errors: of 346 rejected responses in 2,904 model
+      calls, 282 were tool calls whose JSON arguments closed the command string
+      with `"]` instead of `"}` (the server passes the model's invalid JSON
+      through verbatim), 49 had no tool call because the command was written in
+      the reasoning channel and the final message was empty, 11 named a tool that
+      does not exist. With the XML text-action scaffold the same 23 instances
+      produced 13 patches; the rejected responses there were mostly several
+      actions in one response (203 of 291) or an empty final message with the
+      action inside the reasoning channel (51). An empty final message ends
+      with `finish_reason: "stop"`, so the final-channel reserve does not
+      recover it.
     - Accuracy against the published numbers. Measured scores are below OpenAI's
       high-effort numbers on GPQA Diamond, AIME 2024 and 2025, MMLU and SWE-bench
       Verified, above them on MMMLU and on IFEval (whose reference is a
