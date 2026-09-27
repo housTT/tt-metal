@@ -225,20 +225,66 @@ card:
 
     ### Accuracy
 
-    Evals run through the OpenAI-compatible chat API against the served model:
-    `reasoning_effort` medium, greedy (`temperature` 0, `do_sample` false), 4,096
-    max output tokens, seed 42, chat template applied. IFEval is the full 541-prompt
-    set at 32 concurrent requests; GPQA Diamond, AIME 2025 and MMLU are subsets run
-    at one request at a time.
+    Evals run through the OpenAI-compatible chat API against the served model with
+    the settings that score best on gpt-oss: `reasoning_effort` high, one sample per
+    item, `temperature` 1.0, `top_p` 1.0, `top_k` 32 (top-k 32 keeps sampling on the
+    device sampler), chat template applied. Output budgets: 65,536 tokens for GPQA
+    Diamond and AIME, 32,768 for HLE, 8,192 for MMLU and MMMLU; the final-channel
+    reserve returns an answer when the reasoning reaches the budget. IFEval uses the
+    release policy: `reasoning_effort` medium, greedy, 4,096 tokens, full set at 32
+    concurrent requests. Published numbers are the
+    [OpenAI model card](https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf)
+    at reasoning effort high, no tools, unless noted.
 
     | eval | published | measured on P150x4 |
     | --- | ---: | ---: |
+    | GPQA Diamond, 198 questions, CoT zero-shot, boxed-letter extraction | 80.1% | 78.3% (155/198) |
+    | AIME 2025, 30 problems | 92.5% | 90.0% (27/30) |
+    | AIME 2024, 30 problems | 95.8% | 90.0% (27/30) |
+    | MMLU, generative, 25% of each subject (3,529 questions) | 90.0% | 85.3% |
+    | MMMLU, 14 languages, 5% of each (9,842 questions) | 81.3% | 82.2% |
+    | HLE, 500 text-only questions, official judge prompt with gpt-oss-120b as judge (published: o3-mini judge) | 14.9% | 13.2% (66/500) |
+    | SWE-bench Verified, first 50 instances by id, mini-swe-agent (published: 500 instances, OpenAI scaffold) | 62.4% | 40.0% (20/50; 23 runs ended without a patch on agent format errors) |
     | IFEval, prompt-level strict ([frozebench run of gpt-oss-120b](https://frozebench.com/runs/openai-mirror%2Fgpt-oss-120b__ifeval__2025-10-20T07-31-55.208086)) | 78.2% | 85.8% (464/541, stderr 1.5) |
     | IFEval, instruction-level strict | not published | 90.2% |
     | IFEval, prompt-level loose / instruction-level loose | not published | 88.9% / 92.2% |
-    | GPQA Diamond, CoT zero-shot ([OpenAI model card](https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf)) | 80.1% | 100% on a 7-question subset |
-    | AIME 2025 ([OpenAI model card](https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf)) | 92.5% | 86.7% on 15 problems |
-    | MMLU, generative ([OpenAI model card](https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf)) | 85.9% | 84.7% on a 15% subset |
+
+    Sampling at concurrency above 1 does not reproduce token for token, so
+    differences of a point or two between runs of the same eval are noise. The
+    full comparison, with per-language MMMLU and per-category HLE results, is in
+    the evals page linked from the progress report.
+
+    #### tt-inference-server release evals (full sets, 2026-09-21/22)
+
+    The same accuracy workflow tt-inference-server uses to certify a release
+    (`run.py --model openai/gpt-oss-120b --tt-device p300x2 --workflow evals`,
+    its `EVAL_CONFIGS` entry for gpt-oss-120b, lm-evaluation-harness
+    `local-chat-completions`), run against this package on a QuietBox 2 (2x p300c,
+    4 chips) and compared with the P300X2 build released in tt-inference-server
+    v0.17.0 (tt-metal `8c48a10`, vLLM `f52987a`). Sampling is the harness's:
+    `temperature` 1.0, seed 42; AIME 2025 and GPQA Diamond at `reasoning_effort`
+    high with 122,880 max output tokens, MMLU at low with 65,536. Every question is
+    scored once, exactly as the harness scores it.
+
+    | eval (full set) | this package | released v0.17.0 build | published |
+    | --- | ---: | ---: | ---: |
+    | AIME 2025, 30 problems (`exact_match`) | 76.67% (23/30) | 76.67% | 92.5% |
+    | GPQA Diamond, CoT zero-shot, 198 questions (`exact_match`, flexible-extract) | 71.72% (142/198) | 71.21% | 80.1% |
+    | MMLU, generative, 14,042 questions (`exact_match`, get_response) | 86.06% (12,084/14,042) | 85.89% | 85.9% |
+
+    Released-build numbers are the full-set runs recorded in
+    [tt-inference-server issue #3105](https://github.com/tenstorrent/tt-inference-server/issues/3105);
+    published numbers are the OpenAI model card (no tools). On both builds the
+    AIME and GPQA misses are mostly answers left empty because the reasoning
+    channel used the whole output budget (5/30 and 28/198 here; 5/30 and 10/198 on
+    the released build). AIME ran at 32 concurrent requests in one harness
+    invocation; MMLU at 32 in one invocation (no empty or garbled answers); GPQA
+    was submitted as seven fixed batches of 32 questions at 32 concurrent requests
+    so that the plugin's device-state-slot allocation failure (`no free device
+    state slot ... capacity=32`, hit when requests that reach the token cap finish
+    in the same step while replacements are queued) could not interrupt the run.
+    Half-full batches (16 of 32 sequences) produced corrupted output on this
+    package and were not used for any reported number.
 
     Prompts of 512+ tokens use the indexed expert prefill: each expert's routed
     tokens are gathered into slabs and run through compact indexed sparse
