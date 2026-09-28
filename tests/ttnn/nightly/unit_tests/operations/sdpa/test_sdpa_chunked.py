@@ -589,3 +589,165 @@ def test_chunked_sdpa_geometry_override_rejects_elems_per_block_mismatch(device,
                 num_kv_heads=1,
             ),
         )
+
+
+def _reference_causal_sink_window(Q, K_rep, V_rep, S, sliding_window):
+    """Causal SDPA over the whole sequence with an optional per-head sink and sliding window.
+
+    Keys visible to query position p are (p - sliding_window, p]; the sink is one extra
+    logit per head that takes softmax mass but no value (GPT-OSS attention).
+    """
+    import math
+
+    b, nh, s, d = Q.shape
+    scale = 1.0 / math.sqrt(d)
+    scores = torch.matmul(Q, K_rep.transpose(-2, -1)) * scale
+    pos = torch.arange(s)
+    visible = pos[None, :] <= pos[:, None]
+    if sliding_window:
+        visible &= pos[None, :] > (pos[:, None] - sliding_window)
+    scores = scores.masked_fill(~visible, torch.finfo(torch.float32).min)
+    if S is not None:
+        sink = (S.reshape(1, nh, 1, 1) * scale).expand(b, nh, s, 1)
+        scores = torch.cat([scores, sink], dim=-1)
+    probs = torch.softmax(scores, dim=-1)
+    if S is not None:
+        probs = probs[..., :-1]
+    return torch.matmul(probs, V_rep)
+
+
+def run_test_chunked_sdpa_sink_window(
+    device,
+    *,
+    b,
+    nh,
+    nkv,
+    s,
+    d,
+    q_chunk_size,
+    k_chunk_size,
+    prefill_chunk_size,
+    page_block_size,
+    sliding_window,
+    use_sink,
+    flexible,
+    fp32_dest_acc_en,
+    pcc_threshold=0.99,
+):
+    program_config = ttnn.SDPAProgramConfig(
+        compute_with_storage_grid_size=device.compute_with_storage_grid_size(),
+        q_chunk_size=q_chunk_size,
+        k_chunk_size=k_chunk_size,
+        exp_approx_mode=False,
+    )
+    compute_kernel_config = ttnn.WormholeComputeKernelConfig(
+        math_fidelity=ttnn.MathFidelity.HiFi4,
+        math_approx_mode=False,
+        fp32_dest_acc_en=fp32_dest_acc_en,
+        packer_l1_acc=False,
+    )
+    torch.manual_seed(1234)
+    Q = fa_rand(b, nh, s, d)
+    K = fa_rand(b, nkv, s, d)
+    V = fa_rand(b, nkv, s, d)
+    S = (torch.rand(1, nh, 1, 1) * 4.0) if use_sink else None
+    K_rep = torch.cat([K[:, i : i + 1].repeat(1, nh // nkv, 1, 1) for i in range(nkv)], dim=1)
+    V_rep = torch.cat([V[:, i : i + 1].repeat(1, nh // nkv, 1, 1) for i in range(nkv)], dim=1)
+    gt = _reference_causal_sink_window(Q, K_rep, V_rep, S, sliding_window)
+
+    assert s % prefill_chunk_size == 0 and prefill_chunk_size % page_block_size == 0
+    blocks_per_seq = s // page_block_size
+    max_num_blocks = b * blocks_per_seq
+    permutation = torch.randperm(max_num_blocks)
+    page_table = torch.argsort(permutation).reshape(b, blocks_per_seq)
+
+    def page_cache(cache):
+        paged = cache.reshape(b, nkv, blocks_per_seq, page_block_size, d).transpose(1, 2)
+        return paged.reshape(max_num_blocks, nkv, page_block_size, d)[permutation]
+
+    tt_paged_K = ttnn.Tensor(page_cache(K), ttnn.bfloat8_b).to(ttnn.TILE_LAYOUT).to(device)
+    tt_paged_V = ttnn.Tensor(page_cache(V), ttnn.bfloat8_b).to(ttnn.TILE_LAYOUT).to(device)
+    page_table_tt = ttnn.Tensor(page_table.to(torch.int32), ttnn.int32).to(device)
+    tt_S = (
+        ttnn.from_torch(S, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device, pad_value=0.0)
+        if use_sink
+        else None
+    )
+    extra = {"sliding_window_size": sliding_window} if sliding_window else {}
+    if tt_S is not None:
+        extra["attention_sink"] = tt_S
+
+    worst = 1.0
+    for chunk_idx in range(s // prefill_chunk_size):
+        start = chunk_idx * prefill_chunk_size
+        Q_chunk = Q[:, :, start : start + prefill_chunk_size]
+        tt_Q = ttnn.Tensor(Q_chunk, ttnn.bfloat16).to(ttnn.TILE_LAYOUT).to(device)
+        if flexible:
+            start_tensor = ttnn.Tensor(torch.tensor([start], dtype=torch.int32), ttnn.int32).to(device)
+            out = ttnn.transformer.chunked_scaled_dot_product_attention(
+                tt_Q,
+                tt_paged_K,
+                tt_paged_V,
+                page_table_tt,
+                chunk_start_idx_tensor=start_tensor,
+                program_config=program_config,
+                compute_kernel_config=compute_kernel_config,
+                **extra,
+            )
+        else:
+            out = ttnn.transformer.chunked_scaled_dot_product_attention(
+                tt_Q,
+                tt_paged_K,
+                tt_paged_V,
+                page_table_tt,
+                start,
+                program_config=program_config,
+                compute_kernel_config=compute_kernel_config,
+                **extra,
+            )
+        out = out.cpu().to(ttnn.ROW_MAJOR_LAYOUT).to_torch()
+        gt_chunk = gt[:, :, start : start + prefill_chunk_size]
+        passed, pcc = comp_pcc(gt_chunk, out, pcc_threshold)
+        logger.info(
+            f"chunked sdpa sink={use_sink} window={sliding_window} q{q_chunk_size}/k{k_chunk_size} "
+            f"fp32_acc={fp32_dest_acc_en} flexible={flexible} chunk {chunk_idx} start={start}: {pcc}"
+        )
+        worst = min(worst, float(str(pcc).split()[-1]) if isinstance(pcc, str) else worst)
+        assert passed, f"chunk {chunk_idx} (start {start}) failed PCC: {pcc}"
+
+
+@pytest.mark.skipif(is_watcher_enabled(), reason="Kernel OOM with watcher enabled")
+@pytest.mark.parametrize(
+    "q_chunk_size, k_chunk_size, sliding_window, use_sink",
+    [
+        (256, 512, None, True),
+        (128, 128, 128, True),
+        (128, 128, 128, False),
+        (128, 128, None, True),
+    ],
+    ids=["full_q256k512_sink", "sliding128_q128k128_sink", "sliding128_q128k128_nosink", "full_q128k128_sink"],
+)
+@pytest.mark.parametrize("fp32_dest_acc_en", [False, True], ids=["streaming", "standard"])
+@pytest.mark.parametrize("flexible", [True, False], ids=["flexible", "legacy"])
+def test_chunked_sdpa_sink_and_sliding_window(
+    device, q_chunk_size, k_chunk_size, sliding_window, use_sink, fp32_dest_acc_en, flexible
+):
+    """GPT-OSS geometry per chip (16 Q heads, 2 KV heads, head_dim 64): the chunked op with the
+    learned attention sink and, on the sliding layers, a 128-token window over absolute positions.
+    Chunk starts are multiples of both chunk sizes (512 for the full-layer configuration)."""
+    run_test_chunked_sdpa_sink_window(
+        device,
+        b=1,
+        nh=16,
+        nkv=2,
+        s=4096,
+        d=64,
+        q_chunk_size=q_chunk_size,
+        k_chunk_size=k_chunk_size,
+        prefill_chunk_size=1024,
+        page_block_size=64,
+        sliding_window=sliding_window,
+        use_sink=use_sink,
+        flexible=flexible,
+        fp32_dest_acc_en=fp32_dest_acc_en,
+    )
