@@ -127,6 +127,7 @@ class Attention:
         is_decode=True,
         user_id=0,
         batch_size=1,
+        fill_seq_lens=None,
     ):
         """
         Forward pass - automatically dispatches to decode or prefill.
@@ -190,4 +191,5 @@ class Attention:
                 batch_size=batch_size,
                 projection_input_dtype=self.prefill_projection_input_dtype,
                 projection_compute_kernel_config=self.prefill_projection_compute_kernel_config,
+                fill_seq_lens=fill_seq_lens,
             )

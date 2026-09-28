@@ -353,6 +353,7 @@ class Model:
         batch_size=1,
         skip_lm_head=False,
         page_tables_per_layer=None,
+        fill_seq_lens=None,
     ):
         """
         Shared forward pass through decoder layers and final projection.
@@ -397,6 +398,7 @@ class Model:
                 is_decode=is_decode,
                 user_id=user_id,
                 batch_size=batch_size,
+                **({"fill_seq_lens": fill_seq_lens} if fill_seq_lens is not None else {}),
             )
         logits = hidden_states
 

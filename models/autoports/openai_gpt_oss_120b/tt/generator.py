@@ -468,17 +468,21 @@ class Generator(_ReadinessGenerator):
                 raise ValueError(f"empty_slots has {len(slots)} entries for batch {tokens.shape[0]}")
             path = "device_sampling"
             new_variants = self._prepare_prefill_variants(prompt_lens, path=path)
-            result = self._inner.prefill_forward_text(
-                tokens,
-                page_table=page_table_host,
-                kv_cache=self._outer_cache(kv_cache),
-                prompt_lens=[int(length) for length in prompt_lens],
-                empty_slots=slots,
-                enable_trace=enable_trace,
-                sampling_params=sampling_params,
-                warmup_prefill=False,
-                page_tables_per_layer=page_tables_per_layer,
-            )
+            self.model._prefill_row_lengths = [int(length) for length in prompt_lens]
+            try:
+                result = self._inner.prefill_forward_text(
+                    tokens,
+                    page_table=page_table_host,
+                    kv_cache=self._outer_cache(kv_cache),
+                    prompt_lens=[int(length) for length in prompt_lens],
+                    empty_slots=slots,
+                    enable_trace=enable_trace,
+                    sampling_params=sampling_params,
+                    warmup_prefill=False,
+                    page_tables_per_layer=page_tables_per_layer,
+                )
+            finally:
+                self.model._prefill_row_lengths = None
             self._dirty_cache = True
             self._inner.mode = None
             self._record_compiled_prefill_variants(new_variants)

@@ -27,6 +27,7 @@ from models.autoports.openai_gpt_oss_120b.tt.optimized_decoder import (
     OptimizedDecoderPolicy,
     _DecodeShardedRMSNorm,
 )
+from models.autoports.openai_gpt_oss_120b.tt.sliding_ring import ring_modulo_for_layer
 from models.common.lightweightmodule import LightweightModule
 from models.demos.gpt_oss.config import MeshConfig, ModeConfig
 from models.demos.gpt_oss.tt.attention import Attention, AttentionConfig
@@ -707,6 +708,7 @@ class _PhysicalHiddenCollectiveAttention(Attention):
         is_decode=True,
         user_id=0,
         batch_size=1,
+        fill_seq_lens=None,
     ):
         if not is_decode:
             return super().__call__(
@@ -718,6 +720,7 @@ class _PhysicalHiddenCollectiveAttention(Attention):
                 is_decode=False,
                 user_id=user_id,
                 batch_size=batch_size,
+                fill_seq_lens=fill_seq_lens,
             )
         cache = kv_cache if kv_cache is not None else self.kv_cache
         transformation_mat = self.transformation_mats["decode"] if self.transformation_mats else None
@@ -824,17 +827,24 @@ class _PhysicalHiddenCollectiveAttention(Attention):
         k_cache, v_cache = kv_cache
         tt_k = ttnn.to_memory_config(tt_k, self.kv_mem_cfg)
         tt_v = ttnn.to_memory_config(tt_v, self.kv_mem_cfg)
+        ring_kwargs = (
+            {"cache_position_modulo": self.config.cache_position_modulo}
+            if self.config.cache_position_modulo is not None and page_table is not None
+            else {}
+        )
         ttnn.experimental.paged_update_cache(
             k_cache,
             tt_k,
             update_idxs_tensor=position_idx,
             page_table=page_table,
+            **ring_kwargs,
         )
         ttnn.experimental.paged_update_cache(
             v_cache,
             tt_v,
             update_idxs_tensor=position_idx,
             page_table=page_table,
+            **ring_kwargs,
         )
         tt_k.deallocate(True)
         tt_v.deallocate(True)
@@ -862,6 +872,7 @@ class _PhysicalHiddenCollectiveAttention(Attention):
                 program_config=self.program_config.get_decode_sdpa_config(self.mesh_device),
                 compute_kernel_config=self.program_config.get_compute_kernel_config(),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                **ring_kwargs,
             )
         else:
             tt_sdpa_tensor = ttnn.transformer.scaled_dot_product_attention_decode(
@@ -3126,6 +3137,7 @@ class MultichipDecoder(LightweightModule):
             max_seq_len=max_context_length,
             max_local_batch_size=max_batch_size,
             users_row_sharded=False,
+            cache_position_modulo=ring_modulo_for_layer(layer_type),
         )
         rope_scaling_config = getattr(hf_config, "rope_scaling", None)
         rope_scaling = rope_scaling_model_factory(rope_scaling_config) if rope_scaling_config else None

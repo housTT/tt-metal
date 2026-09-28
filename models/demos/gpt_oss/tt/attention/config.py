@@ -20,6 +20,7 @@ class AttentionConfig:
     users_row_sharded: bool = False
     sliding_window: int | None = None
     scaling: float | None = None  # Computed if None
+    cache_position_modulo: int | None = None
 
     def __post_init__(self):
         """Compute scaling factor if not provided"""

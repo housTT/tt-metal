@@ -10,9 +10,18 @@ import torch
 
 from models.autoports.openai_gpt_oss_120b.tt.generator import Generator
 from models.autoports.openai_gpt_oss_120b.tt.generator_vllm import (
+    ENV_KV_POOL_BLOCKS,
+    FULL_CONTEXT_BLOCKS,
+    KV_POOL_BLOCKS_DEFAULT,
+    PAGE_SIZE,
+    SLIDING_RING_BLOCKS,
+    SLIDING_RING_TOKENS,
     TTGptOssForCausalLM,
     _sampling_key,
     _sampling_params_to_host_values,
+    kv_pool_blocks,
+    ring_page_table,
+    sliding_layer_indices,
 )
 from models.autoports.openai_gpt_oss_120b.tt.model import (
     HF_CONTEXT_LENGTH,
@@ -151,7 +160,7 @@ def test_capacity_contract_requires_p150x4_and_full_context(expect_error):
         "max_model_len": HF_CONTEXT_LENGTH,
         "max_num_seqs": 32,
     }
-    assert TTGptOssForCausalLM.get_max_tokens_all_users(num_devices=4, **kwargs) == 2 * HF_CONTEXT_LENGTH
+    assert TTGptOssForCausalLM.get_max_tokens_all_users(num_devices=4, **kwargs) == (KV_POOL_BLOCKS_DEFAULT - 32) * 64
     for num_devices in (1, 2):
         with expect_error(FullModelCapacityError, "P150x4"):
             TTGptOssForCausalLM.get_max_tokens_all_users(num_devices=num_devices, **kwargs)
@@ -165,6 +174,139 @@ def test_capacity_contract_requires_p150x4_and_full_context(expect_error):
             num_devices=4,
             **{**kwargs, "max_num_seqs": 33},
         )
+
+
+def test_kv_pool_blocks_knob_lands_on_the_requested_pool(monkeypatch, expect_error):
+    assert kv_pool_blocks(32) == KV_POOL_BLOCKS_DEFAULT
+    monkeypatch.setenv(ENV_KV_POOL_BLOCKS, "8066")
+    assert kv_pool_blocks(32) == 8066
+    assert (
+        TTGptOssForCausalLM.get_max_tokens_all_users(
+            model_name="openai/gpt-oss-120b",
+            num_devices=4,
+            tt_data_parallel=1,
+            max_model_len=HF_CONTEXT_LENGTH,
+            max_num_seqs=32,
+        )
+        == (8066 - 32) * PAGE_SIZE
+    )
+    monkeypatch.setenv(ENV_KV_POOL_BLOCKS, str(FULL_CONTEXT_BLOCKS + 31))
+    with expect_error(ValueError, "outside"):
+        kv_pool_blocks(32)
+    monkeypatch.setenv(ENV_KV_POOL_BLOCKS, str(32 * (FULL_CONTEXT_BLOCKS + 1) + 1))
+    with expect_error(ValueError, "outside"):
+        kv_pool_blocks(32)
+
+
+def test_kv_cache_spec_names_only_the_full_attention_layers():
+    from vllm.v1.kv_cache_interface import FullAttentionSpec
+
+    hf_config = SimpleNamespace(
+        layer_types=["sliding_attention", "full_attention"] * 3,
+        sliding_window=128,
+        head_dim=64,
+    )
+    model_config = SimpleNamespace(
+        hf_config=hf_config,
+        dtype=torch.bfloat16,
+        get_num_kv_heads=lambda parallel_config: 2,
+        get_head_size=lambda: 64,
+    )
+    vllm_config = SimpleNamespace(
+        model_config=model_config,
+        cache_config=SimpleNamespace(block_size=64, cache_dtype="auto"),
+        parallel_config=None,
+    )
+    spec = TTGptOssForCausalLM.get_kv_cache_spec(vllm_config)
+    assert sorted(spec) == [f"model.layers.{i}.self_attn" for i in (1, 3, 5)]
+    assert all(isinstance(entry, FullAttentionSpec) for entry in spec.values())
+    assert TTGptOssForCausalLM._HYBRID_KV_CACHE_GROUPS_ENABLED is False
+    assert sliding_layer_indices(hf_config, 6) == [0, 2, 4]
+    assert sliding_layer_indices(SimpleNamespace(), 5) == [0, 2, 4]
+
+
+def test_ring_page_table_is_cyclic_and_masks_the_padded_tail():
+    table = ring_page_table([3, 0], 10, valid_blocks=[10, 2])
+    assert SLIDING_RING_BLOCKS == 4 and SLIDING_RING_TOKENS == 256
+    assert table[0].tolist() == [12, 13, 14, 15, 12, 13, 14, 15, 12, 13]
+    assert table[1].tolist() == [0, 1, -1, -1, -1, -1, -1, -1, -1, -1]
+    assert ring_page_table([1], 3).tolist() == [[4, 5, 6]]
+    assert ring_page_table([1], 3, base=4640).tolist() == [[4644, 4645, 4646]]
+
+
+def test_ring_tables_sit_above_the_pool_after_allocation():
+    adapter = _adapter(n_layers=2)
+    adapter._ring_block_base = 4640
+    tables = adapter._normalise_page_tables(None, torch.zeros(2, 6, dtype=torch.int32))
+    assert tables[0][0].tolist() == [4640, 4641, 4642, 4643, 4640, 4641]
+    assert tables[0][1].tolist() == [4644, 4645, 4646, 4647, 4644, 4645]
+    assert tables[1].shape == (2, 6) and int(tables[1].max()) == 0
+
+
+def test_decode_routes_ring_tables_for_sliding_layers_by_slot():
+    adapter = _adapter(n_layers=4)
+    page_table = torch.arange(64, dtype=torch.int32).reshape(4, 16) + 100
+    adapter.decode_forward(
+        tokens=torch.zeros(4, 1, dtype=torch.int32),
+        start_pos=torch.tensor([65, 97, 12, 3]),
+        page_table=page_table,
+        page_tables_per_layer=None,
+        kv_cache=object(),
+        sampling_params=_greedy(4),
+        reset_batch=True,
+        enable_trace=True,
+        read_from_device=False,
+    )
+    tables = adapter.model.page_table_updates[-1]
+    assert torch.equal(tables[1], page_table) and torch.equal(tables[3], page_table)
+    expected = ring_page_table([0, 1, 2, 3], 16)
+    assert torch.equal(tables[0], expected) and torch.equal(tables[2], expected)
+    assert tables[0].shape == page_table.shape
+
+
+def test_slot_remap_moves_ring_ownership_and_refreshes_tables(expect_error):
+    adapter = _adapter(n_layers=2)
+    page_table = torch.zeros(32, 8, dtype=torch.int32)
+    common = {
+        "tokens": torch.zeros(32, 1, dtype=torch.int32),
+        "start_pos": torch.tensor([5] * 32),
+        "page_table": page_table,
+        "kv_cache": object(),
+        "sampling_params": _greedy(32),
+        "enable_trace": True,
+        "read_from_device": False,
+        "page_table_state_id": 7,
+    }
+    adapter.decode_forward(reset_batch=True, **common)
+    assert adapter.serving_counters["page_table_refreshes"] == 1
+    adapter.decode_forward(reset_batch=False, **common)
+    assert adapter.serving_counters["page_table_reuses"] == 1
+    remap = torch.tensor([3, 0, 1, 2] + list(range(4, 32)), dtype=torch.int32)
+    adapter.decode_forward(reset_batch=True, slot_remap=remap, **common)
+    assert adapter._ring_of_slot[:4] == [3, 0, 1, 2]
+    assert adapter.serving_counters["page_table_refreshes"] == 2
+    assert adapter.model.page_table_updates[-1][0][:4, :4].tolist() == ring_page_table([3, 0, 1, 2], 4).tolist()
+    with expect_error(ValueError, "permutation"):
+        adapter._apply_ring_slot_remap(torch.tensor([0, 0] + list(range(2, 32))))
+
+
+def test_prefill_ring_tables_follow_empty_slots_and_prompt_lengths():
+    adapter = _adapter(n_layers=2)
+    page_table = torch.arange(32, dtype=torch.int32).reshape(2, 16) + 500
+    adapter.prefill_forward(
+        tokens=torch.zeros(2, 300, dtype=torch.int32),
+        page_table=page_table,
+        kv_cache=object(),
+        prompt_lens=[300, 70],
+        page_tables_per_layer=None,
+        sampling_params=_greedy(2),
+        empty_slots=[7, 2],
+    )
+    tables = adapter.generator.prefill_calls[-1][1]["page_tables_per_layer"]
+    assert torch.equal(tables[1], page_table)
+    assert tables[0].tolist() == ring_page_table([7, 2], 16, valid_blocks=[5, 2]).tolist()
+    assert tables[0][0, :6].tolist() == [28, 29, 30, 31, 28, -1]
+    assert tables[0][1, :3].tolist() == [8, 9, -1]
 
 
 def test_device_sampling_capability_declares_exact_top_k_limit():
@@ -279,7 +421,7 @@ def test_nonaligned_prefill_delegates_to_canonical_generator():
     assert call["prompt_lens"] == [65, 97]
     assert call["empty_slots"] == [3, 7]
     assert call["sampling_params"] == _greedy()
-    assert call["page_tables_per_layer"][0] is page_table
+    assert torch.equal(call["page_tables_per_layer"][0], ring_page_table([3, 7], 2048, valid_blocks=[2, 2]))
     assert call["page_tables_per_layer"][1] is page_table
     assert call["enable_trace"] is False
     assert adapter.serving_counters["prefill_calls"] == 1
@@ -404,6 +546,10 @@ def test_steady_decode_reuses_sampling_and_page_table_state():
     assert remapped["reset_batch"] is False
     assert remapped["force_host_tokens"] is False
     assert remapped["reuse_sampling_state"] is True
+    # The remap moved the sliding-window rings with their requests, which is a
+    # page-table refresh of the ring layers even though vLLM's tables are unchanged.
+    assert adapter._ring_of_slot[:2] == [0, 1]
+    assert len(adapter.model.page_table_updates) == 2
 
     changed_tables = [tables[0], tables[1].clone()]
     changed_tables[1][0, 0] = 3
@@ -417,7 +563,7 @@ def test_steady_decode_reuses_sampling_and_page_table_state():
         enable_trace=True,
         read_from_device=False,
     )
-    assert len(adapter.model.page_table_updates) == 2
+    assert len(adapter.model.page_table_updates) == 3
 
 
 def test_steady_decode_state_ids_skip_sampling_materialization(monkeypatch):
@@ -476,8 +622,9 @@ def test_repeated_layer_page_tables_are_compared_and_cloned_once_per_group(monke
         reset_batch=True,
         **common,
     )
-    assert adapter._last_page_tables[0] is adapter._last_page_tables[1]
-    assert adapter._last_page_tables[2] is adapter._last_page_tables[3]
+    assert adapter._last_page_tables[0] is adapter._last_page_tables[2]
+    assert torch.equal(adapter._last_page_tables[1], first)
+    assert torch.equal(adapter._last_page_tables[3], second)
 
     equal_calls = 0
     original_equal = torch.equal
@@ -497,7 +644,7 @@ def test_repeated_layer_page_tables_are_compared_and_cloned_once_per_group(monke
         **{key: value for key, value in common.items() if key != "page_table"},
     )
 
-    assert equal_calls == 2
+    assert equal_calls == 3
     assert adapter.serving_counters["page_table_reuses"] == 1
 
 
@@ -976,10 +1123,11 @@ def test_decode_bucket_activation_toggles_every_decode_norm():
     assert all(layer.decoder.input_layernorm.enable_decode_sharding for layer in model.layers)
     assert all(layer.decoder.post_attention_layernorm.enable_decode_sharding for layer in model.layers)
 
+    model.norm.enable_decode_sharding = False
     Model.activate_decode_batch_size(model, 32)
-    assert not model.norm.enable_decode_sharding
-    assert all(not layer.decoder.input_layernorm.enable_decode_sharding for layer in model.layers)
-    assert all(not layer.decoder.post_attention_layernorm.enable_decode_sharding for layer in model.layers)
+    assert model.norm.enable_decode_sharding
+    assert all(layer.decoder.input_layernorm.enable_decode_sharding for layer in model.layers)
+    assert all(layer.decoder.post_attention_layernorm.enable_decode_sharding for layer in model.layers)
 
 
 def test_decode_trace_warmup_excludes_the_duplicate_host_model_trace():

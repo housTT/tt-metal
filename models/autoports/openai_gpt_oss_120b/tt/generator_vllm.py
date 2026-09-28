@@ -38,11 +38,20 @@ from models.autoports.openai_gpt_oss_120b.tt.model import (
     decode_trace_buckets,
 )
 from models.autoports.openai_gpt_oss_120b.tt.precision import dtype_name
+from models.autoports.openai_gpt_oss_120b.tt.sliding_ring import (
+    PAGE_SIZE,
+    SLIDING_RING_BLOCKS,
+    SLIDING_RING_TOKENS,
+    sliding_ring_enabled,
+)
 from models.demos.gpt_oss.utils.general_utils import get_cache_file_name
 
-PAGE_SIZE = 64
-SCHEDULER_KV_GROUPS = 2
 MAX_CONCURRENT_SEQS = 32
+FULL_CONTEXT_BLOCKS = math.ceil(HF_CONTEXT_LENGTH / PAGE_SIZE)
+KV_POOL_BLOCKS_DEFAULT = 4640
+ENV_KV_POOL_BLOCKS = "GPT_OSS_120B_KV_POOL_BLOCKS"
+SLIDING_RING_ENABLED = sliding_ring_enabled()
+LEGACY_SCHEDULER_KV_GROUPS = 2
 ENV_REDUCED_LAYERS = "GPT_OSS_120B_VLLM_NUM_LAYERS"
 _NOT_THE_TT_PATH = (
     "vLLM uses initialize_vllm_model(), prefill_forward(), and decode_forward() "
@@ -123,10 +132,61 @@ def _all_equal(value, expected) -> bool:
     return value == expected
 
 
+def kv_pool_blocks(max_num_seqs: int) -> int:
+    """Blocks of the vLLM-managed pool that backs the 18 full-attention layers."""
+
+    raw = os.environ.get(ENV_KV_POOL_BLOCKS, "").strip()
+    blocks = int(raw) if raw else KV_POOL_BLOCKS_DEFAULT
+    minimum = FULL_CONTEXT_BLOCKS + int(max_num_seqs)
+    maximum = int(max_num_seqs) * (FULL_CONTEXT_BLOCKS + 1)
+    if not minimum <= blocks <= maximum:
+        raise ValueError(
+            f"{ENV_KV_POOL_BLOCKS}={blocks} is outside [{minimum}, {maximum}]: the pool must hold one "
+            f"{HF_CONTEXT_LENGTH}-token request plus one output block per sequence, and more than "
+            f"{max_num_seqs} full-context requests can never be admitted"
+        )
+    return blocks
+
+
+def sliding_layer_indices(hf_config, n_layers: int) -> list[int]:
+    text_config = getattr(hf_config, "text_config", hf_config)
+    layer_types = list(getattr(text_config, "layer_types", None) or [])
+    if not layer_types:
+        return [layer_idx for layer_idx in range(int(n_layers)) if layer_idx % 2 == 0]
+    return [layer_idx for layer_idx, kind in enumerate(layer_types[: int(n_layers)]) if kind == "sliding_attention"]
+
+
+def ring_page_table(rings, columns: int, valid_blocks=None, base: int = 0) -> torch.Tensor:
+    """Cyclic page table over each row's ring: column c maps to block base + ring*W + c mod W.
+
+    Written through the ordinary paged-cache kernels, position p lands in ring
+    slot p mod SLIDING_RING_TOKENS, and decode attention reads the 128-token
+    window through the same mapping. Columns at or beyond ``valid_blocks`` are
+    -1, which the fill kernel skips, so a padded prefill tail never lands in
+    the ring. ``base`` is the first ring block: the rings sit above the
+    vLLM-managed pool inside the paired full-attention layer's buffer, so the
+    table keeps its full column count (the paged kernels require fewer columns
+    than the buffer has blocks) while vLLM never hands out a ring block.
+    """
+
+    rows = len(rings)
+    ring_base = torch.tensor([int(ring) for ring in rings], dtype=torch.int32).reshape(rows, 1) * SLIDING_RING_BLOCKS
+    offsets = (torch.arange(int(columns), dtype=torch.int32) % SLIDING_RING_BLOCKS).reshape(1, int(columns))
+    table = int(base) + ring_base + offsets
+    if valid_blocks is not None:
+        limit = torch.tensor([int(blocks) for blocks in valid_blocks], dtype=torch.int32).reshape(rows, 1)
+        keep = torch.arange(int(columns), dtype=torch.int32).reshape(1, int(columns)) < limit
+        table = torch.where(keep, table, torch.full_like(table, -1))
+    return table
+
+
 class TTGptOssForCausalLM:
     """vLLM's TT model surface backed by the completed full-model generator."""
 
-    _HYBRID_KV_CACHE_GROUPS_ENABLED = True
+    # With the sliding rings on, only the full-attention layers are a vLLM KV
+    # group. GPT_OSS_120B_SLIDING_RING=0 restores the two-group layout (every
+    # sliding layer paged at full length) for A/B checks.
+    _HYBRID_KV_CACHE_GROUPS_ENABLED = not SLIDING_RING_ENABLED
     # Both widths are prepared during warmup. Advertising them lets the shared
     # runner keep singleton host-sampling requests at B1 instead of padding an
     # exact full-vocabulary fallback to the serving-width B32 eager graph.
@@ -176,6 +236,12 @@ class TTGptOssForCausalLM:
         self._device_trace_recapture_requires_reset = False
         self._cache_tensor_indices: list[int] = []
         self._cache_shapes: list[tuple[int, ...]] = []
+        self._sliding_layers: list[int] = (
+            sliding_layer_indices(hf_config, self.model.n_layers) if SLIDING_RING_ENABLED else []
+        )
+        self._ring_of_slot: list[int] = list(range(self.max_batch_size))
+        self._ring_block_base = 0
+        self._ring_tables_dirty = False
         self.serving_counters = {
             "prefill_calls": 0,
             "decode_calls": 0,
@@ -227,16 +293,19 @@ class TTGptOssForCausalLM:
                 f"GPT-OSS 120B vLLM serving supports 1..{MAX_CONCURRENT_SEQS} concurrent sequences; "
                 f"got max_num_seqs={max_num_seqs}"
             )
-        # vLLM's hybrid scheduler charges a request once for each attention
-        # group. GPT-OSS alternates one sliding and one full-attention group,
-        # so the shared TT pool must advertise two context-length token shares
-        # to admit one request at the public context limit. This sizes the
-        # scheduler pool; it does not change served max_model_len.
-        return SCHEDULER_KV_GROUPS * HF_CONTEXT_LENGTH
+        if not SLIDING_RING_ENABLED:
+            # Legacy two-group layout: vLLM charges a request once per group,
+            # so the pool advertises two context-length shares.
+            return LEGACY_SCHEDULER_KV_GROUPS * HF_CONTEXT_LENGTH
+        # Only the 18 full-attention layers are vLLM-managed; the sliding
+        # layers live in device rings outside the pool. The plugin adds one
+        # output block per sequence on top of this figure, so subtract it to
+        # land exactly on the requested pool size.
+        return (kv_pool_blocks(max_num_seqs) - int(max_num_seqs)) * PAGE_SIZE
 
     @classmethod
     def get_kv_cache_spec(cls, vllm_config):
-        """Describe the alternating full/sliding layers to vLLM's HMA."""
+        """Describe the full-attention layers to vLLM; sliding layers use device rings."""
 
         from vllm.utils.torch_utils import STR_DTYPE_TO_TORCH_DTYPE
         from vllm.v1.kv_cache_interface import FullAttentionSpec, SlidingWindowSpec
@@ -262,11 +331,15 @@ class TTGptOssForCausalLM:
         for layer_idx, layer_type in enumerate(layer_types):
             name = f"model.layers.{layer_idx}.self_attn"
             if layer_type == "sliding_attention":
-                result[name] = SlidingWindowSpec(sliding_window=int(hf_config.sliding_window), **common)
-            elif layer_type == "full_attention":
+                if not SLIDING_RING_ENABLED:
+                    result[name] = SlidingWindowSpec(sliding_window=int(hf_config.sliding_window), **common)
+                continue
+            if layer_type == "full_attention":
                 result[name] = FullAttentionSpec(**common)
             else:
                 raise ValueError(f"unsupported GPT-OSS layer type {layer_type!r} at layer {layer_idx}")
+        if not result:
+            raise ValueError("GPT-OSS layer_types name no full_attention layer")
         return result
 
     @classmethod
@@ -341,6 +414,35 @@ class TTGptOssForCausalLM:
         layer_cache = []
         tensor_indices = []
         cache_shapes = []
+        sliding = set(self._sliding_layers)
+        ring_blocks = SLIDING_RING_BLOCKS * self.max_batch_size
+        full_layers = [idx for idx in range(min(len(per_layer_specs), self.model.n_layers)) if idx not in sliding]
+        if sliding and not full_layers:
+            raise ValueError("sliding-window rings need at least one resident full-attention layer to share a buffer")
+        # Sliding layer 2k rides on full layer 2k+1's buffer (the next full
+        # layer, or the last one for a reduced-layer smoke ending on a sliding
+        # layer); its ring is the buffer's top ring_blocks, above vLLM's pool.
+        ring_host: dict[int, int] = {}
+        for layer_idx in sorted(sliding):
+            later = [idx for idx in full_layers if idx > layer_idx]
+            ring_host[layer_idx] = later[0] if later else full_layers[-1]
+        pool_blocks = None
+
+        def allocate(shape, name):
+            host = torch.zeros(shape, dtype=torch.bfloat16)
+            return [
+                ttnn.as_tensor(
+                    host,
+                    device=self.mesh_device,
+                    mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+                    layout=ttnn.TILE_LAYOUT,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    dtype=selected_dtype,
+                    cache_file_name=get_cache_file_name(self.cache_path, f"empty_{kind}_{name}"),
+                )
+                for kind in ("k", "v")
+            ]
+
         # A reduced-layer hardware smoke still carries the checkpoint's full
         # HF config through vLLM. Bind only its explicitly resident prefix;
         # production consumes every spec because all 36 layers are resident.
@@ -353,28 +455,31 @@ class TTGptOssForCausalLM:
             ):
                 raise ValueError(f"unexpected vLLM KV shape for layer {layer_idx}: {shape}")
             tensor_idx = int(tensor_idx)
+            if pool_blocks is None:
+                pool_blocks = shape[0]
+            elif shape[0] != pool_blocks:
+                raise ValueError(f"vLLM KV specs disagree on the block count: {pool_blocks} vs {shape[0]}")
+            if layer_idx in sliding:
+                layer_cache.append(None)
+                tensor_indices.append(None)
+                cache_shapes.append(None)
+                continue
             cache = unique_buffers.get(tensor_idx)
             if cache is None:
-                host = torch.zeros(shape, dtype=torch.bfloat16)
-                cache = [
-                    ttnn.as_tensor(
-                        host,
-                        device=self.mesh_device,
-                        mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
-                        layout=ttnn.TILE_LAYOUT,
-                        memory_config=ttnn.DRAM_MEMORY_CONFIG,
-                        dtype=selected_dtype,
-                        cache_file_name=get_cache_file_name(
-                            self.cache_path,
-                            f"empty_{kind}_cache_{shape}_tensor_{tensor_idx}",
-                        ),
-                    )
-                    for kind in ("k", "v")
-                ]
+                # Every full-layer buffer carries ring_blocks extra blocks above
+                # the pool; the paired sliding layer owns them.
+                shape = (shape[0] + ring_blocks,) + shape[1:] if sliding else shape
+                cache = allocate(shape, f"cache_{shape}_tensor_{tensor_idx}")
                 unique_buffers[tensor_idx] = cache
             layer_cache.append(cache)
             tensor_indices.append(tensor_idx)
-            cache_shapes.append(shape)
+            cache_shapes.append(tuple(int(dim) for dim in cache[0].shape))
+        for layer_idx, host in ring_host.items():
+            if layer_idx < len(layer_cache):
+                layer_cache[layer_idx] = layer_cache[host]
+                tensor_indices[layer_idx] = tensor_indices[host]
+                cache_shapes[layer_idx] = cache_shapes[host]
+        self._ring_block_base = int(pool_blocks or 0)
 
         for layer, cache in zip(self.model.layers, layer_cache):
             layer.decoder.self_attn.kv_cache = cache
@@ -473,11 +578,41 @@ class TTGptOssForCausalLM:
         if self.generator is not None:
             self.generator.already_warmed_up_prefill = bool(value)
 
-    def _normalise_page_tables(self, page_tables_per_layer, page_table):
+    def _normalise_page_tables(self, page_tables_per_layer, page_table, *, ring_rows=None, ring_valid_blocks=None):
         tables = [page_table] * self.model.n_layers if page_tables_per_layer is None else list(page_tables_per_layer)
         if len(tables) < self.model.n_layers:
             raise ValueError(f"page_tables_per_layer has {len(tables)} entries for {self.model.n_layers} layers")
-        return tables[: self.model.n_layers]
+        tables = tables[: self.model.n_layers]
+        if not self._sliding_layers:
+            return tables
+        reference = next(
+            (table for idx, table in enumerate(tables) if idx not in self._sliding_layers and table is not None),
+            page_table,
+        )
+        if not isinstance(reference, torch.Tensor):
+            reference = torch.as_tensor(reference)
+        rows, columns = int(reference.shape[0]), int(reference.shape[-1])
+        if ring_rows is None:
+            ring_rows = self._ring_of_slot[:rows]
+        if len(ring_rows) != rows:
+            raise ValueError(f"ring rows {len(ring_rows)} do not match {rows} page-table rows")
+        ring = ring_page_table(ring_rows, columns, ring_valid_blocks, base=self._ring_block_base)
+        for layer_idx in self._sliding_layers:
+            tables[layer_idx] = ring
+        return tables
+
+    def _apply_ring_slot_remap(self, slot_remap) -> None:
+        """Row i of the coming decode reads slot ``slot_remap[i]``; move the ring ownership with it."""
+
+        if slot_remap is None:
+            return
+        remap = [int(value) for value in torch.as_tensor(slot_remap).reshape(-1).tolist()]
+        width = min(len(remap), self.max_batch_size)
+        moved = [self._ring_of_slot[old] for old in remap[:width]]
+        if sorted(moved) != sorted(self._ring_of_slot[:width]):
+            raise ValueError(f"slot_remap {remap[:width]} is not a permutation of the device slots")
+        self._ring_of_slot[:width] = moved
+        self._ring_tables_dirty = True
 
     @staticmethod
     def _page_table_equal(left, right) -> bool:
@@ -495,11 +630,20 @@ class TTGptOssForCausalLM:
         *,
         update_persistent=True,
         page_table_state_id=None,
+        ring_rows=None,
+        ring_valid_blocks=None,
     ):
-        tables = self._normalise_page_tables(page_tables_per_layer, page_table)
+        tables = self._normalise_page_tables(
+            page_tables_per_layer,
+            page_table,
+            ring_rows=ring_rows,
+            ring_valid_blocks=ring_valid_blocks,
+        )
         if update_persistent:
-            changed = self._last_page_tables is None or (
-                page_table_state_id is not None and page_table_state_id != self._last_page_table_state_id
+            changed = (
+                self._last_page_tables is None
+                or self._ring_tables_dirty
+                or (page_table_state_id is not None and page_table_state_id != self._last_page_table_state_id)
             )
             if not changed and page_table_state_id is None:
                 comparisons = {}
@@ -520,6 +664,7 @@ class TTGptOssForCausalLM:
                         clones[key] = table.clone() if isinstance(table, torch.Tensor) else table
                     self._last_page_tables.append(clones[key])
                 self._last_page_table_state_id = page_table_state_id
+                self._ring_tables_dirty = False
                 self.serving_counters["page_table_refreshes"] += 1
             else:
                 self.serving_counters["page_table_reuses"] += 1
@@ -563,8 +708,22 @@ class TTGptOssForCausalLM:
             device_sampling=sampling_params is not None,
             kv_cache=kv_cache,
         )
-        tables = self._normalise_page_tables(page_tables_per_layer, page_table)
-        with self._route_page_tables(tables, page_table, update_persistent=False):
+        slots = list(range(len(prompt_lens))) if empty_slots is None else [int(slot) for slot in empty_slots]
+        ring_rows = [self._ring_of_slot[slot] for slot in slots]
+        ring_valid_blocks = [math.ceil(int(length) / PAGE_SIZE) for length in prompt_lens]
+        tables = self._normalise_page_tables(
+            page_tables_per_layer,
+            page_table,
+            ring_rows=ring_rows,
+            ring_valid_blocks=ring_valid_blocks,
+        )
+        with self._route_page_tables(
+            tables,
+            page_table,
+            update_persistent=False,
+            ring_rows=ring_rows,
+            ring_valid_blocks=ring_valid_blocks,
+        ):
             # Sequential eager prefill allocates temporary tensors while the
             # prepared B1/B32 decode traces remain live. No trace is replayed
             # until the call has consumed/read back those tensors. Suppress the
@@ -725,6 +884,7 @@ class TTGptOssForCausalLM:
         # declared B1 bucket.  Route only the selected bucket's rows into the
         # matching persistent buffers; B32 inputs are unchanged by the slice.
         page_tables_per_layer = self._slice_page_tables(page_tables_per_layer, bucket)
+        self._apply_ring_slot_remap(slot_remap)
         can_reuse_sampling = (
             device_sampling
             and enable_trace
@@ -1016,7 +1176,11 @@ class TTGptOssForCausalLM:
             "max_model_len": self.max_model_len,
             "max_num_seqs": self.max_batch_size,
             "page_size": PAGE_SIZE,
-            "hybrid_kv_cache_groups": True,
+            "hybrid_kv_cache_groups": not SLIDING_RING_ENABLED,
+            "kv_pool_blocks": kv_pool_blocks(self.max_batch_size) if SLIDING_RING_ENABLED else None,
+            "sliding_ring_tokens": SLIDING_RING_TOKENS if SLIDING_RING_ENABLED else None,
+            "sliding_ring_layers": list(self._sliding_layers),
+            "sliding_ring_block_base": self._ring_block_base,
             "prefill_trace_enabled": False,
             "decode_trace_enabled": True,
             "decode_trace_buckets": list(decode_trace_buckets(self.max_batch_size)),

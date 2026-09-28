@@ -436,6 +436,7 @@ class _LayerAdapter:
         is_decode,
         user_id,
         batch_size,
+        fill_seq_lens=None,
     ):
         if is_decode:
             decode_batch_size = int(hidden_states.shape[-2])
@@ -459,6 +460,7 @@ class _LayerAdapter:
             kv_cache=kv_cache,
             user_id=user_id,
             batch_size=batch_size,
+            fill_seq_lens=fill_seq_lens,
         )
 
 
@@ -831,6 +833,14 @@ class Model(_GPTOSSModel):
             # terminal norm + LM head on those rows (``_apply_norm_and_lm_head``);
             # running them over every token here would be wasted work.
             kwargs["skip_lm_head"] = True
+            # Compact rows: device row i is request i. The generator stashes the
+            # request lengths so each user's K/V fill stops at its own prompt
+            # end instead of the shared padded length (a bounded sliding ring
+            # would otherwise keep the padding tail instead of the real window).
+            rows = getattr(self, "_prefill_row_lengths", None)
+            if rows:
+                lengths = [int(length) for length in rows][:batch_size]
+                kwargs["fill_seq_lens"] = lengths + [0] * (batch_size - len(lengths))
         return super()._forward_layers_and_head(*args, is_decode=is_decode, **kwargs)
 
     def extract_last_tokens_batched_prefill(
