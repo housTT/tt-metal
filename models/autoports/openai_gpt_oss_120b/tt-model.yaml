@@ -327,51 +327,31 @@ card:
   limitations: |
     - Hardware. Four P150 chips (two p300c boards or four P150 boards). P150 and
       P150x2 are not offered: the resident model state does not fit.
-    - Long prompts. Prompts above 2,048 tokens are prefilled one at a time in
-      steps of 8,192 tokens (default profile) or 32,768 tokens (throughput
-      profile), so many long prompts arriving together queue for prefill. The
-      first prompt of a new length pays a few seconds of program creation.
-    - Context admission. 296,960 tokens of context across the running requests:
-      17 sequences at 16k, 8 at 32k, 4 at 64k, 2 at 128k. Requests beyond that
-      wait, and the wait lands in time to first token.
-    - Decode batches. Decode runs traced graphs at 1, 4, 8 and 32 rows; 9 to 16
-      concurrent requests run in the 32-row graph (about 50 to 58 ms per token
-      instead of 42), because the 16-row graph corrupts some rows and is off.
-    - Prefix caching. On by default (`GPT_OSS_120B_PREFIX_CACHING=0` or
-      `--no-enable-prefix-caching` turns it off). Hits are counted in 512-token
-      units and a hit re-prefills about 2,560 tokens, so shared prefixes shorter
-      than about 5,000 tokens save little.
-    - Sampling parameters. Decode samples on the device only while every running
-      request stays within the device sampler's parameter set: one request with
-      `min_p`, `logit_bias`, `bad_words`, `allowed_token_ids`, `min_tokens`,
-      structured output (`response_format` or guided decoding), any `logprobs`,
-      or a non-zero `temperature` with `top_k` above 32 or unrestricted switches
-      the whole batch to host sampling, which slows decode for every user until
-      that request finishes. `temperature` 0, or `top_k` 32 or lower, stays on
-      the device.
-    - Output budget. `max_tokens` covers reasoning and answer together; the
-      reserve described in the quickstart keeps an answer, but a hard problem
-      under a small budget gets a short, forced answer. Requests with `n` above 1,
-      logprobs, `ignore_eos` or a required tool call have no reserve and can
-      return null `content` on `finish_reason: "length"`.
-    - Prompt echo under heavy long-context load. With 8 or more concurrent
-      requests at 16k tokens and up, one request per batch has occasionally
-      received its own prompt streamed back as generated text (one chunk of up to
-      725,000 characters, no `echo` requested). Clients should tolerate an
-      oversized first chunk; the cause is open in the vLLM fork / plugin output
-      path.
-    - Heavy concurrency with very long budgets. With 32 concurrent requests and
-      122,880-token budgets the plugin's device-state slot allocation has failed
-      (`no free device state slot ... capacity=32`) when several requests reached
-      the token cap in the same step while replacements were queued. Submitting
-      such work in fixed batches of 32 avoided it.
-    - Tools. The served API has no built-in Python or browser tool, so OpenAI's
-      "with tools" results do not apply. Function calling uses the OpenAI tool
-      format (`tool_parser: openai`); a malformed tool-call JSON from the model
-      is passed through verbatim, and an empty final message ends with
-      `finish_reason: "stop"`, so agent scaffolds need a retry for both.
-    - Accuracy. Measured scores are a few points below OpenAI's published
-      high-effort numbers on GPQA Diamond, AIME, MMLU and SWE-bench Verified and
-      above them on MMMLU and IFEval; see Accuracy.
-    - Startup. A cold start compiles kernels and model tensors for about 18
-      minutes; a warm restart takes about 8 minutes.
+    - Capacity. Up to 17 sequences of 16k tokens, 8 of 32k, 4 of 64k or 2 of 128k
+      are resident at once; further requests wait, and the wait lands in time to
+      first token. Prompts above 2,048 tokens are prefilled one at a time, and
+      the first prompt of a new length pays a few seconds of program creation.
+      9 to 16 concurrent requests decode in the 32-row batch (about 50 to 58 ms
+      per token instead of 42).
+    - Sampling parameters. One request with `min_p`, `logit_bias`, `bad_words`,
+      `allowed_token_ids`, `min_tokens`, structured output, any `logprobs`, or a
+      non-zero `temperature` with `top_k` above 32 or unrestricted moves the
+      whole batch to host sampling and slows decode for every user until it
+      finishes. `temperature` 0, or `top_k` 32 or lower, stays on the device.
+    - Output budget. `max_tokens` covers reasoning and answer. The reserve keeps
+      an answer, but a hard problem under a small budget gets a short, forced
+      one; requests with `n` above 1, logprobs, `ignore_eos` or a required tool
+      call have no reserve and can return null `content` on
+      `finish_reason: "length"`.
+    - Heavy long-context load. With 8 or more concurrent requests at 16k tokens
+      and up, one request per batch has occasionally received its own prompt
+      streamed back as generated text (one chunk of up to 725,000 characters);
+      clients should tolerate an oversized first chunk. Under sustained 32-user
+      load with 122,880-token budgets the plugin has also failed to allocate a
+      device slot (`no free device state slot`); submitting such work in fixed
+      batches of 32 avoided it. Both are open.
+    - Tools. No built-in Python or browser tool, so OpenAI's "with tools" results
+      do not apply. Function calling uses the OpenAI tool format; a malformed
+      tool-call JSON from the model is passed through verbatim and an empty final
+      message ends with `finish_reason: "stop"`, so agent scaffolds need a retry
+      for both.
