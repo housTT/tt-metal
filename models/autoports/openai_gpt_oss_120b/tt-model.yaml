@@ -81,6 +81,34 @@ serve:
     - --structured-outputs-config
     - '{"reasoning_parser":"openai_gptoss","enable_in_reasoning":false}'
 
+serve_profiles:
+  - name: default
+    description: >-
+      Interactive and agentic traffic: chat, multi-turn, agents, RAG, mixed prompt
+      lengths. Long prompts are prefilled in 8,192-token steps with 8 decode steps
+      for the running users between the steps of one prompt, so every user keeps
+      receiving tokens; prefix caching on.
+  - name: throughput
+    description: >-
+      Bulk work where only the time to finish a batch counts (evals at 32 concurrent
+      requests, offline summarization or classification, batch document processing):
+      prefill-first scheduling in 32,768-token steps, no decode steps between the
+      steps of one prompt; prefix caching on. Lower time to finish a burst of long
+      prompts, no streaming during another user's long prefill.
+    additional_config:
+      tt:
+        chunked_prefill_decode_steps: 0
+    env:
+      GPT_OSS_120B_CHUNK_WARMUP: "32768"
+    args:
+      - --max-num-batched-tokens
+      - "32768"
+      - --async-scheduling
+      - --disable-log-stats
+      - --structured-outputs-config
+      - '{"reasoning_parser":"openai_gptoss","enable_in_reasoning":false}'
+default_profile: default
+
 verify:
   - "from pathlib import Path; p = Path('/opt/tt-metal/models/autoports/openai_gpt_oss_120b/doc/datatype_sweep/selected_precision_config.json'); assert p.is_file(), 'the validated precision policy is missing'"
   - "from models.autoports.openai_gpt_oss_120b.tt.generator_vllm import TTGptOssForCausalLM; assert TTGptOssForCausalLM"
@@ -98,6 +126,20 @@ card:
     The first start compiles kernels and model tensors into the persistent package
     cache and takes about 18 minutes; a restart with a warm cache takes about 8
     minutes.
+
+    ### Serve profiles
+
+    One image, two launch configurations (`tt-model profiles tt-hous/gpt-oss-120b-p150x4`
+    lists them):
+
+    | profile | use it for | what differs |
+    | --- | --- | --- |
+    | `default` | interactive and agentic traffic: chat, multi-turn, agents and deep research, RAG with shared system prompts or documents, mixed prompt lengths, anything where time to first token and steady streaming matter | long prompts prefill in 8,192-token steps with 8 decode steps for the running users between the steps of one prompt |
+    | `throughput` | bulk work where only the time to finish a batch counts: evals at 32 concurrent requests, offline summarization or classification, batch document processing | prefill-first scheduling in 32,768-token steps, no decode steps between the steps of one prompt (`tt-model serve tt-hous/gpt-oss-120b-p150x4 --profile throughput`) |
+
+    Both profiles serve the full 131,072-token context, admit 296,960 tokens of
+    context across requests, keep prefix caching on and sample on the device. The
+    performance section has the measured rows of both.
 
     ### Source
 
@@ -280,6 +322,41 @@ card:
     never hit the cache, so every row there is an uncached cost. Requests that
     sample on the host (temperature above 0 with unrestricted top-k, logprobs,
     penalties) take the same chunked and cached prefill path.
+
+    Throughput profile (`--profile throughput`: prefill-first, 32,768-token prefill
+    steps), measured on the local server of this host with the same client and prompt
+    generator as the table above (2026 Sep 30; the default profile's values from the
+    harness table above in parentheses where the row exists there):
+
+    | ISL | OSL | Users | N | TTFT (ms) | Prefill (tok/s/u) | TPOT (ms) | Decode (tok/s/u) | E2EL (s) | Out (tok/s total) |
+    | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+    | 4,096 | 256 | 16 | 64 | 10,999 (7,600) | 372 (539) | 60.0 (72.9) | 16.7 (13.7) | 26.31 (26.20) | 156 (156) |
+    | 4,096 | 256 | 32 | 128 | 18,117 (13,488) | 226 (304) | 66.8 (86.6) | 15.0 (11.6) | 35.15 (35.56) | 233 (230) |
+    | 16,384 | 256 | 1 | 2 | 2,810 (2,668) | 5,831 (6,140) | 16.1 (16.1) | 62.0 (62.1) | 6.92 (6.78) | 37 (38) |
+    | 16,384 | 256 | 8 | 16 | 15,432 (9,384) | 1,062 (1,746) | 49.9 (82.0) | 20.0 (12.2) | 28.16 (30.29) | 73 (67) |
+    | 16,384 | 256 | 16 | 32 | 25,921 (15,693) | 632 (1,044) | 116.3 (173.5) | 8.6 (5.8) | 55.59 (59.94) | 74 (67) |
+    | 16,384 | 256 | 32 | 64 | 68,592 (58,837) | 239 (278) | 129.3 (208.8) | 7.7 (4.8) | 101.56 (112.07) | 69 (66) |
+    | 32,768 | 256 | 1 | 1 | 5,616 (5,649) | 5,834 (5,800) | 16.7 (16.7) | 59.9 (59.9) | 9.88 (9.91) | 26 (26) |
+    | 32,768 | 256 | 4 | 4 | 16,576 (15,722) | 1,977 (2,084) | 39.5 (53.3) | 25.3 (18.8) | 26.66 (29.31) | 38 (34) |
+    | 32,768 | 256 | 8 | 8 | 27,399 (28,265) | 1,196 (1,159) | 89.9 (106.6) | 11.1 (9.4) | 50.33 (55.44) | 41 (36) |
+    | 65,536 | 256 | 1 | 1 | 11,552 (12,417) | 5,673 (5,278) | 17.9 (17.9) | 55.9 (56.0) | 16.11 (16.97) | 16 (15) |
+    | 65,536 | 256 | 2 | 2 | 19,865 (19,776) | 3,299 (3,314) | 39.4 (46.8) | 25.4 (21.3) | 29.92 (31.72) | 17 (16) |
+    | 65,536 | 256 | 4 | 4 | 32,628 (33,870) | 2,009 (1,935) | 79.7 (95.7) | 12.5 (10.4) | 52.96 (58.28) | 19 (17) |
+    | 130,816 | 256 | 2 | 2 | 46,100 (47,226) | 2,838 (2,770) | 77.4 (83.2) | 12.9 (12.0) | 65.83 (68.43) | 8 (7) |
+
+    Reading: with prefill-first scheduling and 32,768-token steps, the time to
+    finish a burst is 5 to 12% shorter than with the default profile on the
+    multi-user rows from 16k up (16k at 16 users 111 s against 122 s; 32k at 8
+    users 50 s against 58 s; 64k at 4 users 53 s against 60 s; 128k at 2 users
+    66 s against 70 s) and a long single prompt prefills in fewer steps (64k
+    11.6 s against 12.4 s). Against the prefill-first build of 2026 Sep 17 the
+    32k, 64k and 128k rows are equal or better, and the 16k rows with 16 or more
+    users stay 9 to 16% slower, which is the 32-row decode bucket. What this
+    profile gives up: while a long prompt prefills the other users receive no
+    tokens (a 64k prefill is a 12 s pause), and a user's first token waits for
+    its whole prefill step (4k at 16 users: TTFT 11.0 s against 7.6 s, same
+    E2EL). The 16,384-token single-user row is two requests and includes the
+    first request's program creation (2.44 s warm, 3.18 s first).
 
     Prompts of 512+ tokens use the indexed expert prefill: each expert's routed
     tokens are gathered into slabs and run through compact indexed sparse
