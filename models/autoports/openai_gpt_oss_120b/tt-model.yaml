@@ -117,16 +117,11 @@ verify:
 card:
   quickstart: |
     `openai/gpt-oss-120b` served by vLLM and the Tenstorrent vLLM plugin on four
-    P150 chips (two p300c boards or four P150 boards). Start it and follow the log
-    until the API is ready:
-
-    ```bash
-    tt-model serve tt-hous/gpt-oss-120b-p150x4 --follow
-    ```
-
-    The first start compiles kernels and model tensors into the package cache and
-    takes about 18 minutes; later starts take about 8 minutes. Then talk to it
-    with any OpenAI client; `model` is the weights id:
+    P150 chips (two p300c boards or four P150 boards). Add `--follow` to the serve
+    command to watch the log until the API is ready: the first start compiles
+    kernels and model tensors into the package cache and takes about 18 minutes,
+    later starts about 8 minutes. Then talk to it with any OpenAI client; `model`
+    is the weights id:
 
     ```bash
     curl -s http://127.0.0.1:20000/v1/chat/completions -H 'Content-Type: application/json' -d '{
