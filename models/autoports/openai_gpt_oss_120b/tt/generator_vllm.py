@@ -27,6 +27,10 @@ import torch
 from loguru import logger
 
 _LOG_PROGRAM_CACHE = os.environ.get("GPT_OSS_120B_LOG_PROGRAM_CACHE") == "1"
+_LOG_SLOTS = os.environ.get("GPT_OSS_120B_LOG_SLOTS") == "1"
+_TABLES_ALWAYS = os.environ.get("GPT_OSS_120B_TABLES_ALWAYS") == "1"
+_TABLES_SYNC = os.environ.get("GPT_OSS_120B_TABLES_SYNC") == "1"
+_TABLES_VERIFY = os.environ.get("GPT_OSS_120B_TABLES_VERIFY") == "1"
 
 import ttnn
 from models.autoports.openai_gpt_oss_120b.tt.generator import GREEDY, Generator
@@ -45,12 +49,19 @@ from models.autoports.openai_gpt_oss_120b.tt.sliding_ring import (
     sliding_ring_enabled,
 )
 from models.demos.gpt_oss.utils.general_utils import get_cache_file_name
+from models.tt_transformers.tt.common import get_padded_prefill_len
 
 MAX_CONCURRENT_SEQS = 32
 FULL_CONTEXT_BLOCKS = math.ceil(HF_CONTEXT_LENGTH / PAGE_SIZE)
 KV_POOL_BLOCKS_DEFAULT = 4640
+PREFILL_CHUNK_ALIGN = 512
 ENV_KV_POOL_BLOCKS = "GPT_OSS_120B_KV_POOL_BLOCKS"
+ENV_CHUNK_WARMUP = "GPT_OSS_120B_CHUNK_WARMUP"
+ENV_PREFIX_CACHING = "GPT_OSS_120B_PREFIX_CACHING"
+COLD_RING_REPREFILL_TOKENS = 2560
+CHUNK_WARMUP_DEFAULT = "8192"
 SLIDING_RING_ENABLED = sliding_ring_enabled()
+PREFIX_CACHING_ENABLED = SLIDING_RING_ENABLED and os.environ.get(ENV_PREFIX_CACHING, "1") != "0"
 LEGACY_SCHEDULER_KV_GROUPS = 2
 ENV_REDUCED_LAYERS = "GPT_OSS_120B_VLLM_NUM_LAYERS"
 _NOT_THE_TT_PATH = (
@@ -183,16 +194,13 @@ def ring_page_table(rings, columns: int, valid_blocks=None, base: int = 0) -> to
 class TTGptOssForCausalLM:
     """vLLM's TT model surface backed by the completed full-model generator."""
 
-    # With the sliding rings on, only the full-attention layers are a vLLM KV
-    # group. GPT_OSS_120B_SLIDING_RING=0 restores the two-group layout (every
-    # sliding layer paged at full length) for A/B checks.
     _HYBRID_KV_CACHE_GROUPS_ENABLED = not SLIDING_RING_ENABLED
     # Both widths are prepared during warmup. Advertising them lets the shared
     # runner keep singleton host-sampling requests at B1 instead of padding an
     # exact full-vocabulary fallback to the serving-width B32 eager graph.
     tt_supported_decode_batch_sizes = decode_trace_buckets(MAX_CONCURRENT_SEQS)
     model_capabilities = {
-        "supports_prefix_caching": False,
+        "supports_prefix_caching": PREFIX_CACHING_ENABLED,
         "supports_async_decode": True,
         "supports_sample_on_device": True,
         "max_device_sampling_top_k": 32,
@@ -242,6 +250,8 @@ class TTGptOssForCausalLM:
         self._ring_of_slot: list[int] = list(range(self.max_batch_size))
         self._ring_block_base = 0
         self._ring_tables_dirty = False
+        self._slot_prefill_end: list[int | None] = [None] * self.max_batch_size
+        self._prefill_shapes_warm = False
         self.serving_counters = {
             "prefill_calls": 0,
             "decode_calls": 0,
@@ -294,13 +304,7 @@ class TTGptOssForCausalLM:
                 f"got max_num_seqs={max_num_seqs}"
             )
         if not SLIDING_RING_ENABLED:
-            # Legacy two-group layout: vLLM charges a request once per group,
-            # so the pool advertises two context-length shares.
             return LEGACY_SCHEDULER_KV_GROUPS * HF_CONTEXT_LENGTH
-        # Only the 18 full-attention layers are vLLM-managed; the sliding
-        # layers live in device rings outside the pool. The plugin adds one
-        # output block per sequence on top of this figure, so subtract it to
-        # land exactly on the requested pool size.
         return (kv_pool_blocks(max_num_seqs) - int(max_num_seqs)) * PAGE_SIZE
 
     @classmethod
@@ -419,9 +423,6 @@ class TTGptOssForCausalLM:
         full_layers = [idx for idx in range(min(len(per_layer_specs), self.model.n_layers)) if idx not in sliding]
         if sliding and not full_layers:
             raise ValueError("sliding-window rings need at least one resident full-attention layer to share a buffer")
-        # Sliding layer 2k rides on full layer 2k+1's buffer (the next full
-        # layer, or the last one for a reduced-layer smoke ending on a sliding
-        # layer); its ring is the buffer's top ring_blocks, above vLLM's pool.
         ring_host: dict[int, int] = {}
         for layer_idx in sorted(sliding):
             later = [idx for idx in full_layers if idx > layer_idx]
@@ -466,8 +467,6 @@ class TTGptOssForCausalLM:
                 continue
             cache = unique_buffers.get(tensor_idx)
             if cache is None:
-                # Every full-layer buffer carries ring_blocks extra blocks above
-                # the pool; the paired sliding layer owns them.
                 shape = (shape[0] + ring_blocks,) + shape[1:] if sliding else shape
                 cache = allocate(shape, f"cache_{shape}_tensor_{tensor_idx}")
                 unique_buffers[tensor_idx] = cache
@@ -612,7 +611,64 @@ class TTGptOssForCausalLM:
         if sorted(moved) != sorted(self._ring_of_slot[:width]):
             raise ValueError(f"slot_remap {remap[:width]} is not a permutation of the device slots")
         self._ring_of_slot[:width] = moved
+        self._slot_prefill_end[:width] = [self._slot_prefill_end[old] for old in remap[:width]]
         self._ring_tables_dirty = True
+        if _LOG_SLOTS:
+            logger.info("slots: remap {} -> ring_of_slot {}", remap[:width], self._ring_of_slot[:width])
+
+    def release_request(self, slot) -> None:
+        """The plugin's request-finished hook: the slot's rings no longer hold a live prompt."""
+
+        slot = int(slot)
+        if _LOG_SLOTS:
+            logger.info(
+                "slots: release slot {} (marker was {})",
+                slot,
+                self._slot_prefill_end[slot] if 0 <= slot < self.max_batch_size else None,
+            )
+        if 0 <= slot < self.max_batch_size:
+            self._slot_prefill_end[slot] = None
+
+    def _resume_plan(
+        self, cached: int, slot: int, chunk_end: int | None = None, new_request: bool | None = None
+    ) -> tuple[int, int, bool]:
+        """Where a prompt with ``cached`` computed tokens resumes on ``slot``.
+
+        Returns (attention start, first position written to the full-attention
+        cache, ring cold). The attention restarts on a 512 boundary, the largest
+        attention chunk and a whole number of ring blocks. A warm ring (the slot's
+        last prefill ended exactly at ``cached``: a chunked-prefill continuation)
+        holds the window before that boundary. A cold ring (a cached prefix
+        computed by another request or slot) starts COLD_RING_REPREFILL_TOKENS
+        further back, so the error of the missing window has washed out of every
+        sliding layer, and the ring holds an exact window, by the first new token.
+        ``new_request`` (from the plugin) settles warm or cold outright; without it
+        the slot's prefill-end marker decides.
+        """
+
+        cached = int(cached)
+        if cached <= 0:
+            return 0, 0, False
+        fill_start = cached - cached % PAGE_SIZE
+        aligned = cached - cached % PREFILL_CHUNK_ALIGN
+        cold = bool(self._sliding_layers) and (
+            bool(new_request) if new_request is not None else self._slot_prefill_end[slot] != cached
+        )
+        start = max(0, aligned - COLD_RING_REPREFILL_TOKENS) if cold else aligned
+        if chunk_end is not None:
+            start = self._fit_padded_chunk(start, int(chunk_end))
+        return start, fill_start, cold and start > 0
+
+    def _fit_padded_chunk(self, start: int, chunk_end: int) -> int:
+        """Move ``start`` earlier until the chunk's padded length ends inside the context."""
+
+        limit = int(self.max_model_len)
+        while start > 0 and start + get_padded_prefill_len(chunk_end - start) > limit:
+            padded = get_padded_prefill_len(chunk_end - start)
+            candidate = limit - padded
+            candidate -= candidate % PREFILL_CHUNK_ALIGN
+            start = max(0, min(start - PREFILL_CHUNK_ALIGN, candidate))
+        return start
 
     @staticmethod
     def _page_table_equal(left, right) -> bool:
@@ -641,7 +697,8 @@ class TTGptOssForCausalLM:
         )
         if update_persistent:
             changed = (
-                self._last_page_tables is None
+                _TABLES_ALWAYS
+                or self._last_page_tables is None
                 or self._ring_tables_dirty
                 or (page_table_state_id is not None and page_table_state_id != self._last_page_table_state_id)
             )
@@ -655,7 +712,23 @@ class TTGptOssForCausalLM:
                         changed = True
                         break
             if changed:
+                if _LOG_SLOTS:
+                    persistent = getattr(self.model, "_persistent_per_layer_page_tables", None)
+                    logger.info(
+                        "tables: bucket {} host rows {} cols {} device rows {} cols {}",
+                        self._active_decode_bucket,
+                        [int(t.shape[0]) for t in tables[:2] if isinstance(t, torch.Tensor)],
+                        [int(t.shape[-1]) for t in tables[:2] if isinstance(t, torch.Tensor)],
+                        None
+                        if not persistent
+                        else [tuple(int(v) for v in p.shape) for p in persistent[:2] if p is not None],
+                        None,
+                    )
                 self.model.update_persistent_per_layer_page_tables(tables)
+                if _TABLES_SYNC:
+                    ttnn.synchronize_device(self.mesh_device)
+                if _TABLES_VERIFY:
+                    self._verify_persistent_tables(tables)
                 clones = {}
                 self._last_page_tables = []
                 for table in tables:
@@ -673,6 +746,32 @@ class TTGptOssForCausalLM:
             yield
         finally:
             del self.model._active_page_tables_per_layer
+
+    def _verify_persistent_tables(self, tables) -> None:
+        persistent = getattr(self.model, "_persistent_per_layer_page_tables", None)
+        if not persistent:
+            logger.warning("tables: no persistent page tables to verify")
+            return
+        for layer_idx, (host, device) in enumerate(zip(tables, persistent)):
+            if device is None or not isinstance(host, torch.Tensor):
+                continue
+            shards = ttnn.get_device_tensors(device)
+            readback = ttnn.to_torch(shards[0]).to(torch.int32)
+            rows = min(int(host.shape[0]), int(readback.shape[0]))
+            columns = min(int(host.shape[1]), int(readback.shape[1]))
+            if not torch.equal(readback[:rows, :columns], host[:rows, :columns].to(torch.int32)):
+                diff = (readback[:rows, :columns] != host[:rows, :columns]).nonzero()
+                logger.error(
+                    "tables: layer {} device table differs from host at {} entries, first {} (host {} device {})",
+                    layer_idx,
+                    int(diff.shape[0]),
+                    diff[0].tolist(),
+                    int(host[diff[0][0], diff[0][1]]),
+                    int(readback[diff[0][0], diff[0][1]]),
+                )
+                return
+        if _LOG_SLOTS:
+            logger.info("tables: {} layers verified", len(persistent))
 
     @staticmethod
     def _sampling_state_reusable(sampling_params) -> bool:
@@ -698,17 +797,49 @@ class TTGptOssForCausalLM:
         sampling_params=None,
         empty_slots=None,
         enable_trace=False,
+        start_pos=None,
+        new_request_rows=None,
         **kwargs,
     ):
         del enable_trace, kwargs
         generator = self._require_generator()
         prefill_release_epoch = generator._lifetime_decode_trace_releases_for_prefill_compile
+        slots = list(range(len(prompt_lens))) if empty_slots is None else [int(slot) for slot in empty_slots]
+        if _LOG_SLOTS:
+            logger.info(
+                "slots: prefill slots {} rings {} prompt_lens {} start_pos {}",
+                slots,
+                [self._ring_of_slot[slot] for slot in slots],
+                [int(length) for length in prompt_lens],
+                None if start_pos is None else torch.as_tensor(start_pos).reshape(-1).tolist(),
+            )
+        starts = fills = colds = None
+        if start_pos is not None:
+            raw = [int(value) for value in torch.as_tensor(start_pos).reshape(-1).tolist()]
+            if len(raw) != len(prompt_lens):
+                raise ValueError(f"start_pos has {len(raw)} entries for {len(prompt_lens)} prompts")
+            fresh = [None] * len(prompt_lens) if new_request_rows is None else [bool(v) for v in new_request_rows]
+            if len(fresh) != len(prompt_lens):
+                raise ValueError(f"new_request_rows has {len(fresh)} entries for {len(prompt_lens)} prompts")
+            plan = [
+                self._resume_plan(cached, slot, int(length), new)
+                for cached, slot, length, new in zip(raw, slots, prompt_lens, fresh)
+            ]
+            if _LOG_SLOTS:
+                logger.info(
+                    "slots: resume plan {} (markers {})",
+                    plan,
+                    [self._slot_prefill_end[slot] for slot in slots],
+                )
+            if any(start or fill for start, fill, _ in plan):
+                starts = [start for start, _, _ in plan]
+                fills = [fill for _, fill, _ in plan]
+                colds = [cold for _, _, cold in plan]
         lifecycle_changed = self._transition_sampling_lifecycle(
             generator,
             device_sampling=sampling_params is not None,
             kv_cache=kv_cache,
         )
-        slots = list(range(len(prompt_lens))) if empty_slots is None else [int(slot) for slot in empty_slots]
         ring_rows = [self._ring_of_slot[slot] for slot in slots]
         ring_valid_blocks = [math.ceil(int(length) / PAGE_SIZE) for length in prompt_lens]
         tables = self._normalise_page_tables(
@@ -738,6 +869,9 @@ class TTGptOssForCausalLM:
                     sampling_params=sampling_params,
                     empty_slots=empty_slots,
                     page_tables_per_layer=tables,
+                    start_pos=starts,
+                    fill_start_pos=fills,
+                    ring_cold=colds,
                     # vLLM prefills have their active batch row count while decode
                     # is padded to max_batch_size.  Capturing/hoisting decode from
                     # the prefill page table would bind a wrong-sized decode trace.
@@ -755,6 +889,9 @@ class TTGptOssForCausalLM:
             # and later trying to allocate the other beside it.
             self._restore_device_decode_traces(kv_cache)
             lifecycle_changed = True
+        for slot, length in zip(slots, prompt_lens):
+            if 0 <= slot < self.max_batch_size:
+                self._slot_prefill_end[slot] = int(length)
         self.serving_counters["prefill_calls"] += 1
         if _LOG_PROGRAM_CACHE:
             # Opt-in evidence that the untraced prefill adds no programs once its
@@ -885,6 +1022,15 @@ class TTGptOssForCausalLM:
         # matching persistent buffers; B32 inputs are unchanged by the slice.
         page_tables_per_layer = self._slice_page_tables(page_tables_per_layer, bucket)
         self._apply_ring_slot_remap(slot_remap)
+        if _LOG_SLOTS:
+            logger.info(
+                "slots: decode bucket {} reset {} host_width {} positions {} rings {}",
+                bucket,
+                reset_batch,
+                host_width,
+                torch.as_tensor(start_pos).reshape(-1)[:bucket].tolist(),
+                self._ring_of_slot[:bucket],
+            )
         can_reuse_sampling = (
             device_sampling
             and enable_trace
@@ -1004,7 +1150,10 @@ class TTGptOssForCausalLM:
                 page_tables_per_layer=[request_table] * self.model.n_layers,
                 enable_trace=False,
             )
-            self._warmup_batched_prefill_shapes(generator, kv_cache)
+            if not self._prefill_shapes_warm:
+                self._warmup_batched_prefill_shapes(generator, kv_cache)
+                self._warmup_chunk_continuations(generator, kv_cache)
+                self._prefill_shapes_warm = True
         # The indexed expert prefill picks matmul shapes from the routing of
         # each prompt; compile the whole (height x group size) set once now so
         # the first long prompts do not pay tens of seconds of JIT.
@@ -1023,7 +1172,7 @@ class TTGptOssForCausalLM:
         A batched prefill has its own program shapes per (device batch, padded
         length); the first request of each pair otherwise pays 5 to 20 s of
         compilation in serving.  Lengths come from
-        ``GPT_OSS_120B_BATCHED_PREFILL_WARMUP`` (default ``128,1024``; empty
+        ``GPT_OSS_120B_BATCHED_PREFILL_WARMUP`` (default ``128,1024,2048``; empty
         disables), batches are every supported size up to the serving width.
         Each row gets its own scratch blocks so the fills do not race.
         """
@@ -1035,7 +1184,7 @@ class TTGptOssForCausalLM:
             # are cached after the first pass (30 s cold, 11 s to re-run).
             return
         self._batched_prefill_shapes_warm = True
-        spec = os.environ.get("GPT_OSS_120B_BATCHED_PREFILL_WARMUP", "128,1024").strip()
+        spec = os.environ.get("GPT_OSS_120B_BATCHED_PREFILL_WARMUP", "128,1024,2048").strip()
         if not spec:
             return
         from models.tt_transformers.tt.generator import MAX_BATCHED_PREFILL_SEQ_LEN, SUPPORTED_PREFILL_BATCH_SIZES
@@ -1068,6 +1217,49 @@ class TTGptOssForCausalLM:
         if compiled:
             logger.info(
                 f"batched prefill: compiled {compiled} (batch, length) shapes in {time.perf_counter() - started:.1f} s"
+            )
+
+    def _warmup_chunk_continuations(self, generator, kv_cache) -> None:
+        """Compile the chunk-continuation programs (one budget-sized chunk after each prefix)."""
+
+        spec = os.environ.get(ENV_CHUNK_WARMUP, CHUNK_WARMUP_DEFAULT).strip()
+        if not spec:
+            return
+        chunk_text, _, limit_text = spec.partition(":")
+        chunk = int(chunk_text)
+        limit = min(int(limit_text), self.max_model_len) if limit_text else self.max_model_len
+        if chunk <= 0 or chunk % PREFILL_CHUNK_ALIGN:
+            raise ValueError(f"{ENV_CHUNK_WARMUP} chunk {chunk} is not a positive multiple of {PREFILL_CHUNK_ALIGN}")
+        started = time.perf_counter()
+        compiled = 0
+        for start in range(chunk, limit, chunk):
+            total = start + chunk
+            if total > limit:
+                break
+            num_blocks = math.ceil(total / PAGE_SIZE)
+            table = torch.arange(num_blocks, dtype=torch.int32).reshape(1, num_blocks)
+            tables = self._normalise_page_tables(
+                None,
+                table,
+                ring_rows=[self._ring_of_slot[0]] if self._sliding_layers else None,
+                ring_valid_blocks=[num_blocks],
+            )
+            generator.prefill_forward(
+                torch.zeros(1, total, dtype=torch.int64),
+                page_table=table,
+                kv_cache=kv_cache,
+                prompt_lens=[total],
+                sampling_params=GREEDY,
+                empty_slots=[0],
+                page_tables_per_layer=tables,
+                enable_trace=False,
+                start_pos=[start],
+            )
+            compiled += 1
+        if compiled:
+            logger.info(
+                f"chunked prefill: compiled {compiled} continuation shapes of {chunk} tokens "
+                f"in {time.perf_counter() - started:.1f} s"
             )
 
     def warmup_model_decode(
@@ -1179,6 +1371,8 @@ class TTGptOssForCausalLM:
             "hybrid_kv_cache_groups": not SLIDING_RING_ENABLED,
             "kv_pool_blocks": kv_pool_blocks(self.max_batch_size) if SLIDING_RING_ENABLED else None,
             "sliding_ring_tokens": SLIDING_RING_TOKENS if SLIDING_RING_ENABLED else None,
+            "prefix_caching": PREFIX_CACHING_ENABLED,
+            "cold_ring_reprefill_tokens": COLD_RING_REPREFILL_TOKENS if PREFIX_CACHING_ENABLED else None,
             "sliding_ring_layers": list(self._sliding_layers),
             "sliding_ring_block_base": self._ring_block_base,
             "prefill_trace_enabled": False,

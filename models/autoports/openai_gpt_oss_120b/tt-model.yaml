@@ -54,10 +54,16 @@ serve:
       sample_on_device_mode: all
       trace_region_size: 750000000
       fabric_config: FABRIC_1D_RING
+      chunked_prefill_decode_steps: 8
   env:
     GPT_OSS_120B_FULL_MODEL_TENSOR_CACHE: /cache/model/full
     GPT_OSS_120B_SNAPSHOT: /hf/hub/models--openai--gpt-oss-120b/snapshots/b5c939de8f754692c1647ca79fbf85e8c1e70f8a
     GPT_OSS_120B_TENSOR_CACHE: /cache/model/decoder
+    GPT_OSS_120B_SLIDING_RING: "1"
+    GPT_OSS_120B_KV_POOL_BLOCKS: "4640"
+    GPT_OSS_120B_PREFIX_CACHING: "1"
+    GPT_OSS_120B_CHUNK_WARMUP: "8192"
+    GPT_OSS_120B_BATCHED_PREFILL_WARMUP: "128,1024,2048"
     TTNN_CONFIG_OVERRIDES: '{"cache_path":"/cache/ttnn/cache","model_cache_path":"/cache/ttnn/models","tmp_dir":"/cache/ttnn/tmp"}'
     TORCHDYNAMO_DISABLE: "1"
     # tt-metal's shared-memory stats tracker (for tt-smi) walks every cached
@@ -153,7 +159,7 @@ card:
     decode tok/s/u = 1 / TPOT; E2EL is the end-to-end latency of one request; Out
     tok/s total is the total output tokens per second across all users over the
     row's wall time. Every value is the mean over the row's N requests. Decode
-    runs one grouped expert pass per step with trace buckets at 1, 4, 8, 16 and 32
+    runs one grouped expert pass per step with trace buckets at 1, 4, 8 and 32
     users; new requests that arrive in the same scheduler step and share a padded
     prompt length (up to 2,048 tokens) are prefilled together; the expert gate/up
     bias is fused into the indexed sparse matmul.
@@ -293,26 +299,44 @@ card:
     so that the plugin's device-state-slot allocation failure (`no free device
     state slot ... capacity=32`, hit when requests that reach the token cap finish
     in the same step while replacements are queued) could not interrupt the run.
-    Half-full batches (16 of 32 sequences) produced corrupted output on this
-    package and were not used for any reported number.
+    Half-full batches (16 of 32 sequences) produced corrupted output on the build
+    those runs used; the cause was the 16-row decode bucket, which this package no
+    longer uses (see limitations).
   limitations: |
     - Hardware. P150 and P150x2 are not offered as serve profiles: the fixed
       resident model state does not fit those configurations. Production serving
       requires P150x4.
     - Long prompts. Prompts longer than 2,048 tokens are prefilled one at a
-      time. Long prompts that arrive together wait in a serialized prefill queue,
-      and each new prompt's prefill stalls the decode steps of the users already
-      generating (per-user decode drops sharply past 16 users at 16k tokens, 8 at
-      32k and 4 at 64k; see the latency table). The first prompt of a new length
-      pays a few seconds of prefill program creation.
-    - Context admission. vLLM admits 148,480 tokens of context across the running
-      requests: 8 sequences at 16k, 4 at 32k, 2 at 64k and one at 128k. Requests
-      beyond that wait for admission, and the wait lands in time to first token. A
-      130,816-token request is served strictly one at a time (about 30 s of
-      prefill before decode starts).
-    - Prefix caching is not supported (`supports_prefix_caching: false` in the
-      model's serving capability record). Every request prefills its full prompt,
-      including shared system prompts and multi-turn history.
+      time in 8,192-token chunks (`--max-num-batched-tokens`), and after each
+      chunk the users already generating get 8 decode steps
+      (`additional_config.tt.chunked_prefill_decode_steps`; 0 restores
+      prefill-first scheduling). A running user therefore keeps receiving tokens
+      during another user's long prefill (about 4 tokens per second each during
+      a 64k prefill) instead of stalling for it, and long prompts that arrive
+      together get their first token about twice as early as with prefill-first
+      scheduling. The cost is throughput while many prompts are still prefilling,
+      because those decode steps run at a small batch: on a burst of 8 or 16
+      long prompts the mean end-to-end latency is 5 to 12% higher than with
+      prefill-first scheduling (see the latency table). The first prompt of a
+      new length still pays a few seconds of prefill program creation.
+    - Context admission. vLLM admits 296,960 tokens of context across the running
+      requests (the 18 full-attention layers are paged; the 18 sliding-window
+      layers keep a 768-token ring per sequence outside the pool): 17 sequences
+      at 16k, 8 at 32k, 4 at 64k and 2 at 128k. Requests beyond that wait for
+      admission, and the wait lands in time to first token.
+    - Decode batch buckets. Decode runs traced graphs at 1, 4, 8 and 32 rows; a
+      batch of 9 to 16 running requests uses the 32-row trace. The 16-row trace
+      is disabled because its decode graph corrupts some rows (an exact-output
+      probe with 16 simultaneous requests returned wrong text for 8 of them, and
+      requests that passed through that bucket while others joined derailed);
+      `GPT_OSS_120B_DECODE_BUCKETS=4,8,16` restores it for investigation only.
+    - Prefix caching. Automatic prefix caching is on (`GPT_OSS_120B_PREFIX_CACHING=0`
+      or `--no-enable-prefix-caching` turns it off). A hit is counted in whole
+      512-token units and resumes the prefill 2,560 tokens before the hit so that
+      the sliding-window rings are exact again by the first new token, so a
+      cached prefix shorter than about 5,000 tokens saves little; a repeated or
+      multi-turn prompt with a longer shared prefix answers in 1 to 2 s instead
+      of a full prefill (about 5 s at 24k tokens, 14 s at 64k).
     - Sampling parameters. Decode samples on the device only while every running
       request stays within the device sampler's parameter set. One request with
       `min_p`, `logit_bias`, `bad_words`, `allowed_token_ids`, `min_tokens`,

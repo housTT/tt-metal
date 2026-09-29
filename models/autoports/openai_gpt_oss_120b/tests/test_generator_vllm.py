@@ -10,6 +10,7 @@ import torch
 
 from models.autoports.openai_gpt_oss_120b.tt.generator import Generator
 from models.autoports.openai_gpt_oss_120b.tt.generator_vllm import (
+    ENV_CHUNK_WARMUP,
     ENV_KV_POOL_BLOCKS,
     FULL_CONTEXT_BLOCKS,
     KV_POOL_BLOCKS_DEFAULT,
@@ -226,21 +227,21 @@ def test_kv_cache_spec_names_only_the_full_attention_layers():
 
 
 def test_ring_page_table_is_cyclic_and_masks_the_padded_tail():
-    table = ring_page_table([3, 0], 10, valid_blocks=[10, 2])
-    assert SLIDING_RING_BLOCKS == 4 and SLIDING_RING_TOKENS == 256
-    assert table[0].tolist() == [12, 13, 14, 15, 12, 13, 14, 15, 12, 13]
-    assert table[1].tolist() == [0, 1, -1, -1, -1, -1, -1, -1, -1, -1]
-    assert ring_page_table([1], 3).tolist() == [[4, 5, 6]]
-    assert ring_page_table([1], 3, base=4640).tolist() == [[4644, 4645, 4646]]
+    table = ring_page_table([3, 0], 26, valid_blocks=[26, 2])
+    assert SLIDING_RING_BLOCKS == 12 and SLIDING_RING_TOKENS == 768
+    assert table[0].tolist() == [36 + column % 12 for column in range(26)]
+    assert table[1].tolist() == [0, 1] + [-1] * 24
+    assert ring_page_table([1], 3).tolist() == [[12, 13, 14]]
+    assert ring_page_table([1], 3, base=4640).tolist() == [[4652, 4653, 4654]]
 
 
 def test_ring_tables_sit_above_the_pool_after_allocation():
     adapter = _adapter(n_layers=2)
     adapter._ring_block_base = 4640
-    tables = adapter._normalise_page_tables(None, torch.zeros(2, 6, dtype=torch.int32))
-    assert tables[0][0].tolist() == [4640, 4641, 4642, 4643, 4640, 4641]
-    assert tables[0][1].tolist() == [4644, 4645, 4646, 4647, 4644, 4645]
-    assert tables[1].shape == (2, 6) and int(tables[1].max()) == 0
+    tables = adapter._normalise_page_tables(None, torch.zeros(2, 14, dtype=torch.int32))
+    assert tables[0][0].tolist() == [4640 + column % 12 for column in range(14)]
+    assert tables[0][1].tolist() == [4652 + column % 12 for column in range(14)]
+    assert tables[1].shape == (2, 14) and int(tables[1].max()) == 0
 
 
 def test_decode_routes_ring_tables_for_sliding_layers_by_slot():
@@ -305,8 +306,8 @@ def test_prefill_ring_tables_follow_empty_slots_and_prompt_lengths():
     tables = adapter.generator.prefill_calls[-1][1]["page_tables_per_layer"]
     assert torch.equal(tables[1], page_table)
     assert tables[0].tolist() == ring_page_table([7, 2], 16, valid_blocks=[5, 2]).tolist()
-    assert tables[0][0, :6].tolist() == [28, 29, 30, 31, 28, -1]
-    assert tables[0][1, :3].tolist() == [8, 9, -1]
+    assert tables[0][0, :6].tolist() == [84, 85, 86, 87, 88, -1]
+    assert tables[0][1, :3].tolist() == [24, 25, -1]
 
 
 def test_device_sampling_capability_declares_exact_top_k_limit():
@@ -357,7 +358,7 @@ def test_tensor_sampling_params_convert_seed_sentinel_without_mutating_input():
 
 
 def test_adapter_exposes_the_decode_buckets_it_prepares():
-    assert TTGptOssForCausalLM.tt_supported_decode_batch_sizes == (1, 4, 8, 16, 32)
+    assert TTGptOssForCausalLM.tt_supported_decode_batch_sizes == (1, 4, 8, 32)
 
 
 def test_vllm_initialization_disables_duplicate_seed_salting_before_sampling_construction(
@@ -428,6 +429,117 @@ def test_nonaligned_prefill_delegates_to_canonical_generator():
     assert adapter.model.page_table_updates == []
 
 
+def _resumed_prefill(adapter, start_pos, prompt_lens=(9000, 8700), empty_slots=(1, 4)):
+    page_table = torch.zeros(2, 2048, dtype=torch.int32)
+    tokens = torch.arange(2 * 9000, dtype=torch.int64).reshape(2, 9000)
+    adapter.prefill_forward(
+        tokens=tokens,
+        page_table=page_table,
+        page_tables_per_layer=None,
+        kv_cache=object(),
+        prompt_lens=list(prompt_lens),
+        sampling_params=_greedy(),
+        empty_slots=list(empty_slots),
+        start_pos=start_pos,
+    )
+    _, call = adapter.generator.prefill_calls[-1]
+    return call
+
+
+def test_chunk_continuation_on_a_warm_ring_resumes_at_the_aligned_start():
+    adapter = _adapter()
+    adapter._slot_prefill_end[1] = 8192
+    call = _resumed_prefill(adapter, [8192, 300])
+    assert call["start_pos"] == [8192, 0]
+    assert call["fill_start_pos"] == [8192, 256]
+    assert call["ring_cold"] == [False, False]
+    assert adapter._slot_prefill_end[1] == 9000 and adapter._slot_prefill_end[4] == 8700
+
+
+def test_cached_prefix_on_a_cold_ring_restarts_the_reprefill_window_earlier():
+    adapter = _adapter()
+    call = _resumed_prefill(adapter, [8192, 300])
+    assert call["start_pos"] == [8192 - 2560, 0]
+    assert call["fill_start_pos"] == [8192, 256]
+    assert call["ring_cold"] == [True, False]
+    adapter.release_request(1)
+    adapter._slot_prefill_end[4] = 8700
+    call = _resumed_prefill(adapter, torch.tensor([8192, 8700]), prompt_lens=(9000, 8760))
+    assert call["start_pos"] == [8192 - 2560, 8704 - 512]
+    assert call["fill_start_pos"] == [8192, 8704 - 64]
+    assert call["ring_cold"] == [True, False]
+
+
+def test_new_request_flag_forces_a_cold_resume_even_when_the_marker_matches():
+    adapter = _adapter()
+    adapter._slot_prefill_end[1] = 8192
+    page_table = torch.zeros(2, 2048, dtype=torch.int32)
+    tokens = torch.arange(2 * 9000, dtype=torch.int64).reshape(2, 9000)
+    adapter.prefill_forward(
+        tokens=tokens,
+        page_table=page_table,
+        page_tables_per_layer=None,
+        kv_cache=object(),
+        prompt_lens=[9000, 8700],
+        sampling_params=_greedy(),
+        empty_slots=[1, 4],
+        start_pos=[8192, 8192],
+        new_request_rows=[True, False],
+    )
+    _, call = adapter.generator.prefill_calls[-1]
+    assert call["start_pos"] == [8192 - 2560, 8192]
+    assert call["ring_cold"] == [True, False]
+    adapter._slot_prefill_end[1] = 9000
+    adapter._slot_prefill_end[4] = 8700
+    adapter.prefill_forward(
+        tokens=tokens,
+        page_table=page_table,
+        page_tables_per_layer=None,
+        kv_cache=object(),
+        prompt_lens=[9000, 8700],
+        sampling_params=_greedy(),
+        empty_slots=[1, 4],
+        start_pos=[9000, 8700],
+        new_request_rows=[False, False],
+    )
+    _, call = adapter.generator.prefill_calls[-1]
+    assert call["start_pos"] == [8704, 8192]
+    assert call["ring_cold"] == [False, False]
+
+
+def test_prefill_without_cached_tokens_sends_no_resume_plan():
+    adapter = _adapter()
+    call = _resumed_prefill(adapter, torch.tensor([0, 0]))
+    assert call["start_pos"] is None and call["fill_start_pos"] is None and call["ring_cold"] is None
+    call = _resumed_prefill(adapter, torch.tensor([100, 511]))
+    assert call["start_pos"] == [0, 0]
+    assert call["fill_start_pos"] == [64, 448]
+    assert call["ring_cold"] == [False, False]
+
+
+def test_ring_slot_remap_moves_the_prefill_end_marker_with_the_ring():
+    adapter = _adapter()
+    adapter._slot_prefill_end[:3] = [100, 200, 300]
+    adapter._apply_ring_slot_remap([2, 0, 1])
+    assert adapter._slot_prefill_end[:3] == [300, 100, 200]
+    assert adapter._ring_of_slot[:3] == [2, 0, 1]
+
+
+def test_chunk_continuation_programs_are_keyed_by_chunk_length():
+    fresh = Generator._prefill_program_signature(9000, "device_sampling")
+    chunk = Generator._prefill_program_signature(9000, "device_sampling", 8192)
+    assert fresh == (16384, 9024, 8992, "device_sampling")
+    assert chunk == (1024, 9024, 800, "device_sampling:chunk")
+    later = Generator._prefill_program_signature(17192, "device_sampling", 16384)
+    assert later == (1024, 17216, 800, "device_sampling:chunk")
+    assert later != chunk
+    cold = Generator._prefill_program_signature(9000, "device_sampling", 5632, 8192, True)
+    assert cold == (4096, 9024, 3360, "device_sampling:chunk:cold:fill2560")
+    partial = Generator._prefill_program_signature(9000, "device_sampling", 0, 4992)
+    assert partial == (16384, 9024, 8992, "device_sampling:fill4992")
+    assert Generator._prefill_program_signature(808, "device_sampling") == (1024, 832, 800, "device_sampling")
+
+
 def test_prefill_compile_release_restores_every_prepared_decode_bucket():
     adapter = _adapter()
     adapter.generator.release_for_prefill_compile = True
@@ -462,13 +574,40 @@ def test_prefill_warmup_state_is_proxied_but_serving_prefill_is_untraced():
         can_sample_on_device=True,
     )
     assert adapter.generator.prefill_warmup_calls[-1]["enable_trace"] is False
-    tokens, kwargs = adapter.generator.prefill_calls[-1]
+    tokens, kwargs = adapter.generator.prefill_calls[0]
     assert tokens.shape == (1, 128)
     assert kwargs["prompt_lens"] == [128]
     assert kwargs["sampling_params"].top_k == 1
     assert kwargs["enable_trace"] is False
     assert len(kwargs["page_tables_per_layer"]) == adapter.model.n_layers
     assert all(table.shape == (1, 2) for table in kwargs["page_tables_per_layer"])
+
+
+def test_prefill_warmup_compiles_the_chunk_continuation_shapes(monkeypatch):
+    monkeypatch.setenv(ENV_CHUNK_WARMUP, "8192:32768")
+    adapter = _adapter()
+    adapter.warmup_model_prefill(kv_cache=object(), enable_trace=False, can_sample_on_device=True)
+    continuations = [(tokens, kwargs) for tokens, kwargs in adapter.generator.prefill_calls if kwargs.get("start_pos")]
+    assert [kwargs["start_pos"] for _, kwargs in continuations] == [[8192], [16384], [24576]]
+    assert [kwargs["prompt_lens"] for _, kwargs in continuations] == [[16384], [24576], [32768]]
+    tokens, kwargs = continuations[-1]
+    assert tokens.shape == (1, 32768)
+    assert kwargs["sampling_params"].top_k == 1
+    assert kwargs["enable_trace"] is False
+    assert kwargs["empty_slots"] == [0]
+    assert kwargs["page_table"].shape == (1, 512)
+    sliding, full = kwargs["page_tables_per_layer"]
+    assert torch.equal(full, torch.arange(512, dtype=torch.int32).reshape(1, 512))
+    assert sliding.shape == (1, 512)
+    assert int(sliding.min()) >= 0
+    assert torch.equal(sliding[0, :SLIDING_RING_BLOCKS], sliding[0, SLIDING_RING_BLOCKS : 2 * SLIDING_RING_BLOCKS])
+
+
+def test_prefill_warmup_skips_chunk_continuations_when_disabled(monkeypatch):
+    monkeypatch.setenv(ENV_CHUNK_WARMUP, "")
+    adapter = _adapter()
+    adapter.warmup_model_prefill(kv_cache=object(), enable_trace=False, can_sample_on_device=True)
+    assert not any(kwargs.get("start_pos") for _, kwargs in adapter.generator.prefill_calls)
 
 
 def test_get_block_size_never_indexes_a_device_tensor():
@@ -1076,17 +1215,15 @@ def test_decode_bucket_warmup_compiles_before_capturing(monkeypatch):
         (1, False, False),
         (4, False, False),
         (8, False, False),
-        (16, False, False),
         (32, False, False),
         (1, True, True),
         (4, True, True),
         (8, True, True),
-        (16, True, True),
         (32, True, True),
     ]
-    assert set(adapter.generator._inner._bucket_trace_store) == {1, 4, 8, 16, 32}
-    assert [call["max_batch_size"] for call in adapter.generator.decode_prepare_calls] == [1, 4, 8, 16, 32]
-    assert [call["width"] for call in adapter.generator.decode_capture_calls] == [1, 4, 8, 16, 32]
+    assert set(adapter.generator._inner._bucket_trace_store) == {1, 4, 8, 32}
+    assert [call["max_batch_size"] for call in adapter.generator.decode_prepare_calls] == [1, 4, 8, 32]
+    assert [call["width"] for call in adapter.generator.decode_capture_calls] == [1, 4, 8, 32]
     assert adapter._active_decode_bucket == 32
     assert adapter._device_trace_recapture_requires_reset
 
@@ -1270,3 +1407,15 @@ def test_adapter_has_no_independent_token_sampling_or_feedback_loop():
     assert "ttnn.topk(" not in text
     assert "Generator(" in text
     assert 'cache_owner="vllm"' in text
+
+
+def test_cold_ring_resume_near_the_context_end_keeps_the_padded_chunk_inside_it():
+    adapter = _adapter()
+    start, fill_start, cold = adapter._resume_plan(130560, 3, 130816)
+    assert (start, fill_start, cold) == (126976, 130560, True)
+    assert start + 4096 == HF_CONTEXT_LENGTH
+    start, fill_start, cold = adapter._resume_plan(130560, 3, 131072)
+    assert start + 4096 <= HF_CONTEXT_LENGTH and start % 512 == 0 and cold
+    adapter._slot_prefill_end[3] = 122880
+    assert adapter._resume_plan(122880, 3, 130816) == (122880, 122880, False)
+    assert adapter._resume_plan(8192, 3, 16384) == (8192 - 2560, 8192, True)

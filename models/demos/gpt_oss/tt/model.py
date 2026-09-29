@@ -354,6 +354,9 @@ class Model:
         skip_lm_head=False,
         page_tables_per_layer=None,
         fill_seq_lens=None,
+        chunk_start_idx=None,
+        ring_tail_blocks=None,
+        fill_start_idx=None,
     ):
         """
         Shared forward pass through decoder layers and final projection.
@@ -389,6 +392,15 @@ class Model:
         for i, decoder_layer in enumerate(self.layers):
             layer_kv_cache = kv_cache[i] if kv_cache is not None else None
             layer_page_table = page_tables_per_layer[i] if page_tables_per_layer is not None else page_table
+            extra = {}
+            if fill_seq_lens is not None:
+                extra["fill_seq_lens"] = fill_seq_lens
+            if chunk_start_idx is not None:
+                extra["chunk_start_idx"] = int(chunk_start_idx)
+                if ring_tail_blocks is not None:
+                    extra["ring_tail_block"] = ring_tail_blocks[i]
+            if fill_start_idx is not None:
+                extra["fill_start_idx"] = int(fill_start_idx)
             hidden_states = decoder_layer(
                 hidden_states,
                 position_embeddings=rope_mats,
@@ -398,7 +410,7 @@ class Model:
                 is_decode=is_decode,
                 user_id=user_id,
                 batch_size=batch_size,
-                **({"fill_seq_lens": fill_seq_lens} if fill_seq_lens is not None else {}),
+                **extra,
             )
         logits = hidden_states
 
@@ -622,6 +634,12 @@ class Model:
             # on the model when in vLLM hybrid mode, since Generator's prefill
             # path doesn't thread the kwarg.
             page_tables_per_layer = getattr(self, "_active_page_tables_per_layer", None)
+        ring_tail_blocks = None
+        if chunk_start_idx:
+            ring_tail_blocks = self._ring_tail_blocks(page_tables_per_layer, int(chunk_start_idx))
+            page_tables_per_layer = self._widen_chunk_page_tables(
+                page_tables_per_layer, int(chunk_start_idx) + int(x.shape[-2]), kv_cache
+            )
         transient_page_tables = []
         if explicit_page_tables:
             page_tables_per_layer, transient_page_tables = self._transient_prefill_page_tables_to_ttnn(
@@ -655,12 +673,81 @@ class Model:
                 batch_size=batch_size,
                 skip_lm_head=skip_lm_head,
                 page_tables_per_layer=page_tables_per_layer,
+                chunk_start_idx=int(chunk_start_idx) if chunk_start_idx else None,
+                ring_tail_blocks=ring_tail_blocks,
             )
         finally:
             for table in transient_page_tables:
                 table.deallocate(True)
 
         return logits
+
+    @staticmethod
+    def _widen_chunk_page_tables(page_tables_per_layer, padded_end: int, kv_cache):
+        """Give every host page table at least the columns the padded chunk end needs.
+
+        The chunked attention requires the table to cover ``chunk_start + padded
+        chunk length``; a trimmed table covers only the prompt's own blocks. The
+        extra columns name block 0 (vLLM's null block): the keys read from them
+        belong to padded query rows, whose outputs are dropped, and lie beyond
+        every real query's causal bound.
+        """
+        if page_tables_per_layer is None:
+            return None
+        widened = []
+        for layer_idx, table in enumerate(page_tables_per_layer):
+            if not isinstance(table, torch.Tensor):
+                widened.append(table)
+                continue
+            block_size = 64
+            if kv_cache is not None and layer_idx < len(kv_cache) and kv_cache[layer_idx] is not None:
+                block_size = int(kv_cache[layer_idx][0].shape[2])
+            needed = (padded_end + block_size - 1) // block_size
+            if int(table.shape[-1]) >= needed:
+                widened.append(table)
+                continue
+            pad = torch.zeros(table.shape[0], needed - int(table.shape[-1]), dtype=table.dtype)
+            widened.append(torch.cat([table, pad], dim=-1))
+        return widened
+
+    @staticmethod
+    def _layer_attention(layer):
+        attention = getattr(layer, "self_attn", None)
+        if attention is None:
+            attention = getattr(getattr(layer, "decoder", None), "self_attn", None)
+        return attention
+
+    def _ring_tail_blocks(self, page_tables_per_layer, chunk_start_idx: int):
+        """First physical block of the previous window for every bounded-ring layer.
+
+        A chunk that starts at ``chunk_start_idx`` needs the ``sliding_window``
+        positions before it; a ring layer keeps them in the ring blocks that the
+        host page table names at columns ``[start/block - window/block, start/block)``.
+        The two blocks of a 128-token window are consecutive in the ring, so the
+        first id is enough. Entries are None for full-attention layers.
+        """
+        if page_tables_per_layer is None:
+            return None
+        result = []
+        for layer, table in zip(self.layers, page_tables_per_layer):
+            attention = self._layer_attention(layer)
+            modulo = getattr(getattr(attention, "config", None), "cache_position_modulo", None)
+            if modulo is None or table is None or not isinstance(table, torch.Tensor):
+                result.append(None)
+                continue
+            window = int(attention.config.sliding_window)
+            block_size = int(attention.kv_cache[0].shape[2]) if attention.kv_cache is not None else 64
+            if chunk_start_idx % block_size:
+                raise ValueError(f"chunk_start_idx {chunk_start_idx} is not a multiple of the block size {block_size}")
+            window_blocks = window // block_size
+            first_col = chunk_start_idx // block_size - window_blocks
+            if first_col < 0 or first_col >= int(table.shape[-1]):
+                raise ValueError(f"page table with {table.shape[-1]} columns cannot address block {first_col}")
+            ring_blocks = modulo // block_size
+            if first_col % ring_blocks + window_blocks > ring_blocks:
+                raise ValueError(f"the window before {chunk_start_idx} wraps the {modulo}-token ring")
+            result.append(int(table[0, first_col]))
+        return result
 
     def process_logits_after_prefill_trace(self, logits, last_token_idx):
         """
@@ -1232,13 +1319,15 @@ class Model:
         # prefill that allocation happens with the trace live -- and is then discarded, since the replay
         # uses the matrices that were bound when the trace was captured.
         seq_len = self.args.max_seq_len if trace_enabled else tokens_embd.shape[-2]
-        rot_mats_global = self._prefill_rope_slices.get(seq_len)
+        rope_start = int(start_pos or 0)
+        rope_key = seq_len if rope_start == 0 else (rope_start, seq_len)
+        rot_mats_global = self._prefill_rope_slices.get(rope_key)
         if rot_mats_global is None:
             rot_mats_global = [
-                self.rope_setup.cos_matrix_prefill[:, :, :seq_len, :],
-                self.rope_setup.sin_matrix_prefill[:, :, :seq_len, :],
+                self.rope_setup.cos_matrix_prefill[:, :, rope_start : rope_start + seq_len, :],
+                self.rope_setup.sin_matrix_prefill[:, :, rope_start : rope_start + seq_len, :],
             ]
-            self._prefill_rope_slices[seq_len] = rot_mats_global
+            self._prefill_rope_slices[rope_key] = rot_mats_global
         rot_mats_local = None
 
         # Prepare page tables if provided

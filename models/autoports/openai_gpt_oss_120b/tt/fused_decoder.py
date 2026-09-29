@@ -1073,9 +1073,20 @@ class FusedDecoder(LightweightModule):
         user_id,
         batch_size,
         fill_seq_lens=None,
+        chunk_start_idx=None,
+        ring_tail_block=None,
+        fill_start_idx=None,
     ):
         residual = hidden_states
         normed = self.input_layernorm(hidden_states)
+        extra = {}
+        if fill_seq_lens is not None:
+            extra["fill_seq_lens"] = fill_seq_lens
+        if chunk_start_idx is not None:
+            extra["chunk_start_idx"] = chunk_start_idx
+            extra["ring_tail_block"] = ring_tail_block
+        if fill_start_idx is not None:
+            extra["fill_start_idx"] = fill_start_idx
         attention_out = self.self_attn(
             normed,
             rope_mats=position_embeddings,
@@ -1085,7 +1096,7 @@ class FusedDecoder(LightweightModule):
             is_decode=is_decode,
             user_id=user_id,
             batch_size=batch_size,
-            **({"fill_seq_lens": fill_seq_lens} if fill_seq_lens is not None else {}),
+            **extra,
         )
         # The attention prefill implementation consumes its input; decode
         # attention borrows it. Keep ownership explicit at this boundary.
@@ -1111,6 +1122,9 @@ class FusedDecoder(LightweightModule):
         user_id=0,
         batch_size=1,
         fill_seq_lens=None,
+        chunk_start_idx=None,
+        ring_tail_block=None,
+        fill_start_idx=None,
     ):
         if page_table is None:
             raise ValueError("FusedDecoder is paged-only and requires page_table")
@@ -1167,6 +1181,9 @@ class FusedDecoder(LightweightModule):
             user_id=user_id,
             batch_size=batch_size,
             fill_seq_lens=fill_seq_lens,
+            chunk_start_idx=chunk_start_idx,
+            ring_tail_block=ring_tail_block,
+            fill_start_idx=fill_start_idx,
         )
         if padded_tokens != logical_tokens:
             for rope in working_rope:

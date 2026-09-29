@@ -709,6 +709,9 @@ class _PhysicalHiddenCollectiveAttention(Attention):
         user_id=0,
         batch_size=1,
         fill_seq_lens=None,
+        chunk_start_idx=None,
+        ring_tail_block=None,
+        fill_start_idx=None,
     ):
         if not is_decode:
             return super().__call__(
@@ -721,6 +724,9 @@ class _PhysicalHiddenCollectiveAttention(Attention):
                 user_id=user_id,
                 batch_size=batch_size,
                 fill_seq_lens=fill_seq_lens,
+                chunk_start_idx=chunk_start_idx,
+                ring_tail_block=ring_tail_block,
+                fill_start_idx=fill_start_idx,
             )
         cache = kv_cache if kv_cache is not None else self.kv_cache
         transformation_mat = self.transformation_mats["decode"] if self.transformation_mats else None

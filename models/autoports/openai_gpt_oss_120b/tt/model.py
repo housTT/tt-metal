@@ -99,7 +99,10 @@ class CapacityEvidence:
 # that holds the active requests.  With batched expert decode the cost scales
 # with the batch, so one intermediate bucket keeps small batches off the full
 # serving-width graph while bounding trace-region use.
-INTERMEDIATE_DECODE_BUCKETS = (4, 8, 16)
+ENV_DECODE_BUCKETS = "GPT_OSS_120B_DECODE_BUCKETS"
+INTERMEDIATE_DECODE_BUCKETS = tuple(
+    sorted(int(v) for v in os.environ.get(ENV_DECODE_BUCKETS, "4,8").split(",") if v.strip())
+)
 
 
 def decode_trace_buckets(max_batch_size: int) -> tuple[int, ...]:
@@ -437,6 +440,9 @@ class _LayerAdapter:
         user_id,
         batch_size,
         fill_seq_lens=None,
+        chunk_start_idx=None,
+        ring_tail_block=None,
+        fill_start_idx=None,
     ):
         if is_decode:
             decode_batch_size = int(hidden_states.shape[-2])
@@ -461,6 +467,9 @@ class _LayerAdapter:
             user_id=user_id,
             batch_size=batch_size,
             fill_seq_lens=fill_seq_lens,
+            chunk_start_idx=chunk_start_idx,
+            ring_tail_block=ring_tail_block,
+            fill_start_idx=fill_start_idx,
         )
 
 
@@ -808,6 +817,24 @@ class Model(_GPTOSSModel):
         self.norm.decode_mode = is_decode
         self._terminal_uses_single_tile = is_decode or int(kwargs.get("get_last_token", -1)) != -1
         batch_size = int(kwargs.get("batch_size", 1))
+        if not is_decode and batch_size == 1 and kwargs.get("chunk_start_idx"):
+            seq_len = int(kwargs["hidden_states"].shape[-2])
+            last = int(kwargs.get("get_last_token", -1))
+            kwargs["fill_seq_lens"] = [seq_len if last < 0 else min(seq_len, last + ttnn.TILE_SIZE)]
+        if not is_decode and batch_size == 1 and getattr(self, "_prefill_row_resume", None):
+            plan = self._prefill_row_resume
+            cursor = int(getattr(self, "_prefill_row_cursor", 0))
+            if cursor >= len(plan):
+                raise RuntimeError(f"prefill call {cursor + 1} exceeds the {len(plan)} planned rows")
+            start, fill_start, cold = plan[cursor]
+            self._prefill_row_cursor = cursor + 1
+            got = int(kwargs.get("chunk_start_idx") or 0)
+            if got != int(start):
+                raise RuntimeError(f"prefill row {cursor} resumes at {got}; the plan says {start}")
+            if int(fill_start) > int(start):
+                kwargs["fill_start_idx"] = int(fill_start)
+            if cold and kwargs.get("ring_tail_blocks") is not None:
+                kwargs["ring_tail_blocks"] = [None if block is None else -1 for block in kwargs["ring_tail_blocks"]]
         if not is_decode and batch_size > 1:
             # Batched prefill.  The shared generator concatenates the users along
             # the sequence axis ([1, 1, B*S, H] with RoPE for B*S positions); the
@@ -833,10 +860,6 @@ class Model(_GPTOSSModel):
             # terminal norm + LM head on those rows (``_apply_norm_and_lm_head``);
             # running them over every token here would be wasted work.
             kwargs["skip_lm_head"] = True
-            # Compact rows: device row i is request i. The generator stashes the
-            # request lengths so each user's K/V fill stops at its own prompt
-            # end instead of the shared padded length (a bounded sliding ring
-            # would otherwise keep the padding tail instead of the real window).
             rows = getattr(self, "_prefill_row_lengths", None)
             if rows:
                 lengths = [int(length) for length in rows][:batch_size]

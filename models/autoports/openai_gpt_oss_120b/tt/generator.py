@@ -338,7 +338,9 @@ class Generator(_ReadinessGenerator):
         return True
 
     @staticmethod
-    def _prefill_program_signature(prompt_len: int, path: str) -> tuple[int, int, int, str]:
+    def _prefill_program_signature(
+        prompt_len: int, path: str, start_pos: int = 0, fill_start: int = 0, ring_cold: bool = False
+    ) -> tuple[int, int, int, str]:
         """Return every prompt-dependent prefill program bucket.
 
         Padding alone is insufficient: sequential serving trims K/V fill to
@@ -350,12 +352,33 @@ class Generator(_ReadinessGenerator):
         """
 
         prompt_len = int(prompt_len)
+        start_pos = int(start_pos or 0)
         if prompt_len < 1:
             raise ValueError(f"prefill prompt length must be positive, got {prompt_len}")
-        padded_length = get_padded_prefill_len(prompt_len)
-        page_rounded_length = ((prompt_len + PAGE_SIZE - 1) // PAGE_SIZE) * PAGE_SIZE
-        last_token_tile_start = ((prompt_len - 1) // ttnn.TILE_SIZE) * ttnn.TILE_SIZE
+        if not 0 <= start_pos < prompt_len:
+            raise ValueError(f"prefill start {start_pos} must be within [0, {prompt_len})")
+        chunk_len = prompt_len - start_pos
+        padded_length = get_padded_prefill_len(chunk_len)
+        rounded_span = prompt_len if start_pos else chunk_len
+        page_rounded_length = ((rounded_span + PAGE_SIZE - 1) // PAGE_SIZE) * PAGE_SIZE
+        last_token_tile_start = ((chunk_len - 1) // ttnn.TILE_SIZE) * ttnn.TILE_SIZE
+        if start_pos:
+            path = f"{path}:chunk"
+            if ring_cold:
+                path = f"{path}:cold"
+        fill_start = int(fill_start or 0)
+        if fill_start > start_pos:
+            path = f"{path}:fill{fill_start - start_pos}"
         return padded_length, page_rounded_length, last_token_tile_start, path
+
+    @staticmethod
+    def _per_prompt_ints(values, prompt_lens, name: str) -> list[int] | None:
+        if values is None:
+            return None
+        ints = [int(value) for value in torch.as_tensor(values).reshape(-1).tolist()]
+        if len(ints) != len(prompt_lens):
+            raise ValueError(f"{name} has {len(ints)} entries for {len(prompt_lens)} prompts")
+        return ints if any(ints) else None
 
     def _batched_prefill_shape(self, prompt_lens: List[int]) -> tuple[int, int] | None:
         """Return ``(padded_batch, padded_len)`` when the shared generator will batch these prompts.
@@ -366,7 +389,8 @@ class Generator(_ReadinessGenerator):
         """
         from models.tt_transformers.tt.generator import MAX_BATCHED_PREFILL_SEQ_LEN, SUPPORTED_PREFILL_BATCH_SIZES
 
-        if len(prompt_lens) < 2 or getattr(self.model_args, "disable_batched_prefill", True):
+        model_args = getattr(self, "model_args", None)
+        if len(prompt_lens) < 2 or getattr(model_args, "disable_batched_prefill", True):
             return None
         padded = {get_padded_prefill_len(int(length)) for length in prompt_lens}
         if len(padded) != 1:
@@ -384,17 +408,26 @@ class Generator(_ReadinessGenerator):
             return None
         return padded_batch, padded_len
 
-    def _prepare_prefill_variants(self, prompt_lens: List[int], *, path: str) -> set[tuple]:
+    def _prepare_prefill_variants(
+        self, prompt_lens: List[int], *, path: str, start_pos=None, fill_start_pos=None, ring_cold=None
+    ) -> set[tuple]:
         """Make first-time prefill program compilation safe with existing traces."""
 
-        batched = self._batched_prefill_shape(prompt_lens) if path == "device_sampling" else None
+        starts = [0] * len(prompt_lens) if start_pos is None else [int(value) for value in start_pos]
+        fills = [0] * len(prompt_lens) if fill_start_pos is None else [int(value) for value in fill_start_pos]
+        colds = [False] * len(prompt_lens) if ring_cold is None else [bool(value) for value in ring_cold]
+        plain = not any(starts) and not any(fills)
+        batched = self._batched_prefill_shape(prompt_lens) if path == "device_sampling" and plain else None
         if batched is not None:
             # Same 4-field shape as the per-prompt signature so the variant set
             # stays sortable in the capability report: (padded length, negative
             # device batch as the batched marker, -1, path).
             variants = {(batched[1], -batched[0], -1, path)}
         else:
-            variants = {self._prefill_program_signature(prompt_len, path) for prompt_len in prompt_lens}
+            variants = {
+                self._prefill_program_signature(prompt_len, path, start, fill, cold)
+                for prompt_len, start, fill, cold in zip(prompt_lens, starts, fills, colds)
+            }
         unseen = variants.difference(self._compiled_prefill_variants)
         if unseen and self._has_live_decode_trace():
             self._release_decode_traces_for_prefill_compile()
@@ -453,13 +486,30 @@ class Generator(_ReadinessGenerator):
         empty_slots: List[int] | None = None,
         page_tables_per_layer=None,
         enable_trace: bool = False,
+        start_pos=None,
+        fill_start_pos=None,
+        ring_cold=None,
         **kwargs: Any,
     ):
-        """Fill explicit paged cache state for mixed, non-aligned prompts."""
+        """Fill explicit paged cache state for mixed, non-aligned prompts.
+
+        ``start_pos`` (one entry per prompt) is the position the attention
+        resumes at: a vLLM chunked-prefill continuation or a cached prefix,
+        aligned by the caller. ``fill_start_pos`` is the first position whose
+        full-attention K/V is written (earlier positions are cached blocks), and
+        ``ring_cold`` says the slot's sliding rings hold nothing for the prompt.
+        Only the device-sampling path serves continuations.
+        """
 
         del kwargs
         page_table_host = _to_torch_page_table(page_table)
         self._validate_prefill(tokens, prompt_lens, page_table_host)
+        starts = self._per_prompt_ints(start_pos, prompt_lens, "start_pos")
+        fills = self._per_prompt_ints(fill_start_pos, prompt_lens, "fill_start_pos")
+        colds = None if ring_cold is None else [bool(value) for value in ring_cold]
+        if colds is not None and len(colds) != len(prompt_lens):
+            raise ValueError(f"ring_cold has {len(colds)} entries for {len(prompt_lens)} prompts")
+        resumed = starts is not None or fills is not None
         if sampling_params is not None:
             if return_all_logits:
                 raise ValueError("device-sampled prefill cannot return all logits")
@@ -467,8 +517,17 @@ class Generator(_ReadinessGenerator):
             if len(slots) != tokens.shape[0]:
                 raise ValueError(f"empty_slots has {len(slots)} entries for batch {tokens.shape[0]}")
             path = "device_sampling"
-            new_variants = self._prepare_prefill_variants(prompt_lens, path=path)
+            new_variants = self._prepare_prefill_variants(
+                prompt_lens, path=path, start_pos=starts, fill_start_pos=fills, ring_cold=colds
+            )
             self.model._prefill_row_lengths = [int(length) for length in prompt_lens]
+            self.model._prefill_row_resume = None
+            if resumed:
+                rows = len(prompt_lens)
+                self.model._prefill_row_resume = list(
+                    zip(starts or [0] * rows, fills or [0] * rows, colds or [False] * rows)
+                )
+                self.model._prefill_row_cursor = 0
             try:
                 result = self._inner.prefill_forward_text(
                     tokens,
@@ -480,15 +539,19 @@ class Generator(_ReadinessGenerator):
                     sampling_params=sampling_params,
                     warmup_prefill=False,
                     page_tables_per_layer=page_tables_per_layer,
+                    **({"start_pos": starts} if starts is not None else {}),
                 )
             finally:
                 self.model._prefill_row_lengths = None
+                self.model._prefill_row_resume = None
             self._dirty_cache = True
             self._inner.mode = None
             self._record_compiled_prefill_variants(new_variants)
             self.trace_evidence.sampled_token_readbacks += 1
             self.trace_evidence.caller_visible_token_synchronizations += 1
             return result
+        if resumed:
+            raise ValueError("host-sampled prefill does not serve resumed prompts (start_pos or fill_start_pos > 0)")
         path = "host_all_logits" if return_all_logits else "host_last_logits"
         new_variants = self._prepare_prefill_variants(prompt_lens, path=path)
         layer_cache = self._layer_cache(kv_cache)

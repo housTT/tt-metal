@@ -633,6 +633,7 @@ def run_test_chunked_sdpa_sink_window(
     flexible,
     fp32_dest_acc_en,
     pcc_threshold=0.99,
+    starts=None,
 ):
     program_config = ttnn.SDPAProgramConfig(
         compute_with_storage_grid_size=device.compute_with_storage_grid_size(),
@@ -678,7 +679,8 @@ def run_test_chunked_sdpa_sink_window(
         extra["attention_sink"] = tt_S
 
     worst = 1.0
-    for chunk_idx in range(s // prefill_chunk_size):
+    chunk_indices = range(s // prefill_chunk_size) if starts is None else [st // prefill_chunk_size for st in starts]
+    for chunk_idx in chunk_indices:
         start = chunk_idx * prefill_chunk_size
         Q_chunk = Q[:, :, start : start + prefill_chunk_size]
         tt_Q = ttnn.Tensor(Q_chunk, ttnn.bfloat16).to(ttnn.TILE_LAYOUT).to(device)
@@ -750,4 +752,35 @@ def test_chunked_sdpa_sink_and_sliding_window(
         use_sink=use_sink,
         flexible=flexible,
         fp32_dest_acc_en=fp32_dest_acc_en,
+    )
+
+
+@pytest.mark.skipif(is_watcher_enabled(), reason="Kernel OOM with watcher enabled")
+@pytest.mark.parametrize(
+    "q_chunk_size, k_chunk_size, sliding_window",
+    [(32, 32, None), (32, 32, 128), (128, 128, None), (128, 128, 128)],
+    ids=["q32k32_full", "q32k32_sliding", "q128k128_full", "q128k128_sliding"],
+)
+@pytest.mark.parametrize("fp32_dest_acc_en", [False], ids=["streaming"])
+def test_chunked_sdpa_short_chunk_after_long_prefix(
+    device, q_chunk_size, k_chunk_size, sliding_window, fp32_dest_acc_en
+):
+    """A 128-token final chunk at starts 8192, 16384 and 24576 over a 24,704-token paged prefix,
+    the shape a chunked-prefill remnant takes, with the sink on."""
+    run_test_chunked_sdpa_sink_window(
+        device,
+        b=1,
+        nh=16,
+        nkv=2,
+        s=24704,
+        d=64,
+        q_chunk_size=q_chunk_size,
+        k_chunk_size=k_chunk_size,
+        prefill_chunk_size=128,
+        page_block_size=64,
+        sliding_window=sliding_window,
+        use_sink=True,
+        flexible=False,
+        fp32_dest_acc_en=fp32_dest_acc_en,
+        starts=[8192, 16384, 24576],
     )
