@@ -149,11 +149,11 @@ card:
     environment turns it off.
   performance: |
     Latency and accuracy below are measured on this package as served by
-    `tt-model serve`, not extrapolated. Latency: 2026 Sep 17 sweep. Accuracy:
+    `tt-model serve`, not extrapolated. Latency: 2026 Sep 30 sweep. Accuracy:
     published-eval runs of 2026 Sep 24 to 26 and release-workflow runs of
     2026 Sep 21 to 22.
 
-    ### Measured P150x4 latency (2026-09-17)
+    ### Measured P150x4 latency (2026-09-30)
 
     Measured on this package by the bench-sweeps harness (`tt-model serve` from a
     cold start): random-token prompts of exactly ISL tokens, `ignore_eos`, output
@@ -166,72 +166,98 @@ card:
     row's wall time. Every value is the mean over the row's N requests. Decode
     runs one grouped expert pass per step with trace buckets at 1, 4, 8 and 32
     users; new requests that arrive in the same scheduler step and share a padded
-    prompt length (up to 2,048 tokens) are prefilled together; the expert gate/up
-    bias is fused into the indexed sparse matmul.
+    prompt length (up to 2,048 tokens) are prefilled together; longer prompts are
+    prefilled in steps of up to 8,192 tokens with 8 decode steps for the running
+    users between the chunks of one prompt; the expert gate/up bias is fused into
+    the indexed sparse matmul. Prefix caching is on, but the random prompts of
+    this sweep never hit it, so every row is an uncached cost.
 
     | ISL | OSL | Users | N | TTFT (ms) | Prefill (tok/s/u) | TPOT (ms) | Decode (tok/s/u) | E2EL (s) | Out (tok/s total) |
     | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-    | 128 | 128 | 1 | 4 | 261 | 490 | 15.2 | 65.7 | 2.19 | 58 |
-    | 128 | 128 | 2 | 8 | 496 | 258 | 21.8 | 45.8 | 3.27 | 78 |
-    | 128 | 128 | 4 | 16 | 584 | 219 | 21.8 | 45.8 | 3.35 | 153 |
-    | 128 | 128 | 8 | 32 | 559 | 229 | 32.6 | 30.6 | 4.70 | 218 |
-    | 128 | 128 | 16 | 64 | 826 | 155 | 42.4 | 23.6 | 6.21 | 330 |
-    | 128 | 128 | 32 | 128 | 1,025 | 125 | 50.0 | 20.0 | 7.37 | 556 |
-    | 1,024 | 256 | 1 | 4 | 347 | 2,950 | 15.5 | 64.6 | 4.29 | 60 |
-    | 1,024 | 256 | 2 | 8 | 620 | 1,651 | 22.1 | 45.3 | 6.25 | 82 |
-    | 1,024 | 256 | 4 | 16 | 1,049 | 976 | 22.1 | 45.2 | 6.69 | 153 |
-    | 1,024 | 256 | 8 | 32 | 1,583 | 647 | 32.9 | 30.4 | 9.98 | 205 |
-    | 1,024 | 256 | 16 | 64 | 2,716 | 377 | 42.9 | 23.3 | 13.65 | 300 |
-    | 1,024 | 256 | 32 | 128 | 5,079 | 202 | 50.3 | 19.9 | 17.90 | 458 |
-    | 4,096 | 256 | 1 | 4 | 747 | 5,482 | 15.7 | 63.8 | 4.75 | 54 |
-    | 4,096 | 256 | 2 | 8 | 1,481 | 2,766 | 22.3 | 44.8 | 7.17 | 71 |
-    | 4,096 | 256 | 4 | 16 | 2,873 | 1,426 | 22.3 | 44.8 | 8.57 | 119 |
-    | 4,096 | 256 | 8 | 32 | 5,920 | 692 | 33.4 | 30.0 | 14.43 | 142 |
-    | 4,096 | 256 | 16 | 64 | 11,763 | 348 | 43.5 | 23.0 | 22.87 | 179 |
-    | 4,096 | 256 | 32 | 128 | 23,125 | 177 | 50.4 | 19.8 | 35.99 | 228 |
-    | 16,384 | 256 | 1 | 2 | 2,435 | 6,730 | 16.1 | 62.1 | 6.54 | 39 |
-    | 16,384 | 256 | 2 | 4 | 4,908 | 3,338 | 23.2 | 43.1 | 10.83 | 47 |
-    | 16,384 | 256 | 4 | 8 | 9,735 | 1,683 | 23.2 | 43.1 | 15.66 | 65 |
-    | 16,384 | 256 | 8 | 16 | 19,439 | 843 | 35.0 | 28.5 | 28.38 | 72 |
-    | 16,384 | 256 | 16 | 32 | 21,949 | 746 | 113.8 | 8.8 | 50.98 | 80 |
-    | 16,384 | 256 | 32 | 64 | 57,790 | 284 | 137.2 | 7.3 | 92.77 | 80 |
-    | 32,768 | 256 | 1 | 1 | 5,206 | 6,294 | 16.7 | 59.9 | 9.46 | 27 |
-    | 32,768 | 256 | 2 | 2 | 10,380 | 3,157 | 24.4 | 40.9 | 16.61 | 31 |
-    | 32,768 | 256 | 4 | 4 | 20,824 | 1,574 | 24.4 | 41.0 | 27.04 | 38 |
-    | 32,768 | 256 | 8 | 8 | 27,247 | 1,203 | 93.6 | 10.7 | 51.11 | 40 |
-    | 32,768 | 256 | 16 | 16 | 51,835 | 632 | 118.9 | 8.4 | 82.16 | 40 |
-    | 32,768 | 256 | 32 | 32 | 102,279 | 320 | 132.7 | 7.5 | 136.13 | 40 |
-    | 65,536 | 256 | 1 | 1 | 11,926 | 5,495 | 17.8 | 56.2 | 16.47 | 16 |
-    | 65,536 | 256 | 2 | 2 | 23,836 | 2,749 | 26.7 | 37.4 | 30.65 | 17 |
-    | 65,536 | 256 | 4 | 4 | 34,481 | 1,901 | 59.6 | 16.8 | 49.69 | 17 |
-    | 65,536 | 256 | 8 | 8 | 62,304 | 1,052 | 86.4 | 11.6 | 84.34 | 17 |
-    | 65,536 | 256 | 16 | 16 | 117,556 | 557 | 102.0 | 9.8 | 143.58 | 18 |
-    | 65,536 | 256 | 32 | 32 | 230,250 | 285 | 111.3 | 9.0 | 258.64 | 18 |
-    | 130,816 | 256 | 1 | 1 | 30,315 | 4,315 | 20.0 | 49.9 | 35.42 | 7 |
-    | 130,816 | 256 | 2 | 2 | 48,150 | 2,717 | 20.0 | 49.9 | 53.26 | 7 |
-    | 130,816 | 256 | 4 | 4 | 83,329 | 1,570 | 20.0 | 50.0 | 88.43 | 7 |
-    | 130,816 | 256 | 8 | 8 | 155,008 | 844 | 20.0 | 50.0 | 160.11 | 7 |
-    | 130,816 | 256 | 16 | 16 | 291,563 | 449 | 20.0 | 50.0 | 296.66 | 7 |
-    | 130,816 | 256 | 32 | 32 | 572,871 | 228 | 20.0 | 50.0 | 577.97 | 7 |
+    | 128 | 128 | 1 | 4 | 247 | 518 | 15.3 | 65.4 | 2.19 | 58 |
+    | 128 | 128 | 2 | 8 | 483 | 265 | 22.0 | 45.5 | 3.27 | 78 |
+    | 128 | 128 | 4 | 16 | 574 | 223 | 21.9 | 45.6 | 3.36 | 152 |
+    | 128 | 128 | 8 | 32 | 559 | 229 | 32.6 | 30.7 | 4.70 | 218 |
+    | 128 | 128 | 16 | 64 | 733 | 175 | 56.8 | 17.6 | 7.94 | 258 |
+    | 128 | 128 | 32 | 128 | 991 | 129 | 49.8 | 20.1 | 7.32 | 560 |
+    | 1,024 | 256 | 1 | 4 | 291 | 3,515 | 15.5 | 64.6 | 4.24 | 60 |
+    | 1,024 | 256 | 2 | 8 | 663 | 1,545 | 22.1 | 45.2 | 6.31 | 81 |
+    | 1,024 | 256 | 4 | 16 | 1,048 | 977 | 22.2 | 45.1 | 6.70 | 153 |
+    | 1,024 | 256 | 8 | 32 | 1,564 | 655 | 32.9 | 30.4 | 9.95 | 206 |
+    | 1,024 | 256 | 16 | 64 | 2,904 | 353 | 58.1 | 17.2 | 17.72 | 231 |
+    | 1,024 | 256 | 32 | 128 | 4,344 | 236 | 53.9 | 18.5 | 18.10 | 453 |
+    | 4,096 | 256 | 1 | 4 | 724 | 5,661 | 15.7 | 63.8 | 4.72 | 54 |
+    | 4,096 | 256 | 2 | 8 | 1,441 | 2,843 | 22.4 | 44.7 | 7.14 | 72 |
+    | 4,096 | 256 | 4 | 16 | 2,741 | 1,494 | 23.1 | 43.2 | 8.64 | 119 |
+    | 4,096 | 256 | 8 | 32 | 4,572 | 896 | 38.0 | 26.3 | 14.25 | 144 |
+    | 4,096 | 256 | 16 | 64 | 7,600 | 539 | 72.9 | 13.7 | 26.20 | 156 |
+    | 4,096 | 256 | 32 | 128 | 13,488 | 304 | 86.6 | 11.6 | 35.56 | 230 |
+    | 16,384 | 256 | 1 | 2 | 2,668 | 6,140 | 16.1 | 62.1 | 6.78 | 38 |
+    | 16,384 | 256 | 2 | 4 | 4,365 | 3,754 | 27.1 | 37.0 | 11.27 | 45 |
+    | 16,384 | 256 | 4 | 8 | 6,323 | 2,591 | 41.0 | 24.4 | 16.77 | 61 |
+    | 16,384 | 256 | 8 | 16 | 9,384 | 1,746 | 82.0 | 12.2 | 30.29 | 67 |
+    | 16,384 | 256 | 16 | 32 | 15,693 | 1,044 | 173.5 | 5.8 | 59.94 | 67 |
+    | 16,384 | 256 | 32 | 64 | 58,837 | 278 | 208.8 | 4.8 | 112.07 | 66 |
+    | 32,768 | 256 | 1 | 1 | 5,649 | 5,800 | 16.7 | 59.9 | 9.91 | 26 |
+    | 32,768 | 256 | 2 | 2 | 9,253 | 3,541 | 32.1 | 31.2 | 17.44 | 29 |
+    | 32,768 | 256 | 4 | 4 | 15,722 | 2,084 | 53.3 | 18.8 | 29.31 | 34 |
+    | 32,768 | 256 | 8 | 8 | 28,265 | 1,159 | 106.6 | 9.4 | 55.44 | 36 |
+    | 32,768 | 256 | 16 | 16 | 56,100 | 584 | 160.2 | 6.2 | 96.96 | 36 |
+    | 32,768 | 256 | 32 | 32 | 112,215 | 292 | 187.6 | 5.3 | 160.06 | 36 |
+    | 65,536 | 256 | 1 | 1 | 12,417 | 5,278 | 17.9 | 56.0 | 16.97 | 15 |
+    | 65,536 | 256 | 2 | 2 | 19,776 | 3,314 | 46.8 | 21.3 | 31.72 | 16 |
+    | 65,536 | 256 | 4 | 4 | 33,870 | 1,935 | 95.7 | 10.4 | 58.28 | 17 |
+    | 65,536 | 256 | 8 | 8 | 62,762 | 1,044 | 129.5 | 7.7 | 95.79 | 17 |
+    | 65,536 | 256 | 16 | 16 | 121,381 | 540 | 147.3 | 6.8 | 158.94 | 17 |
+    | 65,536 | 256 | 32 | 32 | 238,147 | 275 | 155.7 | 6.4 | 277.85 | 17 |
+    | 130,816 | 256 | 1 | 1 | 30,010 | 4,359 | 20.1 | 49.8 | 35.13 | 7 |
+    | 130,816 | 256 | 2 | 2 | 47,226 | 2,770 | 83.2 | 12.0 | 68.43 | 7 |
+    | 130,816 | 256 | 4 | 4 | 82,241 | 1,591 | 110.3 | 9.1 | 110.37 | 7 |
+    | 130,816 | 256 | 8 | 8 | 152,025 | 860 | 123.5 | 8.1 | 183.51 | 7 |
+    | 130,816 | 256 | 16 | 16 | 292,036 | 448 | 130.7 | 7.6 | 325.37 | 7 |
+    | 130,816 | 256 | 32 | 32 | 569,790 | 230 | 133.9 | 7.5 | 603.93 | 7 |
 
-    How to read the long-context rows. Prompts above 2,048 tokens are prefilled one
-    at a time, so TTFT at N users is about N times the single-user prefill (the
-    last user of a wave waits for every prefill before it). vLLM admits
-    148,480 tokens of context across the running requests (the plugin's 4,640 KV
-    blocks are split equally between the full-attention and the sliding-window
-    layer groups, and the full-attention group's 2,320 blocks of 64 tokens set
-    the limit; the server logs this as "maximum concurrency 1.13x at 131,072
-    tokens"): 8 sequences at 16k, 4 at 32k, 2 at 64k and one at 128k. The rest of
-    a wave waits for admission (that wait lands in TTFT), and each new prompt's
-    prefill stalls the decode steps of the users already generating, which is why
-    per-user decode drops sharply past those counts (16k at 16 users, 32k at 8,
-    64k at 4). The 130,816-token rows are the context boundary (max_model_len -
-    256): only one such sequence fits, so the server handles those requests
-    strictly one at a time (30.3 s prefill, then 5.1 s of decode at 20 ms per
-    token). The decode column stays at 50 tok/s per user at
-    every concurrency there because it is the undisturbed single-sequence rate;
-    the concurrency cost is entirely in TTFT (about 35 s per request ahead in the
-    queue) and in the 7 tok/s total output rate.
+    How to read the long-context rows. vLLM admits 296,960 tokens of context
+    across the running requests (the plugin's 4,640 KV blocks of 64 tokens all
+    serve the 18 full-attention layers, and the 18 sliding-window layers keep a
+    768-token ring per sequence outside that pool; the server logs this as
+    "maximum concurrency 2.27x at 131,072 tokens"): 17 sequences at 16k, 8 at 32k,
+    4 at 64k and 2 at 128k. Prompts are prefilled one at a time in steps of up to
+    8,192 tokens (two 4,096-token prompts per step, one 8,192-token chunk of a
+    longer prompt), and after every chunk of a long prompt the scheduler runs 8
+    decode steps for the users already generating, so a running user keeps
+    receiving tokens during another user's long prefill (about 4 tokens per
+    second each while a 64k prompt is prefilled, instead of a stall for the whole
+    prefill). In these rows every user's prompt arrives at once and each user
+    then decodes 256 tokens, so TTFT is the time to a user's own prefill step and
+    the time between TTFT and E2EL includes the wait behind the other users'
+    prefill steps and chunks: the TPOT and decode columns understate the
+    decode-step rate (about 50 ms per token in the 32-row bucket) whenever
+    prompts are still being prefilled. Against prefill-first scheduling (the
+    2026 Sep 17 sweep of the previous build), mean TTFT is lower at every user
+    count up to the admission limit (16k at 8 users 9.4 s, was 19.4 s; 32k at 4
+    users 15.7 s, was 20.8 s; 64k at 2 users 19.8 s, was 23.8 s), the mean E2EL
+    is 4 to 28% higher on the multi-user rows from 16k up because the admitted
+    requests now finish together instead of one after another (128k at 2 users:
+    both finish at about 68 s, where before one finished at 35 s and the other at
+    71 s), and the time to finish the whole burst is unchanged at 64k and 128k
+    (128k at 2 users 70 s, was 71 s; 128k at 8 users 279 s, was 285 s) and 7 to
+    22% longer at 16k and 32k (16k at 16 users 122 s, was 102 s), where the
+    chunked prefill of a 16k or 32k prompt costs 4 to 9% more than one
+    uninterrupted prefill and 16 or more users decode in the 32-row bucket. The
+    decode steps between chunks are not that cost: with
+    `additional_config.tt.chunked_prefill_decode_steps: 0` in `serve.args`
+    (prefill-first scheduling, measured on the same build) the E2EL of these
+    rows is the same within noise (16k at 8 users 30.0 s vs 30.3 s; 64k at 4
+    users 56.1 s vs 58.3 s; 128k at 2 users 68.4 s both) or worse (16k at 32
+    users 117 s vs 112 s), and first tokens come later (16k at 8 users 13.1 s vs
+    9.4 s; 16k at 32 users 75 s vs 59 s) while a long prompt's prefill stalls the
+    running users. The 130,816-token rows are the context boundary (max_model_len -
+    256): two such sequences fit, so at 2 users both run together (47 s mean
+    TTFT), and from 4 users on the rest wait for admission, about 35 s per
+    request ahead in the queue. 16 users decode in the 32-row bucket (about 50
+    to 58 ms per token at short context) because the 16-row bucket is off (see
+    Limitations).
 
     Prompts of 512+ tokens use the indexed expert prefill: each expert's routed
     tokens are gathered into slabs and run through compact indexed sparse
@@ -240,9 +266,9 @@ card:
     batched (users, length) pairs) are compiled at server start; the first prompt
     of a new length still pays a few seconds of program creation. Prompts longer
     than 2,048 tokens are prefilled one at a time, so TTFT for many long prompts
-    arriving together is the serialized prefill queue. Prompts longer than 65,536
-    tokens run the expert prefill in 64k-row chunks, which is how the full
-    131,072-token context is served (the 130,816 rows above).
+    arriving together is the prefill queue with decode steps interleaved. Prompts
+    longer than 8,192 tokens reach the model in 8,192-token chunks, so the full
+    131,072-token context is served as 16 chunks (the 130,816 rows above).
 
     ### Accuracy
 
@@ -358,18 +384,21 @@ card:
       forced answer rather than a null one. Requests with `n` above 1, logprobs,
       `ignore_eos` or a required tool call are served without the reserve, and
       their `content` can be null on `finish_reason: "length"`.
-    - Prompt echo at the context boundary. At 130,816-token prompts with 16 or
-      more concurrent requests, one request per batch receives its own prompt
-      streamed back as generated text (one 722,000-character chunk, no `echo`
-      requested, usage reports 256 completion tokens). Not observed at 8 users or
-      at shorter inputs. Open in the vLLM fork / plugin output path.
+    - Prompt echo under heavy long-context load. At 65,536-token prompts with 32
+      concurrent requests and at 130,816-token prompts with 16 or more, one
+      request per batch receives its own prompt streamed back as generated text
+      (a single chunk of 360,000 to 725,000 characters, no `echo` requested,
+      usage reports 256 completion tokens; the 2026 Sep 30 sweep saw one each at
+      64k/32, 128k/16 and 128k/32). Also reproduced at 16,384- and 32,768-token
+      prompts with 8 concurrent requests. Open in the vLLM fork / plugin output
+      path.
     - Concurrency edge cases seen under the tt-inference-server eval workflow
       (32 concurrent requests, 122,880-token budgets): the plugin's device-state
       slot allocation can fail (`no free device state slot ... capacity=32`) when
       requests that reach the token cap finish in the same step while replacements
       are queued, and half-full batches of 16 of 32 sequences produced corrupted
-      output. Those runs were submitted in fixed batches of 32 to avoid both; see
-      Accuracy.
+      output (the 16-row decode bucket, now off; see Decode batch buckets). Those
+      runs were submitted in fixed batches of 32 to avoid both; see Accuracy.
     - Tools and agent scaffolds. The served API has no built-in Python or
       browser tool, so OpenAI's "with tools" results do not apply. Function
       calling uses the OpenAI tool format (`tool_parser: openai`). With
