@@ -116,103 +116,69 @@ verify:
 
 card:
   quickstart: |
-    This package serves `openai/gpt-oss-120b` with official vLLM and the
-    Tenstorrent vLLM plugin on four P150 boards. Follow startup until the API is ready:
+    `openai/gpt-oss-120b` served by vLLM and the Tenstorrent vLLM plugin on four
+    P150 chips (two p300c boards or four P150 boards). Start it and follow the log
+    until the API is ready:
 
     ```bash
     tt-model serve tt-hous/gpt-oss-120b-p150x4 --follow
     ```
 
-    The first start compiles kernels and model tensors into the persistent package
-    cache and takes about 18 minutes; a restart with a warm cache takes about 8
-    minutes.
+    The first start compiles kernels and model tensors into the package cache and
+    takes about 18 minutes; later starts take about 8 minutes. Then talk to it
+    with any OpenAI client; `model` is the weights id:
 
-    ### Serve profiles
+    ```bash
+    curl -s http://127.0.0.1:20000/v1/chat/completions -H 'Content-Type: application/json' -d '{
+      "model": "openai/gpt-oss-120b",
+      "messages": [{"role": "user", "content": "Summarize the attached report in five bullets."}],
+      "max_tokens": 2048, "reasoning_effort": "medium", "stream": true}'
+    ```
 
-    One image, two launch configurations (`tt-model profiles tt-hous/gpt-oss-120b-p150x4`
-    lists them):
+    ### Which profile
 
-    | profile | use it for | what differs |
-    | --- | --- | --- |
-    | `default` | interactive and agentic traffic: chat, multi-turn, agents and deep research, RAG with shared system prompts or documents, mixed prompt lengths, anything where time to first token and steady streaming matter | long prompts prefill in 8,192-token steps with 8 decode steps for the running users between the steps of one prompt |
-    | `throughput` | bulk work where only the time to finish a batch counts: evals at 32 concurrent requests, offline summarization or classification, batch document processing | prefill-first scheduling in 32,768-token steps, no decode steps between the steps of one prompt (`tt-model serve tt-hous/gpt-oss-120b-p150x4 --profile throughput`) |
+    | profile | use it for |
+    | --- | --- |
+    | `default` | interactive and agentic traffic: chat, multi-turn, agents, RAG, mixed prompt lengths. Long prompts are prefilled in 8,192-token steps and every running user keeps receiving tokens between the steps. |
+    | `throughput` | bulk work where only the time to finish a batch counts: evals at 32 concurrent requests, offline summarization or classification, batch document processing. Prefill-first in 32,768-token steps; a burst of long prompts finishes 5 to 12% sooner, but nobody receives tokens while a long prompt is being prefilled. |
 
-    Both profiles serve the full 131,072-token context, admit 296,960 tokens of
-    context across requests, keep prefix caching on and sample on the device. The
-    performance section has the measured rows of both.
+    ```bash
+    tt-model serve tt-hous/gpt-oss-120b-p150x4 --profile throughput --follow
+    ```
+
+    Both profiles serve the full 131,072-token context, run up to 32 concurrent
+    requests, admit 296,960 tokens of context across them, and cache prefixes.
+
+    ### Reasoning and the output budget
+
+    gpt-oss reasons before it answers, and `max_tokens` covers both. The server
+    keeps `clamp(max_tokens // 8, 128, 1024)` tokens of every chat completion's
+    budget for the answer, so a request that runs out of budget while reasoning
+    still returns an answer (`finish_reason: "length"` with non-null `content`).
+    `usage.completion_tokens_details.reasoning_tokens` reports the reasoning
+    tokens; `reasoning_effort` (`low`, `medium`, `high`) sets how much the model
+    reasons. Requests with `n` above 1, logprobs, `ignore_eos` or a required tool
+    call are served without the reserve.
 
     ### Source
 
-    Every line of code in this image is on a public branch; the Provenance table at
-    the end of this card links the exact commits the image was built from.
-
-    - tt-metal: [`hous/gpt-oss-120b-p150x4`](https://github.com/housTT/tt-metal/tree/hous/gpt-oss-120b-p150x4)
-      on the housTT fork: the GPT-OSS 120B autoport (batched decode, batched and
-      indexed MoE prefill, chunked 131k prefill, sharded decode norms), the
-      `ttnn.sparse_matmul` extensions it uses (fused per-group bias, optional
-      second in0 sender, two-block synchronisation), the allocator tracker fix, and
-      this card.
-    - vLLM: [`tt/gpt-oss-serving`](https://github.com/housTT/vllm/tree/tt/gpt-oss-serving)
-      on the housTT fork, commit
-      [`2bbd2a6d9`](https://github.com/housTT/vllm/commit/2bbd2a6d9):
-      upstream vLLM plus three Harmony changes. The parser recovers from an
-      off-grammar token mid-stream (the parsed reasoning is kept, the remaining
-      text is returned as `content`, a warning names the token) instead of failing
-      the request. Chat completions keep a final-channel reserve so that an answer
-      is returned when the reasoning uses the output budget (see Output budget and
-      reasoning), and the reserve completes the final-channel header when the
-      reasoning budget runs out inside it. The image installs the wheel
-      `vllm-0.26.0.dev4+g2bbd2a6d9` built from that commit with
-      `VLLM_TARGET_DEVICE=empty`; the Tenstorrent plugin supplies the platform.
-    - vllm-tt-plugin: [`hous/gpt-oss-120b-serving`](https://github.com/housTT/vllm-tt-plugin/tree/hous/gpt-oss-120b-serving)
-      on the housTT fork, commit
-      [`176a8c5`](https://github.com/housTT/vllm-tt-plugin/commit/176a8c5865d9abe82d2d8a04a25b5920e78f3fcb):
-      the plugin with capability-gated tensor sampling parameters and host-state
-      versions for decode, which this autoport uses.
-
-    ### Output budget and reasoning
-
-    gpt-oss reasons in the Harmony `analysis` channel before it answers in the
-    `final` channel, and `max_tokens` covers both. The server keeps part of every
-    chat completion's budget for the answer: `clamp(max_tokens // 8, 128, 1024)`
-    tokens (256 at 2,048, 512 at 4,096). If the reasoning is still running when
-    the rest of the budget is used, the server closes the analysis channel, opens
-    the final channel and lets the model answer with the reserved tokens (one
-    extra prefill of prompt plus reasoning, which the prefix cache reduces to
-    one 4,096-token chunk, about 1 s at 64k). If the reasoning
-    ends within a few tokens of that point, so the cut falls inside the header of
-    the final message, the server completes the header and the answer follows
-    (before 2026 Sep 29 such a request returned the raw header text). `content` is
-    therefore not null on `finish_reason: "length"` unless the budget is below
-    256 tokens. `usage.completion_tokens_details.reasoning_tokens` reports the
-    reasoning tokens; `thinking_token_budget` on a request caps them. Requests
-    with `n` above 1, logprobs, `ignore_eos` or a required tool call are served
-    without the reserve. `VLLM_HARMONY_FINAL_RESERVE_TOKENS=-1` in the serve
-    environment turns it off.
+    Built from public branches on the housTT forks:
+    [tt-metal](https://github.com/housTT/tt-metal/tree/hous/gpt-oss-120b-p150x4),
+    [vLLM](https://github.com/housTT/vllm/tree/tt/gpt-oss-serving) and
+    [vllm-tt-plugin](https://github.com/housTT/vllm-tt-plugin/tree/hous/gpt-oss-120b-serving);
+    the Provenance table at the end links the exact commits.
   performance: |
-    Latency and accuracy below are measured on this package as served by
-    `tt-model serve`, not extrapolated. Latency: 2026 Sep 30 sweep. Accuracy:
-    published-eval runs of 2026 Sep 24 to 26 and release-workflow runs of
-    2026 Sep 21 to 22.
+    All numbers are measured on this package as served by `tt-model serve` on a
+    QuietBox 2 (two p300c boards, four P150 chips).
 
-    ### Measured P150x4 latency (2026-09-30)
+    ### Latency, default profile
 
-    Measured on this package by the bench-sweeps harness (`tt-model serve` from a
-    cold start): random-token prompts of exactly ISL tokens, `ignore_eos`, output
-    pinned to OSL tokens, Users concurrent requests held open as a closed loop, N
-    requests per row in total (4 per user up to 4,096 input tokens, 2 per user at
-    16,384, then 1 per user). TTFT is the time to the first streamed token;
-    TPOT = (E2EL - TTFT) / (OSL - 1) per request; prefill tok/s/u = ISL / TTFT;
-    decode tok/s/u = 1 / TPOT; E2EL is the end-to-end latency of one request; Out
-    tok/s total is the total output tokens per second across all users over the
-    row's wall time. Every value is the mean over the row's N requests. Decode
-    runs one grouped expert pass per step with trace buckets at 1, 4, 8 and 32
-    users; new requests that arrive in the same scheduler step and share a padded
-    prompt length (up to 2,048 tokens) are prefilled together; longer prompts are
-    prefilled in steps of up to 8,192 tokens with 8 decode steps for the running
-    users between the chunks of one prompt; the expert gate/up bias is fused into
-    the indexed sparse matmul. Prefix caching is on, but the random prompts of
-    this sweep never hit it, so every row is an uncached cost.
+    Random-token prompts of exactly ISL tokens, output pinned to OSL tokens, Users
+    concurrent requests held open as a closed loop, N requests per row; means over
+    the row. TTFT is the time to the first streamed token, TPOT the time per
+    output token after it, E2EL the end-to-end latency of one request, Out the
+    total output tokens per second across all users. The random prompts never hit
+    the prefix cache, so every row is an uncached cost.
 
     | ISL | OSL | Users | N | TTFT (ms) | Prefill (tok/s/u) | TPOT (ms) | Decode (tok/s/u) | E2EL (s) | Out (tok/s total) |
     | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -259,53 +225,23 @@ card:
     | 130,816 | 256 | 16 | 16 | 292,036 | 448 | 130.7 | 7.6 | 325.37 | 7 |
     | 130,816 | 256 | 32 | 32 | 569,790 | 230 | 133.9 | 7.5 | 603.93 | 7 |
 
-    How to read the long-context rows. vLLM admits 296,960 tokens of context
-    across the running requests (the plugin's 4,640 KV blocks of 64 tokens all
-    serve the 18 full-attention layers, and the 18 sliding-window layers keep a
-    768-token ring per sequence outside that pool; the server logs this as
-    "maximum concurrency 2.27x at 131,072 tokens"): 17 sequences at 16k, 8 at 32k,
-    4 at 64k and 2 at 128k. Prompts are prefilled one at a time in steps of up to
-    8,192 tokens (two 4,096-token prompts per step, one 8,192-token chunk of a
-    longer prompt), and after every chunk of a long prompt the scheduler runs 8
-    decode steps for the users already generating, so a running user keeps
-    receiving tokens during another user's long prefill (about 4 tokens per
-    second each while a 64k prompt is prefilled, instead of a stall for the whole
-    prefill). In these rows every user's prompt arrives at once and each user
-    then decodes 256 tokens, so TTFT is the time to a user's own prefill step and
-    the time between TTFT and E2EL includes the wait behind the other users'
-    prefill steps and chunks: the TPOT and decode columns understate the
-    decode-step rate (about 50 ms per token in the 32-row bucket) whenever
-    prompts are still being prefilled. Against prefill-first scheduling (the
-    2026 Sep 17 sweep of the previous build), mean TTFT is lower at every user
-    count up to the admission limit (16k at 8 users 9.4 s, was 19.4 s; 32k at 4
-    users 15.7 s, was 20.8 s; 64k at 2 users 19.8 s, was 23.8 s), the mean E2EL
-    is 4 to 28% higher on the multi-user rows from 16k up because the admitted
-    requests now finish together instead of one after another (128k at 2 users:
-    both finish at about 68 s, where before one finished at 35 s and the other at
-    71 s), and the time to finish the whole burst is unchanged at 64k and 128k
-    (128k at 2 users 70 s, was 71 s; 128k at 8 users 279 s, was 285 s) and 7 to
-    22% longer at 16k and 32k (16k at 16 users 122 s, was 102 s), where the
-    chunked prefill of a 16k or 32k prompt costs 4 to 9% more than one
-    uninterrupted prefill and 16 or more users decode in the 32-row bucket. The
-    decode steps between chunks are not that cost: with
-    `additional_config.tt.chunked_prefill_decode_steps: 0` in `serve.args`
-    (prefill-first scheduling, measured on the same build) the E2EL of these
-    rows is the same within noise (16k at 8 users 30.0 s vs 30.3 s; 64k at 4
-    users 56.1 s vs 58.3 s; 128k at 2 users 68.4 s both) or worse (16k at 32
-    users 117 s vs 112 s), and first tokens come later (16k at 8 users 13.1 s vs
-    9.4 s; 16k at 32 users 75 s vs 59 s) while a long prompt's prefill stalls the
-    running users. The 130,816-token rows are the context boundary (max_model_len -
-    256): two such sequences fit, so at 2 users both run together (47 s mean
-    TTFT), and from 4 users on the rest wait for admission, about 35 s per
-    request ahead in the queue. 16 users decode in the 32-row bucket (about 50
-    to 58 ms per token at short context) because the 16-row bucket is off (see
-    Limitations).
+    How to read the rows: up to 17 sequences of 16k tokens, 8 of 32k, 4 of 64k
+    or 2 of 128k are resident at once (296,960 tokens of context); requests
+    beyond that wait for admission, and the wait lands in TTFT. Prompts above
+    2,048 tokens are prefilled one at a time in steps of up to 8,192 tokens, so
+    in a burst a user's TTFT is the time to its own prefill step and the time
+    between TTFT and E2EL includes the wait behind the other users' steps; the
+    TPOT column therefore understates the decode rate (about 50 ms per token
+    at 32 users) while prompts are still being prefilled. 9 to 16 concurrent
+    users decode in the 32-row batch (see Limitations).
 
-    Prefix caching, measured with `vllm bench serve` (random dataset: every request
-    shares a random prefix of P tokens plus a 512-token unique suffix, 64 output
-    tokens, greedy, N requests at the concurrency shown, the first request of a
-    row is the cold prefill; caching off is the same server with
-    `GPT_OSS_120B_PREFIX_CACHING=0`; 2026 Sep 30):
+    ### Prefix caching
+
+    Repeated prefixes (multi-turn history, shared system prompts, agent loops)
+    skip most of their prefill. Measured with `vllm bench serve`: every request
+    shares a random prefix of the given length plus a 512-token unique suffix,
+    64 output tokens, greedy, the first request of a row cold, caching off on the
+    same server for comparison.
 
     | Shared prefix (tokens) | Users | N | Cached-token hit rate | TTFT median, caching off (ms) | TTFT median, caching on (ms) | Speed-up | TTFT p99 on (ms) | E2EL median off / on (s) |
     | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -314,19 +250,15 @@ card:
     | 65,536 | 1 | 12 | 91.0% | 13,150 | 1,161 | 11.3x | 13,042 | 14.24 / 2.25 |
     | 32,768 | 4 | 16 | 92.3% | 20,111 | 3,803 | 5.3x | 8,539 | 35.22 / 5.32 |
 
-    The hit rate is the server's own counter (`vllm:prefix_cache_hits` over
-    `vllm:prefix_cache_queries`, in tokens). A hit on a new request re-prefills
-    the 2,560 tokens before the cached length to rebuild the sliding-window rings,
-    so a hit costs about one 4,096-token prefill step at any prefix length and the
-    speed-up grows with the prefix. The random prompts of the latency table above
-    never hit the cache, so every row there is an uncached cost. Requests that
-    sample on the host (temperature above 0 with unrestricted top-k, logprobs,
-    penalties) take the same chunked and cached prefill path.
+    A hit re-prefills about 2,560 tokens plus the new suffix (one prefill step,
+    about 1 s) at any prefix length, so the gain grows with the prefix and a
+    shared prefix shorter than about 5,000 tokens saves little. The hit rate is
+    the server's own `vllm:prefix_cache_hits` / `vllm:prefix_cache_queries`.
 
-    Throughput profile (`--profile throughput`: prefill-first, 32,768-token prefill
-    steps), measured on the local server of this host with the same client and prompt
-    generator as the table above (2026 Sep 30; the default profile's values from the
-    harness table above in parentheses where the row exists there):
+    ### Latency, throughput profile
+
+    Same client and prompts, measured on the local server; the default profile's
+    values in parentheses.
 
     | ISL | OSL | Users | N | TTFT (ms) | Prefill (tok/s/u) | TPOT (ms) | Decode (tok/s/u) | E2EL (s) | Out (tok/s total) |
     | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -344,43 +276,23 @@ card:
     | 65,536 | 256 | 4 | 4 | 32,628 (33,870) | 2,009 (1,935) | 79.7 (95.7) | 12.5 (10.4) | 52.96 (58.28) | 19 (17) |
     | 130,816 | 256 | 2 | 2 | 46,100 (47,226) | 2,838 (2,770) | 77.4 (83.2) | 12.9 (12.0) | 65.83 (68.43) | 8 (7) |
 
-    Reading: with prefill-first scheduling and 32,768-token steps, the time to
-    finish a burst is 5 to 12% shorter than with the default profile on the
-    multi-user rows from 16k up (16k at 16 users 111 s against 122 s; 32k at 8
-    users 50 s against 58 s; 64k at 4 users 53 s against 60 s; 128k at 2 users
-    66 s against 70 s) and a long single prompt prefills in fewer steps (64k
-    11.6 s against 12.4 s). Against the prefill-first build of 2026 Sep 17 the
-    32k, 64k and 128k rows are equal or better, and the 16k rows with 16 or more
-    users stay 9 to 16% slower, which is the 32-row decode bucket. What this
-    profile gives up: while a long prompt prefills the other users receive no
-    tokens (a 64k prefill is a 12 s pause), and a user's first token waits for
-    its whole prefill step (4k at 16 users: TTFT 11.0 s against 7.6 s, same
-    E2EL). The 16,384-token single-user row is two requests and includes the
-    first request's program creation (2.44 s warm, 3.18 s first).
-
-    Prompts of 512+ tokens use the indexed expert prefill: each expert's routed
-    tokens are gathered into slabs and run through compact indexed sparse
-    matmuls, with the routing and slab layout computed on the host from the
-    device router logits. Prefill program shapes (expert groups and the common
-    batched (users, length) pairs) are compiled at server start; the first prompt
-    of a new length still pays a few seconds of program creation. Prompts longer
-    than 2,048 tokens are prefilled one at a time, so TTFT for many long prompts
-    arriving together is the prefill queue with decode steps interleaved. Prompts
-    longer than 8,192 tokens reach the model in 8,192-token chunks, so the full
-    131,072-token context is served as 16 chunks (the 130,816 rows above).
+    A burst of long prompts finishes 5 to 12% sooner than with the default
+    profile from 16k up (16k at 16 users 111 s against 122 s, 32k at 8 users
+    50 s against 58 s, 64k at 4 users 53 s against 60 s), and a single long
+    prompt prefills in fewer steps (64k 11.6 s against 12.4 s). In exchange the
+    other users receive no tokens while a long prompt prefills (a 64k prefill
+    is a 12 s pause) and a user's first token waits for its whole prefill step.
 
     ### Accuracy
 
-    Evals run through the OpenAI-compatible chat API against the served model with
-    the settings that score best on gpt-oss: `reasoning_effort` high, one sample per
-    item, `temperature` 1.0, `top_p` 1.0, `top_k` 32 (top-k 32 keeps sampling on the
-    device sampler), chat template applied. Output budgets: 65,536 tokens for GPQA
-    Diamond and AIME, 32,768 for HLE, 8,192 for MMLU and MMMLU; the final-channel
-    reserve returns an answer when the reasoning reaches the budget. IFEval uses the
-    release policy: `reasoning_effort` medium, greedy, 4,096 tokens, full set at 32
-    concurrent requests. Published numbers are the
+    Evals run through the OpenAI-compatible chat API against the served model:
+    `reasoning_effort` high, one sample per item, `temperature` 1.0, `top_p` 1.0,
+    `top_k` 32, chat template applied; output budgets 65,536 tokens for GPQA
+    Diamond and AIME, 32,768 for HLE, 8,192 for MMLU and MMMLU. IFEval:
+    `reasoning_effort` medium, greedy, 4,096 tokens, full set at 32 concurrent
+    requests. Published numbers are the
     [OpenAI model card](https://cdn.openai.com/pdf/419b6906-9da6-406c-a19d-1bb078ac7637/oai_gpt-oss_model_card.pdf)
-    at reasoning effort high, no tools, unless noted.
+    at reasoning effort high without tools unless noted.
 
     | eval | published | measured on P150x4 |
     | --- | ---: | ---: |
@@ -396,21 +308,16 @@ card:
     | IFEval, prompt-level loose / instruction-level loose | not published | 88.9% / 92.2% |
 
     Sampling at concurrency above 1 does not reproduce token for token, so
-    differences of a point or two between runs of the same eval are noise. The
-    full comparison, with per-language MMMLU and per-category HLE results, is in
-    the evals page linked from the progress report.
+    differences of a point or two between runs of the same eval are noise.
 
-    #### tt-inference-server release evals (full sets, 2026-09-21/22)
+    #### tt-inference-server release evals (full sets)
 
-    The same accuracy workflow tt-inference-server uses to certify a release
-    (`run.py --model openai/gpt-oss-120b --tt-device p300x2 --workflow evals`,
-    its `EVAL_CONFIGS` entry for gpt-oss-120b, lm-evaluation-harness
-    `local-chat-completions`), run against this package on a QuietBox 2 (2x p300c,
-    4 chips) and compared with the P300X2 build released in tt-inference-server
-    v0.17.0 (tt-metal `8c48a10`, vLLM `f52987a`). Sampling is the harness's:
-    `temperature` 1.0, seed 42; AIME 2025 and GPQA Diamond at `reasoning_effort`
-    high with 122,880 max output tokens, MMLU at low with 65,536. Every question is
-    scored once, exactly as the harness scores it.
+    The accuracy workflow tt-inference-server uses to certify a release
+    (`run.py --model openai/gpt-oss-120b --workflow evals`, lm-evaluation-harness
+    over chat completions, `temperature` 1.0, seed 42, AIME 2025 and GPQA Diamond
+    at `reasoning_effort` high with 122,880 max output tokens, MMLU at low with
+    65,536), run against this package and compared with the P300X2 build released
+    in tt-inference-server v0.17.0.
 
     | eval (full set) | this package | released v0.17.0 build | published |
     | --- | ---: | ---: | ---: |
@@ -418,107 +325,58 @@ card:
     | GPQA Diamond, CoT zero-shot, 198 questions (`exact_match`, flexible-extract) | 71.72% (142/198) | 71.21% | 80.1% |
     | MMLU, generative, 14,042 questions (`exact_match`, get_response) | 86.06% (12,084/14,042) | 85.89% | 85.9% |
 
-    Released-build numbers are the full-set runs recorded in
-    [tt-inference-server issue #3105](https://github.com/tenstorrent/tt-inference-server/issues/3105);
-    published numbers are the OpenAI model card (no tools). On both builds the
-    AIME and GPQA misses are mostly answers left empty because the reasoning
-    channel used the whole output budget (5/30 and 28/198 here; 5/30 and 10/198 on
-    the released build). AIME ran at 32 concurrent requests in one harness
-    invocation; MMLU at 32 in one invocation (no empty or garbled answers); GPQA
-    was submitted as seven fixed batches of 32 questions at 32 concurrent requests
-    so that the plugin's device-state-slot allocation failure (`no free device
-    state slot ... capacity=32`, hit when requests that reach the token cap finish
-    in the same step while replacements are queued) could not interrupt the run.
-    Half-full batches (16 of 32 sequences) produced corrupted output on the build
-    those runs used; the cause was the 16-row decode bucket, which this package no
-    longer uses (see limitations).
+    Released-build numbers are the full-set runs in
+    [tt-inference-server issue #3105](https://github.com/tenstorrent/tt-inference-server/issues/3105).
+    On both builds the AIME and GPQA misses are mostly answers left empty because
+    the reasoning used the whole output budget.
   limitations: |
-    - Hardware. P150 and P150x2 are not offered as serve profiles: the fixed
-      resident model state does not fit those configurations. Production serving
-      requires P150x4.
-    - Long prompts. Prompts longer than 2,048 tokens are prefilled one at a
-      time in 8,192-token chunks (`--max-num-batched-tokens`), and after each
-      chunk the users already generating get 8 decode steps
-      (`additional_config.tt.chunked_prefill_decode_steps`; 0 restores
-      prefill-first scheduling). A running user therefore keeps receiving tokens
-      during another user's long prefill (about 4 tokens per second each during
-      a 64k prefill) instead of stalling for it, and long prompts that arrive
-      together get their first token about twice as early as with prefill-first
-      scheduling. The cost is throughput while many prompts are still prefilling,
-      because those decode steps run at a small batch: on a burst of 8 or 16
-      long prompts the mean end-to-end latency is 5 to 12% higher than with
-      prefill-first scheduling (see the latency table). The first prompt of a
-      new length still pays a few seconds of prefill program creation.
-    - Context admission. vLLM admits 296,960 tokens of context across the running
-      requests (the 18 full-attention layers are paged; the 18 sliding-window
-      layers keep a 768-token ring per sequence outside the pool): 17 sequences
-      at 16k, 8 at 32k, 4 at 64k and 2 at 128k. Requests beyond that wait for
-      admission, and the wait lands in time to first token.
-    - Decode batch buckets. Decode runs traced graphs at 1, 4, 8 and 32 rows; a
-      batch of 9 to 16 running requests uses the 32-row trace. The 16-row trace
-      is disabled because its decode graph corrupts some rows (an exact-output
-      probe with 16 simultaneous requests returned wrong text for 8 of them, and
-      requests that passed through that bucket while others joined derailed);
-      `GPT_OSS_120B_DECODE_BUCKETS=4,8,16` restores it for investigation only.
-    - Prefix caching. Automatic prefix caching is on (`GPT_OSS_120B_PREFIX_CACHING=0`
-      or `--no-enable-prefix-caching` turns it off). A hit is counted in whole
-      512-token units and resumes the prefill 2,560 tokens before the hit so that
-      the sliding-window rings are exact again by the first new token, so a
-      cached prefix shorter than about 5,000 tokens saves little; a repeated or
-      multi-turn prompt with a longer shared prefix answers in 1 to 2 s instead
-      of a full prefill (about 5 s at 24k tokens, 14 s at 64k).
+    - Hardware. Four P150 chips (two p300c boards or four P150 boards). P150 and
+      P150x2 are not offered: the resident model state does not fit.
+    - Long prompts. Prompts above 2,048 tokens are prefilled one at a time in
+      steps of 8,192 tokens (default profile) or 32,768 tokens (throughput
+      profile), so many long prompts arriving together queue for prefill. The
+      first prompt of a new length pays a few seconds of program creation.
+    - Context admission. 296,960 tokens of context across the running requests:
+      17 sequences at 16k, 8 at 32k, 4 at 64k, 2 at 128k. Requests beyond that
+      wait, and the wait lands in time to first token.
+    - Decode batches. Decode runs traced graphs at 1, 4, 8 and 32 rows; 9 to 16
+      concurrent requests run in the 32-row graph (about 50 to 58 ms per token
+      instead of 42), because the 16-row graph corrupts some rows and is off.
+    - Prefix caching. On by default (`GPT_OSS_120B_PREFIX_CACHING=0` or
+      `--no-enable-prefix-caching` turns it off). Hits are counted in 512-token
+      units and a hit re-prefills about 2,560 tokens, so shared prefixes shorter
+      than about 5,000 tokens save little.
     - Sampling parameters. Decode samples on the device only while every running
-      request stays within the device sampler's parameter set. One request with
+      request stays within the device sampler's parameter set: one request with
       `min_p`, `logit_bias`, `bad_words`, `allowed_token_ids`, `min_tokens`,
-      structured output (`response_format` or guided decoding), any `logprobs`
-      (device logprobs need an 8- or 32-chip mesh), or a non-zero `temperature`
-      with `top_k` above 32 or unrestricted switches the whole batch to host
-      sampling. Host sampling releases the decode trace and slows decode for every
-      user until that request finishes. `temperature` 0 and `top_k` 32 or lower
-      stay on the device. Source: `check_perform_device_sampling` in the
-      vllm-tt-plugin model runner.
-    - Output budget. `max_tokens` covers reasoning and answer together. The
-      final-channel reserve keeps `clamp(max_tokens // 8, 128, 1024)` tokens for
-      the answer, so a hard reasoning problem under a small budget gets a short,
-      forced answer rather than a null one. Requests with `n` above 1, logprobs,
-      `ignore_eos` or a required tool call are served without the reserve, and
-      their `content` can be null on `finish_reason: "length"`.
-    - Prompt echo under heavy long-context load. At 65,536-token prompts with 32
-      concurrent requests and at 130,816-token prompts with 16 or more, one
-      request per batch receives its own prompt streamed back as generated text
-      (a single chunk of 360,000 to 725,000 characters, no `echo` requested,
-      usage reports 256 completion tokens; the 2026 Sep 30 sweep saw one each at
-      64k/32, 128k/16 and 128k/32). Also reproduced at 16,384- and 32,768-token
-      prompts with 8 concurrent requests. Open in the vLLM fork / plugin output
+      structured output (`response_format` or guided decoding), any `logprobs`,
+      or a non-zero `temperature` with `top_k` above 32 or unrestricted switches
+      the whole batch to host sampling, which slows decode for every user until
+      that request finishes. `temperature` 0, or `top_k` 32 or lower, stays on
+      the device.
+    - Output budget. `max_tokens` covers reasoning and answer together; the
+      reserve described in the quickstart keeps an answer, but a hard problem
+      under a small budget gets a short, forced answer. Requests with `n` above 1,
+      logprobs, `ignore_eos` or a required tool call have no reserve and can
+      return null `content` on `finish_reason: "length"`.
+    - Prompt echo under heavy long-context load. With 8 or more concurrent
+      requests at 16k tokens and up, one request per batch has occasionally
+      received its own prompt streamed back as generated text (one chunk of up to
+      725,000 characters, no `echo` requested). Clients should tolerate an
+      oversized first chunk; the cause is open in the vLLM fork / plugin output
       path.
-    - Concurrency edge cases seen under the tt-inference-server eval workflow
-      (32 concurrent requests, 122,880-token budgets): the plugin's device-state
-      slot allocation can fail (`no free device state slot ... capacity=32`) when
-      requests that reach the token cap finish in the same step while replacements
-      are queued, and half-full batches of 16 of 32 sequences produced corrupted
-      output (the 16-row decode bucket, now off; see Decode batch buckets). Those
-      runs were submitted in fixed batches of 32 to avoid both; see Accuracy.
-    - Tools and agent scaffolds. The served API has no built-in Python or
-      browser tool, so OpenAI's "with tools" results do not apply. Function
-      calling uses the OpenAI tool format (`tool_parser: openai`). With
-      mini-swe-agent's tool-calling scaffold, 23 of 50 SWE-bench Verified runs
-      ended on repeated format errors: of 346 rejected responses in 2,904 model
-      calls, 282 were tool calls whose JSON arguments closed the command string
-      with `"]` instead of `"}` (the server passes the model's invalid JSON
-      through verbatim), 49 had no tool call because the command was written in
-      the reasoning channel and the final message was empty, 11 named a tool that
-      does not exist. With the XML text-action scaffold the same 23 instances
-      produced 13 patches; the rejected responses there were mostly several
-      actions in one response (203 of 291) or an empty final message with the
-      action inside the reasoning channel (51). An empty final message ends
-      with `finish_reason: "stop"`, so the final-channel reserve does not
-      recover it.
-    - Accuracy against the published numbers. Measured scores are below OpenAI's
-      high-effort numbers on GPQA Diamond, AIME 2024 and 2025, MMLU and SWE-bench
-      Verified, above them on MMMLU and on IFEval (whose reference is a
-      third-party run), and 1.7 points below on HLE with a self-judge in place of
-      the o3-mini judge; see Accuracy. Sampling at concurrency above 1 does not
-      reproduce token for token, so single runs of the same eval move by a point
-      or two.
+    - Heavy concurrency with very long budgets. With 32 concurrent requests and
+      122,880-token budgets the plugin's device-state slot allocation has failed
+      (`no free device state slot ... capacity=32`) when several requests reached
+      the token cap in the same step while replacements were queued. Submitting
+      such work in fixed batches of 32 avoided it.
+    - Tools. The served API has no built-in Python or browser tool, so OpenAI's
+      "with tools" results do not apply. Function calling uses the OpenAI tool
+      format (`tool_parser: openai`); a malformed tool-call JSON from the model
+      is passed through verbatim, and an empty final message ends with
+      `finish_reason: "stop"`, so agent scaffolds need a retry for both.
+    - Accuracy. Measured scores are a few points below OpenAI's published
+      high-effort numbers on GPQA Diamond, AIME, MMLU and SWE-bench Verified and
+      above them on MMMLU and IFEval; see Accuracy.
     - Startup. A cold start compiles kernels and model tensors for about 18
       minutes; a warm restart takes about 8 minutes.
