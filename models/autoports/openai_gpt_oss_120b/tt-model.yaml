@@ -31,7 +31,7 @@ source:
 
 runtime:
   vllm:
-    wheel: /home/ttuser/dev/gpt-oss-120b/container/hf/build-inputs/vllm-0.26.0.dev3+g98adf2b5b-cp310-cp310-linux_x86_64.whl
+    wheel: /home/ttuser/dev/gpt-oss-120b/container/hf/build-inputs/vllm-0.26.0.dev4+g2bbd2a6d9-cp310-cp310-linux_x86_64.whl
   plugin:
     path: /home/ttuser/dev/gpt-oss-120b/vllm-tt-plugin
     repo: https://github.com/housTT/vllm-tt-plugin
@@ -112,15 +112,16 @@ card:
       this card.
     - vLLM: [`tt/gpt-oss-serving`](https://github.com/housTT/vllm/tree/tt/gpt-oss-serving)
       on the housTT fork, commit
-      [`98adf2b5b`](https://github.com/housTT/vllm/commit/98adf2b5b):
-      upstream vLLM plus two Harmony changes. The parser recovers from an
+      [`2bbd2a6d9`](https://github.com/housTT/vllm/commit/2bbd2a6d9):
+      upstream vLLM plus three Harmony changes. The parser recovers from an
       off-grammar token mid-stream (the parsed reasoning is kept, the remaining
       text is returned as `content`, a warning names the token) instead of failing
       the request. Chat completions keep a final-channel reserve so that an answer
       is returned when the reasoning uses the output budget (see Output budget and
-      reasoning). The image installs the wheel `vllm-0.26.0.dev3+g98adf2b5b`
-      built from that commit with `VLLM_TARGET_DEVICE=empty`; the Tenstorrent
-      plugin supplies the platform.
+      reasoning), and the reserve completes the final-channel header when the
+      reasoning budget runs out inside it. The image installs the wheel
+      `vllm-0.26.0.dev4+g2bbd2a6d9` built from that commit with
+      `VLLM_TARGET_DEVICE=empty`; the Tenstorrent plugin supplies the platform.
     - vllm-tt-plugin: [`hous/gpt-oss-120b-serving`](https://github.com/housTT/vllm-tt-plugin/tree/hous/gpt-oss-120b-serving)
       on the housTT fork, commit
       [`176a8c5`](https://github.com/housTT/vllm-tt-plugin/commit/176a8c5865d9abe82d2d8a04a25b5920e78f3fcb):
@@ -135,7 +136,11 @@ card:
     tokens (256 at 2,048, 512 at 4,096). If the reasoning is still running when
     the rest of the budget is used, the server closes the analysis channel, opens
     the final channel and lets the model answer with the reserved tokens (one
-    extra prefill of prompt plus reasoning, about 12 s at 64k). `content` is
+    extra prefill of prompt plus reasoning, which the prefix cache reduces to
+    one 4,096-token chunk, about 1 s at 64k). If the reasoning
+    ends within a few tokens of that point, so the cut falls inside the header of
+    the final message, the server completes the header and the answer follows
+    (before 2026 Sep 29 such a request returned the raw header text). `content` is
     therefore not null on `finish_reason: "length"` unless the budget is below
     256 tokens. `usage.completion_tokens_details.reasoning_tokens` reports the
     reasoning tokens; `thinking_token_budget` on a request caps them. Requests
