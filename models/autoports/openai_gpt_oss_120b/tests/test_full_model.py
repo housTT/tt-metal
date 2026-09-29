@@ -605,6 +605,59 @@ def test_reset_clears_resident_cache_before_reusing_fixed_slots():
     assert cache_owner.clear_calls == 1
 
 
+def test_host_sampled_resumed_prefill_goes_through_the_shared_generator(monkeypatch, expect_error):
+    seen = {}
+
+    def prefill_forward_text(tokens, **kwargs):
+        seen["kwargs"] = kwargs
+        seen["plan"] = list(generator.model._prefill_row_resume)
+        seen["lengths"] = list(generator.model._prefill_row_lengths)
+        return torch.zeros(tokens.shape[0], 1, 16)
+
+    generator = Generator.__new__(Generator)
+    generator.model = SimpleNamespace(_prefill_row_lengths=None, _prefill_row_resume=None, _prefill_row_cursor=None)
+    generator._inner = SimpleNamespace(prefill_forward_text=prefill_forward_text, mode="prefill")
+    generator._dirty_cache = False
+    generator.trace_evidence = TraceEvidence()
+    monkeypatch.setattr(generator, "_validate_prefill", lambda *args, **kwargs: None)
+    monkeypatch.setattr(generator, "_prepare_prefill_variants", lambda *args, **kwargs: set())
+    monkeypatch.setattr(generator, "_record_compiled_prefill_variants", lambda variants: None)
+    monkeypatch.setattr(generator, "_outer_cache", lambda cache: cache)
+    tokens = torch.zeros(2, 9000, dtype=torch.int64)
+    page_table = torch.zeros(2, 2048, dtype=torch.int32)
+
+    logits = generator.prefill_forward(
+        tokens,
+        page_table=page_table,
+        kv_cache="cache",
+        prompt_lens=[9000, 300],
+        sampling_params=None,
+        empty_slots=[1, 4],
+        start_pos=[8192, 0],
+        fill_start_pos=[8192, 64],
+        ring_cold=[True, False],
+    )
+
+    assert logits.shape == (2, 1, 16)
+    assert seen["kwargs"]["sampling_params"] is None
+    assert seen["kwargs"]["start_pos"] == [8192, 0]
+    assert seen["kwargs"]["empty_slots"] == [1, 4]
+    assert seen["kwargs"]["enable_trace"] is False
+    assert seen["plan"] == [(8192, 8192, True), (0, 64, False)]
+    assert seen["lengths"] == [9000, 300]
+    assert generator.model._prefill_row_resume is None
+    assert generator._dirty_cache and generator._inner.mode is None
+    with expect_error(ValueError, "all-position logits"):
+        generator.prefill_forward(
+            tokens,
+            page_table=page_table,
+            kv_cache="cache",
+            prompt_lens=[9000, 300],
+            return_all_logits=True,
+            start_pos=[8192, 0],
+        )
+
+
 def test_unseen_prefill_variant_releases_live_decode_and_sampling_traces(monkeypatch):
     class FakeSampling:
         reset_calls = 0

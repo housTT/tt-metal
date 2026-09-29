@@ -498,7 +498,8 @@ class Generator(_ReadinessGenerator):
         aligned by the caller. ``fill_start_pos`` is the first position whose
         full-attention K/V is written (earlier positions are cached blocks), and
         ``ring_cold`` says the slot's sliding rings hold nothing for the prompt.
-        Only the device-sampling path serves continuations.
+        A resumed prompt sampled on the host returns its last-token logits
+        through the shared generator; all-position logits are not served for it.
         """
 
         del kwargs
@@ -551,7 +552,44 @@ class Generator(_ReadinessGenerator):
             self.trace_evidence.caller_visible_token_synchronizations += 1
             return result
         if resumed:
-            raise ValueError("host-sampled prefill does not serve resumed prompts (start_pos or fill_start_pos > 0)")
+            if return_all_logits:
+                raise ValueError(
+                    "all-position logits are not served for resumed prompts (start_pos or fill_start_pos > 0)"
+                )
+            slots = list(range(tokens.shape[0])) if empty_slots is None else [int(slot) for slot in empty_slots]
+            if len(slots) != tokens.shape[0]:
+                raise ValueError(f"empty_slots has {len(slots)} entries for batch {tokens.shape[0]}")
+            new_variants = self._prepare_prefill_variants(
+                prompt_lens, path="host_last_logits", start_pos=starts, fill_start_pos=fills, ring_cold=colds
+            )
+            rows = len(prompt_lens)
+            self.model._prefill_row_lengths = [int(length) for length in prompt_lens]
+            self.model._prefill_row_resume = list(
+                zip(starts or [0] * rows, fills or [0] * rows, colds or [False] * rows)
+            )
+            self.model._prefill_row_cursor = 0
+            try:
+                logits = self._inner.prefill_forward_text(
+                    tokens,
+                    page_table=page_table_host,
+                    kv_cache=self._outer_cache(kv_cache),
+                    prompt_lens=[int(length) for length in prompt_lens],
+                    empty_slots=slots,
+                    enable_trace=False,
+                    sampling_params=None,
+                    warmup_prefill=False,
+                    page_tables_per_layer=page_tables_per_layer,
+                    start_pos=starts if starts is not None else [0] * rows,
+                )
+            finally:
+                self.model._prefill_row_lengths = None
+                self.model._prefill_row_resume = None
+            self._dirty_cache = True
+            self._inner.mode = None
+            self._record_compiled_prefill_variants(new_variants)
+            self.trace_evidence.full_logits_readbacks += 1
+            self.trace_evidence.validation_full_logit_synchronizations += 1
+            return logits.reshape(rows, 1, -1)
         path = "host_all_logits" if return_all_logits else "host_last_logits"
         new_variants = self._prepare_prefill_variants(prompt_lens, path=path)
         layer_cache = self._layer_cache(kv_cache)
