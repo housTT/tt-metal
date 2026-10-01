@@ -1,26 +1,13 @@
 {
- "timestamp": "2026-10-01T22:17:21.417589+00:00",
- "host": "qb2-120-p11t01",
+ "timestamp": "2026-10-01T22:25:37.550600+00:00",
+ "source_bench": "doc/optimized_full_model/bench_accuracy.json",
  "precision": "accuracy",
- "max_seq_len": 2048,
- "max_batch_size": 8,
+ "device": "P150",
  "mesh": "1x1",
- "repeats": 10,
- "device_name": "P150",
- "load_seconds": 5.4,
- "encoder_stats": {
-  "calls": 180,
-  "tokens": 584064,
-  "device_seconds": 108.543,
-  "device_name": "P150",
-  "precision": "accuracy",
-  "max_batch_size": 8,
-  "max_seq_len": 2048,
-  "trace_lens": [
-   128,
-   1024,
-   2048
-  ]
+ "model_load_seconds": 5.4,
+ "per_layer_device_ms_from_tracy": {
+  "128": 1.609,
+  "1024": 4.692
  },
  "rows": [
   {
@@ -32,7 +19,9 @@
    "min_ms": 57.601649896241724,
    "p95_ms": 57.806770101888105,
    "tokens_per_s": 554.394762513253,
-   "texts_per_s": 17.324836328539156
+   "texts_per_s": 17.324836328539156,
+   "layer_stack_lower_bound_ms": 57.92,
+   "gap_to_lower_bound_pct": -0.4
   },
   {
    "tokens": 32,
@@ -65,7 +54,9 @@
    "min_ms": 57.50913196243346,
    "p95_ms": 57.748666062252596,
    "tokens_per_s": 2220.604515865278,
-   "texts_per_s": 17.348472780197483
+   "texts_per_s": 17.348472780197483,
+   "layer_stack_lower_bound_ms": 57.92,
+   "gap_to_lower_bound_pct": -0.5
   },
   {
    "tokens": 128,
@@ -98,7 +89,9 @@
    "min_ms": 170.02800200134516,
    "p95_ms": 170.4257000470534,
    "tokens_per_s": 3009.2365583162473,
-   "texts_per_s": 5.8774151529614205
+   "texts_per_s": 5.8774151529614205,
+   "layer_stack_lower_bound_ms": 168.91,
+   "gap_to_lower_bound_pct": 0.7
   },
   {
    "tokens": 512,
@@ -131,7 +124,9 @@
    "min_ms": 170.39646697230637,
    "p95_ms": 170.79585553728975,
    "tokens_per_s": 6005.058789492993,
-   "texts_per_s": 5.864315224114251
+   "texts_per_s": 5.864315224114251,
+   "layer_stack_lower_bound_ms": 168.91,
+   "gap_to_lower_bound_pct": 0.9
   },
   {
    "tokens": 1024,
@@ -188,5 +183,9 @@
    "tokens_per_s": 6347.0464659909785,
    "texts_per_s": 3.0991437822221575
   }
+ ],
+ "notes": [
+  "p50 over repeats of enc.embed_ids on warm traces, batch 1 and 4 and 8, host readback and host RMSNorm included",
+  "lower bound = 36 x per-layer device time measured by the Tracy profiler on layer 0 under the accuracy policy (1.609 ms at 128 tokens, 4.692 ms at 1024; 24 ops per layer pass); the terminal work (embedding lookup, output readback, host norm) is the remainder; for the bfp8_attn rows the bound is an upper estimate because that policy reads fewer weight bytes"
  ]
 }

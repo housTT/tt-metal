@@ -99,6 +99,17 @@ def precision_policy(name: str):
     return make
 
 
+def mark_trace_output_corruptible(tensor) -> None:
+    try:
+        from ttnn.unsafe_allocation_tracker import UnsafeAllocationTracker
+    except ImportError:
+        return
+    try:
+        UnsafeAllocationTracker.mark_corruptible(tensor)
+    except Exception as exc:
+        logger.warning(f"mark_corruptible failed: {exc}")
+
+
 def open_mesh(shape: tuple[int, int], trace_region_size: int, l1_small_size: int):
     os.environ.setdefault("TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES", "0")
     import ttnn
@@ -242,12 +253,19 @@ class TtQwen3Encoder:
             batch_size=b,
             num_cached_tokens=0,
         )
-        host = ttnn.to_torch(ttnn.get_device_tensors(tt_out)[0])
+        shards = ttnn.get_device_tensors(tt_out)
+        if len(shards) == 1:
+            return ttnn.to_torch(shards[0])
+        host = ttnn.to_torch(tt_out, mesh_composer=ttnn.ConcatMeshToTensor(self.mesh_device, dim=-1))
         return host
 
     def _pool_and_norm(self, host: torch.Tensor, lens: list[int], seq_len: int) -> np.ndarray:
-        rows = host.reshape(-1, host.shape[-1])
         dim = self.model_args.dim
+        rows = host.reshape(-1, host.shape[-1])
+        if rows.shape[-1] > dim and rows.shape[-1] % dim == 0 and rows.shape[0] % (rows.shape[-1] // dim) != 0:
+            rows = rows[:, :dim]
+        if rows.shape[-1] > dim:
+            rows = rows[:, :dim]
         picks = torch.stack([rows[i * seq_len + (n - 1), :dim] for i, n in enumerate(lens)]).float()
         var = picks.pow(2).mean(-1, keepdim=True)
         normed = picks * torch.rsqrt(var + self.norm_eps) * self.norm_weight
@@ -289,18 +307,42 @@ class TtQwen3Encoder:
         return vecs, sum(len(x) for x in id_lists)
 
     def warmup(self) -> None:
+        from models.tt_transformers.tt.generator import _get_max_blocks_prefill, _pad_or_create_page_table
+
         t0 = time.perf_counter()
+        gen = self.generator
         lens = [n for n in self.trace_lens if n <= self.max_seq_len] or [min(128, self.max_seq_len)]
-        captured = []
-        for n in lens:
-            for b in self.batch_sizes:
-                key = f"{n}_0_{b}_sp0"
-                if self.generator.trace_id_prefill.get(key) is not None:
-                    continue
-                ids = [[self.tokenizer.eos_token_id] * min(n, self.max_tokens)] * b
-                self.embed_ids(ids)
-                captured.append(key)
-        logger.info(f"TtQwen3Encoder warmup done in {time.perf_counter() - t0:.1f}s; traces captured: {captured}")
+        max_blocks = _get_max_blocks_prefill(self.kv_cache)
+        prepared = {}
+        with self._lock:
+            for n in lens:
+                for b in self.batch_sizes:
+                    key = f"{n}_0_{b}_sp0"
+                    if gen.trace_id_prefill.get(key) is not None:
+                        continue
+                    prefill_ids = torch.full((b, n), int(self.tokenizer.eos_token_id), dtype=torch.long)
+                    source = self.page_table[0:1] if b == 1 else self._page_table_for(b, n)
+                    page_table = _pad_or_create_page_table(source, max_blocks)
+                    prepared[key] = gen._prepare_trace_prefill(
+                        prefill_ids,
+                        page_table=page_table,
+                        chunk_page_table=None,
+                        kv_cache=self.kv_cache,
+                        model_id=0,
+                        batch_size=b,
+                        user_id=list(range(b)) if b > 1 else 0,
+                        start_pos=0,
+                    )
+            t1 = time.perf_counter()
+            for key, prep in prepared.items():
+                trace_id, tt_out_trace, *device_inputs = gen._record_trace_prefill(prep)
+                gen.trace_id_prefill[key] = trace_id
+                gen.trace_inputs_prefill[key] = device_inputs
+                gen.trace_output_prefill[key] = tt_out_trace
+                mark_trace_output_corruptible(tt_out_trace)
+        logger.info(
+            f"TtQwen3Encoder warmup done in {time.perf_counter() - t0:.1f}s (prepare {t1 - t0:.1f}s, capture {time.perf_counter() - t1:.1f}s); traces: {list(prepared)}"
+        )
 
     def healthy(self) -> bool:
         return bool(self.ready)

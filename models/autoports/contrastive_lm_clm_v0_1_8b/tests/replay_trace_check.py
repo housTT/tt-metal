@@ -43,7 +43,7 @@ def main():
         rng = np.random.default_rng(7)
         vocab = enc.tokenizer.vocab_size
         lens = [n for n in enc.trace_lens if n <= a.max_seq_len]
-        variants = [(n, b) for n in lens for b in sorted({1, a.max_batch_size})]
+        variants = [(n, b) for n in lens for b in enc.batch_sizes]
         inputs = {}
         for n, b in variants:
             real = max(4, n - 3)
@@ -78,7 +78,7 @@ def main():
                 }
             )
         report["encoder_stats"] = enc.stats()
-        report["trace_ids"] = {str(k): v for k, v in enc.generator.trace_id_prefill.items()}
+        report["trace_ids"] = {str(k): str(v) for k, v in enc.generator.trace_id_prefill.items()}
         report["unsafe_allocation_error"] = None
     except RuntimeError as exc:
         report["unsafe_allocation_error"] = str(exc)[:2000]

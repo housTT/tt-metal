@@ -4,7 +4,6 @@ name: clm-v0.1-8b-p150
 weights:
   repo: Qwen/Qwen3-8B
   revision: b968826d9c46dd6066d109eabc6255188de91218
-  ignore_patterns: ["original/*", "*.pth"]
 kind: tt-dit-server
 arch: blackhole
 
@@ -14,23 +13,31 @@ image:
 source:
   tt_metal: /home/hous/dev/ornith-1.5-9b/tt-metal
   code:
-    - models/common
+    - models/common/lightweightmodule.py
+    - models/common/rmsnorm.py
+    - models/common/utility_functions.py
+    - models/common/device_utils.py
+    - models/common/tensor_utils.py
+    - models/common/llama_models.py
+    - models/common/model_capabilities.py
+    - models/common/weight_cache.py
+    - models/common/modules/tt_ccl.py
+    - models/common/sampling
+    - models/common/warmup
     - models/tt_transformers/tt
-    - models/autoports/contrastive_lm_clm_v0_1_8b
+    - models/autoports/contrastive_lm_clm_v0_1_8b/__init__.py
+    - models/autoports/contrastive_lm_clm_v0_1_8b/clm
+    - models/autoports/contrastive_lm_clm_v0_1_8b/server
+    - models/autoports/contrastive_lm_clm_v0_1_8b/tt
+    - models/autoports/contrastive_lm_clm_v0_1_8b/reference
+    - models/autoports/contrastive_lm_clm_v0_1_8b/weights/CLM_v0.1-8B.pt
   ubuntu: "22.04"
   python: "3.12"
 
 runtime:
   app: models.autoports.contrastive_lm_clm_v0_1_8b.server.app:app
   mesh_shape_env: CLM_MESH_SHAPE
-  packages:
-    - "transformers>=5.12,<6"
-    - "huggingface_hub"
-    - "safetensors"
-    - "loguru"
-    - "numpy<2"
-    - "requests"
-    - "accelerate"
+  lock: requirements.lock
 
 serve:
   port: 8700
@@ -40,19 +47,47 @@ serve:
     CLM_EMBEDDER: tt
     CLM_MAX_TOKENS: "2048"
     CLM_MAX_BATCH: "8"
-    CLM_PRECISION: accuracy
+    CLM_PRECISION: bfp8_attn
     CLM_ACTION_CACHE: 512MiB
     CLM_CKPT: /opt/tt-metal/models/autoports/contrastive_lm_clm_v0_1_8b/weights/CLM_v0.1-8B.pt
     CLM_TRACE_REGION_SIZE: "200000000"
     CLM_L1_SMALL_SIZE: "32768"
     TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES: "0"
 
+serve_profiles:
+  - name: p150
+    description: One Blackhole p150 chip, selected precision policy (bfp8 attention weights, HiFi2 MLP accumulation).
+    hardware: p150
+    mesh_device: P150
+  - name: p150-accuracy
+    description: One Blackhole p150 chip, the stock accuracy precision policy (bf16 attention weights, HiFi4 attention math); about 7 percent slower, highest fidelity.
+    hardware: p150
+    mesh_device: P150
+    env:
+      CLM_PRECISION: accuracy
+  - name: p150x4
+    description: Four Blackhole p150-class chips as a 1x4 tensor-parallel mesh (validated on two p300c boards); about 1.9x lower latency at 128 tokens than one chip; accuracy policy.
+    hardware: p150x4
+    mesh_device: P150x4
+    env:
+      CLM_PRECISION: accuracy
+      CLM_FABRIC_CONFIG: FABRIC_1D
+default_profile: p150
+
 verify:
   - "import models.autoports.contrastive_lm_clm_v0_1_8b.server.app as a; assert a.app"
   - "import models.autoports.contrastive_lm_clm_v0_1_8b.tt.encoder as e; assert e.TtQwen3Encoder"
   - "import models.autoports.contrastive_lm_clm_v0_1_8b.clm.engine as g; assert g.Engine"
+  - "from models.tt_transformers.tt.common import PagedAttentionConfig, create_tt_model, get_padded_prefill_len; assert create_tt_model"
+  - "from models.tt_transformers.tt.generator import Generator; assert Generator"
+  - "from models.tt_transformers.tt.model_config import DecodersPrecision, ModelArgs; assert DecodersPrecision.from_string('accuracy')"
+  - "import models.tt_transformers.tt.model, models.tt_transformers.tt.prefetcher, models.tt_transformers.tt.rope, models.tt_transformers.tt.load_checkpoints"
+  - "from pathlib import Path; p = Path('/opt/tt-metal/models/tt_transformers/tt/prefetcher/prefetcher_config.yaml'); assert p.is_file(), 'prefetcher config missing: prefetcher.py reads it at import'"
+  - "from pathlib import Path; p = Path('/opt/tt-metal/models/autoports/contrastive_lm_clm_v0_1_8b/clm/static/index.html'); assert p.is_file(), 'playground static files missing: server/app.py skips the UI silently without them'"
   - "import hashlib; p='/opt/tt-metal/models/autoports/contrastive_lm_clm_v0_1_8b/weights/CLM_v0.1-8B.pt'; h=hashlib.sha256(open(p,'rb').read()).hexdigest(); assert h=='b2b4a8c9c2d39263eff78a351eb909a342ce9b3bf21a3f07c1d1bf15f1c4eda5', h"
   - "import transformers; assert transformers.__version__.startswith('5.'), transformers.__version__"
+  - "import numpy; assert numpy.__version__.startswith('1.'), numpy.__version__"
+  - "import torch, importlib; m = importlib.import_module('models.autoports.contrastive_lm_clm_v0_1_8b.clm.heads'); hp = m.HeadPair('clm-latest', '/opt/tt-metal/models/autoports/contrastive_lm_clm_v0_1_8b/weights/CLM_v0.1-8B.pt', 'cpu').ensure(); assert hp.n_params == 18887680, hp.n_params"
 
 card:
   description: >

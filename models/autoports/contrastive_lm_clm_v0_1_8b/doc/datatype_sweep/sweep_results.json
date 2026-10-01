@@ -1,26 +1,59 @@
 {
- "timestamp": "2026-10-01T22:00:33.705727+00:00",
+ "timestamp": "2026-10-01T22:24:52.803005+00:00",
  "gate": {
   "cosine_mean_min": 0.99,
   "cosine_min_min": 0.97,
   "head_cos_min_min": 0.95
  },
  "metric_mapping": "top-1/top-5 token accuracy replaced by embedding cosine vs HF fp32 reference and head-projection cosine (encoder-only model)",
+ "selection_rule": "fastest passing policy by 128-token batch-1 latency; policies within 1% of the fastest are a tie and the highest minimum cosine wins",
  "rows": [
   {
    "policy": "accuracy",
    "status": "pass",
-   "cosine_mean": 0.9990935921669006,
-   "cosine_min": 0.9958775639533997,
-   "cosine_p05": 0.9975285679101944,
-   "head_cos_state_mean": 0.9974366426467896,
-   "head_cos_min": 0.9942944645881653,
-   "batched_vs_single_min": 0.9964324831962585,
-   "lat_128_b1_ms": 57.9555940348655,
-   "lat_128_b8_ms": 161.30837192758918,
-   "lat_1024_b1_ms": 168.47044206224382,
-   "lat_2048_b1_ms": 317.59977800538763,
-   "tokens_per_s_1024_b8": 6475.852528401736,
+   "cosine_mean": 0.9991034865379333,
+   "cosine_min": 0.9959601759910583,
+   "cosine_p05": 0.9975568145513535,
+   "head_cos_state_mean": 0.9974622130393982,
+   "head_cos_min": 0.9943361282348633,
+   "batched_vs_single_min": 0.9964397549629211,
+   "lat_128_b1_ms": 57.641961495392025,
+   "lat_128_b8_ms": 162.02108847210184,
+   "lat_1024_b1_ms": 170.5228934297338,
+   "lat_2048_b1_ms": 322.81175802927464,
+   "tokens_per_s_1024_b8": 6293.093311489061,
+   "fidelity_file": null
+  },
+  {
+   "policy": "bfp8_attn",
+   "status": "pass",
+   "cosine_mean": 0.9990131258964539,
+   "cosine_min": 0.9937854409217834,
+   "cosine_p05": 0.9974961102008819,
+   "head_cos_state_mean": 0.9970700144767761,
+   "head_cos_min": 0.9927800893783569,
+   "batched_vs_single_min": 0.9963011741638184,
+   "lat_128_b1_ms": 53.96485602250323,
+   "lat_128_b8_ms": 142.40644546225667,
+   "lat_1024_b1_ms": 148.1050075381063,
+   "lat_2048_b1_ms": 286.21663351077586,
+   "tokens_per_s_1024_b8": 7184.0955790635635,
+   "fidelity_file": null
+  },
+  {
+   "policy": "bfp8_attn_hifi2",
+   "status": "pass",
+   "cosine_mean": 0.9989116787910461,
+   "cosine_min": 0.9930957555770874,
+   "cosine_p05": 0.9969665735960007,
+   "head_cos_state_mean": 0.9968533515930176,
+   "head_cos_min": 0.9929705858230591,
+   "batched_vs_single_min": 0.9962066411972046,
+   "lat_128_b1_ms": 53.94858348881826,
+   "lat_128_b8_ms": 142.1342350076884,
+   "lat_1024_b1_ms": 147.21940452000126,
+   "lat_2048_b1_ms": 276.9538044813089,
+   "tokens_per_s_1024_b8": 7282.202838229972,
    "fidelity_file": null
   },
   {
@@ -40,5 +73,5 @@
    "fidelity_file": null
   }
  ],
- "selected": "accuracy"
+ "selected": "bfp8_attn"
 }

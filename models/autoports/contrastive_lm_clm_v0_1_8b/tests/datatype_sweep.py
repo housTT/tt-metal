@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUTOPORT = os.path.dirname(HERE)
 GATE = {"cosine_mean_min": 0.99, "cosine_min_min": 0.97, "head_cos_min_min": 0.95}
+TIE_FRACTION = 0.01
 
 
 def load(path):
@@ -68,11 +69,16 @@ def main():
             }
         )
     passing = [r for r in rows if r.get("status") == "pass" and r.get("lat_128_b1_ms") is not None]
-    selected = min(passing, key=lambda r: r["lat_128_b1_ms"]) if passing else None
+    selected = None
+    if passing:
+        fastest = min(passing, key=lambda r: r["lat_128_b1_ms"])
+        near = [r for r in passing if r["lat_128_b1_ms"] <= fastest["lat_128_b1_ms"] * (1.0 + TIE_FRACTION)]
+        selected = max(near, key=lambda r: r["cosine_min"])
     result = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "gate": GATE,
         "metric_mapping": "top-1/top-5 token accuracy replaced by embedding cosine vs HF fp32 reference and head-projection cosine (encoder-only model)",
+        "selection_rule": f"fastest passing policy by 128-token batch-1 latency; policies within {TIE_FRACTION:.0%} of the fastest are a tie and the highest minimum cosine wins",
         "rows": rows,
         "selected": selected["policy"] if selected else None,
     }
