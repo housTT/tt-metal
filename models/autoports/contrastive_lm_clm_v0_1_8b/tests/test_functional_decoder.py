@@ -23,8 +23,9 @@ from models.tt_transformers.tt.rope import get_rot_mats
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DOC_DIR = os.path.join(os.path.dirname(HERE), "doc", "functional_decoder")
-LENGTHS = [32, 33, 127, 128, 129, 500, 1024, 2048]
-LAYERS = [0, 17, 35]
+LENGTHS = [int(x) for x in os.environ.get("CLM_TEST_LENGTHS", "32,33,127,128,129,500,1024,2048").split(",")]
+LAYERS = [int(x) for x in os.environ.get("CLM_TEST_LAYERS", "0,17,35").split(",")]
+OUT_NAME = os.environ.get("CLM_TEST_OUT", "layer_pcc.json")
 PCC_GATE = 0.995
 
 
@@ -124,7 +125,7 @@ def test_functional_decoder_layers(mesh_device, reset_seeds, ensure_gc):
                 dt = time.perf_counter() - t0
                 y = tt_torch[0, 0, :n, : model_args.dim]
                 passing, msg = comp_pcc(ref, y, PCC_GATE)
-                pcc = float(msg.split(":")[-1].strip().split()[0]) if ":" in msg else float("nan")
+                pcc = float(msg) if not isinstance(msg, str) else float(msg.split(":")[-1].strip().split()[0])
                 cos = torch.nn.functional.cosine_similarity(ref.flatten()[None], y.flatten()[None]).item()
                 row = {
                     "layer": k,
@@ -140,7 +141,7 @@ def test_functional_decoder_layers(mesh_device, reset_seeds, ensure_gc):
                 results.append(row)
                 all_pass &= bool(passing)
         del tt_layer
-    with open(os.path.join(DOC_DIR, "layer_pcc.json"), "w") as f:
+    with open(os.path.join(DOC_DIR, OUT_NAME), "w") as f:
         json.dump(
             {
                 "gate": PCC_GATE,

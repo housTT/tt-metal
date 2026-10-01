@@ -20,11 +20,83 @@ def l2(x: np.ndarray) -> np.ndarray:
     return x / (np.linalg.norm(x, axis=-1, keepdims=True) + 1e-12)
 
 
+def load_final_norm() -> tuple[torch.Tensor, float]:
+    import glob
+    import json
+
+    from safetensors import safe_open
+
+    snap = sorted(glob.glob(os.path.expanduser("~/.cache/huggingface/hub/models--Qwen--Qwen3-8B/snapshots/*/")))
+    if not snap:
+        from huggingface_hub import snapshot_download
+
+        snap = [
+            snapshot_download(
+                HF_MODEL,
+                allow_patterns=["config.json", "model.safetensors.index.json", "model-00004-of-00005.safetensors"],
+            )
+        ]
+    root = snap[-1]
+    index = json.load(open(os.path.join(root, "model.safetensors.index.json")))
+    cfg = json.load(open(os.path.join(root, "config.json")))
+    shard = os.path.join(root, index["weight_map"]["model.norm.weight"])
+    with safe_open(shard, "pt") as f:
+        weight = f.get_tensor("model.norm.weight").float()
+    return weight, float(cfg.get("rms_norm_eps", 1e-6))
+
+
 def parse_mesh_shape(spec: str | None) -> tuple[int, int]:
     if not spec:
         return (1, 1)
     rows, cols = spec.lower().split("x")
     return (int(rows), int(cols))
+
+
+CUSTOM_POLICIES = {
+    "bfp8_attn": {
+        "TensorPrecision": {"WQKV": "BFP8", "KV_CACHE": "BFP8", "WO": "BFP8"},
+        "OpFidelity": {"LI_FF1_FF3": "HIFI2_FP16", "LI_FF2": "HIFI2_FP16"},
+    },
+    "bfp8_attn_hifi2": {
+        "TensorPrecision": {"WQKV": "BFP8", "KV_CACHE": "BFP8", "WO": "BFP8"},
+        "OpFidelity": {
+            "LI_FF1_FF3": "HIFI2_FP16",
+            "LI_FF2": "HIFI2_FP16",
+            "LI_QKV_PREFILL": "HIFI2",
+            "LI_O_PREFILL": "HIFI2",
+            "SDPA_PREFILL": "HIFI2",
+        },
+    },
+}
+
+
+def precision_policy(name: str):
+    from models.tt_transformers.tt.model_config import (
+        DecodersPrecision,
+        MathFidelitySetting,
+        ModelOptimizations,
+        OpGroup,
+        PrecisionSetting,
+        TensorGroup,
+    )
+
+    if name in ("accuracy", "performance"):
+        return DecodersPrecision.from_string(name)
+    spec = CUSTOM_POLICIES[name]
+
+    def make(num_decoders, model_name):
+        conf = ModelOptimizations(
+            {
+                "TensorPrecision": {TensorGroup[k]: PrecisionSetting[v] for k, v in spec["TensorPrecision"].items()},
+                "OpFidelity": {OpGroup[k]: MathFidelitySetting[v] for k, v in spec["OpFidelity"].items()},
+            }
+        )
+        conf.__name__ = name
+        inst = DecodersPrecision(num_decoders, model_name, decoder_conf=conf)
+        inst.__name__ = name
+        return inst
+
+    return make
 
 
 def open_mesh(shape: tuple[int, int], trace_region_size: int, l1_small_size: int):
@@ -34,7 +106,7 @@ def open_mesh(shape: tuple[int, int], trace_region_size: int, l1_small_size: int
     kwargs = dict(l1_small_size=l1_small_size, trace_region_size=trace_region_size, num_command_queues=1)
     n = shape[0] * shape[1]
     if n > 1:
-        fabric = os.environ.get("CLM_FABRIC_CONFIG", "FABRIC_1D_RING")
+        fabric = os.environ.get("CLM_FABRIC_CONFIG", "FABRIC_1D")
         ttnn.set_fabric_config(getattr(ttnn.FabricConfig, fabric))
     return ttnn.open_mesh_device(ttnn.MeshShape(*shape), **kwargs)
 
@@ -55,7 +127,6 @@ class TtQwen3Encoder:
         import ttnn
         from models.tt_transformers.tt.common import PagedAttentionConfig, create_tt_model
         from models.tt_transformers.tt.generator import Generator
-        from models.tt_transformers.tt.model_config import DecodersPrecision
 
         os.environ.setdefault("HF_MODEL", HF_MODEL)
         self.mesh_device = mesh_device
@@ -71,7 +142,7 @@ class TtQwen3Encoder:
         self.paged_attention_config = PagedAttentionConfig(
             block_size=BLOCK_SIZE, max_num_blocks=max(1024, blocks_per_seq * max_batch_size)
         )
-        opt = DecodersPrecision.from_string(precision)
+        opt = precision_policy(precision)
         t0 = time.perf_counter()
         self.model_args, self.model, self.kv_cache, _ = create_tt_model(
             mesh_device,
@@ -88,6 +159,8 @@ class TtQwen3Encoder:
             max_batch_size, -1
         )
         self.trace_lens = sorted(int(x) for x in self.model_args.trace_prefill_supported_seq_lens)
+        self.batch_sizes = sorted({b for b in (1, 4, max_batch_size) if b <= max_batch_size})
+        self.norm_weight, self.norm_eps = load_final_norm()
         self.calls = 0
         self.tokens_spent = 0
         self.device_seconds = 0.0
@@ -134,25 +207,67 @@ class TtQwen3Encoder:
             ids = ids[-self.max_tokens :]
         return ids
 
-    def _forward_group(self, id_lists: list[list[int]]) -> np.ndarray:
-        b = len(id_lists)
-        lens = [len(x) for x in id_lists]
-        tokens = torch.zeros(b, max(lens), dtype=torch.long)
-        for i, ids in enumerate(id_lists):
-            tokens[i, : len(ids)] = torch.tensor(ids, dtype=torch.long)
-        t0 = time.perf_counter()
-        out = self.generator.prefill_forward_text(
-            tokens,
-            page_table=self.page_table[:b],
-            kv_cache=[self.kv_cache],
-            prompt_lens=lens,
-            enable_trace=True,
-            return_hidden_states=True,
+    def _batch_bucket(self, b: int) -> int:
+        for cand in self.batch_sizes:
+            if cand >= b:
+                return cand
+        return self.batch_sizes[-1]
+
+    def _page_table_for(self, b: int, seq_len: int):
+        if b == 1:
+            return self.page_table
+        return self.generator._get_prefill_user_page_table(
+            self.page_table,
+            self.kv_cache,
+            seq_len,
+            trace_enabled=True,
+            prefill_seq_len=seq_len,
+            use_batched_prefill=True,
+            user_id=list(range(b)),
+            padded_batch_size=b,
         )
+
+    def _traced_prefill(self, prefill_ids: torch.Tensor, seq_len: int, b: int):
+        import ttnn
+
+        page_table = self._page_table_for(b, seq_len)
+        tt_out = self.generator._easy_trace_prefill(
+            prefill_ids,
+            page_table=page_table,
+            user_id=list(range(b)) if b > 1 else 0,
+            last_token_idx=[seq_len - 1] * b if b > 1 else seq_len - 1,
+            kv_cache=self.kv_cache,
+            model_id=0,
+            prefill_seq_len=seq_len,
+            batch_size=b,
+            num_cached_tokens=0,
+        )
+        host = ttnn.to_torch(ttnn.get_device_tensors(tt_out)[0])
+        return host
+
+    def _pool_and_norm(self, host: torch.Tensor, lens: list[int], seq_len: int) -> np.ndarray:
+        rows = host.reshape(-1, host.shape[-1])
+        dim = self.model_args.dim
+        picks = torch.stack([rows[i * seq_len + (n - 1), :dim] for i, n in enumerate(lens)]).float()
+        var = picks.pow(2).mean(-1, keepdim=True)
+        normed = picks * torch.rsqrt(var + self.norm_eps) * self.norm_weight
+        return normed.numpy()
+
+    def _forward_group(self, id_lists: list[list[int]]) -> np.ndarray:
+        n_real = len(id_lists)
+        lens = [len(x) for x in id_lists]
+        seq_len = self.padded_len(max(lens))
+        b = self._batch_bucket(n_real)
+        prefill_ids = torch.zeros(b, seq_len, dtype=torch.long)
+        for i, ids in enumerate(id_lists):
+            prefill_ids[i, : len(ids)] = torch.tensor(ids, dtype=torch.long)
+        t0 = time.perf_counter()
+        host = self._traced_prefill(prefill_ids, seq_len, b)
+        vecs = self._pool_and_norm(host, lens, seq_len)
         self.device_seconds += time.perf_counter() - t0
         self.calls += 1
         self.tokens_spent += sum(lens)
-        return out.float().numpy().reshape(b, HIDDEN)
+        return vecs
 
     def embed_ids(self, id_lists: list[list[int]]) -> np.ndarray:
         out = np.zeros((len(id_lists), HIDDEN), dtype=np.float32)
@@ -176,11 +291,16 @@ class TtQwen3Encoder:
     def warmup(self) -> None:
         t0 = time.perf_counter()
         lens = [n for n in self.trace_lens if n <= self.max_seq_len] or [min(128, self.max_seq_len)]
+        captured = []
         for n in lens:
-            for b in sorted({1, self.max_batch_size}):
-                ids = [self._fallback_ids * 1 + [self.tokenizer.eos_token_id] * (min(n, self.max_tokens) - 1)] * b
+            for b in self.batch_sizes:
+                key = f"{n}_0_{b}_sp0"
+                if self.generator.trace_id_prefill.get(key) is not None:
+                    continue
+                ids = [[self.tokenizer.eos_token_id] * min(n, self.max_tokens)] * b
                 self.embed_ids(ids)
-        logger.info(f"TtQwen3Encoder warmup done in {time.perf_counter() - t0:.1f}s for lens={lens}")
+                captured.append(key)
+        logger.info(f"TtQwen3Encoder warmup done in {time.perf_counter() - t0:.1f}s; traces captured: {captured}")
 
     def healthy(self) -> bool:
         return bool(self.ready)
