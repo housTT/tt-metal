@@ -1,0 +1,18 @@
+{
+  "model": "Contrastive-LM/CLM-v0.1-8B",
+  "model_revision": "e939398d4556fcd9400c76fa8c5a513202f42b0a",
+  "encoder": "Qwen/Qwen3-8B",
+  "encoder_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+  "model_kind": "encoder-only verifier: last-token pooled Qwen3-8B hidden state plus two MLP projection heads",
+  "hf_advertised_context": 40960,
+  "encoder_native_context": 32768,
+  "upstream_serving_default_context": 2048,
+  "current_supported_context": 1024,
+  "target_supported_context": 2048,
+  "limiting_reason": "stage 6 probe runs with max_seq_len 1024; 2048 requires a traced prefill length entry for Qwen3-8B on P150 (stage 7)",
+  "capacity_evidence": "doc/probe/probe_full_encoder.json",
+  "input_truncation": "tail: the last max_tokens tokens are kept, matching vLLM truncate_prompt_tokens as used by clm-serve",
+  "decode_contract": "not applicable (encoder-only; no autoregressive decode, no KV reuse across requests)",
+  "batch_contract": "right-padded batches grouped by padded prefill length (128, 1024, 2048); per-user last token index",
+  "output": "4096-d L2-normalized float32 embedding per input; heads produce 512-d projections; score = 100 * cosine"
+}

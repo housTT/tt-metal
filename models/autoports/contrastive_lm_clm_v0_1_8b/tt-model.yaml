@@ -1,0 +1,75 @@
+schema: "5.1"
+repo: tt-hous/clm-v0.1-8b-p150
+name: clm-v0.1-8b-p150
+weights:
+  repo: Qwen/Qwen3-8B
+  revision: b968826d9c46dd6066d109eabc6255188de91218
+  ignore_patterns: ["original/*", "*.pth"]
+kind: tt-dit-server
+arch: blackhole
+
+image:
+  registry: hf
+
+source:
+  tt_metal: /home/hous/dev/ornith-1.5-9b/tt-metal
+  code:
+    - models/common
+    - models/tt_transformers/tt
+    - models/autoports/contrastive_lm_clm_v0_1_8b
+  ubuntu: "22.04"
+  python: "3.12"
+
+runtime:
+  app: models.autoports.contrastive_lm_clm_v0_1_8b.server.app:app
+  mesh_shape_env: CLM_MESH_SHAPE
+  packages:
+    - "transformers>=5.12,<6"
+    - "huggingface_hub"
+    - "safetensors"
+    - "loguru"
+    - "numpy<2"
+    - "requests"
+    - "accelerate"
+
+serve:
+  port: 8700
+  hardware: p150
+  mesh_device: P150
+  env:
+    CLM_EMBEDDER: tt
+    CLM_MAX_TOKENS: "2048"
+    CLM_MAX_BATCH: "8"
+    CLM_PRECISION: accuracy
+    CLM_ACTION_CACHE: 512MiB
+    CLM_CKPT: /opt/tt-metal/models/autoports/contrastive_lm_clm_v0_1_8b/weights/CLM_v0.1-8B.pt
+    CLM_TRACE_REGION_SIZE: "200000000"
+    CLM_L1_SMALL_SIZE: "32768"
+    TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES: "0"
+
+verify:
+  - "import models.autoports.contrastive_lm_clm_v0_1_8b.server.app as a; assert a.app"
+  - "import models.autoports.contrastive_lm_clm_v0_1_8b.tt.encoder as e; assert e.TtQwen3Encoder"
+  - "import models.autoports.contrastive_lm_clm_v0_1_8b.clm.engine as g; assert g.Engine"
+  - "import hashlib; p='/opt/tt-metal/models/autoports/contrastive_lm_clm_v0_1_8b/weights/CLM_v0.1-8B.pt'; h=hashlib.sha256(open(p,'rb').read()).hexdigest(); assert h=='b2b4a8c9c2d39263eff78a351eb909a342ce9b3bf21a3f07c1d1bf15f1c4eda5', h"
+  - "import transformers; assert transformers.__version__.startswith('5.'), transformers.__version__"
+
+card:
+  description: >
+    CLM-v0.1-8B (Contrastive Language Model) is a System One verifier and ranker: a frozen Qwen3-8B
+    encoder with last-token pooling plus two 9.4M-parameter projection heads trained with InfoNCE.
+    This package serves its System One API (typed noul / choice / score questions, free-form ranking)
+    and an OpenAI-compatible embeddings endpoint on one Blackhole p150 chip.
+  performance: TODO
+  limitations: TODO
+  architecture: Qwen3-8B encoder (36 layers, last-token pooling) + 2 x MLP heads (4096-1536-1536-512)
+  status: Experimental community bring-up
+  intended_use: Zero-shot action selection, best-of-N ranking, typed decisions over text states.
+  out_of_scope_use: Text generation. The package produces scores and embeddings only.
+  licensing: >
+    Qwen3-8B weights under Apache-2.0; CLM-v0.1-8B head weights under Apache-2.0 (Contrastive-LM);
+    the vendored clm serving code under Apache-2.0; the TTNN port code under Apache-2.0.
+  license:
+    id: apache-2.0
+  pipeline_tag: text-ranking
+  base_model: [Contrastive-LM/CLM-v0.1-8B, Qwen/Qwen3-8B]
