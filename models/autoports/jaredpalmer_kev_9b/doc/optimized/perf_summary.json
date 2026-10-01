@@ -1,0 +1,51 @@
+{
+  "stage": "3 optimize (traced prefill engine + matmul program-config policy), one Blackhole P150 (chip 0)",
+  "date": "2026 Oct 01, 20:30 to 21:45 ET",
+  "device_params": {"l1_small_size": 24576, "num_command_queues": 2, "trace_region_size": 1073741824},
+  "trace_region_used_bytes": 287000000,
+  "traces": 27,
+  "kv_slots": 8,
+  "kv_bytes_per_slot": 2212691968,
+  "max_state_tokens": 65536,
+  "workload_mapping": "prefill-only pointer model: 'decode' maps to the traced question tail (one bucketed segment per question), 'prefill/TTFT' maps to the traced state chunk plus the server latency_ms of one request",
+  "engine_ms": {
+    "tail_bucket_128": {"eager": 129.5, "traced": 107.0, "traced_policy": 104.9},
+    "tail_bucket_256": {"eager": 195.1, "traced": 166.9, "traced_policy": 151.0},
+    "tail_bucket_512": {"eager": 483.7, "traced": 468.1, "traced_policy": 266.4},
+    "tail_bucket_1024": {"eager": 670.8, "traced": 645.6, "traced_policy": 476.4},
+    "tail_bucket_2048": {"eager": 1576.8, "traced": 1528.7, "traced_policy": 917.3},
+    "state_2048": {"eager": 1507.7, "traced": 1510.7, "traced_policy": 898.9},
+    "state_2392": {"eager": 1692.0, "traced": 1676.6, "traced_policy": 1048.7},
+    "state_65536_plus_question_40": {"traced_policy": 37650.1}
+  },
+  "device_vs_host_ms_per_question": {
+    "eager": {"restore": 0.55, "forward": 128.3, "readout": 0.64},
+    "traced_policy": {"restore": 0.31, "forward": 104.1, "readout": 0.55},
+    "note": "forward is device time: the 2048-token chunk's Tracy kernel sum (190 ms per 4 layers before the policy) equals its wall clock; bucket 128 is op-count bound (about 5900 device ops per 32-layer forward at a per-program launch floor near 18 us)"
+  },
+  "server_latency_ms": {
+    "source": "/home/hous/dev/kev/reports/bench/p150_stage3/report.json, serving_bench_remote.py --reps 20 --quick",
+    "short_6_questions_new_cached": {"stage2": [753.2, 750.8], "stage3": [604.7, 605.2]},
+    "two_questions_short_new_cached": {"stage2": [490.1, 505.7], "stage3": [202.1, 201.6]},
+    "five_questions_370_state_new_cached": {"stage2": [1119.6, 879.5], "stage3": [862.1, 676.95]},
+    "long_2200_state_new_cached": {"stage2": [2271.4, 647.5], "stage3": [1528.5, 525.5]},
+    "requests_per_s_64_clients_quick_32_requests": {"stage2": 1.3, "stage3": 1.6},
+    "decision_v7_requests_per_s_quick": {"stage2": 6.0, "stage3": 7.6}
+  },
+  "parity_16_records_vs_fp32": {"source": "/home/hous/dev/kev/reports/stage3_parity.json", "max_dp": 0.0947, "mean_dp": 0.0358, "argmax_flips": 0, "stage2": {"max_dp": 0.0947, "mean_dp": 0.0359}, "revisits_equal": "16/16 with states interleaved (24 misses, 10 hits, 8 slots)"},
+  "reference_records_test": {"min_pcc": 0.976770, "argmax_agree": "29/29", "max_dp": 0.102370, "mean_dp": 0.036647, "stage1": {"max_dp": 0.102370, "mean_dp": 0.0366}},
+  "roofline_ms_estimate": {
+    "weights_bytes_bfp4_bfp8": 8300000000,
+    "dram_bandwidth_assumed_gbps": 460,
+    "weight_read_floor_ms_per_forward": 18,
+    "tail_bucket_128_measured_ms": 104.9,
+    "chunk_2048_matmul_flops_tflops_after_policy": "160 to 258 (tt-perf-report rows at 5 to 7.5 % before)"
+  },
+  "named_limitations": [
+    "bucket 128 and 256 tails are launch-overhead bound: about 5900 device ops per forward, median kernel 6 us; needs fewer ops per GDN layer inside qwen36",
+    "fused GDN chunk op (ttnn.transformer.chunk_gated_delta_rule) is 25 % faster at bucket 128 but gave wrong carried-state results and a segfault; rejected",
+    "GDN output projection with fp32 activation (1.63 ms at 2048 tokens) is not covered by the matmul policy",
+    "dropping fp32 accumulation would give another 1.3 to 3.7x on the large matmuls but changes numerics; left to the stage 4 datatype sweep",
+    "one worker per chip serializes requests, so requests_per_s is flat across client counts"
+  ]
+}

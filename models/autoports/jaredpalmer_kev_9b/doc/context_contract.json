@@ -1,0 +1,206 @@
+{
+  "model_id": "jaredpalmer/kev-9b",
+  "base_model_id": "Qwen/Qwen3.5-9B-Base",
+  "base_revision": "68c46c4b3498877f3ef123c856ecfde50c39f404",
+  "adapter_revision": "db029f08b290afd9fee4aa4bbcd9ae48602d1eb0",
+  "adapter_sha8": "2b2a70cf",
+  "hf_advertised_context": 262144,
+  "hf_context_source": "Qwen/Qwen3.5-9B-Base config.json:text_config.max_position_embeddings",
+  "served_context": 10240,
+  "served_context_note": "integer for check_context_contract.py: the engine admits a state of at most 8192 tokens plus a question of at most 2048 tokens per row; the longest row validated against the HF reference is 2300 tokens (current_supported_context below)",
+  "kev_serving_context": {
+    "max_state_tokens": 65536,
+    "max_row_tokens": 73728,
+    "row_pass_token_budget": 16384,
+    "source": "kev/model.py:18-23 (SERVE_MAX_STATE, SERVE_MAX_BRANCH, ROW_PASS_TOKENS) at commit 952ce9d"
+  },
+  "current_supported_context": {
+    "max_state_tokens": 65536,
+    "per_row_budget_tokens": 16384,
+    "validated_row_tokens": 16424,
+    "note": "stage 3: engine default max_state_len 65536 (kev's serving limit), question row up to 2048 tokens after the 128-aligned state prefix; validated with test_long_state (S 16384 tail equals full row, S 65536 no-crash) and the reference rows"
+  },
+  "capability_reduction": "none for the state (65536 served); a question row is limited to 2048 tokens plus the state remainder under 128, below kev's 73728-token row budget",
+  "limiting_reason": "question tails run as one fixed bucket of at most 2048 tokens (the largest warmed trace); longer rows would need a chunked tail path",
+  "row_form": {
+    "description": "one plain causal row per question: [<|fim_prefix|> state] [<|fim_middle|> instr (<|box_start|> option <|box_end|>)* <|fim_suffix|>], positions 0..L-1, no cross-question attention",
+    "readout_positions": "last_hidden_state at every <|box_end|> (options) and at <|fim_suffix|> (decide)",
+    "special_token_ids": {
+      "<|fim_prefix|>": 248060,
+      "<|fim_middle|>": 248061,
+      "<|box_start|>": 248049,
+      "<|box_end|>": 248050,
+      "<|fim_suffix|>": 248062
+    },
+    "bos": null,
+    "eos_pad": 248044
+  },
+  "functional": {
+    "hardware": "one Blackhole P150 chip (device 0), traced engine since stage 3",
+    "worktree": "/home/hous/dev/kev/tt-metal at 7eac776e9 (branch hous/kev-9b-bringup), models/autoports untracked",
+    "weight_precision": "stage 4 selected config mlp_bfp8 (doc/datatype_sweep/selected_precision_config.json): MLP gate/up bfp8, MLP down / attention / GDN projections bfp8, LoFi with fp32 accumulation, KV cache bf16, GDN state bf16; applied by tt/precision_defaults.py (KEV_PRECISION=baseline restores bfp4 gate/up); merged LoRA cache tensor_cache_bfp8_kev_2b2a70cf_gu-bfp8_dn-bfp8_pj-bfp8 (10.47 GB, 1.6 GB more than the baseline cache)",
+    "reference_rows": "/home/hous/dev/kev/reports/reference/rows.json",
+    "reference_probabilities_fp32": "/home/hous/dev/kev/reports/reference/probs_fp32.json",
+    "reference_hidden_fp32": "/home/hous/dev/kev/reports/reference/hidden_fp32.pt",
+    "longest_reference_row_tokens": 2265,
+    "validated": {
+      "random_rows_vs_hf": {
+        "lengths": [
+          300,
+          1500,
+          2300
+        ],
+        "layers": 32,
+        "weights": "base (Qwen36ModelArgs)",
+        "min_pcc_positions_from_1": [
+          0.9945,
+          0.993,
+          0.9921
+        ],
+        "test": "tests/test_engine.py::test_hidden_vs_hf[{300,1500,2300}-l32]",
+        "logs": [
+          "/home/hous/dev/kev/logs/stage1_engine_l32.log",
+          "/home/hous/dev/kev/logs/stage1_engine_round3.log"
+        ]
+      },
+      "reference_rows_vs_hf_fp32": {
+        "rows": 29,
+        "row_token_range": [
+          35,
+          2265
+        ],
+        "layers": 32,
+        "weights": "merged LoRA (KevModelArgs)",
+        "min_row_pcc": 0.9768,
+        "median_row_pcc": 0.9923,
+        "rows_below_0_99": 11,
+        "argmax_agreement": "29/29",
+        "max_abs_dp": 0.1024,
+        "mean_abs_dp_row_max": 0.0366,
+        "test": "tests/test_engine.py::test_reference_records",
+        "logs": [
+          "/home/hous/dev/kev/logs/stage1_final.log",
+          "/home/hous/dev/kev/logs/stage1_reference_records.log"
+        ]
+      },
+      "base_weights_control": {
+        "rows": 29,
+        "layers": 32,
+        "weights": "base (Qwen36ModelArgs) through the same device path and pointer head",
+        "min_row_pcc": 0.4554,
+        "median_row_pcc": 0.5973,
+        "argmax_agreement": "9/29",
+        "max_abs_dp": 0.9471,
+        "mean_abs_dp_row_max": 0.4295,
+        "script": "scripts/reference_control.py",
+        "logs": [
+          "/home/hous/dev/kev/logs/stage1_control.log"
+        ],
+        "report": "/home/hous/dev/kev/reports/stage1_control.json"
+      },
+      "state_then_question": {
+        "state_lengths": [
+          2048,
+          2175,
+          2200
+        ],
+        "question_lengths": [
+          50,
+          400
+        ],
+        "layers": 32,
+        "min_row_pcc_vs_full_row": 0.99987,
+        "repeat_bit_identical": true,
+        "test": "tests/test_engine.py::test_tail_matches_full_row[{50,400}-{2048,2175,2200}-l32]",
+        "logs": [
+          "/home/hous/dev/kev/logs/stage1_engine_round3.log"
+        ]
+      },
+      "served_request": {
+        "max_input_tokens": 2392,
+        "state_tokens": 2200,
+        "questions": 5,
+        "path": "HTTP server, prefix pass plus GDN snapshot plus one tail per question",
+        "max_abs_dp_vs_fp32": 0.0947,
+        "mean_abs_dp_vs_fp32": 0.0359,
+        "argmax_flips": 0,
+        "report": "/home/hous/dev/kev/reports/stage2_parity.json",
+        "logs": [
+          "/home/hous/dev/kev/logs/stage2_server.log"
+        ]
+      },
+      "watcher": {
+        "cases": "tests/test_engine.py::test_hidden_vs_hf[{300,2300}-l4] with TT_METAL_WATCHER=10, base weights, prefill_hidden only",
+        "logs": [
+          "/home/hous/dev/kev/logs/stage1_watcher_run.log",
+          "/home/hous/dev/kev/logs/stage1_watcher.log"
+        ]
+      }
+    },
+    "boundary_lengths": {
+      "random_rows": [
+        300,
+        1500,
+        2300
+      ],
+      "reference_rows": [
+        35,
+        2265
+      ],
+      "tail": {
+        "S": [
+          2048,
+          2175,
+          2200,
+          2450
+        ],
+        "Q": [
+          50,
+          60,
+          400
+        ]
+      },
+      "buckets": [
+        128,
+        256,
+        512,
+        1024,
+        2048
+      ],
+      "long_state": [
+        16384,
+        65536
+      ],
+      "budget": [
+        16384
+      ]
+    },
+    "not_validated": [
+      "rows above 2300 tokens (three or more 2048-token segments)",
+      "tile-boundary lengths 1, 31, 32, 33",
+      "prefill_state / question_hidden or merged weights under the watcher",
+      "two states interleaved across snapshot slots (review P1: slots share one KV cache)"
+    ]
+  },
+  "persistent_allocations_stage3": {
+    "kv_cache_per_slot_bytes_at_65536": 2212691968,
+    "kv_slots": "min(requested, (free DRAM - 3 GiB) // per-slot bytes); 8 at 65536 on a P150 (21.26 GiB free after weights)",
+    "gdn_snapshots_per_slot": "24 layers x (recurrent [1,32,128,128] bf16 + conv [1,3,8192] bf16)",
+    "trace_region_bytes": 1073741824,
+    "trace_region_used_bytes_32_layers_8_slots": 287000000,
+    "traces": "fwd and gather per bucket {128,256,512,1024,2048}, restore and save per slot, zero (27 traces at 8 slots)",
+    "kv_dtype": "bfloat16",
+    "weight_dtypes": "unchanged from stage 1 (bfp4 MLP gate/up, bfp8 elsewhere, bf16 norms and embedding)"
+  },
+  "stage4_precision": {
+    "selected": "mlp_bfp8",
+    "kv_cache_dtype": "bf16 (unchanged)",
+    "dram_free_after_weights_gib": {
+      "baseline": 22.27,
+      "mlp_bfp8": 20.77,
+      "note": "max_state_len 8192 build; at 65536 the traced probe reports 19.76 GiB free and 8 of 8 slots fit (perf_probe_mlp_bfp8.json)"
+    },
+    "context_effect": "none: the selected config does not change the KV-cache dtype, trace buffers, or chunking; 8 snapshot slots at max_state_len 65536 still fit",
+    "matmul_policy": "KEV_MATMUL_POLICY defaults to 0 under the selected config because the stage 3 MATMUL_POLICY 2D program configs overflow L1 with bfp8 gate/up weights (doc/datatype_sweep/README.md)"
+  }
+}

@@ -1,0 +1,237 @@
+{
+ "config_id": "mlp_bfp8",
+ "model_id": "jaredpalmer/kev-9b",
+ "base_model_id": "Qwen/Qwen3.5-9B-Base",
+ "hardware": "Blackhole P150, single device (mesh 1x1)",
+ "selected_at": "2026-10-01 22:27:26 UTC",
+ "weight_dtypes": {
+  "mlp.gate_proj": "bfp8",
+  "mlp.up_proj": "bfp8",
+  "mlp.down_proj": "bfp8",
+  "self_attn.q_proj": "bfp8",
+  "self_attn.k_proj": "bfp8",
+  "self_attn.v_proj": "bfp8",
+  "self_attn.o_proj": "bfp8",
+  "linear_attn.qkv_proj": "bfp8",
+  "linear_attn.in_proj_a": "bfp8",
+  "linear_attn.in_proj_b": "bfp8",
+  "linear_attn.in_proj_z": "bfp8",
+  "linear_attn.out_proj": "bfp8",
+  "tok_embeddings": "bf16",
+  "norms (input, post_attention, final, q_norm, k_norm, linear_attn.norm)": "bf16",
+  "linear_attn.A_log, dt_bias": "bf16",
+  "linear_attn conv weights": "bf16 (host, row major)",
+  "output (lm_head)": "bfp8 (loaded, unused by the kev pointer head)"
+ },
+ "layer_exceptions": [],
+ "compute_fidelities": {
+  "mlp (gate, up, down matmuls)": "LoFi, fp32 acc",
+  "self_attn projections (q, k, v, o)": "LoFi, fp32 acc",
+  "linear_attn projections (qkv, a, b, z, out)": "LoFi, fp32 acc",
+  "sdpa (attention prefill and decode)": "HiFi2, fp32 acc (models/experimental/gated_attention_gated_deltanet/tt/ttnn_gated_attention.py:157-159)",
+  "gdn chunk kernel (gated_delta_attn_seq)": "float32 kernel; preprocessing matmuls HiFi4 fp32 acc (ttnn_delta_rule_seq.py:248-251, 414-417)",
+  "engine row select": "HiFi4, fp32 acc (models/autoports/jaredpalmer_kev_9b/tt/engine.py select_kernel_config)"
+ },
+ "activation_dtype": "bf16",
+ "residual_dtype": "bf16",
+ "ccl_dtype": "n/a (single device, no CCL)",
+ "kv_cache_dtype": "bf16 (KevEngine.allocate_kv_caches; QWEN_SDPA_BF8=0)",
+ "gdn_recurrent_state_dtype": "bf16",
+ "logits_dtype": "device hidden rows read back as fp32 (bf16 device tensor); pointer head and softmax on host in fp32 at the head temperature",
+ "sampling_dtype": "n/a (no token sampling; option probabilities only)",
+ "runtime_flags": {
+  "QWEN36_MLP_GATE_UP_DTYPE": "bfp8",
+  "QWEN36_MLP_DOWN_DTYPE": "bfp8",
+  "QWEN36_PROJ_DTYPE": "bfp8",
+  "QWEN36_MATMUL_FIDELITY": "LoFi",
+  "QWEN_GDN_FP32_STATE": "0",
+  "QWEN_SDPA_BF8": "0",
+  "KEV_MATMUL_POLICY": "0",
+  "TT_CACHE_PATH": "/home/hous/dev/kev/tt_cache_mlp_bfp8"
+ },
+ "propagation_check": {
+  "mlp.w1.dtype": "DataType.BFLOAT8_B",
+  "mlp.w2.dtype": "DataType.BFLOAT8_B",
+  "mlp.w3.dtype": "DataType.BFLOAT8_B",
+  "mlp.compute_kernel_config.math_fidelity": "MathFidelity.LoFi",
+  "mlp.compute_kernel_config.fp32_dest_acc_en": true,
+  "attn.q_proj.dtype": "DataType.BFLOAT8_B",
+  "attn.o_proj.dtype": "DataType.BFLOAT8_B",
+  "attn.compute_kernel_config.math_fidelity": "MathFidelity.LoFi",
+  "gdn.qkv_proj.dtype": "DataType.BFLOAT8_B",
+  "gdn.out_proj.dtype": "DataType.BFLOAT8_B",
+  "gdn.compute_kernel_config.math_fidelity": "MathFidelity.LoFi",
+  "kv_cache.dtype": "DataType.BFLOAT16",
+  "weight_cache_path": "/home/hous/dev/kev/tt_cache_mlp_bfp8/P150/tensor_cache_bfp8_kev_2b2a70cf",
+  "n_layers": 32,
+  "traced": false,
+  "matmul_policy": false
+ },
+ "accuracy": {
+  "subset_rows": 291,
+  "acc": 0.831615,
+  "brier": 0.242757,
+  "ece": 0.077838,
+  "nll": 0.447704,
+  "reference_rows": 29,
+  "argmax_flips": 1,
+  "flips_margin_ge_0_05": 0,
+  "flips_near_tie": 1,
+  "flip_detail": [
+   {
+    "row_key": "0:choice",
+    "ref_top2_margin": 0.0315,
+    "kind": "near_tie",
+    "probs_ref": [
+     0.2895,
+     0.3211,
+     0.0939,
+     0.0053,
+     0.1437,
+     0.1464
+    ],
+    "probs_tt": [
+     0.2779,
+     0.2561,
+     0.0789,
+     0.0101,
+     0.1429,
+     0.2341
+    ]
+   }
+  ],
+  "max_dp": 0.087636,
+  "mean_dp": 0.026433,
+  "min_pcc": 0.987337,
+  "median_pcc": 0.995476
+ },
+ "performance": {
+  "regime": "eager full-row prefill_hidden, wall time per row including readback, program cache warm (bucket seen before)",
+  "warm_row_s": 0.5786,
+  "warm_ms_per_token": 1.0589,
+  "mean_row_s_all": 0.6128,
+  "ref_mean_row_s": 0.6613,
+  "engine_load_s": 27.6
+ },
+ "performance_traced": {
+  "regime": "stage 3 engine, traced=True, matmul policy on, scripts/perf_probe.py --traced --matmul-policy, median of 5 with device sync, 2048-token state in slot 0",
+  "tail_bucket128_ms": 106.96,
+  "tail_bucket256_ms": 167.33,
+  "tail_bucket2048_ms": 1537.19,
+  "state_2048_ms": 1519.76,
+  "build_s": 38.7,
+  "trace_mib": 273.1,
+  "card_ms": {
+   "6 questions, short state": {
+    "state_tokens": 31,
+    "questions": 6,
+    "question_tokens": [
+     42,
+     73,
+     47,
+     22,
+     16,
+     22
+    ],
+    "new_ms": 619.6,
+    "new_state_ms": 0.1,
+    "new_questions_ms": 619.5,
+    "cached_ms": 619.9
+   },
+   "5 questions, 2,200-token state": {
+    "state_tokens": 2192,
+    "questions": 5,
+    "question_tokens": [
+     42,
+     73,
+     47,
+     16,
+     22
+    ],
+    "new_ms": 2163.0,
+    "new_state_ms": 0.5,
+    "new_questions_ms": 2162.5,
+    "cached_ms": 537.6
+   }
+  },
+  "probe_json": "/home/hous/dev/kev/reports/sweep/perf_probe_mlp_bfp8.json"
+ },
+ "weight_cache_gb": 10.47,
+ "accuracy_by_suite": {
+  "devtools-v1": {
+   "n": 83,
+   "acc": 0.7590361445783133,
+   "brier": 0.32956998195212023,
+   "ece": 0.19503937123051607,
+   "nll": 0.5835382474632446
+  },
+  "documents-v1": {
+   "n": 94,
+   "acc": 0.9042553191489362,
+   "brier": 0.15765996661523335,
+   "ece": 0.05055641113443571,
+   "nll": 0.31172909805447263
+  },
+  "hard-v1": {
+   "n": 114,
+   "acc": 0.8245614035087719,
+   "brier": 0.24971883863766184,
+   "ece": 0.09143436111901936,
+   "nll": 0.4609271815960211
+  }
+ },
+ "cpu_bf16_reference_max_dp": 0.0189,
+ "selection_rule": {
+  "accuracy_window_pp": 1.0,
+  "best_acc": 0.831615,
+  "argmax_flips_required": "0 flips on reference rows whose fp32 top-2 margin is >= 0.05; near-tie flips (margin < 0.05) are reported, not disqualifying",
+  "flip_margin_threshold": 0.05,
+  "rule_amendment_verbatim": "Rule amendment from the orchestrator, record it verbatim in the work log and summary: an argmax flip counts against a variant only when the fp32 reference's top-2 probability margin on that question is at least 0.05. A flip on a near-tie row (margin under 0.05, like the 0.2895 vs 0.3211 case) is reported but not disqualifying, because it measures the tie, not the variant. Keep max |dp| and mean |dp| as tie-breakers, and keep the 1.0 pp subset-accuracy window. Also report, for every variant, the count of \"margin >= 0.05\" flips and the count of near-tie flips separately. Continue the sweep.",
+  "time_tie_pct": 2.0,
+  "tie_break": "lowest max_dp on the 29 reference rows, then lowest mean_dp, then time",
+  "eligible": [
+   "mlp_bfp8",
+   "all_bfp8_hifi2",
+   "all_bfp8_gdnfp32",
+   "mlp_bf16",
+   "all_bf16"
+  ],
+  "ties": [
+   "mlp_bfp8",
+   "all_bfp8_gdnfp32"
+  ],
+  "evaluated": [
+   "baseline",
+   "mlp_bfp8",
+   "all_bfp8_hifi2",
+   "all_bfp8_gdnfp32",
+   "mlp_bf16",
+   "all_bf16"
+  ]
+ },
+ "evidence": {
+  "sweep_results_csv": "/home/hous/dev/kev/reports/sweep/sweep_results.csv",
+  "variant_json": "/home/hous/dev/kev/reports/sweep/mlp_bfp8.json",
+  "timestamp": "2026-10-01 21:57:28 UTC"
+ },
+ "default_construction": {
+  "module": "models/autoports/jaredpalmer_kev_9b/tt/precision_defaults.py (imported by tt/loader.py before any qwen36 import; engine, server and tests import the loader through the engine)",
+  "profile_switch": "KEV_PRECISION=selected (default) | baseline; every variable is overridable before import",
+  "env_defaults": {
+   "QWEN36_MLP_GATE_UP_DTYPE": "bfp8",
+   "QWEN36_MLP_DOWN_DTYPE": "bfp8",
+   "QWEN36_PROJ_DTYPE": "bfp8",
+   "QWEN36_MATMUL_FIDELITY": "LoFi",
+   "QWEN_GDN_FP32_STATE": "0",
+   "QWEN_SDPA_BF8": "0",
+   "KEV_MATMUL_POLICY": "0"
+  },
+  "weight_cache_path": "<TT_CACHE_PATH>/P150/tensor_cache_bfp8_kev_2b2a70cf_gu-bfp8_dn-bfp8_pj-bfp8 (server default root /home/hous/dev/kev/tt_cache holds it; 403 files, 10.47 GB)",
+  "matmul_policy_note": "KEV_MATMUL_POLICY=0 because the stage 3 MATMUL_POLICY 2D program configs overflow L1 with bfp8 gate/up weights; re-tune to recover the policy-on timing",
+  "device_confirmation": {
+   "command": "pytest models/autoports/jaredpalmer_kev_9b/tests/test_engine.py -k reference_records --device-id 2 (traced engine, no QWEN36_*/KEV_* env)",
+   "log": "/home/hous/dev/kev/logs/stage4_default_reference_records.log",
+   "result": "min_pcc 0.987337, argmax_agree 28/29 (near-tie row 0:choice), max_dp 0.087636, mean_dp 0.026433; cache loaded, not rebuilt; the test's own 29/29 assertion fails under the amended rule"
+  }
+ }
+}
