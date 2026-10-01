@@ -46,17 +46,27 @@ and `.png`, console log. Summary of the 130 ops (11.16 ms of device time over fi
 
 | op | share of device time | utilization reported by tt-perf-report |
 |---|---|---|
-| MLP w1/w3 matmul 128x4096x12288 (bfp8, HiFi2) | 17.9 % | DRAM 43 %, FLOPs 58 %, 64 cores |
-| wo matmul at 1024 tokens (bf16, HiFi4) | 13.1 % | FLOPs 79 %, 64 cores |
+| MLP w1/w3 matmul 128x4096x12288 (bfp8, HiFi2) | 17.9 % | DRAM 43 %, FLOPs 58 %, 32 cores |
+| MLP w1 and w3 matmuls at 1024 tokens (two ops, b=2 x 512 rows) | 13.1 % | FLOPs 79 %, 64 cores |
 | QKV matmul 128x4096x6144 (bf16, HiFi4) | 9.5 % | DRAM 39 %, FLOPs 55 % |
 | MLP w2 matmul 128x12288x4096 | 8.2 % | DRAM 45 %, FLOPs 64 % |
 | RMSNorm (20 calls) | 7.2 % | |
 | SDPA (5 calls) | 4.7 % | |
 
-`tt-perf-report` advice on every large matmul: "Increase grid size (currently using 64)" (the chip has 110
-worker cores) and "HiFi2 is sufficient for BFP8 multiplication" on the HiFi4 attention matmuls. These two
+`tt-perf-report` advice: "Increase grid size" on the large matmuls, which run on 32 cores at 128 tokens and 64 cores
+at 1024 tokens (the chip has 110 worker cores) and "HiFi2 is sufficient for BFP8 multiplication" on the HiFi4 attention matmuls. These two
 leads are the stage 3 optimization candidates; the second is what the `bfp8_attn_hifi2` precision policy tests.
 Overall DRAM roofline for modeled ops: 23.6 % (121 GB/s).
+
+## Batch and the embedding / final-norm substitutes
+
+- "Batch > 1" for a prefill layer means several users through separate KV-cache slots: the test runs users 0 to 3
+  at 128 tokens on distinct page-table rows; PCC is identical to 16 digits across users (same input, no slot
+  interference).
+- Token embedding and final norm are not part of the decoder layer; they are covered end to end by the stage 6
+  fidelity gate (the pooled vector after the final norm matches the HF fp32 reference to cosine 0.9991 mean) and,
+  for the final norm specifically, by `reference/hf_layer_reference.py` (layer 35 output plus the HF norm equals
+  `last_hidden_state`, cosine 0.99997).
 
 ## Not applicable
 

@@ -47,6 +47,15 @@ on Blackhole is batch-variant in its float reduction order (noted in `model_conf
 `disable_batched_prefill`, tt-metal issue 47238). It is numerical noise, not cross-request leakage: the
 run-to-run cosine of the same input is 1.0, and different inputs in the trace replay check give cosine far below 1.
 
+## Serving nondeterminism to know about
+
+The encoder output for a text depends slightly on which other texts share its prefill batch (cosine 0.9993 mean,
+0.9964 min between alone and in a batch; 60 of 308 texts below 0.999). On the Typed Decisions subset this flips the
+argmax of 4 to 5 of 200 decisions between the two modes, all near-ties. Cause: batch-variant float reduction order
+in the prefill kernels (tt-metal 47238). The server groups a request's texts into batches, so repeated identical
+requests are deterministic (replay check), but the same text in a different request mix can differ at this level.
+Recorded in the card's limitations.
+
 ## Qualitative check substitute
 
 `$qualitative-check` is for generated text. The substitute recorded here: the README's two worked examples

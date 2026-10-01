@@ -53,6 +53,23 @@ def parse_mesh_shape(spec: str | None) -> tuple[int, int]:
 
 
 CUSTOM_POLICIES = {
+    "bf16_all": {
+        "TensorPrecision": {"WQKV": "BF16", "KV_CACHE": "BF16", "WO": "BF16", "FF1_FF3": "BF16", "FF2": "BF16"},
+        "OpFidelity": {
+            "LI_FF1_FF3": "HIFI4",
+            "LI_FF2": "HIFI4",
+            "LI_QKV_PREFILL": "HIFI4",
+            "LI_O_PREFILL": "HIFI4",
+            "SDPA_PREFILL": "HIFI4",
+            "LI_QKV_DECODE": "HIFI4",
+            "LI_O_DECODE": "HIFI4",
+            "SDPA_DECODE": "HIFI4",
+        },
+    },
+    "bfp8_lofi_mlp": {
+        "TensorPrecision": {"WQKV": "BFP8", "KV_CACHE": "BFP8", "WO": "BFP8"},
+        "OpFidelity": {"LI_FF1_FF3": "LOFI", "LI_FF2": "LOFI"},
+    },
     "bfp8_attn": {
         "TensorPrecision": {"WQKV": "BFP8", "KV_CACHE": "BFP8", "WO": "BFP8"},
         "OpFidelity": {"LI_FF1_FF3": "HIFI2_FP16", "LI_FF2": "HIFI2_FP16"},

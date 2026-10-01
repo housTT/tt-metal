@@ -6,55 +6,55 @@ the only path this encoder runs.
 
 ## Op-topology audit (layer 0, p150, from `../functional_decoder/tracy/layer0/prefill_perf_report.csv`)
 
-24 device ops per layer pass. Device time per layer pass: 1.61 ms at 128 tokens, 4.69 ms at 1024 tokens.
+One 128-token layer pass: 24 device ops, 1.609 ms; of that, 52 us (tilize + typecast of the fp32 test input) are
+test-harness ops, so the layer itself is 1.557 ms. Exact rows:
 
-| op (128-token pass) | time share | reported utilization |
-|---|---|---|
-| MLP w1 and w3 matmuls, 128x4096x12288, bfp8 x bf16, HiFi2 | 2 x 0.25 ms | DRAM 43 %, FLOPs 58 %, 64 cores |
-| MLP w2 matmul, 128x12288x4096 | 0.23 ms | DRAM 45 %, FLOPs 64 % |
-| QKV matmul 128x4096x6144 (bf16, HiFi4 in the accuracy policy) | 0.26 ms | DRAM 39 %, FLOPs 55 % |
-| wo matmul 128x4096x4096 | 0.14 ms | DRAM 47 %, FLOPs 68 % |
-| SDPA, RMSNorm x2, RoPE x2, create heads, residual adds, tilize | remainder (about 0.45 ms) | |
+| op | time | share | cores | notes from tt-perf-report |
+|---|---|---|---|---|
+| QKV matmul 128x4096x6144 (bf16 x bf16, HiFi4) | 263 us | 16.4 % | 32 | in0_block_w = 1, "place input 0 in L1"; largest single op |
+| MLP w1 matmul 128x4096x12288 (bfp8, HiFi2) | 249 us | 15.5 % | 32 | DRAM 43 %, FLOPs 58 % |
+| MLP w3 matmul 128x4096x12288 | 249 us | 15.5 % | 32 | same |
+| MLP w2 matmul 128x12288x4096 | 228 us | 14.1 % | 32 | DRAM 45 %, FLOPs 64 % |
+| wo matmul 128x4096x4096 (HiFi4) | 142 us | 8.8 % | 32 | "Increase grid size (currently using 32); HiFi2 is sufficient for BFP8" |
+| NlpCreateHeads | 81 us | 5.0 % | 4 | |
+| RMSNorm (attention input) | 65 us | 4.1 % | 4 | |
+| RMSNorm (MLP input) | 65 us | 4.0 % | 4 | |
+| NLPConcatHeads | 52 us | 3.2 % | 4 | |
+| RoPE q, k | 47 + 17 us | 3.9 % | 110 | |
+| SDPA (128 tokens) | 22 us | 1.3 % | 64 | |
+| residual adds, q/k norms, typecasts, paged fill cache | 72 us | 4.5 % | 32 to 110 | two dead `paged_fill_cache` writes per layer (KV is never read back) |
 
-Matmuls are 70 % of the layer time. At 128 tokens they are neither DRAM- nor compute-saturated: `tt-perf-report`
-advises "Increase grid size (currently using 64)" on every large matmul (the chip has 110 worker cores;
-`model_config.find_prefill_grid` caps prefill grids at 8x8 and carries a TODO for Blackhole) and "HiFi2 is
-sufficient for BFP8 multiplication" on the HiFi4 attention matmuls.
+Matmuls are 70 percent of the layer and run on 32 of 110 cores: `model_config.find_prefill_grid` is capped at
+8x8 and at M = 128 tokens (4 tile rows) it yields a 4x8 grid. The two RMSNorms and the head reshapes run on 4
+cores (17 percent of the layer). At 1024 tokens the matmuls use 64 cores at 79 to 90 percent FLOPs utilization.
 
 ## Dtype and fidelity search (real weights, real texts)
 
-Candidates were run as full-encoder fidelity and latency sweeps (`tests/run_fidelity.py`, `tests/bench_encoder.py`,
-aggregated by `tests/datatype_sweep.py` into `../datatype_sweep/`):
+Policy definitions and the full result table, including the decision-agreement gate, are in
+`../datatype_sweep/README.md`. The bfp4 MLP policy fails both the cosine gate and the decision-agreement gate on
+real-weight evidence (79 percent agreement). The accuracy policy (bf16 attention weights, HiFi4 attention math) is
+the only candidate above 98 percent agreement on confident decisions; the stock-default policy (bfp8 attention,
+HiFi2) is 6 percent faster at 97.3 percent.
 
-| policy | attention weights | MLP weights / math | cosine vs HF fp32 mean / min | 128-token latency |
-|---|---|---|---|---|
-| accuracy (stock) | bf16, HiFi4 | bfp8, HiFi2 | 0.99909 / 0.99588 | 58.0 ms |
-| bfp8_attn | bfp8, HiFi4 | bfp8, HiFi2 fp16 acc | 0.99901 / 0.99379 | 54.2 ms |
-| bfp8_attn_hifi2 | bfp8, HiFi2 | bfp8, HiFi2 fp16 acc | 0.99891 / 0.99310 | 53.9 ms |
-| performance (stock) | bf16, HiFi4 | bfp4, LoFi | 0.98742 / 0.92386 | 48.9 ms |
+## Matmul geometry and small-grid ops
 
-The bfp4 MLP policy is 16 % faster but fails the fidelity gate (minimum cosine 0.924, head projection minimum
-0.913): real-weight evidence vetoes it for an embedding model, where the pooled vector is the output. The bfp8
-attention policies pass; see `../datatype_sweep/README.md` for the selection.
-
-## Matmul geometry
-
-Not swept. The MLP and attention prefill matmuls run on 64 of 110 cores because `find_prefill_grid` is capped at
-8x8 for all architectures. Changing it is a `models/tt_transformers` framework change affecting every model on
-Blackhole, which this port did not take on; the profile evidence above is the pointer for that work. Expected
-upside from the report's utilization numbers: up to about 1.4x on the matmul share (about 25 % end to end) if the
-grid scales.
+Status: see `geometry_experiment.json` in this directory once run (`tests/grid_experiment.py`). The experiment
+overrides `find_prefill_grid` on the model-args instance (no framework edit) to let the 128-token matmuls use more
+than 4x8 cores, and records either the measured layer time and PCC or the exact op-contract error that blocks it.
+Until that file exists, this stage's optimization pass consists of the precision policy only, and the independent
+review (`../review/review_A_stages_1_3.md`) correctly recorded that the profile leads were not acted on.
 
 ## Reconciliation (roofline vs device vs end to end)
 
-| padded length | per-layer device time (Tracy) | 36-layer bound | measured end to end (batch 1) | gap |
+| padded length | per-layer device time (layer ops only) | 36-layer bound | measured end to end (batch 1, accuracy) | gap |
 |---|---|---|---|---|
-| 128 | 1.61 ms | 58.0 ms | 57.7 ms | 0 % |
-| 1024 | 4.69 ms | 169 ms | 168.5 ms | 0 % |
+| 128 | 1.557 ms | 56.1 ms | 57.6 ms | +2.8 % |
+| 1024 | 4.519 ms | 162.7 ms | 170.5 ms | +4.6 % |
 
-The end-to-end latency equals the sum of device kernel time; dispatch, host work and the readback are hidden or
-negligible. Eager and traced execution measure the same (`../fused_decoder/README.md`). DRAM roofline for the
-modeled ops is 23.6 % (121 GB/s of 512 GB/s), so the remaining headroom is in kernel efficiency, not in the host.
+(The earlier text quoted 1.609 and 4.692 ms per pass, which included the test harness's input tilize and typecast.)
+The remaining 1.5 to 8 ms are the token embedding, the readback of the pre-norm residual (1 to 8 MB) and the host
+norm; dispatch is hidden (eager and traced execution measure the same, `../fused_decoder/README.md`). DRAM roofline
+for the modeled ops is 23.6 percent, so the headroom is in kernel efficiency and core count, not in the host.
 
 ## Watcher
 

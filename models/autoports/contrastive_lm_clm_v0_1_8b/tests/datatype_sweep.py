@@ -8,8 +8,68 @@ from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUTOPORT = os.path.dirname(HERE)
-GATE = {"cosine_mean_min": 0.99, "cosine_min_min": 0.97, "head_cos_min_min": 0.95}
+GATE = {
+    "cosine_mean_min": 0.99,
+    "cosine_min_min": 0.97,
+    "head_cos_min_min": 0.95,
+    "decision_agreement_margin_0p10_min": 0.98,
+}
 TIE_FRACTION = 0.01
+
+
+STOCK_SPECS = {
+    "accuracy": {
+        "TensorPrecision": {"WQKV": "BF16", "KV_CACHE": "BF16", "WO": "BF16", "FF1_FF3": "BFP8", "FF2": "BFP8"},
+        "OpFidelity": {
+            "LI_QKV_PREFILL": "HIFI4",
+            "LI_O_PREFILL": "HIFI4",
+            "SDPA_PREFILL": "HIFI4",
+            "LI_QKV_DECODE": "HIFI4",
+            "LI_O_DECODE": "HIFI4",
+            "SDPA_DECODE": "HIFI4",
+            "LI_FF1_FF3": "HIFI2_FP16",
+            "LI_FF2": "HIFI2_FP16",
+        },
+    },
+    "performance": {
+        "TensorPrecision": {"WQKV": "BFP8", "KV_CACHE": "BFP8", "WO": "BFP8", "FF1_FF3": "BFP4", "FF2": "BFP8"},
+        "OpFidelity": {
+            "LI_QKV_PREFILL": "HIFI2",
+            "LI_O_PREFILL": "HIFI2",
+            "SDPA_PREFILL": "HIFI4",
+            "LI_FF1_FF3": "LOFI",
+            "LI_FF2": "HIFI2_FP16",
+        },
+    },
+}
+DEFAULTS = {
+    "TensorPrecision": {"WQKV": "BFP8", "KV_CACHE": "BFP8", "WO": "BFP8", "FF1_FF3": "BFP8", "FF2": "BFP8"},
+    "OpFidelity": {
+        "LI_QKV_PREFILL": "HIFI2",
+        "LI_O_PREFILL": "HIFI2",
+        "SDPA_PREFILL": "HIFI4",
+        "LI_FF1_FF3": "HIFI2_FP16",
+        "LI_FF2": "HIFI2_FP16",
+    },
+}
+
+
+def policy_spec(name):
+    if name in STOCK_SPECS:
+        return STOCK_SPECS[name]
+    try:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("clm_encoder", os.path.join(AUTOPORT, "tt", "encoder.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        custom = mod.CUSTOM_POLICIES.get(name, {})
+    except Exception:
+        custom = {}
+    merged = {k: dict(DEFAULTS[k]) for k in DEFAULTS}
+    for k in merged:
+        merged[k].update(custom.get(k, {}))
+    return merged
 
 
 def load(path):
@@ -25,7 +85,7 @@ def latency_rows(bench):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--candidates", default="accuracy,bfp8_attn,bfp8_attn_hifi2,performance")
+    ap.add_argument("--candidates", default="bf16_all,accuracy,bfp8_attn,bfp8_attn_hifi2,bfp8_lofi_mlp,performance")
     ap.add_argument("--outdir", default=os.path.join(AUTOPORT, "doc", "datatype_sweep"))
     a = ap.parse_args()
     os.makedirs(a.outdir, exist_ok=True)
@@ -42,11 +102,16 @@ def main():
             continue
         lat = latency_rows(bench)
         head_min = min(v["min"] for v in fid["head_projection_cosine"].values())
+        agr = load(os.path.join(a.outdir, f"agreement_{name}.json"))
+        agree_conf = agr["argmax_agreement_margin_ge_0p10"] if agr else None
+        agree_all = agr["argmax_agreement"] if agr else None
         passed = (
             fid["cosine_single_vs_hf"]["mean"] >= GATE["cosine_mean_min"]
             and fid["cosine_single_vs_hf"]["min"] >= GATE["cosine_min_min"]
             and head_min >= GATE["head_cos_min_min"]
             and fid["nan_count"] == 0
+            and agree_conf is not None
+            and agree_conf >= GATE["decision_agreement_margin_0p10_min"]
         )
         rows.append(
             {
@@ -58,6 +123,8 @@ def main():
                 "head_cos_state_mean": fid["head_projection_cosine"]["state"]["mean"],
                 "head_cos_min": head_min,
                 "batched_vs_single_min": fid["cosine_single_vs_batched"]["min"],
+                "decision_agreement": agree_all,
+                "decision_agreement_margin_0p10": agree_conf,
                 "lat_128_b1_ms": lat.get((128, 1)),
                 "lat_128_b8_ms": lat.get((128, 8)),
                 "lat_1024_b1_ms": lat.get((1024, 1)),
@@ -77,7 +144,7 @@ def main():
     result = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "gate": GATE,
-        "metric_mapping": "top-1/top-5 token accuracy replaced by embedding cosine vs HF fp32 reference and head-projection cosine (encoder-only model)",
+        "metric_mapping": "top-1/top-5 token accuracy replaced by embedding cosine vs HF fp32 reference, head-projection cosine, and Typed Decisions argmax agreement with the fp32 reference on the 40-case subset (decisions whose reference top-2 margin is at least 0.10)",
         "selection_rule": f"fastest passing policy by 128-token batch-1 latency; policies within {TIE_FRACTION:.0%} of the fastest are a tie and the highest minimum cosine wins",
         "rows": rows,
         "selected": selected["policy"] if selected else None,

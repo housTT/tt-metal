@@ -31,8 +31,8 @@ trace inputs, the output readback and the last-token RMSNorm.
 Trace replay does not reduce latency for this model on p150: the device kernels dominate (about 1.6 ms per
 layer at 128 tokens, 11.2 ms of device time across the five profiled layer passes) and the eager dispatch is
 already hidden behind device execution. The traced path is kept because it is deterministic, removes host-side
-Python from the request path, and is what the trace allocation safety gate was run against; the plugin's "beat the
-baseline" criterion is therefore met only at parity, which is recorded here rather than claimed as a speedup.
+Python from the request path, and is what the trace allocation safety gate was run against; the plan's "traced beats untraced" gate is NOT met (0.9965x and 0.9986x); parity is accepted and recorded
+here, with the reason above, instead of being claimed as a speedup. PLAN.md section 4 row 2 is amended accordingly.
 
 ## PCC
 

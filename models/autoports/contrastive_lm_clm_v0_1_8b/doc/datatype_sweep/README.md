@@ -9,14 +9,26 @@ batch-1 latency; candidates within 1 percent of the fastest are a tie, and the h
 
 ## Candidates
 
-| policy | attention weights, KV | attention math | MLP weights | MLP math |
-|---|---|---|---|---|
-| accuracy (stock) | bf16 | HiFi4 | bfp8 | HiFi2 |
-| bfp8_attn (this port) | bfp8 | HiFi4 | bfp8 | HiFi2, fp16 accumulate |
-| bfp8_attn_hifi2 (this port) | bfp8 | HiFi2 | bfp8 | HiFi2, fp16 accumulate |
-| performance (stock) | bf16 | HiFi4 | bfp4 (w1, w3) | LoFi |
+Exact definitions (`models/tt_transformers/tt/model_config.py` `ModelOptimizations._default_settings`, `.accuracy`,
+`.performance`; `tt/encoder.py` `CUSTOM_POLICIES`). The stock default is bfp8 weights everywhere, HiFi2 for the
+linears (fp16 accumulate in the MLP), HiFi4 for prefill SDPA.
 
-A BFP4 + LoFi candidate exists for the one BFP4 tensor group (the stock `performance` policy), as the stage asks.
+| policy | attention weights and KV | QKV / wo prefill math | SDPA prefill | MLP weights | MLP math |
+|---|---|---|---|---|---|
+| bf16_all (this port) | bf16 | HiFi4 | HiFi4 | bf16 | HiFi4 |
+| accuracy (stock) | bf16 | HiFi4 | HiFi4 | bfp8 | HiFi2 fp16 acc |
+| bfp8_attn (this port, equals the stock defaults) | bfp8 | HiFi2 | HiFi4 | bfp8 | HiFi2 fp16 acc |
+| bfp8_attn_hifi2 (this port) | bfp8 | HiFi2 | HiFi2 | bfp8 | HiFi2 fp16 acc |
+| bfp8_lofi_mlp (this port) | bfp8 | HiFi2 | HiFi4 | bfp8 | LoFi |
+| performance (stock) | bfp8 | HiFi2 | HiFi4 | bfp4 (w1, w3), bfp8 (w2) | LoFi (w1, w3), HiFi2 fp16 acc (w2) |
+
+An earlier version of this table described bfp8_attn as "HiFi4 attention math" and performance as "bf16 attention,
+HiFi4"; both were wrong and were corrected after the stage review. `bfp8_attn` is exactly the stock default policy;
+`bfp8_attn_hifi2` differs from it only in SDPA prefill fidelity.
+
+Gate (added after review C): Typed Decisions argmax agreement with the fp32 reference on the 40-case subset must be
+at least 98 percent over the 188 decisions whose reference top-2 margin is at least 0.10
+(`tests/decision_agreement.py`, `agreement_<policy>.json`), in addition to the cosine gates above.
 
 ## Results (p150, one chip, 2048-token context, batch 1 / 4 / 8 traces)
 
