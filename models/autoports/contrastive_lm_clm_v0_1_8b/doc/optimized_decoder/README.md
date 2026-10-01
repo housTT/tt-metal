@@ -38,31 +38,33 @@ HiFi2) is 6 percent faster at 97.3 percent.
 
 ## Matmul geometry and small-grid ops
 
-`tests/grid_experiment.py` patches `ModelArgs.find_prefill_grid` (no framework edit; the prefill matmul program
-configs call it lazily, `model_config.py` `mlp1_3_grid`, `mlp2_grid` and the QKV / wo config lambdas) and times
-layer 0 at 128 tokens, eager, 20 repeats, PCC against the HF fp32 layer reference. Results:
-`geometry_experiment.json` (cap mode) and `geometry_experiment_forced.json` (force mode).
+`tests/grid_experiment.py` patches `ModelArgs.find_prefill_grid` on the class before `ModelArgs` is constructed (no
+framework edit) and times layer 0 at 128 tokens, eager, 20 repeats, PCC against the HF fp32 layer reference.
+Results: `geometry_experiment.json` (cap mode, instance patch), `geometry_experiment_class_patch.json` (cap and force
+mode, class patch).
 
 Cap mode (keep the divisibility rule, raise the 8x8 cap to 8x10, 8x11 and 10x11): every cap still yields 4x8.
 M = 128 tokens is 4 tile rows, and the column tile counts (4096 / 32 = 128, 6144 / 32 = 192, 12288 / 32 = 384)
-have no divisor between 9 and 11. Layer time 1.608 to 1.616 ms, PCC 0.99979 for all four caps.
+have no divisor between 9 and 11. Layer time 1.608 to 1.616 ms, PCC 0.99979 for all caps (stock 8x8 under the class
+patch: 1.613 ms, same PCC).
 
-Force mode (return the grid unconditionally, uneven per-core N):
+Force mode (return 4x9, 4x10 or 4x11 unconditionally, uneven per-core N): rejected by the framework before any
+kernel runs. `model_config.matmul_config` asserts `k % (TILE_SIZE * grid_cols) == 0` ("Input width must be divisible
+by tile size times grid size"), first hit in the wo matmul (`get_attn_wo_program_config`, k = 4096). So the
+per-core N split must divide the K and N tile counts, and with an 11-column compute grid the only admissible column
+counts for these shapes are 1, 2, 4 and 8.
 
-| grid | layer ms p50 | layer ms min | PCC vs HF fp32 |
-|---|---|---|---|
-| 4x8 (stock) | 1.656 | 1.629 | 0.99979 |
-| 4x9 | 1.631 | 1.607 | 0.99979 |
-| 4x10 | 1.650 | 1.609 | 0.99979 |
-| 4x11 | 1.653 | 1.623 | 0.99979 |
+Retracted: an earlier version of this section reported forced-grid timings of 1.631 to 1.653 ms from
+`geometry_experiment_forced.json`. That run patched the method on the instance after construction, and the identical
+PCC in every row plus the class-level rerun show the forced grids never reached the ops; the file is kept with a
+`retracted` note and its timing rows are stock-grid repeats.
 
-The spread is under 2 percent, the same as the run-to-run spread of the stock grid between the two runs (1.616 vs
-1.656 ms). The profile showed the 128-token matmuls at 43 to 45 percent DRAM and 58 to 64 percent FLOPs utilization
-on 32 cores; adding 4 to 12 cores on the N axis does not move the time, so core count is not the limit at this M.
-More rows on M are impossible at 4 tile rows and more than 11 columns do not exist on the 11x10 compute grid, so the
-grid lever is exhausted without kernel-level changes (a different in0 block or K split), which is outside this port.
-The two RMSNorms and the head reshapes (17 percent of the layer on 4 cores) use fixed framework configs and were not
-changed. The optimization that did land in this stage is the precision policy choice above.
+Conclusion: at 128 tokens the matmuls stay on 32 of 110 cores because of the divisibility contract, not because of
+a tunable; more rows on M are impossible at 4 tile rows and more than 8 admissible columns do not exist on this grid.
+Changing that needs kernel-level work (a different in0 block or K split in the matmul program config), which is
+outside this port. The two RMSNorms and the head reshapes (17 percent of the layer on 4 cores) use fixed framework
+configs and were not changed. The optimizations that did land in this stage and stage 7 are the precision policy
+choice above and the 256 / 512 prefill buckets (`../optimized_full_model/README.md`).
 
 ## Reconciliation (roofline vs device vs end to end)
 

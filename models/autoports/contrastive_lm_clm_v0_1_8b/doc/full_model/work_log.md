@@ -40,3 +40,17 @@ All times UTC, 2026 Oct 1. Device commands through `/home/hous/dev/clm-v0.1-8B/b
   stock prefill MLP program config, `doc/datatype_sweep/infeasible_bf16_all.json`); the sweep with the agreement gate
   selects `accuracy` (98.9 percent on confident decisions; every bfp8-attention policy is at or below 97.3 percent).
 - 23:08 to 23:13: container build 6 (`package exit 0`, image `38a80e5078b7`) with the `accuracy` default profile.
+- 23:21 to 23:40: full evaluation suite against the served build 6 default profile (`/home/hous/dev/clm-v0.1-8B/evals/results/package_p150_final_20261001T232132Z`);
+  the Typed Decisions trace shows 300 of 400 cases paying one batch-8 1024-token pass (1,302 ms) for five 130 to
+  300 token texts.
+- 23:25 to 23:45: encoder owns its prefill buckets (128 / 256 / 512 / 1024 / 2048, `CLM_TRACE_LENS`); fidelity
+  (`fidelity_accuracy_buckets5.log`: single-text vectors bit-identical to the nine-variant encoder), bench
+  (`bench_accuracy_buckets5.log`: 256 tokens 72 ms, 512 tokens 94 ms, 512 x 8 625 ms) and the trace-safety check
+  (`replay_trace_check_buckets5.log`, 15 variants, pass) run on chip 0 after the evaluation chain released it. A
+  first attempt to use chip 1 concurrently failed: `TT_METAL_VISIBLE_DEVICES=1` still makes UMD wait for chip 0's
+  `CHIP_IN_USE` lock held by the container, and `TT_VISIBLE_DEVICES=1` requires a custom fabric mesh graph descriptor
+  (`tt_cluster.cpp:277`).
+- 23:44 to 23:45: class-level grid experiment (`grid_experiment_class.log`): forced 4x9 / 4x10 / 4x11 grids are
+  rejected by `matmul_config` ("Input width must be divisible by tile size times grid size"); the earlier
+  instance-level forced-grid timings are retracted (`../optimized_decoder/README.md`).
+- 23:44: container build 7 started with the five-bucket encoder.

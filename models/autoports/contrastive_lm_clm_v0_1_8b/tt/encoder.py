@@ -186,7 +186,8 @@ class TtQwen3Encoder:
         self.page_table = torch.arange(self.paged_attention_config.max_num_blocks, dtype=torch.int32).reshape(
             max_batch_size, -1
         )
-        self.trace_lens = sorted(int(x) for x in self.model_args.trace_prefill_supported_seq_lens)
+        self.trace_lens = self._select_trace_lens(max_seq_len)
+        self.model_args.trace_prefill_supported_seq_lens = list(self.trace_lens)
         self.batch_sizes = sorted({b for b in (1, 4, max_batch_size) if b <= max_batch_size})
         self.norm_weight, self.norm_eps = load_final_norm()
         self.calls = 0
@@ -222,10 +223,23 @@ class TtQwen3Encoder:
         enc.owns_mesh = True
         return enc
 
-    def padded_len(self, n: int) -> int:
-        from models.tt_transformers.tt.common import get_padded_prefill_len
+    DEFAULT_TRACE_LENS = (128, 256, 512, 1024, 2048)
 
-        return get_padded_prefill_len(n)
+    def _select_trace_lens(self, max_seq_len: int) -> list[int]:
+        spec = os.environ.get("CLM_TRACE_LENS", "").strip()
+        lens = [int(x) for x in spec.split(",") if x.strip()] if spec else list(self.DEFAULT_TRACE_LENS)
+        lens = sorted({n for n in lens if 0 < n <= max_seq_len})
+        if any(n % 128 for n in lens):
+            raise ValueError(f"CLM_TRACE_LENS entries must be multiples of 128, got {lens}")
+        if not lens or lens[-1] < max_seq_len:
+            lens.append(max_seq_len)
+        return lens
+
+    def padded_len(self, n: int) -> int:
+        for cand in self.trace_lens:
+            if cand >= n:
+                return cand
+        return self.trace_lens[-1]
 
     def tokenize(self, text: str) -> list[int]:
         ids = self.tokenizer(text, add_special_tokens=False)["input_ids"]

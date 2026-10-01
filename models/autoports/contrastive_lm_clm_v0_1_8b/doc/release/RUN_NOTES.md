@@ -62,8 +62,28 @@ tt-model stop clm-v0.1-8b-p150
 
 ## Verification from the served package
 
-TODO: fill from `/home/hous/dev/clm-v0.1-8B/evals/results/package_p150_*` (health, README example, vector-cache
-table, embeddings table, Typed Decisions 400 cases, T-Rex, reference agreement) and from the other profiles.
+Image `38a80e5078b7`, served with `tt-model serve --port 8700 --device-id 0 --detach --profile p150` and
+`--profile p150x4 --port 8702`; harness `/home/hous/dev/clm-v0.1-8B/bin/run-evals.sh`; results under
+`/home/hous/dev/clm-v0.1-8B/evals/results/`.
+
+| check | p150 (default, accuracy) `package_p150_final_20261001T232132Z` | p150x4 `package_p150x4_20261001T232047Z` |
+|---|---|---|
+| `GET /health` | ok, ready, embedder tt, models clm-latest and clm-raw, cache 537 MB reserved | same |
+| README example, cold (`usage.input_tokens latency_ms`) | 98 262.4; answers urgency 0.816, billing 0.993, frustration 2.000 | 98 176.1 |
+| README example, warm x20 | 0 0.1 (client 0.7 ms) | 0 0.1 |
+| vector cache, new state every call, 3 / 50 actions | 60.6 / 60.6 ms | 33.6 / 33.8 ms |
+| vector cache, revisited and repeated states | 0.1 ms | 0.1 ms |
+| embeddings table (client p50) | 128 tok x 1: 61.4 ms; 128 x 8: 175.9 ms (5,820 tok/s); 1024 x 8: 1,320 ms (6,204 tok/s); 2048 x 32: 10,376 ms (6,316 tok/s) | not run |
+| Typed Decisions, zero-shot | 400 cases, 2,000 decisions, 0 errors: accuracy 0.361, KL 2.045, Brier 0.626, ECE 0.487, p50 1,301 ms per case | first 100 cases: accuracy 0.292, p50 110 ms (same 100 cases cost 147 ms on p150-fast) |
+| agreement with the CPU fp32 reference (40-case subset, 200 decisions) | 95.5 percent; 98.4 percent where the reference margin >= 0.10; accuracy vs gold 0.355 vs 0.370 | not run |
+| T-Rex, 5 seeds x 60 s, shield on | 3 of 5 survived, mean best 541, 2,039 decisions, planner agreement 0.781, answer p50 16.4 ms, model p50 1.3 ms, 0 errors | not run |
+
+The `p150-fast` profile (stock bfp8 policy) was evaluated with the full suite on image `aa6f0847aa7a`
+(`package_p150_20261001T224031Z`): README example cold 98 235.3; new state 56.7 ms; Typed Decisions 0.361 / 2.026 /
+0.624 / 0.484 at 1,140 ms; agreement 93.0 percent (95.7 percent confident); T-Rex 2 of 5 survived. The container's
+serve-time weight download, cache build and warmup were exercised on every serve (first serve of an image loads the
+Qwen3-8B safetensors from the Hub cache and writes the ttnn weight cache; later serves load in about 25 s plus 6 s
+of trace capture).
 
 ## Publish
 

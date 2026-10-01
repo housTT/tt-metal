@@ -10,13 +10,14 @@ applicable. Their substitute is an embedding fidelity gate against a CPU fp32 re
 `tt/encoder.py`, class `TtQwen3Encoder`:
 
 - builds Qwen3-8B with `models.tt_transformers` (`create_tt_model`, paged KV cache, 1x1 mesh, bfp8 weights);
-- `embed_ids` groups inputs by padded prefill bucket (128, 1024, 2048), right-pads, and calls
-  `Generator.prefill_forward_text(..., return_hidden_states=True)`, which slices the last real token per user,
-  applies the final RMSNorm on device and returns `[batch, 4096]`; the encoder L2-normalizes;
+- `embed_ids` groups inputs by padded prefill bucket (the smallest of 128, 256, 512, 1024, 2048 that fits the
+  longest text in the group; `CLM_TRACE_LENS` overrides the list), right-pads to the bucket and to a batch of 1, 4 or
+  8, replays the matching prefill trace and reads the pre-norm residual back; the last real token per sequence is
+  picked on the host, the final RMSNorm is applied in fp32 on the host, and the result is L2-normalized;
 - `embed(texts)` tokenizes with `add_special_tokens=False`, keeps the last `max_tokens` tokens (vLLM
   `truncate_prompt_tokens` semantics used by upstream `clm-serve`), and returns the encoder tokens spent;
-- the Qwen3-8B entries added to `models/tt_transformers/tt/model_config.py` enable traced prefill at 128, 1024
-  and 2048 tokens on P150, P300 and P150x4;
+- the Qwen3-8B entries added to `models/tt_transformers/tt/model_config.py` enable traced prefill on P150, P300 and
+  P150x4; the encoder then replaces the instance's `trace_prefill_supported_seq_lens` with its own bucket list;
 - `TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES=0` is set when the mesh is opened (see `doc/probe/README.md`).
 
 ## Fidelity gate and result (accuracy policy)
@@ -66,5 +67,7 @@ Decisions benchmark is measured against the served package in `doc/release/`.
 ## Context contract
 
 `doc/context_contract.json`: Qwen3-8B advertises 40960 positions; upstream `clm-serve` serves 2048 by default;
-this port serves 2048 (traced buckets 128 / 1024 / 2048, 2047 and 2048-token inputs verified in the corpus).
+this port serves 2048 (traced buckets 128 / 256 / 512 / 1024 / 2048, 2047 and 2048-token inputs verified in the
+corpus). The 256 and 512 buckets were added after the first served evaluation showed that five 130 to 300 token
+texts per Typed Decisions case cost one batch-8 1024-token pass; `../optimized_full_model/README.md` has the evidence.
 Longer inputs are truncated to their last 2048 tokens, matching upstream.
