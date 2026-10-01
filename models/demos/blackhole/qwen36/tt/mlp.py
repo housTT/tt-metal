@@ -10,6 +10,7 @@ import os
 from dataclasses import dataclass
 
 import ttnn
+from models.demos.blackhole.qwen36.tt.precision import MATMUL_FIDELITY, MLP_DOWN_DTYPE, MLP_GATE_UP_DTYPE
 
 
 @dataclass(frozen=True)
@@ -38,7 +39,7 @@ def _build_gate_up(gate_w, up_w, mesh, tp, cache_path):
     return ttnn.as_tensor(
         gate_w,
         preprocess=pack,
-        dtype=ttnn.bfloat4_b,
+        dtype=MLP_GATE_UP_DTYPE,
         device=mesh,
         mesh_mapper=ttnn.ShardTensorToMesh(mesh, dim=-1),
         layout=ttnn.TILE_LAYOUT,
@@ -90,7 +91,7 @@ def load_mlp_weights(mesh_device, state_dict, tensor_cache_path=None, args=None,
                     dim=-1,
                     memory_config=args.mlp_w1_weight_memcfg,
                     cache_path=cache("gate_proj", ".dramshard"),
-                    dtype=ttnn.bfloat4_b,
+                    dtype=MLP_GATE_UP_DTYPE,
                 ),
                 w3=tpc.shard_w(
                     state_dict["up_proj.weight"],
@@ -98,7 +99,7 @@ def load_mlp_weights(mesh_device, state_dict, tensor_cache_path=None, args=None,
                     dim=-1,
                     memory_config=args.mlp_w3_weight_memcfg,
                     cache_path=cache("up_proj", ".dramshard"),
-                    dtype=ttnn.bfloat4_b,
+                    dtype=MLP_GATE_UP_DTYPE,
                 ),
                 w2=tpc.shard_w(
                     state_dict["down_proj.weight"],
@@ -106,7 +107,7 @@ def load_mlp_weights(mesh_device, state_dict, tensor_cache_path=None, args=None,
                     dim=0,
                     memory_config=ttnn.DRAM_MEMORY_CONFIG,
                     cache_path=cache("down_proj"),
-                    dtype=ttnn.bfloat8_b,
+                    dtype=MLP_DOWN_DTYPE,
                 ),
                 w_gate_up=wgu,
             )
@@ -119,7 +120,7 @@ def load_mlp_weights(mesh_device, state_dict, tensor_cache_path=None, args=None,
                 dim=-1,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
                 cache_path=cache("gate_proj"),
-                dtype=ttnn.bfloat4_b,
+                dtype=MLP_GATE_UP_DTYPE,
             ),
             w3=tpc.shard_w(
                 state_dict["up_proj.weight"],
@@ -127,7 +128,7 @@ def load_mlp_weights(mesh_device, state_dict, tensor_cache_path=None, args=None,
                 dim=-1,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
                 cache_path=cache("up_proj"),
-                dtype=ttnn.bfloat4_b,
+                dtype=MLP_GATE_UP_DTYPE,
             ),
             w2=tpc.shard_w(
                 state_dict["down_proj.weight"],
@@ -135,7 +136,7 @@ def load_mlp_weights(mesh_device, state_dict, tensor_cache_path=None, args=None,
                 dim=0,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
                 cache_path=cache("down_proj"),
-                dtype=ttnn.bfloat8_b,
+                dtype=MLP_DOWN_DTYPE,
             ),
             w_gate_up=wgu,
         )
@@ -153,9 +154,9 @@ def load_mlp_weights(mesh_device, state_dict, tensor_cache_path=None, args=None,
 
     # gate/up: bfloat4_b (bandwidth); down: bfloat8_b (accuracy).
     return MLPWeights(
-        w1=load("gate_proj", ttnn.bfloat4_b),
-        w2=load("down_proj", ttnn.bfloat8_b),
-        w3=load("up_proj", ttnn.bfloat4_b),
+        w1=load("gate_proj", MLP_GATE_UP_DTYPE),
+        w2=load("down_proj", MLP_DOWN_DTYPE),
+        w3=load("up_proj", MLP_GATE_UP_DTYPE),
     )
 
 
@@ -185,14 +186,14 @@ class Qwen36MLP:
             mesh_device, state_dict, tensor_cache_path, args=args, use_gateup_agmm=use_gateup_agmm
         )
         self.compute_kernel_config = ttnn.WormholeComputeKernelConfig(
-            math_fidelity=ttnn.MathFidelity.LoFi, fp32_dest_acc_en=True, packer_l1_acc=False
+            math_fidelity=MATMUL_FIDELITY, fp32_dest_acc_en=True, packer_l1_acc=False
         )
         # fuse_swiglu AGMM: fp32 acc (subblock_w=4) to match GDN/attn in-proj.
         self.compute_kernel_config_agmm = ttnn.WormholeComputeKernelConfig(
-            math_fidelity=ttnn.MathFidelity.LoFi, fp32_dest_acc_en=True, packer_l1_acc=False
+            math_fidelity=MATMUL_FIDELITY, fp32_dest_acc_en=True, packer_l1_acc=False
         )
         self.compute_kernel_config_decode = ttnn.WormholeComputeKernelConfig(
-            math_fidelity=ttnn.MathFidelity.LoFi, fp32_dest_acc_en=True, packer_l1_acc=True
+            math_fidelity=MATMUL_FIDELITY, fp32_dest_acc_en=True, packer_l1_acc=True
         )
 
     def forward(self, x, mode=None):

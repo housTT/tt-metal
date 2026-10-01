@@ -10,6 +10,7 @@ from models.demos.blackhole.qwen36.tt.gdn.config import GDNConfig
 from models.demos.blackhole.qwen36.tt.gdn.decode import recurrent_forward
 from models.demos.blackhole.qwen36.tt.gdn.state import init_recurrent_state, restore_split_conv_from_fused
 from models.demos.blackhole.qwen36.tt.gdn.weights import load_gdn_weights
+from models.demos.blackhole.qwen36.tt.precision import MATMUL_FIDELITY
 
 
 class Qwen36GatedDeltaNet:
@@ -36,12 +37,12 @@ class Qwen36GatedDeltaNet:
         self.long_prefill_chunk_size = config.long_prefill_chunk_size
 
         self.compute_kernel_config = ttnn.WormholeComputeKernelConfig(
-            math_fidelity=ttnn.MathFidelity.LoFi,
+            math_fidelity=MATMUL_FIDELITY,
             fp32_dest_acc_en=True,
             packer_l1_acc=False,
         )
         self.compute_kernel_config_decode = ttnn.WormholeComputeKernelConfig(
-            math_fidelity=ttnn.MathFidelity.LoFi,
+            math_fidelity=MATMUL_FIDELITY,
             fp32_dest_acc_en=True,
             packer_l1_acc=True,
         )

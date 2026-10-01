@@ -14,6 +14,7 @@ import torch
 
 import ttnn
 from models.demos.blackhole.qwen36.tt.gdn.config import GDNConfig
+from models.demos.blackhole.qwen36.tt.precision import PROJ_DTYPE
 from models.experimental.gated_attention_gated_deltanet.tt.ttnn_delta_rule_seq import create_chunk_masks_seq
 
 
@@ -80,7 +81,7 @@ def load_gdn_weights(mesh_device, config: GDNConfig, state_dict, tensor_cache_pa
         """Load 2D weight, transposed to [in, out] for ttnn.linear (on a tensor-cache miss only)."""
         return ttnn.as_tensor(
             state_dict[name],
-            dtype=ttnn.bfloat8_b,
+            dtype=PROJ_DTYPE,
             layout=ttnn.TILE_LAYOUT,
             device=mesh_device,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
@@ -114,7 +115,7 @@ def load_gdn_weights(mesh_device, config: GDNConfig, state_dict, tensor_cache_pa
         )
     qkv_proj_weight = ttnn.as_tensor(
         state_dict[qkv_key],
-        dtype=ttnn.bfloat8_b,
+        dtype=PROJ_DTYPE,
         layout=ttnn.TILE_LAYOUT,
         device=mesh_device,
         memory_config=ttnn.DRAM_MEMORY_CONFIG,
@@ -210,7 +211,7 @@ def load_gdn_weights(mesh_device, config: GDNConfig, state_dict, tensor_cache_pa
         a_w = ttnn.to_torch(a_proj_weight)  # [4096, 32]
         b_w = ttnn.to_torch(b_proj_weight)  # [4096, 32]
         fused = torch.cat([a_w, b_w], dim=1).contiguous()  # [4096, 64]
-        return ttnn.from_torch(fused, dtype=ttnn.bfloat8_b, layout=ttnn.TILE_LAYOUT, device=mesh_device)
+        return ttnn.from_torch(fused, dtype=PROJ_DTYPE, layout=ttnn.TILE_LAYOUT, device=mesh_device)
 
     def _precompute_mega_fused_weight():
         """Fuse QKV + a + b + g projections into one [4096, D_total] weight.
@@ -225,7 +226,7 @@ def load_gdn_weights(mesh_device, config: GDNConfig, state_dict, tensor_cache_pa
         b_w = ttnn.to_torch(b_proj_weight)  # [4096, 32]
         g_w = ttnn.to_torch(g_proj_weight)  # [4096, 4096]
         fused = torch.cat([qkv_w, a_w, b_w, g_w], dim=1).contiguous()
-        return ttnn.from_torch(fused, dtype=ttnn.bfloat8_b, layout=ttnn.TILE_LAYOUT, device=mesh_device)
+        return ttnn.from_torch(fused, dtype=PROJ_DTYPE, layout=ttnn.TILE_LAYOUT, device=mesh_device)
 
     # Precompute conv weight taps and bias on device to avoid CPU round-trips during decode
     q_weight_taps = _precompute_weight_taps(q_conv_weight)
