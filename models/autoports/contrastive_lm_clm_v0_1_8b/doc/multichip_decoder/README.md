@@ -50,3 +50,13 @@ CCL-heavy prefill of a model this size. It is published as the `p150x4` serve pr
 
 Not done beyond the stock TP plan. The inter-layer residual contract is the stock one: the residual is replicated
 on every device after each all-gather; no reshards between layers. The 1x4 serve profile `p150x4` is declared in `tt-model.yaml` with the accuracy policy and `FABRIC_1D`.
+
+## In-container 1x4 serving
+
+The first `tt-model serve --profile p150x4` of the built image failed at fabric initialization:
+`Cannot open kernel source file: /opt/tt-metal/tt_metal/fabric/impl/kernels/edm_fabric/fabric_erisc_router.cpp`.
+The file was in the image but with mode 0660 (it is one of two kernel sources carrying uncommitted edits from the
+earlier Ornith project in this working tree, saved with this project's umask 007), and tt-model runs the container
+as the invoking host uid, which is not the file owner. Single-chip profiles never JIT-compile fabric kernels, so
+only the multi-chip profile hit it. Fix: `chmod -R a+rX` on the tt-metal source tree before packaging; the image was
+rebuilt and the profile re-verified (see `../release/RUN_NOTES.md`).

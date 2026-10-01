@@ -35,3 +35,8 @@ All times UTC, 2026 Oct 1. Device commands through `/home/hous/dev/clm-v0.1-8B/b
 - Other review C items addressed: `doc/context_contract.json` updated to 2048 with evidence paths; the
   batched-vs-single nondeterminism (batch-variant reductions; argmax differs on 4 to 5 of 200 subset decisions
   between a text embedded alone and in a batch) is now recorded in the full-model README and the card limitations.
+- 23:11 to 23:19: fidelity, decision agreement and (where missing) benches regenerated on the final code for all six
+  candidates (`fidelity_<policy>_final.log`, `bench_bfp8_lofi_mlp.log`); `bf16_all` is infeasible (L1 overflow in the
+  stock prefill MLP program config, `doc/datatype_sweep/infeasible_bf16_all.json`); the sweep with the agreement gate
+  selects `accuracy` (98.9 percent on confident decisions; every bfp8-attention policy is at or below 97.3 percent).
+- 23:08 to 23:13: container build 6 (`package exit 0`, image `38a80e5078b7`) with the `accuracy` default profile.

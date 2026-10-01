@@ -1,0 +1,9 @@
+{
+ "policy": "bf16_all",
+ "status": "infeasible",
+ "error": "Statically allocated circular buffers on core range [0-0 - 7-3] grow to 2012160 B which is beyond max L1 size of 1572864 B",
+ "where": "ttnn.linear w1 in models/tt_transformers/tt/mlp.py during trace preparation (first prefill variant), tt_metal/impl/program/program.cpp:1875",
+ "log": "/home/hous/dev/clm-v0.1-8B/logs/fidelity_bf16_all_final.log",
+ "timestamp": "2026-10-01T23:15:59Z",
+ "explanation": "The stock prefill MLP program configs size their circular buffers for bfp8 weights. With bf16 w1/w3 the in1 block of the 4096x12288 matmul on the 8x4 grid needs 2.01 MB of L1 per core against a 1.5 MB maximum. Making bf16 MLP weights fit needs a different in0_block_w / per-core N split in model_config.matmul_config, which is a framework change outside this port."
+}

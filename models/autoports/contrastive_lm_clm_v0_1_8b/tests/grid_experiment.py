@@ -26,6 +26,11 @@ def grid_override(max_rows, max_cols):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--grids", default="8x8,8x10,8x11,10x11")
+    ap.add_argument(
+        "--force-grids",
+        default="",
+        help="comma list of rows x cols returned unconditionally by find_prefill_grid (uneven per-core N allowed)",
+    )
     ap.add_argument("--seq-len", type=int, default=128)
     ap.add_argument("--repeats", type=int, default=20)
     ap.add_argument("--out", default=os.path.join(AUTOPORT, "doc", "optimized_decoder", "geometry_experiment.json"))
@@ -47,47 +52,61 @@ def main():
     os.environ.setdefault("TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES", "0")
     mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), l1_small_size=32768, trace_region_size=0, num_command_queues=1)
     results = []
+    mesh_grid = mesh.compute_with_storage_grid_size()
     try:
-        model_args = ModelArgs(mesh, max_batch_size=1, max_seq_len=1024, use_hf_rope=False)
-        model_args.n_layers = 36
-        state_dict = model_args.load_state_dict()
         tokenizer, hf = load_hf()
         tokens = real_tokens(tokenizer, a.seq_len)
         hs, _ = capture_hidden_states(hf, tokens)
         x = hs[0].float()
         ref = run_layer(hf, 0, x, torch.arange(a.seq_len)[None]).float()
-        rot_mats = get_rot_mats(
-            head_dim=model_args.head_dim,
-            device=mesh,
-            seq_len=a.seq_len,
-            theta=model_args.rope_theta,
-            rope_scaling=model_args.rope_scaling,
-        )
-        tmats = {
-            "prefill": ttnn.as_tensor(
-                get_rot_transformation_mat(model_args.head_dim),
-                dtype=ttnn.bfloat16,
-                layout=ttnn.TILE_LAYOUT,
-                device=mesh,
-                memory_config=ttnn.DRAM_MEMORY_CONFIG,
-                mesh_mapper=ttnn.ReplicateTensorToMesh(mesh),
-            )
-        }
-        pac = PagedAttentionConfig(block_size=32, max_num_blocks=1024)
-        page_table_tt = ttnn.from_torch(
-            torch.arange(pac.max_num_blocks, dtype=torch.int32).reshape(1, -1),
-            device=mesh,
-            dtype=ttnn.int32,
-            layout=ttnn.ROW_MAJOR_LAYOUT,
-            mesh_mapper=ttnn.ReplicateTensorToMesh(mesh),
-        )
-        tt_ccl = TT_CCL(mesh)
-        original = model_args.find_prefill_grid
-        for spec in a.grids.split(","):
+        original = ModelArgs.find_prefill_grid
+        specs = [("cap", g) for g in a.grids.split(",") if g] + [("force", g) for g in a.force_grids.split(",") if g]
+        for mode, spec in specs:
             rows, cols = (int(v) for v in spec.split("x"))
-            row = {"grid_cap": spec}
+            row = {"grid_cap": spec, "mode": mode, "patch": "class method before ModelArgs construction"}
             try:
-                model_args.find_prefill_grid = original if spec == "8x8" else grid_override(rows, cols)
+                if mode == "force":
+                    ModelArgs.find_prefill_grid = lambda self, r, c, rows=rows, cols=cols: (min(rows, r), cols)
+                elif spec == "8x8":
+                    ModelArgs.find_prefill_grid = original
+                else:
+                    fn = grid_override(rows, cols)
+                    ModelArgs.find_prefill_grid = lambda self, r, c, fn=fn: fn(r, c)
+                model_args = ModelArgs(mesh, max_batch_size=1, max_seq_len=1024, use_hf_rope=False)
+                model_args.n_layers = 36
+                state_dict = model_args.load_state_dict()
+                row["mlp13_grid"] = list(model_args.find_prefill_grid(a.seq_len // 32, model_args.hidden_dim // 32))
+                row["qkv_grid"] = list(
+                    model_args.find_prefill_grid(
+                        a.seq_len // 32, (model_args.dim + 2 * model_args.n_kv_heads * model_args.head_dim) // 32
+                    )
+                )
+                rot_mats = get_rot_mats(
+                    head_dim=model_args.head_dim,
+                    device=mesh,
+                    seq_len=a.seq_len,
+                    theta=model_args.rope_theta,
+                    rope_scaling=model_args.rope_scaling,
+                )
+                tmats = {
+                    "prefill": ttnn.as_tensor(
+                        get_rot_transformation_mat(model_args.head_dim),
+                        dtype=ttnn.bfloat16,
+                        layout=ttnn.TILE_LAYOUT,
+                        device=mesh,
+                        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                        mesh_mapper=ttnn.ReplicateTensorToMesh(mesh),
+                    )
+                }
+                pac = PagedAttentionConfig(block_size=32, max_num_blocks=1024)
+                page_table_tt = ttnn.from_torch(
+                    torch.arange(pac.max_num_blocks, dtype=torch.int32).reshape(1, -1),
+                    device=mesh,
+                    dtype=ttnn.int32,
+                    layout=ttnn.ROW_MAJOR_LAYOUT,
+                    mesh_mapper=ttnn.ReplicateTensorToMesh(mesh),
+                )
+                tt_ccl = TT_CCL(mesh)
                 layer = TransformerBlock(
                     mesh_device=mesh,
                     tt_ccl=tt_ccl,
@@ -137,20 +156,15 @@ def main():
                         "pcc": float(pcc),
                         "layer_ms_p50": round(1000 * times[len(times) // 2], 3),
                         "layer_ms_min": round(1000 * times[0], 3),
-                        "mlp13_grid": list(model_args.find_prefill_grid(a.seq_len // 32, model_args.hidden_dim // 32)),
-                        "qkv_grid": list(
-                            model_args.find_prefill_grid(
-                                a.seq_len // 32,
-                                (model_args.dim + 2 * model_args.n_kv_heads * model_args.head_dim) // 32,
-                            )
-                        ),
                     }
                 )
-                del layer
+                del layer, model_args, state_dict
             except Exception as exc:
                 row.update(
                     {"status": "error", "error": str(exc)[:600], "traceback_tail": traceback.format_exc()[-800:]}
                 )
+            finally:
+                ModelArgs.find_prefill_grid = original
             results.append(row)
             print("GRID_ROW", json.dumps(row)[:700], flush=True)
     finally:
@@ -159,7 +173,7 @@ def main():
         "seq_len": a.seq_len,
         "repeats": a.repeats,
         "rows": results,
-        "note": "find_prefill_grid overridden on the ModelArgs instance only; layer 0, bfp8 weights, accuracy policy, eager (untraced) layer forward timed with synchronize",
+        "note": "find_prefill_grid patched on the ModelArgs class before construction (cap mode keeps the divisibility rule with a larger cap; force mode returns the grid unconditionally); layer 0, bfp8 weights, accuracy policy, eager (untraced) layer forward timed with synchronize",
     }
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
     json.dump(report, open(a.out, "w"), indent=1)

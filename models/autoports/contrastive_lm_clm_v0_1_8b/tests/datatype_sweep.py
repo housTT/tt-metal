@@ -73,7 +73,12 @@ def policy_spec(name):
 
 
 def load(path):
-    return json.load(open(path)) if os.path.exists(path) else None
+    if not os.path.exists(path):
+        return None
+    data = json.load(open(path))
+    if isinstance(data, dict):
+        data["_path"] = path
+    return data
 
 
 def latency_rows(bench):
@@ -98,7 +103,20 @@ def main():
             os.path.join(AUTOPORT, "doc", "optimized_full_model", f"bench_{name}.json")
         )
         if fid is None or bench is None:
-            rows.append({"policy": name, "status": "missing", "fidelity": fid is not None, "bench": bench is not None})
+            infeasible = load(os.path.join(a.outdir, f"infeasible_{name}.json"))
+            if infeasible:
+                rows.append(
+                    {
+                        "policy": name,
+                        "status": "infeasible",
+                        "error": infeasible.get("error"),
+                        "log": infeasible.get("log"),
+                    }
+                )
+            else:
+                rows.append(
+                    {"policy": name, "status": "missing", "fidelity": fid is not None, "bench": bench is not None}
+                )
             continue
         lat = latency_rows(bench)
         head_min = min(v["min"] for v in fid["head_projection_cosine"].values())
@@ -165,6 +183,7 @@ def main():
                     "env": {"CLM_PRECISION": selected["policy"]},
                     "gate": GATE,
                     "selected_row": selected,
+                    "policy_spec": policy_spec(selected["policy"]),
                 },
                 f,
                 indent=1,
@@ -181,7 +200,7 @@ def main():
         ):
             fig, ax = plt.subplots(figsize=(6, 4))
             for r in rows:
-                if r.get("status") == "missing":
+                if r.get("status") in ("missing", "infeasible"):
                     continue
                 color = "red" if selected and r["policy"] == selected["policy"] else "tab:blue"
                 ax.scatter(r["lat_128_b1_ms"], r[metric], color=color, s=60)

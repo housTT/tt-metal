@@ -1,13 +1,20 @@
 {
- "timestamp": "2026-10-01T22:24:52.803005+00:00",
+ "timestamp": "2026-10-01T23:20:53.328716+00:00",
  "gate": {
   "cosine_mean_min": 0.99,
   "cosine_min_min": 0.97,
-  "head_cos_min_min": 0.95
+  "head_cos_min_min": 0.95,
+  "decision_agreement_margin_0p10_min": 0.98
  },
- "metric_mapping": "top-1/top-5 token accuracy replaced by embedding cosine vs HF fp32 reference and head-projection cosine (encoder-only model)",
+ "metric_mapping": "top-1/top-5 token accuracy replaced by embedding cosine vs HF fp32 reference, head-projection cosine, and Typed Decisions argmax agreement with the fp32 reference on the 40-case subset (decisions whose reference top-2 margin is at least 0.10)",
  "selection_rule": "fastest passing policy by 128-token batch-1 latency; policies within 1% of the fastest are a tie and the highest minimum cosine wins",
  "rows": [
+  {
+   "policy": "bf16_all",
+   "status": "infeasible",
+   "error": "Statically allocated circular buffers on core range [0-0 - 7-3] grow to 2012160 B which is beyond max L1 size of 1572864 B",
+   "log": "/home/hous/dev/clm-v0.1-8B/logs/fidelity_bf16_all_final.log"
+  },
   {
    "policy": "accuracy",
    "status": "pass",
@@ -17,61 +24,87 @@
    "head_cos_state_mean": 0.9974622130393982,
    "head_cos_min": 0.9943361282348633,
    "batched_vs_single_min": 0.9964397549629211,
+   "decision_agreement": 0.955,
+   "decision_agreement_margin_0p10": 0.9893617021276596,
    "lat_128_b1_ms": 57.641961495392025,
    "lat_128_b8_ms": 162.02108847210184,
    "lat_1024_b1_ms": 170.5228934297338,
    "lat_2048_b1_ms": 322.81175802927464,
    "tokens_per_s_1024_b8": 6293.093311489061,
-   "fidelity_file": null
+   "fidelity_file": "doc/datatype_sweep/fidelity_accuracy.json"
   },
   {
    "policy": "bfp8_attn",
-   "status": "pass",
-   "cosine_mean": 0.9990131258964539,
-   "cosine_min": 0.9937854409217834,
-   "cosine_p05": 0.9974961102008819,
-   "head_cos_state_mean": 0.9970700144767761,
-   "head_cos_min": 0.9927800893783569,
-   "batched_vs_single_min": 0.9963011741638184,
+   "status": "fail",
+   "cosine_mean": 0.9990221261978149,
+   "cosine_min": 0.9938382506370544,
+   "cosine_p05": 0.9974928170442581,
+   "head_cos_state_mean": 0.9970969557762146,
+   "head_cos_min": 0.9928601980209351,
+   "batched_vs_single_min": 0.9962258338928223,
+   "decision_agreement": 0.945,
+   "decision_agreement_margin_0p10": 0.973404255319149,
    "lat_128_b1_ms": 53.96485602250323,
    "lat_128_b8_ms": 142.40644546225667,
    "lat_1024_b1_ms": 148.1050075381063,
    "lat_2048_b1_ms": 286.21663351077586,
    "tokens_per_s_1024_b8": 7184.0955790635635,
-   "fidelity_file": null
+   "fidelity_file": "doc/datatype_sweep/fidelity_bfp8_attn.json"
   },
   {
    "policy": "bfp8_attn_hifi2",
-   "status": "pass",
+   "status": "fail",
    "cosine_mean": 0.9989116787910461,
    "cosine_min": 0.9930957555770874,
    "cosine_p05": 0.9969665735960007,
    "head_cos_state_mean": 0.9968533515930176,
    "head_cos_min": 0.9929705858230591,
    "batched_vs_single_min": 0.9962066411972046,
+   "decision_agreement": 0.915,
+   "decision_agreement_margin_0p10": 0.9574468085106383,
    "lat_128_b1_ms": 53.94858348881826,
    "lat_128_b8_ms": 142.1342350076884,
    "lat_1024_b1_ms": 147.21940452000126,
    "lat_2048_b1_ms": 276.9538044813089,
    "tokens_per_s_1024_b8": 7282.202838229972,
-   "fidelity_file": null
+   "fidelity_file": "doc/datatype_sweep/fidelity_bfp8_attn_hifi2.json"
+  },
+  {
+   "policy": "bfp8_lofi_mlp",
+   "status": "fail",
+   "cosine_mean": 0.9990206360816956,
+   "cosine_min": 0.995642364025116,
+   "cosine_p05": 0.9975312888622284,
+   "head_cos_state_mean": 0.9970264434814453,
+   "head_cos_min": 0.9910973310470581,
+   "batched_vs_single_min": 0.9960945844650269,
+   "decision_agreement": 0.94,
+   "decision_agreement_margin_0p10": 0.9574468085106383,
+   "lat_128_b1_ms": 54.72096800804138,
+   "lat_128_b8_ms": 123.56654246104881,
+   "lat_1024_b1_ms": 130.10905048577115,
+   "lat_2048_b1_ms": 250.38301845779642,
+   "tokens_per_s_1024_b8": 8176.980775740705,
+   "fidelity_file": "doc/datatype_sweep/fidelity_bfp8_lofi_mlp.json"
   },
   {
    "policy": "performance",
    "status": "fail",
-   "cosine_mean": 0.9874218106269836,
-   "cosine_min": 0.9238599538803101,
-   "cosine_p05": 0.9577959269285202,
-   "head_cos_state_mean": 0.9667961597442627,
-   "head_cos_min": 0.912794291973114,
-   "batched_vs_single_min": 0.9942843914031982,
+   "cosine_mean": 0.9874445796012878,
+   "cosine_min": 0.9238970279693604,
+   "cosine_p05": 0.9578194946050644,
+   "head_cos_state_mean": 0.9668080806732178,
+   "head_cos_min": 0.9124826192855835,
+   "batched_vs_single_min": 0.9943057298660278,
+   "decision_agreement": 0.79,
+   "decision_agreement_margin_0p10": 0.824468085106383,
    "lat_128_b1_ms": 48.91284549375996,
    "lat_128_b8_ms": 119.89974504103884,
    "lat_1024_b1_ms": 125.11812598677352,
    "lat_2048_b1_ms": 237.22523800097406,
    "tokens_per_s_1024_b8": 8692.039369435824,
-   "fidelity_file": null
+   "fidelity_file": "doc/datatype_sweep/fidelity_performance.json"
   }
  ],
- "selected": "bfp8_attn"
+ "selected": "accuracy"
 }

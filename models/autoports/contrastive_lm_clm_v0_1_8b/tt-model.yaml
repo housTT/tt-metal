@@ -47,7 +47,7 @@ serve:
     CLM_EMBEDDER: tt
     CLM_MAX_TOKENS: "2048"
     CLM_MAX_BATCH: "8"
-    CLM_PRECISION: bfp8_attn
+    CLM_PRECISION: accuracy
     CLM_ACTION_CACHE: 512MiB
     CLM_CKPT: /opt/tt-metal/models/autoports/contrastive_lm_clm_v0_1_8b/weights/CLM_v0.1-8B.pt
     CLM_TRACE_REGION_SIZE: "200000000"
@@ -56,17 +56,17 @@ serve:
 
 serve_profiles:
   - name: p150
-    description: One Blackhole p150 chip, selected precision policy (bfp8 attention weights, HiFi2 MLP accumulation).
+    description: "One Blackhole p150 chip, accuracy precision policy (bf16 attention weights, HiFi4 attention math, bfp8 MLP). Selected by the datatype sweep as the only policy above 98 percent decision agreement with the fp32 reference."
     hardware: p150
     mesh_device: P150
-  - name: p150-accuracy
-    description: One Blackhole p150 chip, the stock accuracy precision policy (bf16 attention weights, HiFi4 attention math); about 7 percent slower, highest fidelity.
+  - name: p150-fast
+    description: "One Blackhole p150 chip, the stock bfp8 default policy (bfp8 attention weights, HiFi2 linears). About 6 percent lower latency than p150 at 97.3 percent decision agreement with the fp32 reference."
     hardware: p150
     mesh_device: P150
     env:
-      CLM_PRECISION: accuracy
+      CLM_PRECISION: bfp8_attn
   - name: p150x4
-    description: Four Blackhole p150-class chips as a 1x4 tensor-parallel mesh (validated on two p300c boards); about 1.9x lower latency at 128 tokens than one chip; accuracy policy.
+    description: "Four Blackhole p150-class chips as a 1x4 tensor-parallel mesh (validated on two p300c boards); about 1.9x lower latency at 128 tokens than one chip; accuracy policy."
     hardware: p150x4
     mesh_device: P150x4
     env:
@@ -95,8 +95,41 @@ card:
     encoder with last-token pooling plus two 9.4M-parameter projection heads trained with InfoNCE.
     This package serves its System One API (typed noul / choice / score questions, free-form ranking)
     and an OpenAI-compatible embeddings endpoint on one Blackhole p150 chip.
-  performance: TODO
-  limitations: TODO
+  performance: >
+    Measured on this package served on one Blackhole p150 chip (two p300c boards, four chips, qb2 box),
+    default profile (accuracy policy). Encoder: one text up to 128 tokens 57.6 ms, 1024 tokens 170 ms,
+    2048 tokens 323 ms (p50, warm traces); batch of 8 texts at 128 tokens 162 ms; throughput saturates near
+    6.5k tokens/s. System One API: the README customer example (three questions, 98 tokens) 0.25 s cold and
+    0.1 ms warm (all vectors cached); a new state against a fixed action set 57 ms, revisited states 0.1 ms
+    (the CLM README reports 58.1 ms cold and 28.6 / 1.7 ms for the same table on one RTX 4090). Fidelity vs an
+    fp32 CPU run of the same weights: cosine 0.9991 mean / 0.9960 min on 308 texts; 96.5 percent identical
+    argmax on 200 Typed Decisions subset decisions (98.9 percent of those with a reference margin above 0.10).
+    Zero-shot on LocalLLaMA/typed-decisions (400 cases): accuracy 0.361, KL 2.03, Brier 0.62, about 1.1 s per
+    5-question case; T-Rex real-time game 2 of 5 courses survived (authors on a 4090: 5 of 5). The p150x4
+    profile (four chips, tensor parallel) is 1.9x faster at 128 tokens (30.5 ms); the p150-fast profile
+    (stock bfp8 policy) is 6 percent faster than the default at 97.3 percent decision agreement.
+  limitations: >
+    Encoder-only; produces scores and embeddings, never text. Inputs longer than 2048 tokens are truncated to
+    their last 2048 tokens (upstream clm-serve default); the encoder itself supports 40960. Outputs are
+    deterministic for identical requests, but a text embedded alongside different batch-mates can differ at the
+    cosine 0.999 level (batch-variant reduction order, tt-metal issue 47238), which flips about 2 percent of
+    near-tie decisions. The published README example probabilities (0.410 / 0.939 / 1.984) are not reproduced
+    by the published head on any hardware; this package matches the CPU fp32 reference (0.853 / 0.990 / 2.000).
+    Zero-shot Typed Decisions accuracy is below the dataset's prior baseline on both CPU and TT; the CLM authors
+    treat that benchmark as a fine-tuning target. Only the p150, p150-fast and p150x4 profiles were run; a
+    two-chip 1x2 mesh does not open on this box (fabric router sync timeout). The host must set
+    TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES=0 (the package does) because loading cached weight tensors from
+    disk otherwise hangs on this tt-metal version (see the port's doc/probe/README.md).
+  risks: >
+    The matmul kernels use 32 of 110 cores at 128 tokens (model_config grid cap), so single-text latency is about
+    2x an RTX 4090; latency-sensitive loops like the T-Rex game lose decisions. The container serves one model
+    process; concurrent requests are serialized on the device.
+  usage: |
+    The server speaks the CLM System One wire format. `POST /v1/systemone` takes `{"state": ..., "questions": {id: {"type": "noul"|"choice"|"score", "instructions": ..., "criteria": ...}}, "temperature": 1.0}`
+    and returns per-question probability distributions; `POST /v1/rank` takes `{"context", "question", "answers": [...]}`;
+    `POST /v1/embeddings` is OpenAI-compatible (model `qwen3-8b`, 4096-d L2-normalized, last-token pooled Qwen3-8B).
+    Every response carries `X-CLM-Latency-Ms`. The playground UI is served at `/`. The `clm` Python client from
+    github.com/Contrastive-LM/CLM works unchanged with `CLM_BASE_URL=http://<host>:<port>`.
   architecture: Qwen3-8B encoder (36 layers, last-token pooling) + 2 x MLP heads (4096-1536-1536-512)
   status: Experimental community bring-up
   intended_use: Zero-shot action selection, best-of-N ranking, typed decisions over text states.

@@ -7,8 +7,9 @@ built package on this box and running the evaluation harnesses against it.
 ## Host and tree
 
 - Host `qb2-120-p11t01`: 2 x p300c (4 Blackhole chips), TT-KMD 2.10.0, firmware 19.15.0, Ubuntu 24.04, Docker 29.5.2.
-- tt-metal `/home/hous/dev/ornith-1.5-9b/tt-metal`, branch `hous/clm-v0.1-8b`, commit `fe0b69f03e`
-  (pushed to `https://github.com/housTT/tt-metal` on 2026 Oct 1 22:33 UTC). The working tree also carries
+- tt-metal `/home/hous/dev/ornith-1.5-9b/tt-metal`, branch `hous/clm-v0.1-8b`, final build from commit `a3df3fd2ee`
+  (branch pushed to `https://github.com/housTT/tt-metal`; the manifest's `pushed: false` refers to the upstream
+  `tenstorrent/tt-metal` remote, which does not carry this branch). The working tree also carries
   unrelated uncommitted edits from the earlier Ornith project (`AGENTS.md`, two kernel files), which is why the
   manifest provenance says `dirty: true`; none of them is on the CLM serving path (the allowlist ships only
   `models/common` files, `models/tt_transformers/tt` and this autoport).
@@ -33,13 +34,25 @@ tt-model package --container models/autoports/contrastive_lm_clm_v0_1_8b/tt-mode
 - Staged repo: `/home/hous/dev/clm-v0.1-8B/package/out/clm-v0.1-8b-p150/` (`tt_kernel_manifest.json`, `README.md`,
   `code/`, `image/`, `requirements.lock`).
 
+- Fourth and fifth attempts (22:36 to 22:38 UTC): the rebuilt image still had group-only directory modes because
+  BuildKit's `COPY` cache key ignores directory permissions; changing the content of a shipped file
+  (`__version__` markers) invalidated the layer. Image `aa6f0847aa7a` served the single-chip profiles.
+- Sixth attempt (23:08 to 23:13 UTC, `package exit 0`): the fifth image's p150x4 profile had failed in-container on an
+  unreadable fabric kernel source (two tree files with mode 0660 from the Ornith edits); `chmod -R a+rX` on the
+  tt-metal source tree, then rebuilt with the final manifest (default profile `p150` = accuracy policy,
+  `p150-fast` = stock bfp8 policy, `p150x4`) and the card text. The tt-metal compile layer rebuilt in 109 s
+  (ccache), all 13 `verify:` assertions passed. Image `tt-model/clm-v0.1-8b-p150:38a80e5078b7`, digest
+  `sha256:38a80e5078b7e7a303863a18bbf73f4d4bb13041193ec0eff907632d8744a475`, code sha256
+  `76a384d3d9d7ea58ae4da3e5f0d1a039440fb43f434ed792135f6efdb3ff2287`, created 2026-10-01T23:10:40Z, tt-metal
+  `a3df3fd2ee` (`0.65.2.dev9726+ga3df3fd2ee`). This is the image that was verified and published below.
+
 ## Serve profiles
 
 | profile | hardware | mesh | precision | notes |
 |---|---|---|---|---|
-| p150 (default) | p150 | P150 | bfp8_attn | selected by the stage 8 sweep |
-| p150-accuracy | p150 | P150 | accuracy | stock policy, highest fidelity |
-| p150x4 | p150x4 | P150x4 | accuracy | 1x4 tensor parallel, FABRIC_1D |
+| p150 (default) | p150 | P150 | accuracy | selected by the stage 8 sweep with the decision-agreement gate |
+| p150-fast | p150 | P150 | bfp8_attn (stock default policy) | 6 percent faster, 97.3 percent decision agreement |
+| p150x4 | p150x4 | P150x4 | accuracy | 1x4 tensor parallel, FABRIC_1D, 1.9x faster at 128 tokens |
 
 ```
 tt-model serve --port 8700 --device-id 0 --detach --profile p150 <manifest or tt-hous/clm-v0.1-8b-p150>
