@@ -19,28 +19,32 @@ RM = ttnn.ROW_MAJOR_LAYOUT
 TILE = ttnn.TILE_LAYOUT
 GDN_L1_SEQ_THRESHOLD = 256
 MATMUL_POLICY = {
-    (128, 12288, 4096): ("2d", (11, 10), 16, 1, 4, 1, 12),
-    (128, 4096, 4096): ("2d", (11, 10), 16, 1, 2, 1, 12),
-    (256, 4096, 12288): ("2d", (11, 10), 16, 1, 1, 1, 35),
-    (256, 12288, 4096): ("2d", (11, 10), 16, 1, 1, 1, 12),
-    (256, 4096, 12352): ("2d", (11, 8), 8, 1, 2, 1, 36),
-    (256, 4096, 8192): ("2d", (11, 10), 16, 1, 2, 1, 24),
-    (256, 4096, 4096): ("2d", (11, 8), 16, 1, 1, 1, 12),
-    (512, 4096, 12288): ("2d", (11, 10), 16, 2, 1, 2, 35),
-    (512, 12288, 4096): ("2d", (11, 8), 16, 1, 4, 2, 12),
-    (512, 4096, 12352): ("minimal",),
-    (512, 4096, 8192): ("2d", (11, 10), 16, 1, 4, 2, 24),
-    (512, 4096, 4096): ("2d", (11, 8), 16, 1, 4, 2, 12),
-    (1024, 4096, 12288): ("minimal",),
-    (1024, 12288, 4096): ("2d", (11, 8), 16, 1, 4, 4, 12),
-    (1024, 4096, 12352): ("minimal",),
-    (1024, 4096, 8192): ("minimal",),
-    (1024, 4096, 4096): ("2d", (11, 10), 16, 1, 4, 4, 12),
-    (2048, 4096, 12288): ("minimal",),
-    (2048, 12288, 4096): ("2d", (11, 10), 16, 1, 4, 7, 12),
-    (2048, 4096, 12352): ("minimal",),
-    (2048, 4096, 8192): ("minimal",),
-    (2048, 4096, 4096): ("2d", (11, 10), 16, 1, 4, 7, 12),
+    (256, 4096, 12288, ttnn.bfloat8_b, ttnn.bfloat16): ("2d", (11, 8), 8, 1, 1, 1, 35),
+    (512, 4096, 12288, ttnn.bfloat8_b, ttnn.bfloat16): ("minimal",),
+    (1024, 4096, 12288, ttnn.bfloat8_b, ttnn.bfloat16): ("minimal",),
+    (2048, 4096, 12288, ttnn.bfloat8_b, ttnn.bfloat16): ("minimal",),
+    (256, 4096, 12288, ttnn.bfloat4_b, ttnn.bfloat16): ("2d", (11, 10), 16, 1, 1, 1, 35),
+    (512, 4096, 12288, ttnn.bfloat4_b, ttnn.bfloat16): ("2d", (11, 10), 16, 2, 1, 2, 35),
+    (1024, 4096, 12288, ttnn.bfloat4_b, ttnn.bfloat16): ("minimal",),
+    (2048, 4096, 12288, ttnn.bfloat4_b, ttnn.bfloat16): ("minimal",),
+    (128, 12288, 4096, ttnn.bfloat8_b, ttnn.bfloat16): ("2d", (11, 10), 16, 1, 4, 1, 12),
+    (256, 12288, 4096, ttnn.bfloat8_b, ttnn.bfloat16): ("2d", (11, 8), 16, 1, 4, 1, 12),
+    (512, 12288, 4096, ttnn.bfloat8_b, ttnn.bfloat16): ("2d", (11, 10), 16, 1, 4, 2, 12),
+    (1024, 12288, 4096, ttnn.bfloat8_b, ttnn.bfloat16): ("2d", (11, 10), 16, 1, 4, 4, 12),
+    (2048, 12288, 4096, ttnn.bfloat8_b, ttnn.bfloat16): ("2d", (11, 10), 16, 1, 4, 7, 12),
+    (256, 4096, 12352, ttnn.bfloat8_b, ttnn.bfloat16): ("2d", (11, 10), 8, 1, 2, 1, 36),
+    (512, 4096, 12352, ttnn.bfloat8_b, ttnn.bfloat16): ("2d", (11, 10), 8, 1, 4, 2, 36),
+    (1024, 4096, 12352, ttnn.bfloat8_b, ttnn.bfloat16): ("minimal",),
+    (2048, 4096, 12352, ttnn.bfloat8_b, ttnn.bfloat16): ("minimal",),
+    (256, 4096, 8192, ttnn.bfloat8_b, ttnn.bfloat16): ("2d", (11, 10), 8, 1, 2, 1, 24),
+    (512, 4096, 8192, ttnn.bfloat8_b, ttnn.bfloat16): ("2d", (11, 10), 16, 1, 4, 2, 24),
+    (1024, 4096, 8192, ttnn.bfloat8_b, ttnn.bfloat16): ("minimal",),
+    (2048, 4096, 8192, ttnn.bfloat8_b, ttnn.bfloat16): ("minimal",),
+    (128, 4096, 4096, ttnn.bfloat8_b, ttnn.bfloat16): ("2d", (11, 10), 16, 1, 2, 1, 12),
+    (256, 4096, 4096, ttnn.bfloat8_b, ttnn.bfloat16): ("2d", (11, 8), 8, 1, 2, 1, 12),
+    (512, 4096, 4096, ttnn.bfloat8_b, ttnn.bfloat16): ("2d", (11, 10), 16, 2, 2, 2, 12),
+    (1024, 4096, 4096, ttnn.bfloat8_b, ttnn.bfloat16): ("2d", (11, 8), 16, 1, 4, 4, 12),
+    (2048, 4096, 4096, ttnn.bfloat8_b, ttnn.bfloat16): ("2d", (11, 10), 16, 1, 4, 7, 12),
 }
 
 
@@ -67,16 +71,25 @@ _original_linear = ttnn.linear
 
 def policy_linear(a, b, *args, **kw):
     pol = None
-    if not args and kw.get("bias") is None and len(a.shape) == 3 and a.shape[0] == 1 and len(b.shape) == 2:
-        pol = MATMUL_POLICY.get((a.shape[1], a.shape[2], b.shape[1]))
-    if pol is None or a.dtype == ttnn.float32:
+    if (
+        not args
+        and kw.get("bias") is None
+        and kw.get("program_config") is None
+        and len(a.shape) == 3
+        and a.shape[0] == 1
+        and len(b.shape) == 2
+    ):
+        pol = MATMUL_POLICY.get((a.shape[1], a.shape[2], b.shape[1], b.dtype, a.dtype))
+    if pol is None:
         return _original_linear(a, b, *args, **kw)
-    activation = kw.get("activation")
-    ckc = kw.get("compute_kernel_config")
-    dtype = kw.get("dtype")
-    mem = ttnn.DRAM_MEMORY_CONFIG if a.shape[1] >= 256 else kw.get("memory_config")
+    kw = dict(kw)
+    kw.pop("program_config", None)
+    kw.pop("bias", None)
+    activation = kw.pop("activation", None)
+    if a.shape[1] >= 256:
+        kw["memory_config"] = ttnn.DRAM_MEMORY_CONFIG
     if pol[0] == "minimal":
-        out = ttnn.experimental.minimal_matmul(a, b, compute_kernel_config=ckc, memory_config=mem, dtype=dtype)
+        out = ttnn.experimental.minimal_matmul(a, b, **kw)
     else:
         _, grid, in0, sub_h, sub_w, pcm, pcn = pol
         cfg = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
@@ -90,10 +103,10 @@ def policy_linear(a, b, *args, **kw):
             fused_activation=None,
             fuse_batch=False,
         )
-        out = _original_linear(a, b, compute_kernel_config=ckc, memory_config=mem, dtype=dtype, program_config=cfg)
+        out = _original_linear(a, b, program_config=cfg, **kw)
     if activation is not None:
         assert activation == "silu", activation
-        act = ttnn.silu(out, memory_config=mem)
+        act = ttnn.silu(out, memory_config=kw.get("memory_config"))
         ttnn.deallocate(out)
         out = act
     return out
@@ -110,7 +123,7 @@ class KevEngine:
         snapshot_slots=8,
         traced=True,
         read_rows=READ_ROWS,
-        kv_reserve_bytes=3 << 30,
+        kv_reserve_bytes=2 << 30,
         matmul_policy=None,
     ):
         assert chunk_size == max(BUCKETS), f"chunk_size must be {max(BUCKETS)}"
@@ -120,6 +133,8 @@ class KevEngine:
         self.read_rows = read_rows
         self.matmul_policy = os.environ.get("KEV_MATMUL_POLICY", "1") == "1" if matmul_policy is None else matmul_policy
         ttnn.linear = policy_linear if self.matmul_policy else _original_linear
+        if self.matmul_policy:
+            os.environ.setdefault("QWEN9B_MLP_DOWN_AUTO", "1")
         self.max_len = max_state_len + MAX_QUESTION_LEN
         args = args_cls(mesh_device=device, max_batch_size=1, max_seq_len=self.max_len)
         if n_layers is not None:

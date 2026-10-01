@@ -11,8 +11,9 @@ from loguru import logger
 import ttnn
 from models.demos.blackhole.qwen36.tt import tp_common as tpc
 
+WEIGHT_DTYPES = {"bfp4": ttnn.bfloat4_b, "bfp8": ttnn.bfloat8_b}
 SHAPES = {
-    "mlp_gate_up": (4096, 12288, ttnn.bfloat4_b),
+    "mlp_gate_up": (4096, 12288, None),
     "mlp_down": (12288, 4096, ttnn.bfloat8_b),
     "gdn_in_proj": (4096, 12352, ttnn.bfloat8_b),
     "attn_qkv": (4096, 8192, ttnn.bfloat8_b),
@@ -72,7 +73,9 @@ def main():
     ap.add_argument("--max-configs", type=int, default=40)
     ap.add_argument("--out", required=True)
     ap.add_argument("--device-id", type=int, default=0)
+    ap.add_argument("--gate-up-dtype", choices=sorted(WEIGHT_DTYPES), default="bfp8")
     a = ap.parse_args()
+    SHAPES["mlp_gate_up"] = SHAPES["mlp_gate_up"][:2] + (WEIGHT_DTYPES[a.gate_up_dtype],)
     dev = ttnn.open_device(device_id=a.device_id, l1_small_size=24576, num_command_queues=2, trace_region_size=0)
     dev.enable_program_cache()
     grid = dev.compute_with_storage_grid_size()

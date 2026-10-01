@@ -26,6 +26,8 @@ def mode_kwargs(mode):
 
 
 MAX_STATE_LEN = 8192
+FLIP_MARGIN = 0.05
+MAX_ABS_DP = 0.10
 VOCAB_SAMPLE = 100000
 REFERENCE_DIR = Path("/home/hous/dev/kev/reports/reference")
 
@@ -172,6 +174,8 @@ def test_reference_records(device):
     agree = 0
     max_diff = 0.0
     diffs = []
+    flips = []
+    near_ties = []
     for row in rows:
         ids = torch.tensor(row["ids"], dtype=torch.long).unsqueeze(0)
         positions = list(row["opt_positions"]) + [row["decide_position"]]
@@ -185,6 +189,10 @@ def test_reference_records(device):
         rq = ref_records[str(row["record"])]["questions"][row["qid"]]["probabilities"]
         rp = torch.tensor([rq[k] for k in row["keys"]], dtype=torch.float32)
         agree += int(probs.argmax() == rp.argmax())
+        top2 = rp.topk(2).values
+        margin = round(float(top2[0] - top2[1]), 4)
+        if probs.argmax() != rp.argmax():
+            (flips if margin >= FLIP_MARGIN else near_ties).append((row["row_key"], margin))
         diff = (probs - rp).abs().max().item()
         max_diff = max(max_diff, diff)
         diffs.append(diff)
@@ -195,10 +203,12 @@ def test_reference_records(device):
     mean_diff = sum(diffs) / len(diffs)
     logger.info(
         f"reference_records rows={len(rows)} min_pcc={min_pcc:.6f} argmax_agree={agree}/{len(rows)} "
-        f"max_abs_prob_diff={max_diff:.6f} mean_abs_prob_diff={mean_diff:.6f} traced={engine.traced}"
+        f"max_abs_prob_diff={max_diff:.6f} mean_abs_prob_diff={mean_diff:.6f} traced={engine.traced} "
+        f"flips_margin_ge_{FLIP_MARGIN}={flips} near_tie_flips={near_ties}"
     )
     assert min_pcc > 0.97
-    assert agree == len(rows)
+    assert not flips, f"argmax flips on rows with an fp32 top-2 margin >= {FLIP_MARGIN}: {flips}"
+    assert max_diff <= MAX_ABS_DP, f"max |dp| {max_diff:.6f} > {MAX_ABS_DP}"
 
 
 def compare_modes(key, mode, outs, bar=0.999):
@@ -272,29 +282,55 @@ def test_tail_buckets(device, n_layers, mode):
 @pytest.mark.timeout(3600)
 @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
 def test_long_state(device):
+    import ttnn
+
     device.enable_program_cache()
-    engine = KevEngine(device, max_state_len=65536, snapshot_slots=2)
-    assert engine.snapshot_slots == 2
+    engine = KevEngine(device, max_state_len=65536)
+    assert engine.snapshot_slots == 8
+
+    def dram_free_gib():
+        view = ttnn.get_memory_view(device, ttnn.BufferType.DRAM)
+        return int(view.total_bytes_free_per_bank) * int(view.num_banks) / 2**30
+
+    def timed(fn):
+        ttnn.synchronize_device(device)
+        t0 = time.perf_counter()
+        out = fn()
+        ttnn.synchronize_device(device)
+        return out, time.perf_counter() - t0
+
     Q = 40
-    q = fixed_ids(Q, Q)
+    q1, q2 = fixed_ids(Q, Q), fixed_ids(Q + 1, Q)
     pos = sample_positions(Q, 3, first=0)
     S = 16384
     state = fixed_ids(S, S)
-    t0 = time.perf_counter()
-    handle = engine.prefill_state(state, slot=0)
-    t_state = time.perf_counter() - t0
-    out = engine.question_hidden(handle, q, pos)
-    ref = engine.prefill_hidden(torch.cat([state, q], dim=1), [S + p for p in pos], slot=1)
+    handle, t_state = timed(lambda: engine.prefill_state(state, slot=0))
+    out = engine.question_hidden(handle, q1, pos)
+    ref = engine.prefill_hidden(torch.cat([state, q1], dim=1), [S + p for p in pos], slot=1)
     pccs = [pcc(ref[i], out[i]) for i in range(len(pos))]
     logger.info(f"long S={S} state={t_state:.2f}s pccs={[f'{v:.6f}' for v in pccs]}")
     assert min(pccs) > 0.999
     S = 65536
     state = fixed_ids(S, S)
-    t0 = time.perf_counter()
-    handle = engine.prefill_state(state, slot=1)
-    t_state = time.perf_counter() - t0
-    t0 = time.perf_counter()
-    out = engine.question_hidden(handle, q, pos)
-    t_q = time.perf_counter() - t0
-    logger.info(f"long S={S} state={t_state:.2f}s question={t_q * 1000:.1f}ms")
-    assert torch.isfinite(out).all()
+    free_before = dram_free_gib()
+    handle, t_state = timed(lambda: engine.prefill_state(state, slot=7))
+    out1, t_q1 = timed(lambda: engine.question_hidden(handle, q1, pos))
+    out2, t_q2 = timed(lambda: engine.question_hidden(handle, q2, pos))
+    free_after = dram_free_gib()
+    logger.info(
+        f"long S={S} slot=7 slots={engine.snapshot_slots} state={t_state:.2f}s "
+        f"questions={t_q1 * 1000:.1f}/{t_q2 * 1000:.1f}ms dram_free_before={free_before:.2f}GiB after={free_after:.2f}GiB"
+    )
+    assert torch.isfinite(out1).all() and torch.isfinite(out2).all()
+    ttnn.graph.begin_graph_capture(ttnn.graph.RunMode.NORMAL)
+    engine._forward_body(engine.chunk_size)
+    trace = ttnn.graph.end_graph_capture()
+    live = peak = 0
+    for node in trace:
+        params = node["params"]
+        if node["node_type"] == "buffer_allocate" and params["type"] == "DRAM":
+            live += int(params["size"])
+            peak = max(peak, live)
+        elif node["node_type"] == "buffer_deallocate" and params["type"] == "DRAM":
+            live -= int(params["size"])
+    logger.info(f"peak transient DRAM of the {engine.chunk_size}-token forward body: {peak / 2**30:.3f} GiB ({peak} B)")

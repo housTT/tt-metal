@@ -46,8 +46,8 @@
   "QWEN36_MATMUL_FIDELITY": "LoFi",
   "QWEN_GDN_FP32_STATE": "0",
   "QWEN_SDPA_BF8": "0",
-  "KEV_MATMUL_POLICY": "0",
-  "TT_CACHE_PATH": "/home/hous/dev/kev/tt_cache_mlp_bfp8"
+  "KEV_MATMUL_POLICY": "1",
+  "TT_CACHE_PATH": "/home/hous/dev/kev/tt_cache"
  },
  "propagation_check": {
   "mlp.w1.dtype": "DataType.BFLOAT8_B",
@@ -224,14 +224,19 @@
    "QWEN36_MATMUL_FIDELITY": "LoFi",
    "QWEN_GDN_FP32_STATE": "0",
    "QWEN_SDPA_BF8": "0",
-   "KEV_MATMUL_POLICY": "0"
+   "KEV_MATMUL_POLICY": "1"
   },
   "weight_cache_path": "<TT_CACHE_PATH>/P150/tensor_cache_bfp8_kev_2b2a70cf_gu-bfp8_dn-bfp8_pj-bfp8 (server default root /home/hous/dev/kev/tt_cache holds it; 403 files, 10.47 GB)",
-  "matmul_policy_note": "KEV_MATMUL_POLICY=0 because the stage 3 MATMUL_POLICY 2D program configs overflow L1 with bfp8 gate/up weights; re-tune to recover the policy-on timing",
+  "matmul_policy_note": "KEV_MATMUL_POLICY=1 since the stage 4 follow-up: MATMUL_POLICY in tt/engine.py is keyed on (M, K, N, in1 dtype, in0 dtype) and was re-swept with bfp8 gate/up weights (doc/optimized/matmul_sweep_bfp8.json); the stage 4 sweep itself ran with the policy off because the stage 3 table overflowed L1 with bfp8 in1",
   "device_confirmation": {
    "command": "pytest models/autoports/jaredpalmer_kev_9b/tests/test_engine.py -k reference_records --device-id 2 (traced engine, no QWEN36_*/KEV_* env)",
    "log": "/home/hous/dev/kev/logs/stage4_default_reference_records.log",
    "result": "min_pcc 0.987337, argmax_agree 28/29 (near-tie row 0:choice), max_dp 0.087636, mean_dp 0.026433; cache loaded, not rebuilt; the test's own 29/29 assertion fails under the amended rule"
+  },
+  "device_confirmation_policy_on": {
+   "command": "KEV_MATMUL_POLICY=1 pytest models/autoports/jaredpalmer_kev_9b/tests/test_engine.py -k reference_records --device-id 0 (traced engine, re-swept policy, margin rule in the test)",
+   "log": "/home/hous/dev/kev/logs/stage4r_reference_records.log",
+   "result": "min_pcc 0.987337, argmax_agree 28/29 (near-tie row 0:choice, fp32 margin 0.0315), max_dp 0.087636, mean_dp 0.026433; identical to the policy-off numbers; test passes under the margin rule"
   }
  }
 }

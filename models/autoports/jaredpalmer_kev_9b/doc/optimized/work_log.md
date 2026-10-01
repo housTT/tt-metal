@@ -152,7 +152,20 @@ Application without editing qwen36: `KevEngine(matmul_policy=True)` (env `KEV_MA
 
 ### Why bucket 128 stays near 100 ms (named limitation)
 
-The `PERF_TAIL_Q200` window (bucket 256, 4 layers) has 745 device ops with a median kernel time of 6.3 us; the kernel sum is 20.2 ms but the firmware-duration sum is 33.7 ms, so about 18 us of launch overhead per op dominates. At 32 layers a bucket-128 tail is about 5900 ops, which at the per-program launch floor explains the 105 ms: the small buckets are op-count bound, not compute bound. Per 4 layers at bucket 256: matmuls 7.3 ms over 122 calls, GDN head reshapes 3.6 ms over 55 calls, GDN fp32 elementwise 2.9 ms over 214 calls, SDPA 1.1 ms. Lowering this needs fewer ops per GDN layer (the fused chunk op or a fused relayout) inside qwen36, which stage 3 does not own; it is the first candidate for a backbone change. Batching the question rows of one request into a single segment was considered and rejected: the rows must not attend to each other and the GDN state must not carry across rows, which the chunked SDPA and GDN kernels used here cannot express.
+Recomputed from `doc/optimized/tracy/traced/ops_perf_results_traced_l4.csv` (rows between the `PERF_*` and `PERF_*_END` signposts, device clock 1.35 GHz from the FW cycle and duration columns; the stage review's recomputation gives the same numbers):
+
+| window (4 layers) | device ops | kernel sum ms | FW sum ms | device span ms | idle ms | median kernel us | (FW - kernel) per op us |
+|---|---|---|---|---|---|---|---|
+| `PERF_TAIL_Q50` (bucket 128) | no device rows | | | | | | |
+| `PERF_TAIL_Q200` (bucket 256) | 745 | 20.17 | 33.71 | 21.42 | 0.74 | 6.3 | 18.2 |
+| `PERF_TAIL_Q450` (bucket 512) | 736 | 58.09 | 81.82 | 59.19 | 0.70 | 10.6 | 32.2 |
+| `PERF_TAIL_Q1000` (bucket 1024) | 736 | 80.18 | 131.25 | 81.38 | 0.81 | 21.1 | 69.4 |
+| `PERF_TAIL_Q2000` (bucket 2048) | 736 | 190.37 | 227.83 | 192.03 | 1.27 | 40.8 | 50.9 |
+| `PERF_STATE_S2048` | 739 | 188.23 | 224.45 | 189.07 | 0.45 | 40.5 | 49.0 |
+
+What the data shows: the kernels alone fill 94 % of the bucket-256 span and the device is idle (no FW running) for 0.74 ms of 21.42 ms, so the small buckets are not waiting on launches. The FW sum exceeds the span by 57 %, so FW durations overlap across cores and ops; their excess over the kernel sum grows with the bucket (18 to 69 us per op), which a fixed per-program launch floor cannot produce. The earlier "18 us launch floor" sentence derived from FW sum minus kernel sum is withdrawn.
+
+What is actually known about the small buckets: the bucket-256 forward is many short kernels with low utilization. Top ops by kernel time in `PERF_TAIL_Q200`: MatmulDeviceOperation 122 calls, 7.27 ms (36.0 %, 59.6 us mean, against 814 us mean for the same 122 calls at bucket 2048); ReshapeViewDeviceOperation 55 calls, 3.60 ms (17.9 %); BinaryNgDeviceOperation 214 calls, 2.92 ms (14.5 %, 13.7 us mean); SDPAOperation 1 call, 1.09 ms (5.4 %); TilizeDeviceOperation 33 calls, 0.79 ms; LayerNormDeviceOperation 20 calls, 0.76 ms; UntilizeWithUnpaddingDeviceOperation 24 calls, 0.66 ms; UnaryDeviceOperation 58 calls, 0.51 ms. 537 of the 745 kernels run under 20 us and hold 16.5 % of the kernel time; the other 208 kernels hold 83.5 %. The op count is the same at every bucket (736 to 745 per 4 layers), so a 32-layer forward is about 5900 ops at any bucket; this is an observation about the graph, not the bound. The bucket-128 window has no device rows (the post-processor attributed its replay rows before the signpost), so the 105 ms bucket-128 tail at 32 layers is not decomposed here; a measurement needs a bucket-128 window with a working signpost. Lowering the small-bucket time needs fewer or larger ops per GDN layer inside qwen36 (fused relayout or the fused chunk op), which stage 3 does not own. Batching the question rows of one request into a single segment was considered and rejected: the rows must not attend to each other and the GDN state must not carry across rows, which the chunked SDPA and GDN kernels used here cannot express.
 
 ## Item 4: host overhead
 
@@ -179,3 +192,119 @@ Shutdown at 21:40 ET: SIGTERM to the uvicorn python process, `Application shutdo
 ## Files touched in stage 3
 
 `tt/engine.py` (rewritten: per-slot KV, direct `KevModelArgs`, traces, matmul policy), `tt/server.py` (max_state 65536, `KEV_TRACED`, slot return on failure, per-slot `FakeEngine`), `tests/test_engine.py` (new tests and modes, args-class asserts, mean |dp|), `tests/test_server_api.py` (max_state, eviction / revisit and failed-prefill tests), new `scripts/perf_probe.py`, `scripts/matmul_sweep.py`, `scripts/parity_remote.py`, `doc/optimized/*`, `doc/server/README.md` (stage 3 section, review items), `doc/context_contract.json`. No file under `models/demos/blackhole/qwen36` or `models/experimental` was edited by stage 3 (the stage 4 agent's `precision.py` and env knobs there were left untouched). Nothing committed.
+
+## Stage 4 follow-up: stage 3 remediation (2026 Oct 01, 22:35 ET onward)
+
+Agent: stage 3 remediation plus the stage 4 follow-up (review `/home/hous/dev/kev/reports/review_stage3.md`). Chip 0 through `devrun`, the selected precision `mlp_bfp8` from `tt/precision_defaults.py` (bfp8 gate / up, bfp8 elsewhere, LoFi + fp32 accumulate), weight cache `/home/hous/dev/kev/tt_cache/P150/tensor_cache_bfp8_kev_2b2a70cf_gu-bfp8_dn-bfp8_pj-bfp8`. Logs `/home/hous/dev/kev/logs/stage4r_*.log`.
+
+### Matmul policy, correct by construction (task 1)
+
+`policy_linear` in `tt/engine.py` now (a) keys `MATMUL_POLICY` on `(M, K, N, in1 dtype, in0 dtype)`, so a bfp4 and a bfp8 weight at the same shape, or an fp32 activation (the GDN out-projection), cannot reuse a config swept for another dtype; (b) passes every caller keyword through unchanged (`compute_kernel_config`, `memory_config`, `dtype`, and anything a future caller adds; `activation="silu"` is still split into a separate `ttnn.silu` after the policy matmul), and applies the policy only when the caller gave no `program_config` and no `bias`; (c) falls back to the plain `ttnn.linear` call for any key not in the table. The MLP down projection reaches the policy because the engine sets `QWEN9B_MLP_DOWN_AUTO=1` (the qwen36 switch that makes `mlp.py` pass `program_config=None`) when the policy is on; with the policy off the upstream `prefill_progcfg` is used as before. For policy matmuls at M >= 256 the output memory config is DRAM interleaved as in stage 3; at M = 128 the caller's is kept.
+
+Sweep with bfp8 gate / up weights: `scripts/matmul_sweep.py --ms 128,256,512,1024,2048 --gate-up-dtype bfp8` (new option; the shapes other than gate / up were bfp8 already), chip 0, `doc/optimized/matmul_sweep_bfp8.json`, log `/home/hous/dev/kev/logs/stage4r_matmul_sweep_bfp8.log` (22:38 to 22:39 ET, 909 timed rows, 376 configs rejected by the runtime, mostly the bfp8 L1 overflow `dataflow_buffer.cpp:2682` that stopped the stage 4 sweep with the stage 3 table). Selection rule per key: among rows with LoFi and fp32 accumulation and DRAM output whose PCC against the host fp32 product of the same quantized weights is within 2e-4 of the default row's, the fastest; adopted only when at least 3 % faster than the default row, else no entry (the plain call is used). Every adopted row has the same PCC as the default row to six digits.
+
+| shape (K x N), bfp8 weight | M | default ms | adopted (LoFi, fp32 acc) | ms | stage 3 best eligible ms (bfp4 gate/up) | configs rejected by the runtime |
+|---|---|---|---|---|---|---|
+| gate/up 4096 x 12288 | 128 | 0.232 | default kept | 0.232 | 0.23 | 10 |
+| gate/up 4096 x 12288 | 256 | 0.405 | 2d grid=11x8 in0=8 sub=1x1 pcM=1 pcN=35 | 0.284 | 0.243 | 10 |
+| gate/up 4096 x 12288 | 512 | 0.752 | minimal_matmul | 0.365 | 0.309 | 28 |
+| gate/up 4096 x 12288 | 1024 | 1.479 | minimal_matmul | 0.529 | 0.51 | 40 |
+| gate/up 4096 x 12288 | 2048 | 6.867 | minimal_matmul | 1.041 | 1.013 | 42 |
+| down 12288 x 4096 | 128 | 0.339 | 2d grid=11x10 in0=16 sub=1x4 pcM=1 pcN=12 | 0.267 | 0.27 | 0 |
+| down 12288 x 4096 | 256 | 0.551 | 2d grid=11x8 in0=16 sub=1x4 pcM=1 pcN=12 | 0.285 | 0.28 | 0 |
+| down 12288 x 4096 | 512 | 1.365 | 2d grid=11x10 in0=16 sub=1x4 pcM=2 pcN=12 | 0.288 | 0.294 | 0 |
+| down 12288 x 4096 | 1024 | 2.700 | 2d grid=11x10 in0=16 sub=1x4 pcM=4 pcN=12 | 0.471 | 0.465 | 0 |
+| down 12288 x 4096 | 2048 | 4.556 | 2d grid=11x10 in0=16 sub=1x4 pcM=7 pcN=12 | 0.795 | 0.799 | 19 |
+| GDN in-proj 4096 x 12352 | 128 | 0.225 | default kept | 0.225 | 0.229 | 10 |
+| GDN in-proj 4096 x 12352 | 256 | 0.411 | 2d grid=11x10 in0=8 sub=1x2 pcM=1 pcN=36 | 0.280 | 0.28 | 10 |
+| GDN in-proj 4096 x 12352 | 512 | 0.756 | 2d grid=11x10 in0=8 sub=1x4 pcM=2 pcN=36 | 0.357 | 0.357 | 22 |
+| GDN in-proj 4096 x 12352 | 1024 | 1.454 | minimal_matmul | 0.517 | 0.534 | 40 |
+| GDN in-proj 4096 x 12352 | 2048 | 4.950 | minimal_matmul | 1.034 | 0.999 | 42 |
+| attention q/gate 4096 x 8192 | 128 | 0.178 | default kept | 0.178 | 0.179 | 0 |
+| attention q/gate 4096 x 8192 | 256 | 0.312 | 2d grid=11x10 in0=8 sub=1x2 pcM=1 pcN=24 | 0.206 | 0.204 | 0 |
+| attention q/gate 4096 x 8192 | 512 | 0.575 | 2d grid=11x10 in0=16 sub=1x4 pcM=2 pcN=24 | 0.228 | 0.227 | 10 |
+| attention q/gate 4096 x 8192 | 1024 | 1.795 | minimal_matmul | 0.349 | 0.341 | 34 |
+| attention q/gate 4096 x 8192 | 2048 | 3.106 | minimal_matmul | 0.647 | 0.662 | 40 |
+| o-proj 4096 x 4096 | 128 | 0.151 | 2d grid=11x10 in0=16 sub=1x2 pcM=1 pcN=12 | 0.122 | 0.12 | 0 |
+| o-proj 4096 x 4096 | 256 | 0.220 | 2d grid=11x8 in0=8 sub=1x2 pcM=1 pcN=12 | 0.126 | 0.129 | 0 |
+| o-proj 4096 x 4096 | 512 | 0.498 | 2d grid=11x10 in0=16 sub=2x2 pcM=2 pcN=12 | 0.138 | 0.135 | 0 |
+| o-proj 4096 x 4096 | 1024 | 0.947 | 2d grid=11x8 in0=16 sub=1x4 pcM=4 pcN=12 | 0.198 | 0.201 | 0 |
+| o-proj 4096 x 4096 | 2048 | 1.594 | 2d grid=11x10 in0=16 sub=1x4 pcM=7 pcN=12 | 0.312 | 0.324 | 19 |
+
+22 bfp8 entries adopted (the same count as stage 3); the stage 3 gate / up entries for bfp4 weights are kept under their own `(.., ttnn.bfloat4_b, ttnn.bfloat16)` keys for `KEV_PRECISION=baseline`. The stage 3 bfp4 gate / up configs `2d in0 16 pcN 35` at M 256 and 512 are among the rejected rows with bfp8 weights (the in1 block doubles in bytes), which is the production failure the stage 4 sweep hit.
+
+### Stage 5 server patch (task 7)
+
+`patch -p1 --dry-run < doc/multichip/server_patch.diff`: hunks 1 to 8 apply (offset 11 lines from the stage 4 import), hunks 9 to 11 fail because the patch was written against a one-line-per-statement formatting of `submit`, `card` and `lifespan`; they were applied by hand with the same content (dispatch through `plan` / `collect`, `backlog_ms` and `dispatch` in the card, fan-out fields in the start-up log). `hostrun python -m pytest tests/test_dispatch.py tests/test_server_api.py -q -p no:cacheprovider`: 32 passed in 9.4 s.
+
+### Disk (task 6)
+
+`rm -r /home/hous/dev/kev/tt_cache_all_bfp8 /home/hous/dev/kev/tt_cache_mlp_bf16 /home/hous/dev/kev/tt_cache_all_bf16` after checking that no symlink under `tt_cache` or `tt_cache_mlp_bfp8` points into them (the selected cache lives in `tt_cache/P150`, `tt_cache_mlp_bfp8/P150` holds two symlinks to it, `tt_cache_baseline` is a symlink to `tt_cache`). `df -h /`: 328 G available before, 367 G after; `tt_cache` 27 G (base cache, baseline kev cache, selected kev cache).
+
+### Bucket-128 explanation (task 4)
+
+The "18 us launch floor" text in `README.md` and in item 5 above was replaced with the recomputation from `tracy/traced/ops_perf_results_traced_l4.csv` (kernel sum, FW sum, device span, idle time, top ops of the bucket-256 window; the bucket-128 window has no device rows). See the rewritten "Why bucket 128 stays near 100 ms" subsection in item 5.
+
+### Policy gates at 32 layers (task 1, continued)
+
+`devrun timeout 3000 python -m pytest tests/test_engine.py -k "l32 and (slots or tail_buckets)" -s --device-id 0`, log `/home/hous/dev/kev/logs/stage4r_engine_l32_policy.log`, 6 passed in 228 s (22:46 to 22:50 ET). A first attempt failed at the first warm-up because `mlp.py` passes `program_config=None` explicitly once `QWEN9B_MLP_DOWN_AUTO=1` is set and the pass-through then handed `ttnn.linear` two `program_config` keywords; `policy_linear` now drops the None-valued `program_config` and `bias` keys before forwarding (both are None by the guard that selected the policy).
+
+| test (32 layers, selected precision) | eager | traced | traced + policy |
+|---|---|---|---|
+| `test_slots_interleaved`, A / B against the full row (min) | 0.99984 / 0.99989 | 0.99989 / 0.99989 | 0.99989 / 0.99989 |
+| `test_slots_interleaved`, mode vs eager (A, B) | | 0.999891, 1.000000 | 0.999891, 1.000000 |
+| `test_tail_buckets`, mode vs eager (5 buckets, min) | | 0.999999 | 0.999999 |
+| steady-state question tail 50 / 200 / 450 / 1000 / 2000 tokens, ms | 128.0 / 193.9 / 484.1 / 671.6 / 1585.5 | 106.7 / 166.7 / 467.8 / 644.8 / 1535.3 | 104.6 / 153.1 / 269.2 / 475.7 / 917.0 |
+
+The policy reproduces the eager numerics to the same PCC as the stage 3 bfp4 run (0.999950 there; the 0.999891 here is the bf16 rounding of the composite 256 + 128 remainder against one masked 512 bucket, identical for traced with and without the policy), and the policy timings equal the stage 3 policy-on timings within 2 ms per bucket.
+
+### Reference rows with the policy on, margin rule (tasks 1 and 2)
+
+`KEV_MATMUL_POLICY=1 devrun timeout 1800 python -m pytest tests/test_engine.py -k reference_records -s --device-id 0`, log `/home/hous/dev/kev/logs/stage4r_reference_records.log`, 1 passed in 42 s: 29 rows, min PCC 0.987337, argmax 28/29, max |dp| 0.087636, mean |dp| 0.026433, flips on rows with an fp32 top-2 margin >= 0.05: none, near-tie flips: `0:choice` (margin 0.0315). These are the stage 4 `mlp_bfp8` numbers (0.987337 / 28 / 0.087636 / 0.026433) to six digits, so the re-swept policy changes nothing in the reference rows. `test_reference_records` now applies the orchestrator's margin rule (`FLIP_MARGIN = 0.05`: a flip counts only when the fp32 reference's top-2 margin is at least 0.05; near-tie flips are logged), asserts `max |dp| <= 0.10` and logs the mean |dp|. With the three conditions met (policy equals eager above 0.999 on every bucket, reference rows reproduce within 1e-3, timings improve), `tt/precision_defaults.py` sets `KEV_MATMUL_POLICY=1` in the `selected` profile.
+
+### Traced engine numbers, selected precision, policy off and on (task 1, before / after)
+
+`scripts/perf_probe.py --traced --trace-region 1073741824 --device-id 0` without and with `--matmul-policy`, 32 layers, 8 slots (KV per slot 2.06 GiB, DRAM free 19.76 GiB after the bfp8 weights), 27 traces, 273 to 274 MiB of trace region, median of 5 with `ttnn.synchronize_device` around each step. JSON `doc/optimized/perf_probe_traced_bfp8.json` (off) and `perf_probe_traced_bfp8_policy.json` (on); logs `/home/hous/dev/kev/logs/stage4r_probe_policy_off.log`, `stage4r_probe_policy_on.log` (22:51 to 22:54 ET). The card probabilities are identical to the printed 16 digits between the two runs.
+
+| path | policy off ms | policy on ms | change | stage 3 (bfp4 gate / up, policy on) ms |
+|---|---|---|---|---|
+| question tail, bucket 128 (Q 50) | 107.3 | 105.1 | -2.0 % | 104.9 |
+| question tail, bucket 256 (Q 200) | 167.2 | 153.5 | -8.2 % | 151.0 |
+| question tail, bucket 512 (Q 450) | 468.9 | 270.0 | -42.4 % | 266.4 |
+| question tail, bucket 1024 (Q 1000) | 646.7 | 477.5 | -26.2 % | 476.4 |
+| question tail, bucket 2048 (Q 2000) | 1538.1 | 919.4 | -40.2 % | 917.3 |
+| state 2048 | 1520.1 | 901.3 | -40.7 % | 898.9 |
+| state 2392 | 1686.2 | 1053.8 | -37.5 % | 1048.7 |
+| card short (6 questions) new / cached | 619.7 / 619.4 | 605.4 / 605.4 | -2.3 % | 605.0 / 604.8 |
+| card long (2,192-token state, 5 questions) new / cached | 2163.1 / 536.2 | 1531.1 / 525.8 | -29.2 % / -1.9 % | 1527.5 / 525.6 |
+
+The re-swept bfp8 policy recovers the stage 3 policy-on timings within 0.2 to 5 ms per path; the bfp8 gate / up weights cost 2 to 5 ms per path against bfp4 at the same policy (the minimal_matmul rows: 1.041 vs 1.013 ms per gate / up matmul at 2048).
+
+### max_state 65536 in the production layout (task 3, review P2)
+
+`test_long_state` now builds the engine with the defaults the server uses (`max_state_len` 65536, 8 slots, selected precision, policy on) and asserts 8 slots; every timing is wrapped in `ttnn.synchronize_device`; the 65536 state runs in slot 7 (the last KV range) followed by two questions; DRAM free is read before and after; and the eager 2048-token forward body is run once under `ttnn.graph` capture to measure its transient DRAM peak. `KEV_MATMUL_POLICY=1 devrun timeout 3600 python -m pytest tests/test_engine.py -k long_state -s --device-id 0`, log `/home/hous/dev/kev/logs/stage4r_long_state.log`, 1 passed in 93 s (22:55 to 22:56 ET):
+
+- Build: KV per slot 2.06 GiB, DRAM free 19.76 GiB after the bfp8 weights, 8 of 8 slots, 27 traces, 274.0 MiB of trace region; DRAM free after the build 2.78 GiB.
+- S 16384 (8 chunks): state 7.69 s; question tail against the full row in another slot PCC 1.000000 / 1.000000 / 1.000000.
+- S 65536 (32 chunks) in slot 7: state 37.51 s; questions 226.9 and 226.6 ms (bucket 128 with 65536 keys of SDPA); output finite; DRAM free 2.78 GiB before and 2.78 GiB after (the replay allocates nothing).
+- Peak transient DRAM of the 2048-token forward body (graph capture, running sum of DRAM `buffer_allocate` minus `buffer_deallocate`): 0.545 GiB (585,236,480 B).
+
+Derivation of the reserve: persistent allocations after the slot fit are 19.76 - 8 x 2.06 - 2.78 = 0.50 GiB (GDN snapshots for 8 slots, the bucket buffers, page tables), the transient peak of the largest body is 0.545 GiB, so the engine needs 1.05 GiB above the KV slots. `kv_reserve_bytes` is now `2 << 30` (measured need plus about 90 percent headroom for allocator fragmentation) instead of the undocumented 3 GiB; the slot count at 65536 is 8 with either value ((19.76 - 2) // 2.06 = 8.6, (19.76 - 3) // 2.06 = 8.1, 8 requested). `doc/context_contract.json`: `served_context` 67584 (65536 state plus 2048 question), the stale "8192" note replaced, a `stage4_followup` block with the numbers above.
+
+Context-contract checker: `hostrun python /home/hous/.claude/plugins/cache/tenstorrent-skills/tt-model-bringup/0.1.19/scripts/check_context_contract.py --model-dir models/autoports/jaredpalmer_kev_9b` exits 2 with "supports context 67584, below HF-advertised 262144, without device-DRAM capacity evidence". That is the correct outcome: the served limit is kev's own serving limit (SERVE_MAX_STATE 65536 plus the 2048-token question bucket), not a DRAM limit, and no DRAM evidence is claimed for it.
+
+### Final one-chip server run (task 8)
+
+Driver `/tmp/claude-1002/-home-hous-dev-kev/0a6793e1-6f42-41ef-926e-8b91dbe0b95b/scratchpad/server_stage4r.sh` (scratch; log `/home/hous/dev/kev/logs/stage4r_server_driver.log`): the stage 2 / 3 environment (`HF_MODEL`, `KEV_RUN`, `TT_CACHE_PATH=/home/hous/dev/kev/tt_cache`, `HF_HUB_OFFLINE=1`, `KEV_MESH_SHAPE=1x1`, `KEV_DEVICE_ID=0`) plus `KEV_FANOUT=0` (stage 5 patch applied, fan-out off on one chip), every other knob at its default, so the engine runs the selected precision with the re-swept policy on (`KevEngine ... max_len=67584 traced=True matmul_policy=True`, `KV per slot 2.06 GiB, DRAM free 19.76 GiB, reserve 2.00 GiB: 8 slot(s) of 8 requested`, 27 traces, 274.0 MiB). `devrun timeout 5400 python -m uvicorn models.autoports.jaredpalmer_kev_9b.tt.server:app --host 127.0.0.1 --port 8008 --lifespan on > /home/hous/dev/kev/logs/stage4r_server.log`; `starting:` 22:58:05 ET, `worker 0 ready` 22:58:45 (40 s), warm-up 3 questions 303.4 ms, health up after 44 s. `/v1/models`: `max_state_tokens 65536`, prefix cache 8, `dispatch.fanout false`.
+
+Parity (`scripts/parity_remote.py --passes 2`, `/home/hous/dev/kev/reports/stage4r_parity.json`, log `/home/hous/dev/kev/logs/stage4r_parity.log`, 22:58:47 to 22:58:58): 16 records, 29 questions, against fp32 max |dp| 0.0878, mean |dp| 0.0272, 1 argmax flip; the flip is record 0 `choice` (fp32 0.2895 vs 0.3211, top-2 margin 0.0315, served 0.2783 vs 0.2550), the same near-tie row as `0:choice` in `test_reference_records`, so 0 flips at margin >= 0.05. Stage 3 (bfp4 gate / up): 0.0947 / 0.0358 / 0 flips. All 16 revisits after the other states had run returned the first-pass answers (23 misses, 10 hits, 8 slots).
+
+Bench (`serving_bench_remote.py --reps 20 --quick --concurrency 1,8,32,64`, `/home/hous/dev/kev/reports/bench/p150_stage4r/report.json`, log `/home/hous/dev/kev/logs/stage4r_bench.log`, 22:58 to 23:04): card row `| Stage 4 final (1 chip, bfp8 gate/up, policy on) | 606.4 / 606.4 ms | 1531.6 / 525.5 ms | 1.6 |` (stage 3: 604.7 / 605.2, 1528.5 / 525.5, 1.6); 2 questions short 202.2 / 202.0 ms; 5 questions with a 370-token state 878.3 / 688.3 ms; decision-v7 7.5 req/s at 1 client and 7.2 at 64 clients; the 2,200-token case 1.9 req/s. 789 requests, 0 tracebacks, 0 5xx in the server log. Shutdown 23:04:51: SIGTERM to the uvicorn python process (`pgrep -f "^python -m uvicorn ..."`, not the `timeout` wrapper), `Application shutdown complete`, `Finished server process`, no server process left; the device lock passed directly to the queued GDN repro, so the `LOCK_HELD` line in the driver log is that job, not the server. Added to `doc/server/README.md` and `perf_summary.json` (`stage4_final` entries, `kv_reserve_bytes`).
+
+### Fused GDN chunk op repro (task 5, review P2)
+
+`scripts/gdn_fused_repro.py --device-id 0` (4 layers, eager, pieces 2048 then 256, chunk starts 0 and 2048, carried state): first run with the stage 3 calling convention only (`/home/hous/dev/kev/logs/stage4r_gdn_fused_repro.log`, `doc/optimized/gdn_fused_repro_l4_run1.json`, 22:56 ET): the fused op already disagrees on the first 2048 piece with the same zero initial state (layer 0 NaN, layers 1 and 2 o PCC 0.814 and 0.574), so the carried state is not the cause. Second run with three calling conventions (`stage4r_gdn_fused_repro2.log`, `gdn_fused_repro_l4.json`, 23:05 ET): with the host L2-norm of q / k restored, or with flat q / k / v plus `qkv_head_dims` as `gdn/tp.py` passes them, o PCC >= 0.9987 and state PCC >= 0.9982 on every call including the carried-state 256 piece. Named step: `fused_chunk.py` skips the L2-norm when `flat_qkv_enabled()` is True, which is right for flat inputs (in-kernel norm) and wrong for the 4D inputs the single-device `ttnn_gated_deltanet.py:702` call passes. Hand-off written in `README.md` ("Stage 4 follow-up: fused GDN chunk op, hand-off"); no qwen36 file edited; adoption left to a later stage. Device time about 1 minute in total, no segfault in either run (the stage 3 teardown segfault did not reproduce in these eager processes).
+
+### Dispatcher cost-model source after the update (task 7, follow-up)
+
+`perf_summary.json` `engine_ms` now carries the stage 4 follow-up traced numbers (policy on: tails 105.1 / 153.5 / 270.0 / 477.5 / 919.4 ms, states 901.3 / 1053.8 ms), which `CostModel.from_perf_summary` loads (tail 128 = 105.1 ms, 56.44 ms per 128-token block). Re-running `hostrun python -m pytest tests/test_dispatch.py tests/test_server_api.py -q` after the update gives 30 passed, 2 failed: `test_single_short_request_spreads_over_idle_workers` and `test_mid_state_replicates_only_when_the_share_pays_for_it` compare against the literal stage 3 value 104.9 ms (`tests/test_dispatch.py` lines 92,103,104,151: `209.8` and `5 * 104.9`) instead of `model.tail_ms`; `test_cost_model_from_perf_summary`, which reads the file, passes. The 32 passed reported above were measured before the cost-model update. `tests/test_dispatch.py` belongs to stage 5 and was not edited here; the change is to replace the two literals with the model's bucket-128 cost.

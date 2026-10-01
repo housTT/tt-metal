@@ -6,8 +6,8 @@
   "adapter_sha8": "2b2a70cf",
   "hf_advertised_context": 262144,
   "hf_context_source": "Qwen/Qwen3.5-9B-Base config.json:text_config.max_position_embeddings",
-  "served_context": 10240,
-  "served_context_note": "integer for check_context_contract.py: the engine admits a state of at most 8192 tokens plus a question of at most 2048 tokens per row; the longest row validated against the HF reference is 2300 tokens (current_supported_context below)",
+  "served_context": 67584,
+  "served_context_note": "integer for check_context_contract.py: a served row is a state of at most 65536 tokens (kev's SERVE_MAX_STATE, the engine default max_state_len) plus a question of at most 2048 tokens; the longest row validated against the HF reference is 2300 tokens (current_supported_context below); S 65536 plus two 40-token questions ran end to end in the shipped 8-slot layout (stage4_followup below)",
   "kev_serving_context": {
     "max_state_tokens": 65536,
     "max_row_tokens": 73728,
@@ -18,7 +18,7 @@
     "max_state_tokens": 65536,
     "per_row_budget_tokens": 16384,
     "validated_row_tokens": 16424,
-    "note": "stage 3: engine default max_state_len 65536 (kev's serving limit), question row up to 2048 tokens after the 128-aligned state prefix; validated with test_long_state (S 16384 tail equals full row, S 65536 no-crash) and the reference rows"
+    "note": "stage 3: engine default max_state_len 65536 (kev's serving limit), question row up to 2048 tokens after the 128-aligned state prefix; validated with test_long_state (S 16384 tail equals full row PCC 1.000000, S 65536 state plus two questions, finite output) in the production layout of 8 slots with the selected precision and the policy on (stage 4 follow-up), and the reference rows"
   },
   "capability_reduction": "none for the state (65536 served); a question row is limited to 2048 tokens plus the state remainder under 128, below kev's 73728-token row budget",
   "limiting_reason": "question tails run as one fixed bucket of at most 2048 tokens (the largest warmed trace); longer rows would need a chunked tail path",
@@ -184,13 +184,13 @@
   },
   "persistent_allocations_stage3": {
     "kv_cache_per_slot_bytes_at_65536": 2212691968,
-    "kv_slots": "min(requested, (free DRAM - 3 GiB) // per-slot bytes); 8 at 65536 on a P150 (21.26 GiB free after weights)",
+    "kv_slots": "min(requested, (free DRAM - reserve) // per-slot bytes); 8 at 65536 on a P150 (19.76 GiB free after the bfp8 weights); reserve 2 GiB since the stage 4 follow-up (was 3 GiB, undocumented): derivation in stage4_followup.kv_reserve_derivation",
     "gdn_snapshots_per_slot": "24 layers x (recurrent [1,32,128,128] bf16 + conv [1,3,8192] bf16)",
     "trace_region_bytes": 1073741824,
     "trace_region_used_bytes_32_layers_8_slots": 287000000,
     "traces": "fwd and gather per bucket {128,256,512,1024,2048}, restore and save per slot, zero (27 traces at 8 slots)",
     "kv_dtype": "bfloat16",
-    "weight_dtypes": "unchanged from stage 1 (bfp4 MLP gate/up, bfp8 elsewhere, bf16 norms and embedding)"
+    "weight_dtypes": "stage 1 to 3: bfp4 MLP gate/up, bfp8 elsewhere, bf16 norms and embedding; since stage 4: mlp_bfp8 (bfp8 gate/up)"
   },
   "stage4_precision": {
     "selected": "mlp_bfp8",
@@ -201,6 +201,39 @@
       "note": "max_state_len 8192 build; at 65536 the traced probe reports 19.76 GiB free and 8 of 8 slots fit (perf_probe_mlp_bfp8.json)"
     },
     "context_effect": "none: the selected config does not change the KV-cache dtype, trace buffers, or chunking; 8 snapshot slots at max_state_len 65536 still fit",
-    "matmul_policy": "KEV_MATMUL_POLICY defaults to 0 under the selected config because the stage 3 MATMUL_POLICY 2D program configs overflow L1 with bfp8 gate/up weights (doc/datatype_sweep/README.md)"
+    "matmul_policy": "KEV_MATMUL_POLICY defaults to 1 again since the stage 4 follow-up: MATMUL_POLICY is keyed on (M, K, N, in1 dtype, in0 dtype) and was re-swept with bfp8 gate/up weights (doc/optimized/matmul_sweep_bfp8.json); during the stage 4 sweep it was 0 because the stage 3 table overflowed L1 with bfp8 in1"
+  },
+  "stage4_followup": {
+    "date": "2026 Oct 01, 22:55 ET, chip 0",
+    "layout": "KevEngine defaults: max_state_len 65536, 8 snapshot slots, traced, selected precision mlp_bfp8, matmul policy on; the layout the server builds",
+    "test": "tests/test_engine.py::test_long_state (snapshot_slots default 8, ttnn.synchronize_device around every timing)",
+    "log": "/home/hous/dev/kev/logs/stage4r_long_state.log",
+    "dram_free_after_weights_gib": 19.76,
+    "kv_bytes_per_slot": 2212691968,
+    "slots": 8,
+    "trace_region_used_mib": 274.0,
+    "dram_free_after_build_gib": 2.78,
+    "s16384": {
+      "state_s": 7.69,
+      "tail_vs_full_row_pcc": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "s65536": {
+      "slot": 7,
+      "state_s": 37.51,
+      "question_ms": [
+        226.9,
+        226.6
+      ],
+      "dram_free_before_gib": 2.78,
+      "dram_free_after_gib": 2.78,
+      "output_finite": true
+    },
+    "peak_transient_dram_2048_forward_body_bytes": 585236480,
+    "peak_transient_dram_note": "ttnn.graph capture (RunMode.NORMAL) of the eager 2048-token forward body after the traces were built: running sum of buffer_allocate minus buffer_deallocate of DRAM buffers, maximum 0.545 GiB; the traced replay allocates nothing (DRAM free identical before and after the 65536 run), so the replay reuses this capture-time footprint",
+    "kv_reserve_derivation": "persistent allocations after the slot fit (GDN snapshots, bucket buffers, page tables) = 19.76 - 8 x 2.06 - 2.78 = 0.50 GiB; plus the transient peak of the largest forward body 0.545 GiB; measured need 1.05 GiB; kv_reserve_bytes = 2 GiB (measured need plus about 90 percent headroom for allocator fragmentation); the slot count at 65536 is 8 with either 2 or 3 GiB"
   }
 }

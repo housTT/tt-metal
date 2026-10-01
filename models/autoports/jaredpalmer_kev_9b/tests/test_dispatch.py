@@ -88,8 +88,9 @@ def test_single_short_request_spreads_over_idle_workers(model):
     result = plan(rows(6, SHORT_STATE), workers(), KEY, model)
     assert result == [(0, [0, 4]), (1, [1, 5]), (2, [2]), (3, [3])]
     views = workers()
+    t = model.tail_cost_ms(SHORT_STATE, QUESTION)
     assert [share_cost_ms(rows(6, SHORT_STATE), idx, views[wid], KEY, model) for wid, idx in result] == pytest.approx(
-        [209.8, 209.8, 104.9, 104.9]
+        [2 * t, 2 * t, t, t]
     )
 
 
@@ -100,8 +101,9 @@ def test_long_state_cached_on_worker_2(model):
     assert plan(r, workers(backlog=[0, 0, replication, 0], cached=(2,)), KEY, model) == [(2, [0, 1, 2, 3, 4])]
     busy = workers(backlog=[0, 0, 3 * replication, 0], cached=(2,))
     assert plan(r, busy, KEY, model) == [(0, [0, 1, 2, 3, 4])]
-    assert share_cost_ms(r, [0, 1, 2, 3, 4], busy[0], KEY, model) == pytest.approx(replication + 5 * 104.9)
-    assert share_cost_ms(r, [0, 1, 2, 3, 4], busy[2], KEY, model) == pytest.approx(5 * 104.9)
+    t = model.tail_cost_ms(LONG_STATE, QUESTION)
+    assert share_cost_ms(r, [0, 1, 2, 3, 4], busy[0], KEY, model) == pytest.approx(replication + 5 * t)
+    assert share_cost_ms(r, [0, 1, 2, 3, 4], busy[2], KEY, model) == pytest.approx(5 * t)
 
 
 def test_long_new_state_is_prefilled_once(model):
@@ -148,7 +150,7 @@ def test_ramp_from_idle_to_loaded(model):
             views[wid].backlog_ms += share_cost_ms(r, idx, views[wid], f"key-{n}", model)
     assert fanned >= 1 and whole >= 60
     loads = [v.backlog_ms for v in views]
-    assert max(loads) - min(loads) <= 6 * 104.9 + 1e-6
+    assert max(loads) - min(loads) <= 6 * model.tail_cost_ms(SHORT_STATE, QUESTION) + 1e-6
 
 
 def test_cache_affinity_under_load(model):

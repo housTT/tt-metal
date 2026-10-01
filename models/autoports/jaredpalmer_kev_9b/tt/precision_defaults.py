@@ -9,7 +9,7 @@ PROFILES = {
         "QWEN36_MATMUL_FIDELITY": "LoFi",
         "QWEN_GDN_FP32_STATE": "0",
         "QWEN_SDPA_BF8": "0",
-        "KEV_MATMUL_POLICY": "0",
+        "KEV_MATMUL_POLICY": "1",
     },
     "baseline": {
         "QWEN36_MLP_GATE_UP_DTYPE": "bfp4",

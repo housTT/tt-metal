@@ -20,7 +20,7 @@ Acronyms: LoRA (low-rank adaptation), GDN (Gated DeltaNet), SDPA (scaled dot-pro
 | KV cache | bf16 (`QWEN_SDPA_BF8=0`) | same |
 | GDN recurrent state between chunks | bf16 | same |
 | readout and head | hidden rows read back as fp32, pointer head on host in fp32 at temperature 2.1936 | same |
-| stage 3 matmul policy (`KEV_MATMUL_POLICY`) | **off** (see "Matmul policy incompatibility") | on |
+| stage 3 matmul policy (`KEV_MATMUL_POLICY`) | off at selection time (see "Matmul policy incompatibility"); **on** since the stage 4 follow-up re-swept it for bfp8 (`../optimized/work_log.md`, "Stage 4 follow-up") | on |
 | weight cache | `tensor_cache_bfp8_kev_2b2a70cf_gu-bfp8_dn-bfp8_pj-bfp8`, 10.47 GB | `tensor_cache_bfp8_kev_2b2a70cf`, 8.86 GB |
 
 Numbers, selected versus baseline versus the CPU bf16 model (the model kev serves on an H100, `/home/hous/dev/kev/reports/kev_internals.md`):
@@ -173,8 +173,8 @@ export $(python models/autoports/jaredpalmer_kev_9b/scripts/dtype_sweep.py --pri
 
 ## Open
 
-- The stage 3 matmul policy must be re-tuned for bfp8 gate / up weights (above); until then the default engine runs with the policy off and the long-card latency is 2163 ms instead of 1528 ms.
+- Resolved in the stage 4 follow-up: the matmul policy was re-swept for bfp8 gate / up weights, keyed on dtype, and switched back on in `tt/precision_defaults.py` (reference rows identical to the policy-off numbers; timings in `../optimized/work_log.md`).
 - The `policy` test mode in `tests/test_engine.py` needs `KEV_PRECISION=baseline` or the re-tuned policy.
-- `tests/test_engine.py::test_reference_records` asserts 29/29 argmax agreement; under the selected config the near-tie row `0:choice` flips (allowed by the amended rule), so the assertion needs the same margin rule from its owner.
-- Non-selected caches (about 40 GB) not yet deleted.
+- Resolved in the stage 4 follow-up: `tests/test_engine.py::test_reference_records` applies the margin rule (flips count only when the fp32 top-2 margin is at least 0.05) and asserts max |dp| <= 0.10; it passes with the near-tie row `0:choice` reported.
+- Non-selected caches deleted in the stage 4 follow-up (`df -h /`: 328 G to 367 G available).
 - Stage 6 re-measures the selected config on the served path; the subset accuracy differences here are 1 to 3 rows and should not be quoted as a gain without the full-split evaluation.

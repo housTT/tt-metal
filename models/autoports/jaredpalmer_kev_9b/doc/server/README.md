@@ -120,6 +120,7 @@ Measured 2026 Oct 01, 21:33 to 21:39 ET, on chip 0 (`KEV_MESH_SHAPE=1x1`, `KEV_D
 |---|---|---|---|
 | P150 (1 chip, eager, stage 2) | 753.2 / 750.8 ms | 2271.4 / 647.5 ms | 1.3 (`--quick`, 32 requests per level) |
 | P150 (1 chip, traced, stage 3) | 604.7 / 605.2 ms | 1528.5 / 525.5 ms | 1.6 (`--quick`, 32 requests per level) |
+| Stage 4 final (1 chip, bfp8 gate/up, policy on) | 606.4 / 606.4 ms | 1531.6 / 525.5 ms | 1.6 (`--quick`, 32 requests per level) |
 
 Columns are new / cached state. Other latency rows: 2 questions, short state 202.1 / 201.6 ms (stage 2: 490.1 / 505.7); 5 questions, 370-token state 862.1 / 677.0 ms (stage 2: 1119.6 / 879.5). Throughput (second pass): 6 questions new short state 1.6 requests/s at every client count; decision-v7 development 7.6 (stage 2: 6.0); 2,200-token state 1.9 (stage 2: 1.5). Server totals: 790 requests, 0 5xx, 0 tracebacks, prefix cache 151 hits / 639 misses.
 
@@ -142,3 +143,7 @@ python models/autoports/jaredpalmer_kev_9b/scripts/summarize_eval.py
 ```
 
 Prints, per suite and split, `clean.n / acc / brier / ece` from each `report.json` (`clean` is kev's own headline subset: the records whose source is not `unknowable` and that are not control variants; for smoke-v1 that is 18 of the 40 questions, the other 22 being the `permuted`, `none_present` and `none_absent` controls, so the smoke-v1 `clean` row is a plumbing check, not a quality claim) (kev's `metrics()` already computes ECE with 10 equal-width bins over the top probability) plus the request latency, and a pooled `hard-v1 + devtools-v1 audited` row recomputed from `rows.json` with the same formulas and the model card's exclusions (source `flakeflagger`, task `commitpackft_type`). The model-card references are printed below the table: hard-v1 + devtools-v1 audited 0.821 development / 0.822 test, documents-v1 0.902 / 0.900, breadth-v1 0.700 / 0.698 with test ECE 0.034, transfer-v4 locked test ECE 0.034.
+
+## Stage 4 final (1 chip, selected precision, re-swept matmul policy)
+
+Run of 2026 Oct 01, 22:58 to 23:05 ET on chip 0 with the stage 5 server patch applied and `KEV_FANOUT=0`, the selected precision `mlp_bfp8` (bfp8 gate / up) and the dtype-keyed matmul policy on by default (`tt/precision_defaults.py`); engine `max_len 67584`, 8 slots, 27 traces. Latency columns `--reps 20`, throughput `--quick` (32 / 32 / 8 requests per level), `/home/hous/dev/kev/reports/bench/p150_stage4r/report.json`, log `/home/hous/dev/kev/logs/stage4r_bench.log`. Parity (`/home/hous/dev/kev/reports/stage4r_parity.json`): 29 questions, max |dp| 0.0878, mean 0.0272 against fp32 (stage 3: 0.0947 / 0.0358), one flip on the near-tie row record 0 `choice` (fp32 margin 0.0315; 0 flips at margin >= 0.05), 16 of 16 revisits equal with states interleaved. Decision-v7 throughput 7.5 req/s at 1 client, 7.2 at 64; the 2,200-token-state case 1.9 req/s. 789 requests, 0 tracebacks, 0 5xx; stopped with SIGTERM to the uvicorn python process (`Application shutdown complete`, `Finished server process`). Chronology: `../optimized/work_log.md`, "Stage 4 follow-up".

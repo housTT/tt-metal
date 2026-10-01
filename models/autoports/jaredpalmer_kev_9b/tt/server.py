@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from models.autoports.jaredpalmer_kev_9b.tt.api import SystemOneRequest, api_request, render, to_answers
+from models.autoports.jaredpalmer_kev_9b.tt.dispatch import CostModel, Policy, WorkerView, collect, plan, share_cost_ms
 from models.autoports.jaredpalmer_kev_9b.tt.encode import SERVE_MAX_STATE, ContextOverflow, rows_for_record, user_tokens
 from models.autoports.jaredpalmer_kev_9b.tt.head import PointerHead
 
@@ -82,6 +83,9 @@ class Settings:
     max_question: int
     truncate: bool
     traced: bool
+    fanout: bool = True
+    fanout_backlog_ms: float = 200.0
+    perf_summary: str = ""
 
     @classmethod
     def from_env(cls):
@@ -99,6 +103,9 @@ class Settings:
             max_question=int(os.environ.get("KEV_MAX_QUESTION", "2048")),
             truncate=flag("KEV_TRUNCATE_STATES"),
             traced=flag("KEV_TRACED", "1"),
+            fanout=flag("KEV_FANOUT", "1"),
+            fanout_backlog_ms=float(os.environ.get("KEV_FANOUT_BACKLOG_MS", "200")),
+            perf_summary=os.environ.get("KEV_PERF_SUMMARY", ""),
         )
 
 
@@ -171,6 +178,7 @@ class Worker:
         self.cache = OrderedDict()
         self.hits = self.misses = self.requests = 0
         self.inflight = 0
+        self.backlog_ms = 0.0
         self.counter = threading.Lock()
         self.ready = threading.Event()
         self.error = None
@@ -181,12 +189,16 @@ class Worker:
     def load(self):
         return self.queue.qsize() + self.inflight
 
-    def submit(self, rows, key):
+    def submit(self, rows, key, cost_ms=0.0):
         done = Future()
         with self.counter:
             self.inflight += 1
-        self.queue.put((rows, key, done))
+            self.backlog_ms += cost_ms
+        self.queue.put((rows, key, done, cost_ms))
         return done
+
+    def view(self):
+        return WorkerView(self.id, self.backlog_ms, self.cache)
 
     def stop(self):
         self.queue.put(None)
@@ -207,7 +219,7 @@ class Worker:
             job = self.queue.get()
             if job is None:
                 return
-            rows, key, done = job
+            rows, key, done, cost_ms = job
             try:
                 done.set_result(self._serve(rows, key))
             except Exception as e:
@@ -215,6 +227,7 @@ class Worker:
             finally:
                 with self.counter:
                     self.inflight -= 1
+                    self.backlog_ms -= cost_ms
 
     def _serve(self, rows, key):
         t0 = time.perf_counter()
@@ -259,6 +272,9 @@ class Server:
         self.lock = threading.Lock()
         self.workers = []
         self.stopping = threading.Event()
+        self.cost_model = CostModel.load(settings.perf_summary)
+        self.policy = Policy(fanout=settings.fanout, fanout_backlog_ms=settings.fanout_backlog_ms)
+        self.fanouts = 0
 
     @classmethod
     def start(cls, settings):
@@ -350,41 +366,41 @@ class Server:
                 )
         return rows, full
 
-    def pick(self, key):
+    def dispatch(self, rows, key):
+        by_id = {w.id: w for w in self.workers}
         with self.lock:
-            holders = [w for w in self.workers if key in w.cache]
-            return min(holders or self.workers, key=lambda w: (w.load(), w.id))
+            shares = plan(rows, [w.view() for w in self.workers], key, self.cost_model, self.policy)
+            parts = []
+            for wid, idx in shares:
+                w = by_id[wid]
+                cost = share_cost_ms(rows, idx, w.view(), key, self.cost_model)
+                parts.append((wid, idx, w.submit([rows[i] for i in idx], key, cost)))
+            self.fanouts += len(parts) > 1
+        return parts
 
     def submit(self, req):
         if self.stopping.is_set():
             raise HTTPException(503, "the server is stopping")
         rows, full = self.encode(req)
         key = state_key(rows[0].state_ids)
-        worker = self.pick(key)
         done = Future()
-        inner = worker.submit(rows, key)
+        inner = collect(self.dispatch(rows, key), len(rows))
         tokens = len(rows[0].state_ids) + sum(len(r.question_ids) for r in rows)
 
         def finish(f):
             if f.exception() is not None:
                 done.set_exception(f.exception())
                 return
-            probs, hit, ms = f.result()
-            stats = {
-                "tokens": tokens,
-                "state_tokens": full,
-                "state_tokens_used": len(rows[0].state_ids),
-                "latency_ms": ms,
-                "prefix_cache_hit": hit,
-                "worker": worker.id,
-            }
+            probs, merged = f.result()
+            stats = {"tokens": tokens, "state_tokens": full, "state_tokens_used": len(rows[0].state_ids), **merged}
             log.info(
-                "worker=%d S=%d questions=%d latency_ms=%.1f cache_hit=%s",
-                worker.id,
+                "workers=%s S=%d questions=%d latency_ms=%.1f latency_ms_sum=%.1f cache_hit=%s",
+                stats["workers"],
                 stats["state_tokens_used"],
                 len(rows),
-                ms,
-                hit,
+                stats["latency_ms"],
+                stats["latency_ms_sum"],
+                stats["prefix_cache_hit"],
             )
             done.set_result((probs, stats, rows))
 
@@ -430,6 +446,7 @@ class Server:
             {
                 "id": w.id,
                 "queued": w.load(),
+                "backlog_ms": round(w.backlog_ms, 1),
                 "cached_states": len(w.cache),
                 "cache_size": w.cache_size,
                 "hits": w.hits,
@@ -438,6 +455,16 @@ class Server:
             }
             for w in self.workers
         ]
+        dispatch = {
+            "fanout": self.policy.fanout,
+            "fanout_backlog_ms": self.policy.fanout_backlog_ms,
+            "short_state_tokens": self.policy.short_state_tokens,
+            "fanout_requests": self.fanouts,
+            "cost_model": {
+                "tail_ms": dict(self.cost_model.tail_ms),
+                "state_ms_per_block": self.cost_model.state_ms_per_block,
+            },
+        }
         return {
             "description": f"Kev pointer head on {s.hf_model}, serving {s.run} at temperature {self.head.temperature:.2f} (ttnn)",
             "release_date": self.release_date,
@@ -453,6 +480,7 @@ class Server:
             "truncate_states": s.truncate,
             "prefix_cache": cache,
             "workers": workers,
+            "dispatch": dispatch,
             "batches": {
                 "count": sum(w.requests for w in self.workers),
                 "requests": sum(w.requests for w in self.workers),
@@ -512,7 +540,8 @@ def truncate_rows(rows, max_state):
 async def lifespan(app):
     settings = Settings.from_env()
     log.info(
-        "starting: run=%s base=%s fake=%s mesh=%s devices=%s prefix_cache=%d max_state=%d truncate=%s traced=%s",
+        "starting: run=%s base=%s fake=%s mesh=%s devices=%s prefix_cache=%d max_state=%d truncate=%s traced=%s "
+        "fanout=%s fanout_backlog_ms=%.0f",
         settings.run,
         settings.hf_model,
         settings.fake,
@@ -522,6 +551,8 @@ async def lifespan(app):
         settings.max_state,
         settings.truncate,
         settings.traced,
+        settings.fanout,
+        settings.fanout_backlog_ms,
     )
     app.state.server = await asyncio.to_thread(Server.start, settings)
     log.info("ready: %d worker(s) on %s", len(app.state.server.workers), app.state.server.device_name)
