@@ -58,7 +58,14 @@ tt-model package --container models/autoports/contrastive_lm_clm_v0_1_8b/tt-mode
   kernel files with the project's umask 007, undoing the `chmod` done before build 6. Fix: `package-build.sh` now
   runs `chmod -R a+rX` over the shipped source trees before every build and logs the count of files that are still
   not world-readable, and the manifest gained a `verify:` line that opens that kernel source inside the image.
-- Eighth attempt (card text and the mode fix; same code as build 7): recorded under "Publish".
+- Eighth attempt (00:24 to 00:26 UTC): card text from the build 7 evaluation and the mode fix; image `f5a706931401`,
+  code sha256 unchanged (`c87308710a85...`), which confirms file modes and the card are outside the code hash.
+- Ninth attempt (00:26 to 00:29 UTC, `package exit 0`, the published build): adds the fabric kernel `verify:` line
+  (14 assertions pass). Image `tt-model/clm-v0.1-8b-p150:9372e4d3d3c4`, digest
+  `sha256:9372e4d3d3c488067bdc2a22a23040ca0deed6027f76221b5d36763632be7100`, code sha256
+  `c87308710a8567474a9cc832873033182fd111e55558ca96cf92b3c6ac34970c`, created 2026-10-02T00:26:36Z, tt-metal
+  `2c710b113b` (dirty: the unrelated Ornith edits). The `p150x4` profile boots and serves from this image (table
+  below), and the `p150` profile smoke matches build 7.
 
 ## Serve profiles
 
@@ -76,19 +83,20 @@ tt-model stop clm-v0.1-8b-p150
 
 ## Verification from the served package
 
-Final image `a79fd98c9a89` (five prefill buckets), served with `tt-model serve --port 8700 --device-id 0 --detach
+Evaluated image `a79fd98c9a89` (build 7, five prefill buckets; same code sha256 as the published build 9 image
+`9372e4d3d3c4`), served with `tt-model serve --port 8700 --device-id 0 --detach
 --profile p150` and `--profile p150x4 --port 8702 --device-id 0,1,2,3`; harness `/home/hous/dev/clm-v0.1-8B/bin/run-evals.sh`;
 results under `/home/hous/dev/clm-v0.1-8B/evals/results/`.
 
-| check | p150 (default, accuracy) `package_p150_b7_20261001T234742Z` | p150x4 `package_p150x4_b7_*` |
+| check | p150 (default, accuracy) `package_p150_b7_20261001T234742Z` (build 7; build 9 smoke `package_p150_b9_20261002T003001Z` matches) | p150x4 `package_p150x4_b9_20261002T002940Z` (build 9) |
 |---|---|---|
-| `GET /health` | ok, ready, embedder tt, models clm-latest and clm-raw, cache 537 MB reserved | X4_HEALTH_B7 |
-| README example, cold (`usage.input_tokens latency_ms`) | 98 262.4; answers urgency 0.816, billing 0.993, frustration 2.000 | X4_README_B7 |
+| `GET /health` | ok, ready, embedder tt, models clm-latest and clm-raw, cache 537 MB reserved | same (build 9 image, healthy 40 s after start: 4.3 s load, 16.1 s warmup for 15 traces) |
+| README example, cold (`usage.input_tokens latency_ms`) | 98 262.4; answers urgency 0.816, billing 0.993, frustration 2.000 | 98 174.6 (build 9) |
 | README example, warm x20 | 0 0.1 (client 0.8 ms) | 0 0.1 |
-| vector cache, new state every call, 3 / 50 actions | 60.2 / 60.2 ms | X4_CACHE_B7 |
+| vector cache, new state every call, 3 / 50 actions | 60.2 / 60.2 ms | 34.1 / 34.2 ms (build 9) |
 | vector cache, revisited and repeated states | 0.1 ms | 0.1 ms |
 | embeddings table (client p50) | 128 tok x 1: 61.4 ms; 128 x 8: 175.9 ms (5,820 tok/s); 512 x 8: 641 ms (6,393 tok/s); 1024 x 8: 1,320 ms (6,204 tok/s); 2048 x 32: 10,378 ms (6,315 tok/s) | not run |
-| Typed Decisions, zero-shot | 400 cases, 2,000 decisions, 0 errors: accuracy 0.364, KL 2.046, Brier 0.625, ECE 0.484, p50 312 ms per case (p95 630 ms) | X4_TD_B7 |
+| Typed Decisions, zero-shot | 400 cases, 2,000 decisions, 0 errors: accuracy 0.364, KL 2.046, Brier 0.625, ECE 0.484, p50 312 ms per case (p95 630 ms) | first 100 cases (agent_trace_observability): accuracy 0.292, p50 110 ms (167 ms on one chip for the same cases) |
 | agreement with the CPU fp32 reference (40-case subset, 200 decisions) | 96.0 percent; 98.9 percent where the reference margin >= 0.10; accuracy vs gold 0.360 vs 0.370 | not run |
 | T-Rex, 5 seeds x 60 s, shield on | 2 of 5 survived (seeds 3 and 4 at the 697 course maximum), mean best 589, 2,083 decisions, planner agreement 0.778, answer p50 16.4 ms, model p50 1.3 ms, 1,990 answers discarded, 0 errors (`/home/hous/dev/clm-v0.1-8B/evals/trex/results/20261001T235652Z`) | not run |
 
@@ -107,4 +115,38 @@ capture for the fifteen variants).
 
 ## Publish
 
-TODO: `tt-model push` result, HF revision, `tt-model pull` from a clean cache and serve check.
+```
+tt-model push /home/hous/dev/clm-v0.1-8B/package/out/clm-v0.1-8b-p150 --public
+```
+
+- 2026 Oct 2 00:31:29 to 00:31:53 UTC (`/home/hous/dev/clm-v0.1-8B/logs/tt_model_push.log`): repo
+  `tt-hous/clm-v0.1-8b-p150` created public; image 964.1 MB in 28 content-addressed blobs, uploaded in 23.1 s
+  (layers shared with the other tt-hous packages on the same tt-metal base are deduplicated by the Hub).
+- Hub revision `3da3cc872dc36c4d738bbadd42f921d854ddae04`, 124 files, 1,041 MB: `tt_kernel_manifest.json`,
+  `README.md` (the card), `requirements.lock`, `code/` (the allowlisted tt-metal Python files, the autoport and the
+  75.6 MB head checkpoint), `image/` (OCI index, manifest and 31 blobs). Hub tags: blackhole, p150, p150x4,
+  tt-dit-server, tt-model-container, text-ranking, license apache-2.0, base_model Contrastive-LM/CLM-v0.1-8B. The Hub
+  labels the base-model relation "finetune" by default; the weights are the unmodified upstream weights (this is a
+  port), and the card text says so.
+- Not listed in the community catalog (`--publish` was not passed); `tt-model publish tt-hous/clm-v0.1-8b-p150`
+  adds the catalog pointer if wanted.
+
+Consumer check from a clean local install (no earlier `clm` entry in `~/.cache/tt-model/installed.json`):
+
+```
+tt-model pull  tt-hous/clm-v0.1-8b-p150
+tt-model serve tt-hous/clm-v0.1-8b-p150 --port 8703 --device-id 0 --detach --local-only
+```
+
+- First check (00:32 to 00:33 UTC, `/home/hous/dev/clm-v0.1-8B/logs/tt_model_pull.log`): the pull fetched the
+  manifest and reported the image `9372e4d3d3c4` as already loaded (the build had left it in the local Docker
+  store), so that run only exercised the manifest path.
+- Clean check (00:34 to 00:35 UTC, `/home/hous/dev/clm-v0.1-8B/logs/tt_model_pull_clean.log`,
+  `/home/hous/dev/clm-v0.1-8B/logs/evals_pulled_clean.log`): all six local `tt-model/clm-v0.1-8b-p150` image tags
+  removed with `docker rmi`, the `installed.json` entry and the pulled directory deleted; `tt-model pull` then
+  downloaded the image from the Hub and `docker load`ed it in 18.1 s (whole pull about 33 s on this host's link), and
+  `tt-model serve ... --local-only` was healthy 30 s after start. `POST /v1/rank` on the tides example answers "The
+  Moon's gravitational pull." with probability 0.9948 (157.8 ms, cold cache); the README example cold call is
+  98 tokens in 260.9 ms, warm 0.1 ms; a new state against a fixed action set costs 60.5 ms, cached states 0.1 ms
+  (`/home/hous/dev/clm-v0.1-8B/evals/results/package_pulled_clean_p150_20261002T003519Z`). These match the
+  numbers measured on the locally built image, so the published artifact is the evaluated one.
