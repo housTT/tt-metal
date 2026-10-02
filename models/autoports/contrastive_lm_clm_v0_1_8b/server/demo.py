@@ -148,7 +148,7 @@ class Session:
             await asyncio.sleep(0.05)
         if self.process.is_alive():
             self.process.terminate()
-            self.process.join(2)
+        self.process.join(2)
         try:
             self.conn.close()
         except OSError:
