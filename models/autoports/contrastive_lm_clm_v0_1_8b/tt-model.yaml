@@ -11,7 +11,7 @@ image:
   registry: hf
 
 source:
-  tt_metal: /home/hous/dev/ornith-1.5-9b/tt-metal
+  tt_metal: /home/hous/dev/clm-v0.1-8B/worktree/tt-metal
   code:
     - models/common/lightweightmodule.py
     - models/common/rmsnorm.py
@@ -109,33 +109,43 @@ card:
     This package serves its System One API (typed noul / choice / score questions, free-form ranking)
     and an OpenAI-compatible embeddings endpoint on one Blackhole p150 chip.
   performance: >
-    Measured on this package served on one Blackhole p150 chip (two p300c boards, four chips, qb2 box),
-    default profile (accuracy policy), image a79fd98c9a89. Encoder, p50 with warm traces: one text up to 128 tokens
-    57.8 ms, 256 tokens 72 ms, 512 tokens 94 ms, 1024 tokens 170 ms, 2048 tokens 322 ms; eight 128-token texts
-    162 ms, eight 512-token texts 625 ms; throughput saturates near 6.3 to 6.7k tokens/s. Prefill is traced at
-    128 / 256 / 512 / 1024 / 2048 tokens x batch 1 / 4 / 8. System One API: the README customer example (three
-    questions, 98 tokens) 262 ms cold and 0.1 ms warm (all vectors cached); a new state against a fixed action set
-    60 ms, revisited states 0.1 ms (the CLM README reports 58.1 ms cold and 28.6 / 1.7 ms for the same table on one
-    RTX 4090). Fidelity vs an fp32 CPU run of the same weights: cosine 0.9991 mean / 0.9960 min on 308 texts;
-    96.0 percent identical argmax on 200 Typed Decisions subset decisions served from the package (98.9 percent of
-    those with a reference margin above 0.10). Zero-shot on LocalLLaMA/typed-decisions (400 cases, 2,000 decisions):
-    accuracy 0.364, KL 2.05, Brier 0.63, 312 ms p50 per 5-question case; T-Rex real-time game 2 of 5 courses
-    survived, 2,083 decisions per course (authors on a 4090: 5 of 5, 3,342). The p150x4 profile (four chips,
-    tensor parallel) is 1.9x faster at 128 tokens (30.5 ms); the p150-fast profile (stock bfp8 policy) is 6 percent
-    faster than the default at 97.3 percent decision agreement with the fp32 reference.
+    Served from this package on one Blackhole p150 chip (two p300c boards, four chips, qb2 box), default profile
+    (accuracy_lofi_mlp policy with the program-config overrides), client on the same host, p50 latencies. System One
+    API: the README customer example (three questions, 98 tokens embedded) 220 ms with a cold cache and 0.1 ms warm
+    (all vectors cached); a new state against a fixed action set 56 ms server-side (the CLM README's 58.1 ms on one
+    RTX 4090 is the comparable call: 38 tokens embedded, option vectors cached; its vector-cache table reports
+    28.0 ms for a new state and 0.6 ms for a cached one, against 56 ms and 0.1 ms here). Embeddings endpoint:
+    one 128-token text 56.6 ms, 512 tokens 83 ms, 1024 tokens 149 ms, 2048 tokens 272 ms; eight 128-token texts
+    149 ms, eight 512-token texts 530 ms; throughput up to 7.7k tokens/s at batch 32. Fidelity vs an fp32 CPU run of
+    the same weights: cosine 0.9992 mean / 0.9960 min on 308 texts (host run of the same encoder code); from the
+    served package, 96.0 percent identical argmax on 200 Typed Decisions subset decisions and 98.4 percent of the
+    188 with a reference margin above 0.10. Zero-shot on LocalLLaMA/typed-decisions (400 cases, 2,000 decisions):
+    accuracy 0.345 (0.364 with the previous stock-accuracy default; the fp32 reference scores 0.370 on the 40-case
+    subset against 0.355 here), KL 2.04, Brier 0.63, 258 ms p50 per 5-question case; T-Rex real-time game 3 of 5
+    courses survived, 2,195 decisions per course (authors on a 4090: 5 of 5, 3,342). Profiles: p150-accuracy (the
+    previous default) 263 ms cold README example, 60 ms new state, 1.5 percent faster than p150 only at 128 tokens
+    batch 1 and 10 to 20 percent slower elsewhere; p150-fast 234 ms and 56 ms with 97.3 / 95.7 percent
+    confident-decision agreement (sweep / served); p150x4 (four chips, tensor parallel) 175 ms cold README example
+    and 34 ms new state.
   limitations: >
     Encoder-only; produces scores and embeddings, never text. Inputs longer than 2048 tokens are truncated to
     their last 2048 tokens (upstream clm-serve default); the encoder itself supports 40960. Outputs are
     deterministic for identical requests, but a text embedded alongside different batch-mates can differ at the
-    cosine 0.999 level (batch-variant reduction order, tt-metal issue 47238), which flips about 2 percent of
-    near-tie decisions. The published README example probabilities (0.410 / 0.939 / 1.984) are not reproduced
-    by the published head on any hardware; this package gives 0.816 / 0.993 / 2.000 against the CPU fp32
-    reference's 0.842 / 0.988 / 2.000 for the same example.
-    Zero-shot Typed Decisions accuracy is below the dataset's prior baseline on both CPU and TT; the CLM authors
-    treat that benchmark as a fine-tuning target. Only the p150, p150-fast and p150x4 profiles were run; a
-    two-chip 1x2 mesh does not open on this box (fabric router sync timeout). The host must set
+    cosine 0.999 level (batch-variant reduction order of the prefill kernels, tt-metal issue 47238): between a
+    single-text and a batched embedding of the same 200 Typed Decisions subset decisions, 4 to 5 argmax answers
+    change, all near ties. Against the fp32 CPU reference the default profile reverses 8 of those 200 decisions
+    (6 of them where the reference's own top-2 margin is below 0.10, 2 of the 188 confident ones). The published
+    README example probabilities (0.410 / 0.939 / 1.984) are not reproduced by the published head on any
+    hardware; this package gives 0.852 / 0.991 / 2.000 on the single-text path and 0.816 / 0.993 / 2.000 when the
+    request is embedded as one batch, against the CPU fp32 reference's 0.842 / 0.988 / 2.000. Zero-shot Typed
+    Decisions accuracy is below the dataset's prior baseline on both CPU and TT; the CLM authors treat that
+    benchmark as a fine-tuning target. The p150-fast profile fails this port's decision-agreement gate (97.3
+    percent of confident decisions in the standalone sweep, 95.7 percent measured from a served package) and is
+    kept for consumers who prefer its latency. Only the p150, p150-accuracy, p150-fast and p150x4 profiles were
+    run; a two-chip 1x2 mesh does not open on the build host (fabric router sync timeout). The host must set
     TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES=0 (the package does) because loading cached weight tensors from
-    disk otherwise hangs on this tt-metal version (see the port's doc/probe/README.md).
+    disk otherwise hangs on this tt-metal version (see the port's doc/probe/README.md). The branch
+    hous/clm-v0.1-8b at github.com/housTT/tt-metal carries the port; the image is built from a clean checkout of it.
   risks: >
     The matmul kernels use 32 of 110 cores at 128 tokens (model_config grid cap), so single-text latency is about
     2x an RTX 4090; latency-sensitive loops like the T-Rex game lose decisions. The container serves one model

@@ -99,7 +99,18 @@ override at a time are recorded below. The fifteen-variant trace-safety check wi
 (`replay_trace_check_accuracy_lofi_mlp_pc.json`: no unsafe buffers, repeated replays identical to cosine
 >= 0.9999998, refreshed inputs change the output).
 
-ISOLATION_RESULTS
+Isolation runs for the shipped policy (`fidelity_accuracy_lofi_mlp_pconly.json`, program configs only;
+`fidelity_accuracy_lofi_mlp_normonly.json`, sharded norm only):
+
+| accuracy_lofi_mlp with | cosine mean / min / p05 vs fp32 | head min (state / candidate) | single vs batched min | agreement all / confident | mean TV |
+|---|---|---|---|---|---|
+| stock configs | 0.99914 / 0.99584 / 0.99787 | 0.9941 / 0.9965 | 0.99646 | 96.0 % / 98.9 % | 0.0331 |
+| program configs only | 0.99913 / 0.99590 / 0.99786 | 0.9926 / 0.9956 | 0.99573 | 97.0 % / 98.9 % | 0.0382 |
+| sharded norm only | 0.99918 / 0.99669 / 0.99798 | 0.9924 / 0.9975 | 0.99745 | 96.0 % / 98.9 % | 0.0354 |
+| both (shipped) | 0.99916 / 0.99599 / 0.99787 | 0.9931 / 0.9971 | 0.99610 | 97.5 % / 98.9 % | 0.0354 |
+
+Neither override moves this policy's fidelity outside its run-to-run band (the four rows differ by at most 9e-4 in
+minimum cosine and by 0 to 3 of 200 plain-argmax decisions, with the confident-decision count fixed at 186 of 188).
 
 ## Performance (`perf_summary_accuracy_buckets5.json`, default policy accuracy, p150, warm traces, p50 of 10)
 
