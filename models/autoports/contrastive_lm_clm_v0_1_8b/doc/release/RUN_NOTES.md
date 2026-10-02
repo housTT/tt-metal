@@ -81,6 +81,20 @@ tt-model package --container models/autoports/contrastive_lm_clm_v0_1_8b/tt-mode
 - Eleventh attempt (the published build): `source.tt_metal` set to the clean worktree
   `/home/hous/dev/clm-v0.1-8B/worktree/tt-metal` (detached at the pushed commit, no uncommitted files), recorded under
   "Publish".
+- Twelfth attempt (2026 Oct 2 14:39 to 14:41 UTC, `package exit 0`, Hub revision 4): the T-Rex live demo served at
+  `/demo/` (vendored harness `server/trex/`, `server/demo_brain.py`, `server/demo_runner.py`, `server/demo.py`, the page
+  under `clm/demo/`, `websockets==16.0` added to the lock, three new `verify:` lines; 17 assertions pass; staged lock
+  identical to the repo copy). Image `tt-model/clm-v0.1-8b-p150:73e7a51f46f4`, digest
+  `sha256:73e7a51f46f44b53a18e6510c979c63e25d4fc327d15d85ca0f80527589e5b5c`, code sha256
+  `9ea9a148d22ee670f0e8bb67d24ddbbaa7db9c4b2fa60047fa0014c5fa408e58`, built from the clean worktree at commit
+  `29a1d6a715` (`dirty: false`). Demo and default-profile checks under "Demo verification".
+- Thirteenth attempt (14:51 to 14:53 UTC, `package exit 0`, the published build, Hub revision 5): one change on top of
+  build 12, `Session.stop()` in `server/demo.py` always joins the finished runner process, so no `<defunct>` child
+  remains after a game. Image `tt-model/clm-v0.1-8b-p150:85eee9d0dd8b`, digest
+  `sha256:85eee9d0dd8b803d07d2d57f66578c3911a0fde5b3609e2819dc6cb273d05993`, code sha256
+  `db04b18c9024e224629cbd6f35779404d71b0430403ea09162fa00ae9fd43c6e`, built from the clean worktree at commit
+  `6432259fac` (`dirty: false`; also the head of `hous/clm-v0.1-8b-release`), 17 `verify:` assertions pass, staged lock
+  identical to the repo copy.
 - Eighth attempt (00:24 to 00:26 UTC): card text from the build 7 evaluation and the mode fix; image `f5a706931401`,
   code sha256 unchanged (`c87308710a85...`), which confirms file modes and the card are outside the code hash.
 - Ninth attempt (00:26 to 00:29 UTC, `package exit 0`, the first published build, Hub revision 1): adds the fabric kernel `verify:` line
@@ -132,13 +146,38 @@ Typed Decisions 0.361 at 1,301 ms, agreement 95.5 / 98.4, T-Rex 3 of 5); build 5
 (`package_p150_20261001T224031Z`: 0.361 at 1,140 ms, agreement 93.0 / 95.7, T-Rex 2 of 5); build 6 and 9 `p150x4`
 checks (README example cold 176.1 and 174.6 ms, new state 33.6 and 34.1 ms, first 100 cases at 110 ms).
 
+## Demo verification (build 12 and later)
+
+Build 12 image `73e7a51f46f4` served on chip 0 with `tt-model serve --port 8700 --device-id 0 --detach --profile p150`;
+games driven over the WebSocket by `/home/hous/dev/clm-v0.1-8B/evals/trex/demo_ws_client.py`, which saves every
+message under `/home/hous/dev/clm-v0.1-8B/evals/trex/results/demo_<stamp>/` (`messages.jsonl`, `report.json`). The brain
+process inside the container posts to the server's own `/v1/systemone` at `http://127.0.0.1:8700`; 6 requests in
+flight, shield on, seed 0.
+
+| check | result |
+|---|---|
+| `GET /demo` | 307 to `/demo/`; `GET /demo/` 200; `GET /demo/demo.js` 200 |
+| 20 s game (`demo_20261002T144221Z`) | survived, best score 193, 365 decisions, planner agreement 0.901, answer p50 16.6 ms (p95 333 ms), model p50 1.4 ms, server p50 0.3 ms (p95 273 ms), 131 late answers discarded, 10 shield interventions, 36 arrival saves, 8 emergency saves, 0 errors, host stall 0.0 s; 845 frames and 40 stats messages received |
+| 60 s game (`demo_20261002T144243Z`) | survived at the 697 course maximum, 1,350 decisions, agreement 0.800, answer p50 16.6 ms (p95 234 ms), model p50 1.3 ms, server p50 0.3 ms (p95 217 ms), 513 discarded, 12 interventions, 219 arrival saves, 8 emergency saves, 0 errors; 2,621 frames |
+| live page | headless Firefox screenshot of the page during the 60 s game: `/home/hous/dev/clm-v0.1-8B/evidence/demo_p150_build12.png` (16 s in: 678 decisions at 42.5 per second, 72 late answers dropped, 41 shield saves, 93.4 percent agreement, score 146, round trip 16.5 ms, model call 0.9 ms, chip 0.2 ms for a cached state) |
+| default profile with the demo code (`package_p150_b12_20261002T144344Z`) | README example cold 98 tokens 218.5 ms, new state 55.8 ms, first 100 Typed Decisions cases 0.294 at 140 ms (matches builds 10 and 11) |
+| clean pull of revision 4, 10 s game on port 8703 (`demo_20261002T144536Z`) | `GET /demo/` 200; survived, best 89, 204 decisions, agreement 0.946, answer p50 16.5 ms, model p50 1.1 ms, server p50 0.2 ms, 40 discarded, 0 errors |
+| processes in the container | during a game: the server, the runner (`trex-demo-runner`) and the brain (`trex-demo-clm`); 21 s after the 20 s game one `[python] <defunct>` child remained (the finished runner, not yet joined by the server). Fixed in build 13 (`Session.stop()` always joins the runner), see the thirteenth attempt |
+| build 13 (published), 20 s game (`demo_20261002T145414Z`) | survived, best 193, 361 decisions, agreement 0.928, answer p50 16.6 ms, model p50 1.5 ms, server p50 0.3 ms, 143 discarded, 0 errors; 3 s after the game the container holds only the server and the multiprocessing resource tracker, `defunct count: 0` |
+| build 13 default profile (`package_p150_b13_20261002T145438Z`) | README example cold 98 tokens 218.8 ms, new state 55.8 ms, first 100 Typed Decisions cases 0.294 at 140 ms |
+| clean pull of revision 5, 10 s game on port 8703 (`demo_20261002T145626Z`) | image loaded in 18.6 s, healthy 30 s after start, `GET /demo/` 200; survived, best 89, 209 decisions, agreement 0.957, answer p50 16.5 ms, model p50 1.2 ms, server p50 0.2 ms, 42 discarded, 0 errors; `defunct count: 0` after the game |
+
+The games are shorter than the 5 x 60 s evaluation runs and use one seed, so their survival is not a score; the
+per-decision latencies (answer p50 16.5 to 16.6 ms, model p50 1.1 to 1.4 ms) match the evaluation runs above
+(16.4 and 1.3 ms). The 20 s and 60 s games ran with the headless Firefox and the client on the same host.
+
 ## Publish
 
 ```
 tt-model push /home/hous/dev/clm-v0.1-8B/package/out/clm-v0.1-8b-p150 --public
 ```
 
-Two revisions of `tt-hous/clm-v0.1-8b-p150` were pushed; both stay in the repo history.
+Five revisions of `tt-hous/clm-v0.1-8b-p150` were pushed; all stay in the repo history.
 
 - Revision 1, 2026 Oct 2 00:31 UTC (`/home/hous/dev/clm-v0.1-8B/logs/tt_model_push.log`): repo created public;
   image `9372e4d3d3c4` (build 9, `accuracy` default, built from the dirty main checkout), Hub revision
@@ -163,6 +202,20 @@ Two revisions of `tt-hous/clm-v0.1-8b-p150` were pushed; both stay in the repo h
   cases 0.294 at 140 ms, matching builds 10 and 11. Clean pull check (`tt_model_pull_v3.log`, `evals_pulled_v3.log`,
   `pulled_v3_rank.txt`, `package_pulled_v3_20261002T020032Z`): image loaded in 18.6 s, healthy 30 s after start,
   `/v1/rank` tides example Moon 0.9940 in 137.7 ms, README example cold 98 218.3, new state 56.0 ms.
+- Revision 4, 2026 Oct 2 14:44 UTC (`tt_model_push_v4.log`): the T-Rex live demo at `/demo/` (build 12, image
+  `tt-model/clm-v0.1-8b-p150:73e7a51f46f4`, digest `sha256:73e7a51f46f44b53a18e6510c979c63e25d4fc327d15d85ca0f80527589e5b5c`,
+  code sha256 `9ea9a148d22ee670f0e8bb67d24ddbbaa7db9c4b2fa60047fa0014c5fa408e58`, clean worktree at `29a1d6a715`,
+  `dirty: false`). Hub revision `b1e818116df1cc78f30b2016249028abe1585052`. Clean pull check (`tt_model_pull_v4.log`,
+  `serve_pulled_v4.log`, `demo_client_pulled_v4.log`): healthy 30 s after start, `GET /demo/` 200, 10 s demo game
+  204 decisions at agreement 0.946 (table under "Demo verification").
+- Revision 5, 2026 Oct 2 14:55 UTC (`tt_model_push_v5.log`), the current published build: build 13, the runner join fix
+  only (image `tt-model/clm-v0.1-8b-p150:85eee9d0dd8b`, digest
+  `sha256:85eee9d0dd8b803d07d2d57f66578c3911a0fde5b3609e2819dc6cb273d05993`, code sha256
+  `db04b18c9024e224629cbd6f35779404d71b0430403ea09162fa00ae9fd43c6e`, clean worktree at `6432259fac`, `dirty: false`).
+  Hub revision `d57730943327b34c3aaa5753e8a3135bbbfd72f1`, 141 files, 1,041 MB; image 964.0 MB in 28 blobs uploaded in
+  20.6 s. Clean pull check (`tt_model_pull_v5.log`, `serve_pulled_v5.log`, `demo_client_pulled_v5.log`): image loaded in
+  18.6 s, healthy 30 s after start, `GET /demo/` 200, 10 s demo game 209 decisions at agreement 0.957, no leftover child
+  process after the game (table under "Demo verification").
 - Hub tags: blackhole, p150, p150x4, tt-dit-server, tt-model-cache, tt-model-container, text-ranking, license
   apache-2.0, base_model Contrastive-LM/CLM-v0.1-8B (the Hub labels the relation "finetune" by default; the weights
   are the unmodified upstream weights and the card says so). Not listed in the community catalog (`--publish` was not
