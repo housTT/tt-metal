@@ -38,7 +38,7 @@
     <div class="stage-head">
       <div>
         <h1>Can the model keep the dinosaur alive?</h1>
-        <p class="lede">A physics planner labels each move safe or unsafe for the moment the answer will land. The model reads the labels and picks one. Its answer latency is part of the game: several questions stay in flight, and late answers are thrown away.</p>
+        <p class="lede">A physics planner labels each move safe or unsafe for the moment the answer will land. The model reads the labels and picks one. Its answer latency is part of the game: several questions stay in flight, and late answers are thrown away. The shield is a safety net outside the model: it steps in only when a move would crash, and every save is counted.</p>
       </div>
       <div id="phase" class="phase">idle</div>
     </div>
@@ -75,7 +75,7 @@
         <div><dt>decisions</dt><dd id="c-dec" class="mono">0</dd><small id="c-rate" class="muted">0 / s</small></div>
         <div><dt>in flight</dt><dd id="c-inflight" class="mono">0</dd><small class="muted">requests open</small></div>
         <div><dt>late answers dropped</dt><dd id="c-drop" class="mono">0</dd><small class="muted">arrived after the keys changed</small></div>
-        <div><dt>shield saves</dt><dd id="c-shield" class="mono">0</dd><small id="c-shield-split" class="muted">0 replaced, 0 arrival, 0 emergency</small></div>
+        <div title="Moves the shield changed: replaced at decision time, at arrival, or in an emergency. Defined under Run."><dt>shield saves</dt><dd id="c-shield" class="mono">0</dd><small id="c-shield-split" class="muted">0 replaced, 0 arrival, 0 emergency</small></div>
         <div><dt>agreed with planner</dt><dd id="c-agree" class="mono">0%</dd><small class="muted">model's pick was the planner's best</small></div>
         <div><dt>score</dt><dd id="c-score" class="mono">0</dd><small id="c-best" class="muted">best 0</small></div>
         <div><dt>deaths</dt><dd id="c-deaths" class="mono">0</dd><small id="c-time" class="muted">0 s</small></div>
@@ -90,6 +90,7 @@
         <label>seconds each <input id="f-duration" type="number" min="5" max="180" value="60"></label>
         <label>in flight <input id="f-inflight" type="number" min="1" max="8" value="6"></label>
         <label class="check"><input id="f-shield" type="checkbox" checked> shield on</label>
+        <p id="shield-help" class="help"><b>Shield</b>: the harness's safety net, not part of the model. <b>Replaced</b>: the model picked a move the planner labeled unsafe, so its most likely safe move ran instead. <b>Arrival</b>: when an answer lands, the pilot re-simulates that move against the obstacles now on screen, 12 frames ahead for a held key and up to 42 for a jump, and swaps in a move that survives. <b>Emergency</b>: while answers are in flight or late, the pilot checks the held key every frame and presses a surviving move itself. Switch it off to watch the model play unassisted.</p>
         <label id="f-key-wrap" hidden>API key <input id="f-key" type="password" spellcheck="false"></label>
         <div class="buttons">
           <button id="btn-start" type="submit" class="primary">Start</button>
