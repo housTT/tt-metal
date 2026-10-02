@@ -62,7 +62,7 @@ serve_profiles:
     hardware: p150
     mesh_device: P150
   - name: p150-accuracy
-    description: "One Blackhole p150 chip, the stock accuracy policy (bf16 attention, HiFi4 attention math, bfp8 MLP with HiFi2 math) on the stock program configs; the previous default. Passes every gate (98.9 percent confident-decision agreement); 1.5 percent faster than p150 at 128 tokens batch 1 and 10 to 20 percent slower in every other cell."
+    description: "One Blackhole p150 chip, the stock accuracy policy (bf16 attention, HiFi4 attention math, bfp8 MLP with HiFi2 math) on the stock program configs; the previous default. Passes every gate (98.9 percent confident-decision agreement in the standalone sweep); about 9 percent slower than p150 at 128 tokens batch 1 and 19 to 22 percent slower in the other measured cells (host bench, both profiles)."
     hardware: p150
     mesh_device: P150
     env:
@@ -123,10 +123,10 @@ card:
     accuracy 0.345 (0.364 with the previous stock-accuracy default; the fp32 reference scores 0.370 on the 40-case
     subset against 0.355 here), KL 2.04, Brier 0.63, 258 ms p50 per 5-question case; T-Rex real-time game 3 of 5
     courses survived, 2,195 decisions per course (authors on a 4090: 5 of 5, 3,342). Profiles: p150-accuracy (the
-    previous default) 263 ms cold README example, 60 ms new state, 1.5 percent faster than p150 only at 128 tokens
-    batch 1 and 10 to 20 percent slower elsewhere; p150-fast 234 ms and 56 ms with 97.3 / 95.7 percent
-    confident-decision agreement (sweep / served); p150x4 (four chips, tensor parallel) 175 ms cold README example
-    and 34 ms new state.
+    previous default) 263 ms cold README example, 60 ms new state, about 9 percent slower than p150 at 128 tokens
+    batch 1 and 19 to 22 percent slower in the other measured cells; p150-fast 234 ms and 56 ms with 97.3 / 95.7
+    percent confident-decision agreement (sweep / served); p150x4 (four chips, tensor parallel) 169 ms cold README
+    example and 34 ms new state from the published image.
   limitations: >
     Encoder-only; produces scores and embeddings, never text. Inputs longer than 2048 tokens are truncated to
     their last 2048 tokens (upstream clm-serve default); the encoder itself supports 40960. Outputs are
@@ -134,10 +134,11 @@ card:
     cosine 0.999 level (batch-variant reduction order of the prefill kernels, tt-metal issue 47238): between a
     single-text and a batched embedding of the same 200 Typed Decisions subset decisions, 4 to 5 argmax answers
     change, all near ties. Against the fp32 CPU reference the default profile reverses 8 of those 200 decisions
-    (6 of them where the reference's own top-2 margin is below 0.10, 2 of the 188 confident ones). The published
+    (5 of them where the reference's own top-2 margin is below 0.10, 3 of the 188 confident ones: 98.4 percent). The published
     README example probabilities (0.410 / 0.939 / 1.984) are not reproduced by the published head on any
-    hardware; this package gives 0.852 / 0.991 / 2.000 on the single-text path and 0.816 / 0.993 / 2.000 when the
-    request is embedded as one batch, against the CPU fp32 reference's 0.842 / 0.988 / 2.000. Zero-shot Typed
+    hardware; the default profile gives 0.844 / 0.991 / 2.000 on the single-text path (host run of the shipped
+    policy) and 0.875 / 0.986 / 2.000 when the served request is embedded as one batch, against the CPU fp32
+    reference's 0.842 / 0.988 / 2.000. Zero-shot Typed
     Decisions accuracy is below the dataset's prior baseline on both CPU and TT; the CLM authors treat that
     benchmark as a fine-tuning target. The p150-fast profile fails this port's decision-agreement gate (97.3
     percent of confident decisions in the standalone sweep, 95.7 percent measured from a served package) and is

@@ -76,14 +76,14 @@ Recorded in the card's limitations.
 CLM heads, computed from the final-path single-text vectors (`../optimized_full_model/fidelity_accuracy_buckets5_tt_single.npy`)
 and from the fp32 reference vectors with the same head code (`tests/decision_agreement.py` method):
 
-| question | TT, single-text path | fp32 reference | served package (request batched) |
-|---|---|---|---|
-| tides ranking, P(Moon) | 0.9922 | 0.9935 | 0.9948 (`/v1/rank`, clean pull check) |
-| urgency, noul P(true) | 0.852 | 0.842 | 0.816 |
-| department, P(billing) | 0.991 | 0.988 | 0.993 |
-| frustration, score on the 0 to 2 scale | 2.000 | 2.000 | 2.000 |
+| question | accuracy policy, single-text path | shipped default (accuracy_lofi_mlp + overrides), single-text path | fp32 reference | served default (request batched, build 10) |
+|---|---|---|---|---|
+| tides ranking, P(Moon) | 0.9922 | 0.9936 | 0.9935 | 0.9940 (`/v1/rank`, clean pull check of revision 2) |
+| urgency, noul P(true) | 0.852 | 0.844 | 0.842 | 0.875 |
+| department, P(billing) | 0.991 | 0.991 | 0.988 | 0.986 |
+| frustration, score on the 0 to 2 scale | 2.000 | 2.000 | 2.000 | 2.000 |
 
-Argmax decisions are identical in all three columns. The served column differs from the single-text column because
+Argmax decisions are identical in all four columns. The served column differs from the single-text column because
 the server embeds a request's state and option texts in one batch (batch-variant reduction order, next section).
 The README's printed values for the same example (0.410 / 0.939 / 1.984) are not reproduced by the published head and
 code on any hardware (`/home/hous/dev/clm-v0.1-8B/reference/README.md`). Decision-level agreement on the Typed

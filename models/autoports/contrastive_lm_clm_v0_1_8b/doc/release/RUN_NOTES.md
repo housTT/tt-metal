@@ -8,8 +8,9 @@ built package on this box and running the evaluation harnesses against it.
 
 - Host `qb2-120-p11t01`: 2 x p300c (4 Blackhole chips), TT-KMD 2.10.0, firmware 19.15.0, Ubuntu 24.04, Docker 29.5.2.
 - tt-metal `/home/hous/dev/ornith-1.5-9b/tt-metal`, branch `hous/clm-v0.1-8b`; builds 6 to 9 from commits `a3df3fd2ee` to `2c710b113b`; the published build is recorded under "Publish"
-  (branch pushed to `https://github.com/housTT/tt-metal`; the manifest's `pushed: false` refers to the upstream
-  `tenstorrent/tt-metal` remote, which does not carry this branch). The working tree also carries unrelated
+  (branch pushed to `https://github.com/housTT/tt-metal`; the manifests of builds 1 to 9 say `pushed: false`
+  because they were taken before the push or checked the upstream remote; the published manifest says `pushed: true`,
+  `remote: git@github.com:housTT/tt-metal.git`). The working tree also carries unrelated
   uncommitted edits from the earlier Ornith project (21 tracked files: `AGENTS.md`, Ornith autoport files, and two
   kernel sources), which is why the manifests of builds 1 to 9 say `dirty: true`. Correction after review R: the
   two kernel sources ARE in those images and ARE on the four-chip serving path. `tt_metal/fabric/impl/kernels/edm_fabric/fabric_erisc_router.cpp`
@@ -82,20 +83,23 @@ tt-model package --container models/autoports/contrastive_lm_clm_v0_1_8b/tt-mode
   "Publish".
 - Eighth attempt (00:24 to 00:26 UTC): card text from the build 7 evaluation and the mode fix; image `f5a706931401`,
   code sha256 unchanged (`c87308710a85...`), which confirms file modes and the card are outside the code hash.
-- Ninth attempt (00:26 to 00:29 UTC, `package exit 0`, the published build): adds the fabric kernel `verify:` line
+- Ninth attempt (00:26 to 00:29 UTC, `package exit 0`, the first published build, Hub revision 1): adds the fabric kernel `verify:` line
   (14 assertions pass). Image `tt-model/clm-v0.1-8b-p150:9372e4d3d3c4`, digest
   `sha256:9372e4d3d3c488067bdc2a22a23040ca0deed6027f76221b5d36763632be7100`, code sha256
   `c87308710a8567474a9cc832873033182fd111e55558ca96cf92b3c6ac34970c`, created 2026-10-02T00:26:36Z, tt-metal
   `2c710b113b` (dirty: the unrelated Ornith edits). The `p150x4` profile boots and serves from this image (table
   below), and the `p150` profile smoke matches build 7.
 
-## Serve profiles
+## Serve profiles (published revision 2 and later)
 
-| profile | hardware | mesh | precision | notes |
+| profile | hardware | mesh | policy and configs | measured against the default (host bench) |
 |---|---|---|---|---|
-| p150 (default) | p150 | P150 | accuracy | selected by the stage 8 sweep with the decision-agreement gate |
-| p150-fast | p150 | P150 | bfp8_attn (stock default policy) | 6 percent faster, 97.3 percent decision agreement |
-| p150x4 | p150x4 | P150x4 | accuracy | 1x4 tensor parallel, FABRIC_1D, 1.9x faster at 128 tokens |
+| p150 (default) | p150 | P150 | accuracy_lofi_mlp with the program-config overrides and the block-sharded norm | selected by the stage 8 sweep: lowest served-workload sum of the passing rows (1,109 ms) |
+| p150-accuracy | p150 | P150 | stock accuracy policy, stock configs (the previous default) | 8.7 percent slower at 128 tokens batch 1, 19 to 22 percent slower in the other cells; passes the gate |
+| p150-fast | p150 | P150 | stock bfp8 policy, stock configs | 1.7 percent slower at 128 tokens batch 1 (54.0 vs 53.1 ms) and 3 to 8 percent slower elsewhere; fails the agreement gate (97.3 percent sweep, 95.7 percent served) |
+| p150x4 | p150x4 | P150x4 | accuracy_lofi_mlp, 1x4 tensor parallel, FABRIC_1D; overrides do not apply | 169 ms cold README example and 34 ms new state from the published image (vs 220 and 56 ms on one chip) |
+
+Revision 1 (image `9372e4d3d3c4`) shipped `p150` = accuracy, `p150-fast` and `p150x4` = accuracy.
 
 ```
 tt-model serve --port 8700 --device-id 0 --detach --profile p150 <manifest or tt-hous/clm-v0.1-8b-p150>

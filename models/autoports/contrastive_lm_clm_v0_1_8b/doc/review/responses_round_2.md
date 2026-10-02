@@ -42,7 +42,8 @@ Paths are under `/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/contrast
 - Other concerns: bf16_all variant label corrected (128-token batch-1 variant); gate vector set and resolution
   stated; latency direction wording fixed; `_select_trace_lens` now rejects a `max_seq_len` that is not a multiple
   of 128 and `from_env` rejects `CLM_MAX_TOKENS` above `CLM_MAX_SEQ_LEN`; the twophase_limit96 file is described;
-  the consolidated work log is recorded as a deviation; the multichip README's residual statements are reconciled
+  the consolidated work log records itself as a deviation from the per-stage log convention (first paragraph of
+  `doc/full_model/work_log.md`); the multichip README's residual statements are reconciled
   and the stage 4 gate outcome (mean 0.99929, min 0.99547) is recorded. Not done: a Pareto plot of agreement vs
   latency (the table carries the agreement columns); extending the fp32 reference beyond 40 cases.
 
@@ -56,7 +57,19 @@ Paths are under `/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/contrast
   options, set against the p150 new-state row; the "4.5 times" derivation removed; one 4090 cache column used.
 - P2, card attribution and p150-fast wording. Done: encoder rows attributed to the host bench, served rows given
   separately, throughput capped at the served maximum; p150-fast given both agreement numbers; near-tie sentence
-  rewritten with the measured counts; p150-fast served once from the published image (RUN_NOTES).
+  rewritten with the counts of the final default-profile run (8 of 200, 5 below margin 0.10, 3 confident);
+  p150-fast served once from build 10, which has the same code sha256 as the published image (RUN_NOTES).
 - P2, stale commit and blob count in RUN_NOTES. Done.
 - Other concerns: Typed Decisions table carries footnotes on the latency protocol and the ECE column; the T-Rex
   wording about "same encoder latency" corrected; the Hub tag list completed.
+
+## Review R2 (release verification, 2026 Oct 2 01:50 UTC)
+
+- P1, reversed `p150-accuracy` speed claim and P1, wrong disagreement split: both came from the pre-override and
+  build 7 numbers. Card and release notes rewritten from the final bench and the build 10 agreement file (8.7 and
+  19 to 22 percent slower; 8 of 200 reversed, 5 below margin 0.10, 3 of 188 confident = 98.4 percent); revision 3
+  pushed with the corrected card.
+- P2 items: README-example probabilities now from the shipped policy (single-text 0.844 / 0.991 / 2.000; served
+  0.875 / 0.986 / 2.000); p150x4 latency from the published image (169 ms); release-notes profile table replaced;
+  "the published build" label moved to the eleventh attempt; REPORT head commit, relative paths, the 57.8 ms cell,
+  the 3.0 percent bound gap, 1,301 ms and the per-text token range corrected.
