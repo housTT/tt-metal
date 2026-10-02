@@ -1,8 +1,30 @@
 # kev-9b stage 5: data parallel over 4 chips (one process, four submeshes, question-level fan-out)
 
-Date: 2026 Oct 01. Box: p300c, 4 Blackhole P150 chips. Host-only preparation; nothing in this directory has run on a device yet. Device numbers below are stage 3 measurements on chip 0 (`/home/hous/dev/kev/tt-metal/models/autoports/jaredpalmer_kev_9b/doc/optimized/perf_summary.json`) or cost-model predictions, marked as such.
+Date: 2026 Oct 01 to 02. Box: p300c, 4 Blackhole P150 chips. The design below was written host-only; the device validation ran on Oct 01 23:11 to Oct 02 (see "Results on device" and `/home/hous/dev/kev/tt-metal/models/autoports/jaredpalmer_kev_9b/doc/multichip/work_log.md`). Numbers in the design sections are the stage 3 and 4 single-chip measurements or cost-model predictions, marked as such; the measured ones are in the results section.
 
 Acronyms: DP (data parallel), KV (key/value), GDN (Gated DeltaNet), GIL (global interpreter lock), LPT (longest processing time first), req/s (requests per second).
+
+## Results on device (2026 Oct 01 to 02)
+
+Full chronology, commands and log analysis: `/home/hous/dev/kev/tt-metal/models/autoports/jaredpalmer_kev_9b/doc/multichip/work_log.md`. Reports under `/home/hous/dev/kev/reports/bench/`.
+
+Scaling with whole-request DP (`KEV_FANOUT=0`), requests/s at 64 clients on the 6-question short-state sample (p50 / p99 wall ms):
+
+| Workers | As patched | With the readback fix below |
+|---|---|---|
+| 1 | 1.6 (39,116 / 39,504), full method | not run (one worker never contends) |
+| 2 | 2.0 (8,517 / 15,583), `--quick` | not run |
+| 4 | 2.5 (24,872 / 26,292), full method | 6.6 (2,735 / 4,858), `--quick` |
+
+The shortfall was the GIL. `py-spy record --gil` on the 4-worker server under the 64-client load found the GIL held 99.5 % of the time, 98.6 % of it inside `KevEngine._gather` at `ttnn.to_torch`: the module-level `ttnn.from_device` binding has no `gil_scoped_release` and blocks on the device until the question's traces finish, so the four worker threads took turns. Per-request model time rose from 607 ms alone to 1,058 ms with two workers busy and 1,522 ms with four. `Tensor.cpu` is bound with the release, so the fix is one line in `tt/engine.py`: `ttnn.to_torch(B["rows"].cpu())`. With it the GIL is held 1.5 % of the time, per-request model time stays at 607 ms under 4-way load, and throughput is 4.1x of one worker (6.6 req/s); decision-v7 20.9 to 22.5 req/s against 5.7 (3.7 to 3.9x).
+
+Fan-out latency (4 workers, `KEV_FANOUT=1`), model latency per request new / cached, measured against the prediction table above: 2 questions 101.9 / 101.4 ms [105]; 6 questions 203.9 / 203.9 ms [210], plan 2 / 2 / 1 / 1, device time 613 ms against 607 whole; 5 questions on a 370-token state 439.7 / 395.2 ms [416 / 453]; 5 questions on the 2,200-token state 1,533.4 / 527.0 ms [1,554 / 525], one worker. Under load the planner degraded to whole-request (0 to 4 % of decision-v7 requests fanned out at 8 to 64 clients) and the 64-client throughput was the same with fan-out and without on every sample of the full bench (short 6.5 / 6.5, decision-v7 15.6 / 15.6, long 2.5 / 2.6 req/s).
+
+Final card rows (`scripts/serving_bench_remote.py`, full method, 20 reps): P150 (1 chip) 607.8 / 607.7 ms, 1,533.5 / 527.0 ms, 1.6 req/s; P150 x4 (data parallel, fan-out) 203.9 / 203.9 ms, 1,533.4 / 527.0 ms, 6.5 req/s.
+
+Identity and parity: the 29 served answers of the 16 reference records are identical on each of the four chips (single-worker servers, `KEV_DEVICES=k`), on the x4 fan-out server (2 passes, 16 / 16 revisits equal) and in the stage 4 single-chip report (`reports/stage5_parity_compare.json`, `all_identical true`); vs fp32 max dp 0.0878, mean 0.0272, 1 near-tie flip. On 64 development records (104 questions) against kev's CPU fp32 `LocalPredictor`: max dp 0.416 (a hard-v1 date-arithmetic row where fp32 is also wrong), mean dp 0.0368, 4 flips of which 2 at a margin >= 0.05 (`reports/parity64/compare.json`).
+
+Startup with four concurrent engine builds: 96 s. No tracebacks or HTTP 500s at 64 clients in any run.
 
 ## Files
 
@@ -10,10 +32,10 @@ Acronyms: DP (data parallel), KV (key/value), GDN (Gated DeltaNet), GIL (global 
 |---|---|
 | `/home/hous/dev/kev/tt-metal/models/autoports/jaredpalmer_kev_9b/tt/dispatch.py` | New. Pure Python, engine-agnostic: `CostModel`, `Policy`, `WorkerView`, `plan`, `share_cost_ms`, `merge_results`, `collect`. |
 | `/home/hous/dev/kev/tt-metal/models/autoports/jaredpalmer_kev_9b/tests/test_dispatch.py` | New. 16 pure tests plus 2 server-level tests that skip until the patch below is applied. |
-| `/home/hous/dev/kev/tt-metal/models/autoports/jaredpalmer_kev_9b/doc/multichip/server_patch.diff` | Unified diff for `tt/server.py`. Not applied. Apply with `cd /home/hous/dev/kev/tt-metal && patch -p1 < models/autoports/jaredpalmer_kev_9b/doc/multichip/server_patch.diff`. |
+| `/home/hous/dev/kev/tt-metal/models/autoports/jaredpalmer_kev_9b/doc/multichip/server_patch.diff` | Unified diff for `tt/server.py`, applied in commit `0591d956196`; kept for reference. |
 | `/home/hous/dev/kev/tt-metal/models/autoports/jaredpalmer_kev_9b/scripts/parity_compare.py` | New. Compares the served answers of several `parity_remote.py` reports; exit 1 when any answer differs. |
 
-`tt/server.py` and `tt/engine.py` are unchanged by this stage so far (stage 4 owns `tt/loader.py` and may add an import line to `tt/server.py`; the patch touches the import block one line below the `api` import, so apply it after stage 4 lands and resolve a one-line offset if needed).
+`tt/server.py` carries the applied patch. `tt/engine.py` carries one line from the device validation: `_gather` reads the gathered rows with `ttnn.to_torch(B["rows"].cpu())`, so the blocking device wait runs in a binding that releases the GIL (see "Results on device").
 
 ## What already exists (stage 2 and 3)
 
@@ -154,9 +176,9 @@ The card table rows `P150 x4 (data parallel)` come from `/home/hous/dev/kev/repo
 
 ## Open questions
 
-- GIL scaling is unmeasured (step A). The design assumes device time dominates and the four Python threads overlap; stage 3 measured host work under 1 % per request on one worker, which says nothing about a GIL-held device wait.
+- GIL scaling, measured (step A): the as-patched server scaled 1.25x on 2 workers and 1.56x on 4 because `ttnn.from_device` held the GIL through the device wait; with the `.cpu()` readback the four workers scale 4.1x. Remaining GIL holders under load are the `from_torch` writes, the host head and the tokenizer (1.5 % of wall time in total), so the next contention point is far off.
 - `backlog_ms` is an estimate that does not decay while a job runs; a long in-flight job counts at its full cost until it finishes. Under steady load this biases towards whole-request assignment, which is the safe side.
 - The cost model comes from chip 0 at the stage 3 precision config. If stage 4 changes the matmul dtypes or fidelity, the tail and state numbers shift together; the planner's decisions depend on ratios (tail versus state block), so re-fitting is a correctness nicety, not a blocker. Point `KEV_PERF_SUMMARY` at a refreshed file when one exists.
-- Four engines build concurrently at startup: four `load_state_dict` calls and four tensor-cache reads at once. Host RAM is 249 GB (fine); startup time with four concurrent builds is unmeasured (44 s for one).
+- Four engines build concurrently at startup: 96 s to `ready` for four workers against 59 s for one (host memory in use about 34 GB of 249 GB).
 - `latency_ms_sum` is not in the HTTP body to keep kev's field set; adding it behind a flag is a one-line change in `Server.body` if stage 6 wants it client-side.
-- `KEV_DEVICES` subsetting, `trace_region_size` per submesh (1 GiB each) and 8 KV slots per chip were set up in stage 2 and 3 but have not run with four live workers yet.
+- `KEV_DEVICES` subsetting (`0`, `0,1`, `1`, `2`, `3`), 1 GiB trace region per submesh and 8 KV slots per chip ran with one, two and four live workers in this validation.

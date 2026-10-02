@@ -309,7 +309,7 @@ class KevEngine:
             sel[0, torch.arange(len(group)), torch.tensor(group)] = 1.0
             self._write(sel, B["sel"], ttnn.bfloat16, TILE)
             self._replay(("gather", b))
-            out[i : i + len(group)] = ttnn.to_torch(B["rows"])[0, : len(group)].float()
+            out[i : i + len(group)] = ttnn.to_torch(B["rows"].cpu())[0, : len(group)].float()
         return out
 
     def _run_segment(self, token_ids, chunk_start, slot):

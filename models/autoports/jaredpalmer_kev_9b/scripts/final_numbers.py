@@ -17,11 +17,33 @@ BENCH = {
     "p150x1_whole_cpujob": "1 worker, KEV_FANOUT=0, full bench while the CPU fp32 parity job ran (host contention; not a card number)",
     "p150x1_whole_latency_idle": "1 worker, KEV_FANOUT=0, latency section only, idle host",
     "p150x2_whole": "2 workers, KEV_FANOUT=0, --quick",
-    "p150x4_whole": "4 workers, KEV_FANOUT=0, full bench",
+    "p150x4_whole": "4 workers, KEV_FANOUT=0, full bench, before the readback fix (GIL-bound)",
+    "p150x4_whole_fix_quick": "4 workers, KEV_FANOUT=0, --quick, with the GIL-releasing readback",
+    "p150x4_whole_fix": "4 workers, KEV_FANOUT=0, full bench, with the GIL-releasing readback",
     "p150x4_fanout": "4 workers, KEV_FANOUT=1, full bench",
     "p150_stage4r": "stage 4 final, 1 chip (mesh 1x1, chip 0), --quick",
 }
 CARD_ROWS = {"P150 (1 chip)": "p150x1_whole", "P150 x4 (data parallel)": "p150x4_fanout"}
+GIL = {
+    "method": "sudo py-spy record --gil --threads --nonblocking --rate 200 on the 4-worker server during the 64-client short-state run; per-request latency_ms from the server log",
+    "before_fix": {
+        "profile": str(R / "bench" / "gil_A4" / "gil_012352.raw"),
+        "gil_held_samples_of_6000": 5969,
+        "gil_held_fraction": 0.995,
+        "fraction_in_gather_to_torch": 0.986,
+        "on_cpu_samples_of_6000": 182,
+        "model_latency_ms_median": {"1 worker busy": 607, "2 workers busy": 1058, "4 workers busy": 1522},
+        "requests_per_s_64_clients_short": {"1 worker": 1.6, "2 workers": 2.0, "4 workers": 2.5},
+    },
+    "fix": "tt/engine.py KevEngine._gather: ttnn.to_torch(B['rows'].cpu()); Tensor.cpu is bound with gil_scoped_release, the module-level from_device used by to_torch is not",
+    "after_fix": {
+        "profile": str(R / "bench" / "gil_A4fix" / "gil_014507.raw"),
+        "gil_held_samples_of_4000": 58,
+        "gil_held_fraction": 0.015,
+        "model_latency_ms_median_4_workers_busy": 607,
+        "requests_per_s_64_clients_short_4_workers": 6.6,
+    },
+}
 MODEL_CARD = {
     "hard-v1": {"test_acc": 0.834, "test_ece": 0.054},
     "devtools-v1": {"test_acc": 0.791, "test_ece": 0.098},
@@ -182,6 +204,7 @@ def main():
         "bench": {name: {**bench_summary(rep), "note": BENCH[name]} for name, rep in benches.items() if rep},
         "parity_16_records": parity16(),
         "parity_64_records": read(R / "parity64" / "compare.json"),
+        "gil": GIL,
         "eval": evals(),
         "model_card": MODEL_CARD,
     }
