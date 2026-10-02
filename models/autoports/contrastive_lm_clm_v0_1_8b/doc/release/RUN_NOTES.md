@@ -144,7 +144,7 @@ Two revisions of `tt-hous/clm-v0.1-8b-p150` were pushed; both stay in the repo h
   image `9372e4d3d3c4` (build 9, `accuracy` default, built from the dirty main checkout), Hub revision
   `3da3cc872dc36c4d738bbadd42f921d854ddae04`, 124 files, 1,041 MB. Clean pull check passed (`tt_model_pull_clean.log`,
   `evals_pulled_clean.log`: README example cold 260.9 ms / 98 tokens, new state 60.5 ms).
-- Revision 2, 2026 Oct 2 01:34 UTC (`tt_model_push_v2.log`), the published build: image
+- Revision 2, 2026 Oct 2 01:34 UTC (`tt_model_push_v2.log`), the first clean-tree build: image
   `tt-model/clm-v0.1-8b-p150:6cf6949ed327`, digest `sha256:6cf6949ed327e23b85cabe93b4d45d8520c28f10c7be72d38c94071890ceb4b3`,
   code sha256 `e9ae8402b6337c9cf84fa8c049dea50bcc0422849995c95a95099734a23137c6` (identical to the evaluated build 10),
   built 01:29 to 01:32 UTC from the clean worktree `/home/hous/dev/clm-v0.1-8B/worktree/tt-metal` detached at commit
@@ -154,6 +154,15 @@ Two revisions of `tt-hous/clm-v0.1-8b-p150` were pushed; both stay in the repo h
   README example cold 169.3 ms, new state 34.3 ms, first 100 Typed Decisions cases 0.296 at 106 ms). The `p150`
   profile from this image matches build 10 (README example cold 220.5 ms, new state 56.1 ms, first 100 cases 140 ms).
   Hub revision `2eb9cf5199d2302f5f3e7eeb71d55f39cdacabe5`, 124 files, 1,041 MB; image 963.7 MB in 28 blobs uploaded in 23.0 s.
+- Revision 3, 2026 Oct 2 01:59 UTC (`tt_model_push_v3.log`), the current published build: card corrections from review R2
+  only (same code sha256 `e9ae8402...`). Image `tt-model/clm-v0.1-8b-p150:4c6e66b2acfc`, digest
+  `sha256:4c6e66b2acfca7067e3b39a2aba2dcde979fea9f529cb1d5d528b10d3a1f4108`, built 01:55 to 01:58 UTC from the clean
+  worktree at commit `ba61f5a200` (`dirty: false`, `pushed: true`; also the head of `hous/clm-v0.1-8b-release`). Hub
+  revision `6796024daaedbcab10ac51314a6894feeb5d0339`, 124 files, 1,041 MB. Default-profile smoke from this image
+  (`package_p150_b12_20261002T015817Z`): README example cold 98 219.6, new state 55.8 ms, first 100 Typed Decisions
+  cases 0.294 at 140 ms, matching builds 10 and 11. Clean pull check (`tt_model_pull_v3.log`, `evals_pulled_v3.log`,
+  `pulled_v3_rank.txt`, `package_pulled_v3_20261002T020032Z`): image loaded in 18.6 s, healthy 30 s after start,
+  `/v1/rank` tides example Moon 0.9940 in 137.7 ms, README example cold 98 218.3, new state 56.0 ms.
 - Hub tags: blackhole, p150, p150x4, tt-dit-server, tt-model-cache, tt-model-container, text-ranking, license
   apache-2.0, base_model Contrastive-LM/CLM-v0.1-8B (the Hub labels the relation "finetune" by default; the weights
   are the unmodified upstream weights and the card says so). Not listed in the community catalog (`--publish` was not
