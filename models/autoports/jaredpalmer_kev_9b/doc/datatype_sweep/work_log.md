@@ -1,6 +1,6 @@
 # kev-9b stage 4 (datatype sweep): work log
 
-Times are Eastern Time, 2026 Oct 01. Agent: stage 4 preparation (harness only; the full sweep runs on request). Constraints in force: device commands only through `/home/hous/dev/kev/bin/devrun` with `timeout`, one device process at a time, at most one short device smoke in this task; `tt/engine.py`, `tt/server.py`, `tests/test_engine.py` not touched (stage 3 owns them).
+Times are UTC (the host clock), 2026 Oct 01. Agent: stage 4 preparation (harness only; the full sweep runs on request). Constraints in force: device commands only through `/home/hous/dev/kev/bin/devrun` with `timeout`, one device process at a time, at most one short device smoke in this task; `tt/engine.py`, `tt/server.py`, `tests/test_engine.py` not touched (stage 3 owns them).
 
 ## 20:38 to 20:44: reading
 

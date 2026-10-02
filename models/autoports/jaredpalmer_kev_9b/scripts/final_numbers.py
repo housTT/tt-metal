@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from summarize_eval import SUITES, audited, knowable, scored
+from summarize_eval import DROP_IDS, SUITES, audited, knowable, scored
 
 R = Path("/home/hous/dev/kev/reports")
 AP = Path(__file__).resolve().parent.parent
@@ -145,23 +145,25 @@ def evals():
             if rep is None:
                 out[f"{suite}/{split}"] = None
                 continue
-            c = rep["clean"]
+            rows = read(R / "eval" / suite / split / "rows.json")
+            c = {**rep["clean"], **scored(knowable(rows))} if rows else rep["clean"]
             out[f"{suite}/{split}"] = {
                 "n": c["n"],
                 "acc": c["acc"],
                 "brier": c["brier"],
                 "ece": c["ece"],
                 "nll": c["nll"],
+                "rows_dropped": rep["clean"]["n"] - c["n"],
                 "latency_p50_ms": rep["latency_ms"]["median"],
                 "latency_p95_ms": rep["latency_ms"]["p95"],
                 "coverage": rep["coverage"],
                 "concurrency": rep["remote"]["concurrency"],
             }
-            rows = read(R / "eval" / suite / split / "rows.json")
             if suite in ("hard-v1", "devtools-v1") and rows:
                 pooled.setdefault(split, []).extend(audited(knowable(rows)))
         if split in pooled:
             out[f"hard-v1 + devtools-v1 audited/{split}"] = scored(pooled[split])
+    out["drop_ids"] = sorted(DROP_IDS)
     return out
 
 

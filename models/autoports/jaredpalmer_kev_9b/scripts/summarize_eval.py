@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -8,6 +9,12 @@ DEFAULT_ROOT = "/home/hous/dev/kev/reports/eval"
 SUITES = ("hard-v1", "devtools-v1", "documents-v1", "breadth-v1", "smoke-v1")
 AUDIT_EXCLUDE_SOURCES = ("flakeflagger",)
 AUDIT_EXCLUDE_TASKS = ("commitpackft_type",)
+DROP_IDS_FILE = Path("/home/hous/dev/kev/kev/experiments/rounds/r27.json")
+DROP_IDS = (
+    frozenset(json.loads(DROP_IDS_FILE.read_text(encoding="utf-8"))["drop_ids"])
+    if DROP_IDS_FILE.exists()
+    else frozenset()
+)
 CARD = [
     ("hard-v1 + devtools-v1, audited", "development 0.821 / test 0.822 (accuracy)"),
     ("documents-v1", "development 0.902 / test 0.900 (accuracy)"),
@@ -28,18 +35,25 @@ def ece(conf, correct, bins=10):
 
 
 def scored(rows):
-    acc, conf, brier = [], [], []
+    acc, conf, brier, nll = [], [], [], []
     for row in rows:
         p = np.asarray(row["p"], dtype=float)
         y = row["label"]
         acc.append(int(p.argmax() == y))
         conf.append(float(p.max()))
         brier.append(float(((p - np.eye(len(p))[y]) ** 2).sum()))
-    return {"n": len(rows), "acc": float(np.mean(acc)), "brier": float(np.mean(brier)), "ece": ece(conf, acc)}
+        nll.append(-math.log(max(float(p[y]), 1e-9)))
+    return {
+        "n": len(rows),
+        "acc": float(np.mean(acc)),
+        "brier": float(np.mean(brier)),
+        "ece": ece(conf, acc),
+        "nll": float(np.mean(nll)),
+    }
 
 
 def knowable(rows):
-    return [r for r in rows if r["variant"] == "clean" and r["source"] != "unknowable"]
+    return [r for r in rows if r["variant"] == "clean" and r["source"] != "unknowable" and r["id"] not in DROP_IDS]
 
 
 def audited(rows):
@@ -67,12 +81,11 @@ def main():
                 print(f"{suite + '/' + split:44} not run")
                 continue
             r = json.loads(report.read_text(encoding="utf-8"))
-            print(line(f"{suite}/{split}", r["clean"], r.get("latency_ms")))
             rows_path = root / suite / split / "rows.json"
-            if suite in ("hard-v1", "devtools-v1") and rows_path.exists():
-                pooled.setdefault(split, []).extend(
-                    audited(knowable(json.loads(rows_path.read_text(encoding="utf-8"))))
-                )
+            rows = json.loads(rows_path.read_text(encoding="utf-8")) if rows_path.exists() else None
+            print(line(f"{suite}/{split}", scored(knowable(rows)) if rows else r["clean"], r.get("latency_ms")))
+            if suite in ("hard-v1", "devtools-v1") and rows:
+                pooled.setdefault(split, []).extend(audited(knowable(rows)))
         if split in pooled:
             print(line(f"hard-v1 + devtools-v1 audited/{split}", scored(pooled[split])))
     print()
@@ -80,7 +93,8 @@ def main():
     for name, value in CARD:
         print(f"  {name:40} {value}")
     print(
-        "audited = devtools-v1 rows without source flakeflagger and task commitpackft_type (experiments/rounds/r27.json)"
+        "every suite row = clean knowable rows minus the drop_ids of experiments/rounds/r27.json "
+        f"({', '.join(sorted(DROP_IDS))}); audited = those rows of hard-v1 and devtools-v1 without source flakeflagger and task commitpackft_type"
     )
 
 

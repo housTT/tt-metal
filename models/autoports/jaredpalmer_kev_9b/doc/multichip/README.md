@@ -16,13 +16,15 @@ Scaling with whole-request DP (`KEV_FANOUT=0`), requests/s at 64 clients on the 
 | 2 | 2.0 (8,517 / 15,583), `--quick` | not run |
 | 4 | 2.5 (24,872 / 26,292), full method | 6.6 (2,735 / 4,858), `--quick` |
 
+The rows mix methods: the 2-worker point and the 6.6 req/s point are `--quick` (32 requests at the 64-client level, `reports/bench/p150x2_whole/report.json`, `p150x4_whole_fix_quick/report.json`), the 1-worker and the as-patched 4-worker points are the full method (256 requests); the full-method 4-worker figure with the fix is 6.5 req/s (`p150x4_whole_fix/report.json`). The scaling curve is therefore directional, not one measurement.
+
 The shortfall was the GIL. `py-spy record --gil` on the 4-worker server under the 64-client load found the GIL held 99.5 % of the time, 98.6 % of it inside `KevEngine._gather` at `ttnn.to_torch`: the module-level `ttnn.from_device` binding has no `gil_scoped_release` and blocks on the device until the question's traces finish, so the four worker threads took turns. Per-request model time rose from 607 ms alone to 1,058 ms with two workers busy and 1,522 ms with four. `Tensor.cpu` is bound with the release, so the fix is one line in `tt/engine.py`: `ttnn.to_torch(B["rows"].cpu())`. With it the GIL is held 1.5 % of the time, per-request model time stays at 607 ms under 4-way load, and throughput is 4.1x of one worker (6.6 req/s); decision-v7 20.9 to 22.5 req/s against 5.7 (3.7 to 3.9x).
 
 Fan-out latency (4 workers, `KEV_FANOUT=1`), model latency per request new / cached, measured against the prediction table above: 2 questions 101.9 / 101.4 ms [105]; 6 questions 203.9 / 203.9 ms [210], plan 2 / 2 / 1 / 1, device time 613 ms against 607 whole; 5 questions on a 370-token state 439.7 / 395.2 ms [416 / 453]; 5 questions on the 2,200-token state 1,533.4 / 527.0 ms [1,554 / 525], one worker. Under load the planner degraded to whole-request (0 to 4 % of decision-v7 requests fanned out at 8 to 64 clients) and the 64-client throughput was the same with fan-out and without on every sample of the full bench (short 6.5 / 6.5, decision-v7 15.6 / 15.6, long 2.5 / 2.6 req/s).
 
 Final card rows (`scripts/serving_bench_remote.py`, full method, 20 reps): P150 (1 chip) 607.8 / 607.7 ms, 1,533.5 / 527.0 ms, 1.6 req/s; P150 x4 (data parallel, fan-out) 203.9 / 203.9 ms, 1,533.4 / 527.0 ms, 6.5 req/s.
 
-Identity and parity: the 29 served answers of the 16 reference records are identical on each of the four chips (single-worker servers, `KEV_DEVICES=k`), on the x4 fan-out server (2 passes, 16 / 16 revisits equal) and in the stage 4 single-chip report (`reports/stage5_parity_compare.json`, `all_identical true`); vs fp32 max dp 0.0878, mean 0.0272, 1 near-tie flip. On 64 development records (104 questions) against kev's CPU fp32 `LocalPredictor`: max dp 0.416 (a hard-v1 date-arithmetic row where fp32 is also wrong), mean dp 0.0368, 4 flips of which 2 at a margin >= 0.05 (`reports/parity64/compare.json`).
+Identity and parity: the 29 served answers of the 16 reference records are identical on each of the four chips (single-worker servers, `KEV_DEVICES=k`), on the x4 fan-out server (2 passes, 16 / 16 revisits equal) and in the stage 4 single-chip report (`reports/stage5_parity_compare.json`, `all_identical true`); vs fp32 max dp 0.0878, mean 0.0272, 1 near-tie flip. On 64 development records (104 questions) against kev's CPU fp32 `LocalPredictor`: max dp 0.416 (a hard-v1 date-arithmetic row, `hard-v1/temporal_numeric/development/00048`; the same row deviates by 0.415 against kev's own GPU fp32 rows), mean dp 0.0368, 4 flips of which 2 at a margin >= 0.05 (`reports/parity64/compare.json`). Control: paired against kev's fp32 rows for this checkpoint on 6,172 clean knowable questions, mean |dp| is 0.025 to 0.048 per read, the flips are two-sided and the net accuracy cost is 0.3 to 1.3 pp per read (`/home/hous/dev/kev/reports/review_stage5_6.md`, "Required Work", fourth item, and the kev `runs/*/rows.json` files it names).
 
 Startup with four concurrent engine builds: 96 s. No tracebacks or HTTP 500s at 64 clients in any run.
 
@@ -35,7 +37,7 @@ Startup with four concurrent engine builds: 96 s. No tracebacks or HTTP 500s at 
 | `/home/hous/dev/kev/tt-metal/models/autoports/jaredpalmer_kev_9b/doc/multichip/server_patch.diff` | Unified diff for `tt/server.py`, applied in commit `0591d956196`; kept for reference. |
 | `/home/hous/dev/kev/tt-metal/models/autoports/jaredpalmer_kev_9b/scripts/parity_compare.py` | New. Compares the served answers of several `parity_remote.py` reports; exit 1 when any answer differs. |
 
-`tt/server.py` carries the applied patch. `tt/engine.py` carries one line from the device validation: `_gather` reads the gathered rows with `ttnn.to_torch(B["rows"].cpu())`, so the blocking device wait runs in a binding that releases the GIL (see "Results on device").
+`tt/server.py` carries the applied patch. `tt/engine.py` carries one line from the device validation, committed as `ed917633df8` (worktree HEAD, clean tree): `_gather` reads the gathered rows with `ttnn.to_torch(B["rows"].cpu())`, so the blocking device wait runs in a binding that releases the GIL (see "Results on device").
 
 ## What already exists (stage 2 and 3)
 
@@ -154,7 +156,7 @@ curl -s localhost:8008/v1/models | python -c 'import json,sys; c=json.load(sys.s
 
 Checks: the latency columns against the prediction table above (6 short questions near 210 ms, 2 questions near 105 ms, the long state unchanged), `dispatch.fanout_requests` greater than zero after the latency section, and the 64-client throughput within noise of step A (the degrade rule must keep whole-request assignment under load; if throughput drops, lower `KEV_FANOUT_BACKLOG_MS`). The server log carries `latency_ms_sum` per request for the device-time cost of fan-out.
 
-Step C, identical answers per chip on the 16 reference records. One single-worker server per chip, one parity pass each, then the four-worker fan-out server with two passes, then compare every report to the stage 3 parity file:
+Step C, identical answers per chip on the 16 reference records. One single-worker server per chip, one parity pass each, then the four-worker fan-out server with two passes, then compare every report to the stage 4 follow-up parity file `/home/hous/dev/kev/reports/stage4r_parity.json` (this plan first named `stage3_parity.json`; the run and `reports/stage5_parity_compare.json` use the stage 4 file, which is the single-chip server at the selected precision):
 
 ```bash
 for k in 0 1 2 3; do
@@ -165,10 +167,10 @@ for k in 0 1 2 3; do
 done
 /home/hous/dev/kev/bin/devrun timeout 1800 $SERVER > /home/hous/dev/kev/logs/stage5_server_parity4.log 2>&1 &
 /home/hous/dev/kev/bin/hostrun python models/autoports/jaredpalmer_kev_9b/scripts/parity_remote.py --passes 2 --out /home/hous/dev/kev/reports/stage5_parity_x4.json
-/home/hous/dev/kev/bin/hostrun python models/autoports/jaredpalmer_kev_9b/scripts/parity_compare.py /home/hous/dev/kev/reports/stage3_parity.json /home/hous/dev/kev/reports/stage5_parity_chip{0,1,2,3}.json /home/hous/dev/kev/reports/stage5_parity_x4.json --out /home/hous/dev/kev/reports/stage5_parity_compare.json
+/home/hous/dev/kev/bin/hostrun python models/autoports/jaredpalmer_kev_9b/scripts/parity_compare.py /home/hous/dev/kev/reports/stage4r_parity.json /home/hous/dev/kev/reports/stage5_parity_chip{0,1,2,3}.json /home/hous/dev/kev/reports/stage5_parity_x4.json --out /home/hous/dev/kev/reports/stage5_parity_compare.json
 ```
 
-Pass criterion: `all_identical true` (29 served answers equal across the four chips, the fan-out server and stage 3) and `revisits.answers_equal_to_first_pass 16/16` in the x4 report. `KEV_DEVICES=k` selects submesh `k`, which is physical chip `[1], [0], [2], [3]` for `k = 0..3`.
+Pass criterion: `all_identical true` (29 served answers equal across the four chips, the fan-out server and the stage 4 single-chip server) and `revisits.answers_equal_to_first_pass 16/16` in the x4 report. `KEV_DEVICES=k` selects submesh `k`, which is physical chip `[1], [0], [2], [3]` for `k = 0..3`.
 
 ## Stage 6 inputs this stage produces
 
@@ -182,3 +184,4 @@ The card table rows `P150 x4 (data parallel)` come from `/home/hous/dev/kev/repo
 - Four engines build concurrently at startup: 96 s to `ready` for four workers against 59 s for one (host memory in use about 34 GB of 249 GB).
 - `latency_ms_sum` is not in the HTTP body to keep kev's field set; adding it behind a flag is a one-line change in `Server.body` if stage 6 wants it client-side.
 - `KEV_DEVICES` subsetting (`0`, `0,1`, `1`, `2`, `3`), 1 GiB trace region per submesh and 8 KV slots per chip ran with one, two and four live workers in this validation.
+- Known cosmetic gap: `/v1/models` reports `"dtype": "bf16"` (`tt/server.py:476`) while the served weights are bfp8 with LoFi matmuls (precision config `mlp_bfp8`); `kev.benchmark` copies this card into every eval report under `remote.served_model`. Not changed in the doc pass; the precision config id is the value to report.

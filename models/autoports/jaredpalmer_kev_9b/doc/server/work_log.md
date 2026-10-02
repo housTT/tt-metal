@@ -1,6 +1,6 @@
 # Stage 2 (serving): work log
 
-Date: 2026 Oct 01, 20:10 to 20:25 ET. One chip (chip 0 through `ttnn.open_device(device_id=0)`), eager, no traces. All paths are absolute. Reports under `/home/hous/dev/kev/reports`, logs under `/home/hous/dev/kev/logs`.
+Date: 2026 Oct 01, 20:10 to 20:25 UTC (every time in this log is the host clock, UTC). One chip (chip 0 through `ttnn.open_device(device_id=0)`), eager, no traces. All paths are absolute. Reports under `/home/hous/dev/kev/reports`, logs under `/home/hous/dev/kev/logs`.
 
 ## Environment
 
@@ -21,7 +21,7 @@ cd /home/hous/dev/kev/tt-metal && export HF_MODEL=... KEV_RUN=... TT_CACHE_PATH=
 
 Log `/home/hous/dev/kev/logs/stage2_server.log`: `starting:` at 20:11:00, `worker 0 ready` at 20:11:29 (HF load plus host LoRA merge plus weight cache load, 29 s), warmup 3 questions 588.9 ms, `Application startup complete` at 20:11:29. The worker label in the log is `1`: `str(d.id())` on the device returned by `ttnn.open_device(device_id=0)` is the MeshDevice id (`Enabling program cache on MeshDevice 1`), not the chip id. `devrun` held `/home/hous/dev/kev/.device.lock` for the life of the server.
 
-## Smoke (20:12 ET)
+## Smoke (20:12 UTC)
 
 - `GET /health`: `{"status":"ok","workers":1,"queued":0}`, 8 ms.
 - `GET /v1/models`: two cards (`kev-latest`, `jev-latest`), `backend ttnn`, `device ttnn 1x1 x1 worker(s)`, `dtype bf16`, `temperature 2.193649959389252`, `max_state_tokens 8192`, `max_question_tokens 2048`, `prefix_cache {size 8, hits 0, misses 1, cached_states 1}` after warmup.
@@ -33,7 +33,7 @@ Log `/home/hous/dev/kev/logs/stage2_server.log`: `starting:` at 20:11:00, `worke
 
 Wall 281 ms, `server-timing: app;dur=276.4`. Expected from the fp32 reference: team = billing (matches), p(urgent) = 0.43 (served 0.3713, |dp| 0.0587, the same gap the stage 1 full-row engine test measured for this row, record 12 `urgent` in `/home/hous/dev/kev/tt-metal/models/autoports/jaredpalmer_kev_9b/doc/functional/work_log.md`).
 
-## Parity through HTTP (20:12 ET)
+## Parity through HTTP (20:12 UTC)
 
 Script: `/tmp/claude-1002/-home-hous-dev-kev/0a6793e1-6f42-41ef-926e-8b91dbe0b95b/scratchpad/parity.py` (scratch; its logic is: POST `api_request(record)` for the 16 records of `/home/hous/dev/kev/reports/reference/records.jsonl`, rebuild one probability vector per question in the reference key order, noul as `[1 - noul, noul]`, then kev's `agreement()` from `scripts/serving_bench.py:104`). Output `/home/hous/dev/kev/reports/stage2_parity.json`.
 
@@ -66,7 +66,7 @@ Served probabilities are rounded to 4 decimals by the API (kev `round_prob`), so
 
 Stage 1 measured the same rows through `prefill_hidden` (one full row per question): max |dp| 0.1024, 29/29 argmax. The served path (state prefix pass, GDN snapshot, tail per question) gives 0.0947, so the prefix cache path is at least as close to the reference as the full-row path. Median server latency 366 ms, sum 10.5 s for the 16 records.
 
-## kev client eval, smoke-v1 (20:12 to 20:13 ET)
+## kev client eval, smoke-v1 (20:12 to 20:13 UTC)
 
 ```bash
 cd /home/hous/dev/kev/kev && uv run python -m kev.benchmark --remote http://127.0.0.1:8008 --suite /home/hous/dev/kev/kev/evals/smoke-v1 --out /home/hous/dev/kev/reports/eval/smoke-v1/development --remote-concurrency 1
@@ -74,7 +74,7 @@ cd /home/hous/dev/kev/kev && uv run python -m kev.benchmark --remote http://127.
 
 Exit 0, log `/home/hous/dev/kev/logs/stage2_smoke_v1_eval.log`. `report.json`: coverage 30/30 records, 40/40 questions, 0 rejected, 0 truncated; `clean`: n 18, acc 0.8889, brier 0.1606, ece 0.0854, nll 0.2637; `latency_ms` (client round trip) median 217.8, p95 739.3; `remote.served_model kev-latest`. `summarize_eval.py` prints the same row: `smoke-v1/development n=18 acc 0.889 brier 0.161 ece 0.085 latency p50 218 ms p95 739 ms`. No fp32 smoke-v1 reference exists on this box, so these numbers are recorded, not compared.
 
-## Prefix cache (20:13 ET)
+## Prefix cache (20:13 UTC)
 
 Script (scratch) `cache_check.py`, output `/home/hous/dev/kev/reports/stage2_cache_check.json`.
 
@@ -82,18 +82,18 @@ Script (scratch) `cache_check.py`, output `/home/hous/dev/kev/reports/stage2_cac
 - 2,200-token state (bench `request(LONG, 7)`, 2,317 input tokens, 5 questions): fresh 2307.8 ms, hit 654.2 ms, answers equal (dict equality on the 4-decimal probabilities). Short 6-question state: fresh 840.1 ms, hit 788.4 ms, answers equal. Recorded in `/home/hous/dev/kev/reports/stage2_robustness.json`.
 - Eviction with 8 slots: 9 distinct states (28 tokens each) then state 0 again: state 0 is a miss (evicted, `misses` 45 to 46, `cached_states` stays 8), recomputed answers equal the fresh ones; state 1 again is then also a miss (it became the least recently used) with equal answers; state 8 again is a hit (`hits` 14 to 15) with equal answers. No crash, no error in the server log.
 
-## Robustness (20:14 ET)
+## Robustness (20:14 UTC)
 
 - 8 clients x 5 requests from `/home/hous/dev/kev/kev/evals/v7/decision-v7/development.jsonl` (first 40 records, sha256 checked): 40/40 HTTP 200, 0 non-200, 27.0 s wall, 1.48 requests/s; model `latency_ms` p50 666.3, p99 796.9, max 830.0; client wall p50 5331.8 ms, p99 5463.4 ms (one eager worker, so a request waits for the 7 ahead of it). `/home/hous/dev/kev/reports/stage2_concurrent.json`. Server log: zero 5xx, zero tracebacks.
 - Oversize state, 70,081 tokens: 422 in 69 ms with kev's wording (`state is 70,082 tokens, over the 65,536-token limit ...`). A 10,952-token state: 422 against the 8,192 `KEV_MAX_STATE` limit with the `KEV_TRUNCATE_STATES=1` hint. Truncation mode itself was not exercised on the device (covered by the fake-engine test `test_truncate_mode_marks_responses`).
 
-## Serving bench (20:15 ET)
+## Serving bench (20:15 UTC)
 
 ```bash
 cd /home/hous/dev/kev/tt-metal && /home/hous/dev/kev/bin/hostrun timeout 2400 python models/autoports/jaredpalmer_kev_9b/scripts/serving_bench_remote.py --base-url http://127.0.0.1:8008 --label "P150 (1 chip, eager, stage 2)" --reps 20 --quick --concurrency 1,8,32,64 --out /home/hous/dev/kev/reports/bench/p150_stage2
 ```
 
-Exit 0, 20:15 to 20:22 ET, log `/home/hous/dev/kev/logs/stage2_bench.log`, report `/home/hous/dev/kev/reports/bench/p150_stage2/report.json` (`quick: true`, `reps: 20`, `records: 32`). Reps: the latency section used the full 20 (median of 20 server `latency_ms` after 2 warm requests per case and mode); the throughput section used `--quick` (32 / 32 / 8 requests per level and pass instead of 256 / 256 / 64) to fit inside the server's 1 h `timeout 3600`.
+Exit 0, 20:15 to 20:22 UTC, log `/home/hous/dev/kev/logs/stage2_bench.log`, report `/home/hous/dev/kev/reports/bench/p150_stage2/report.json` (`quick: true`, `reps: 20`, `records: 32`). Reps: the latency section used the full 20 (median of 20 server `latency_ms` after 2 warm requests per case and mode); the throughput section used `--quick` (32 / 32 / 8 requests per level and pass instead of 256 / 256 / 64) to fit inside the server's 1 h `timeout 3600`.
 
 | case | tokens | first_ms | new_ms | cached_ms |
 |---|---|---|---|---|
@@ -121,7 +121,7 @@ One eager worker serializes everything, so `requests_per_s` is flat across clien
 
 ## Shutdown
 
-20:22:30 ET: `kill -TERM <uvicorn pid>`. Log: `Shutting down`, `Waiting for application shutdown.`, `Application shutdown complete.`, `Finished server process [2423029]`. The `devrun` wrapper exited with 143: uvicorn 0.54 re-raises the captured SIGTERM after a graceful shutdown (`python_env/lib/python3.12/site-packages/uvicorn/server.py:348`), so the process ends by signal and tt-metal's static destructor line `Closing user mode device drivers` does not appear in the server log. Checks after exit: `pgrep -af "uvicorn models.autoports"` empty, no `flock` process, `flock -n /home/hous/dev/kev/.device.lock true` succeeds (lock free). Device release proven by a fresh process: `devrun timeout 180 python -c "import ttnn; d = ttnn.open_device(device_id=0); ttnn.close_device(d)"` opened chip 0 in 2.8 s (`d.id()` 1, the MeshDevice id) and closed with `Closing user mode device drivers`, log `/home/hous/dev/kev/logs/stage2_device_release_check.log`.
+20:22:30 UTC: `kill -TERM <uvicorn pid>`. Log: `Shutting down`, `Waiting for application shutdown.`, `Application shutdown complete.`, `Finished server process [2423029]`. The `devrun` wrapper exited with 143: uvicorn 0.54 re-raises the captured SIGTERM after a graceful shutdown (`python_env/lib/python3.12/site-packages/uvicorn/server.py:348`), so the process ends by signal and tt-metal's static destructor line `Closing user mode device drivers` does not appear in the server log. Checks after exit: `pgrep -af "uvicorn models.autoports"` empty, no `flock` process, `flock -n /home/hous/dev/kev/.device.lock true` succeeds (lock free). Device release proven by a fresh process: `devrun timeout 180 python -c "import ttnn; d = ttnn.open_device(device_id=0); ttnn.close_device(d)"` opened chip 0 in 2.8 s (`d.id()` 1, the MeshDevice id) and closed with `Closing user mode device drivers`, log `/home/hous/dev/kev/logs/stage2_device_release_check.log`.
 
 Files touched in this stage: `tt/server.py` (slot allocation), `doc/server/README.md` (prefix cache paragraph, stage 2 baseline section), `doc/server/work_log.md` (this file). Reports: `/home/hous/dev/kev/reports/stage2_parity.json`, `stage2_cache_check.json`, `stage2_concurrent.json`, `stage2_robustness.json`, `/home/hous/dev/kev/reports/eval/smoke-v1/development/`, `/home/hous/dev/kev/reports/bench/p150_stage2/`. Nothing committed.
 

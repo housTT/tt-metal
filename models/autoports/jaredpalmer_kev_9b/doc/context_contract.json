@@ -4,6 +4,7 @@
   "base_revision": "68c46c4b3498877f3ef123c856ecfde50c39f404",
   "adapter_revision": "db029f08b290afd9fee4aa4bbcd9ae48602d1eb0",
   "adapter_sha8": "2b2a70cf",
+  "adapter_revision_note": "db029f08b290afd9fee4aa4bbcd9ae48602d1eb0 is the resolved snapshot of jaredpalmer/kev-9b main on 2026 Oct 01; the model card names the release commit b5d8c18e (kev docs/model-cards/kev-9b.md lines 80 and 282). Both identify the same weights: adapter sha256 2b2a70cf under both commits (kev PLAN.md line 2689 lists b5d8c18e as the weights commit and db029f08 as the v1.0 card commit)",
   "hf_advertised_context": 262144,
   "hf_context_source": "Qwen/Qwen3.5-9B-Base config.json:text_config.max_position_embeddings",
   "served_context": 67584,
@@ -37,7 +38,7 @@
   },
   "functional": {
     "hardware": "one Blackhole P150 chip (device 0), traced engine since stage 3",
-    "worktree": "/home/hous/dev/kev/tt-metal at 7eac776e9 (branch hous/kev-9b-bringup), models/autoports untracked",
+    "worktree": "/home/hous/dev/kev/tt-metal, branch hous/kev-9b-bringup, HEAD ed917633df8 (base 7eac776e926, origin/main), clean tree; stage 1 ran at 7eac776e9 with models/autoports untracked",
     "weight_precision": "stage 4 selected config mlp_bfp8 (doc/datatype_sweep/selected_precision_config.json): MLP gate/up bfp8, MLP down / attention / GDN projections bfp8, LoFi with fp32 accumulation, KV cache bf16, GDN state bf16; applied by tt/precision_defaults.py (KEV_PRECISION=baseline restores bfp4 gate/up); merged LoRA cache tensor_cache_bfp8_kev_2b2a70cf_gu-bfp8_dn-bfp8_pj-bfp8 (10.47 GB, 1.6 GB more than the baseline cache)",
     "reference_rows": "/home/hous/dev/kev/reports/reference/rows.json",
     "reference_probabilities_fp32": "/home/hous/dev/kev/reports/reference/probs_fp32.json",
@@ -129,6 +130,29 @@
           "/home/hous/dev/kev/logs/stage2_server.log"
         ]
       },
+      "slots_interleaved": {
+        "layers": [
+          4,
+          32
+        ],
+        "modes": [
+          "eager",
+          "traced",
+          "policy"
+        ],
+        "design": "two states in two KV slots; question on A, on B, on A again bit-identical; each compared with prefill_hidden of the concatenated row in a third and fourth slot; traced and policy also compared with eager",
+        "min_pcc_vs_full_row_32_layers_selected_precision": {
+          "A": 0.99984,
+          "B": 0.99989
+        },
+        "test": "tests/test_engine.py::test_slots_interleaved[l{4,32}-device_params0-{eager,traced,policy}]",
+        "logs": [
+          "/home/hous/dev/kev/logs/stage3_engine_l32.log",
+          "/home/hous/dev/kev/logs/stage4r_engine_l32_policy.log",
+          "/home/hous/dev/kev/logs/stage3_engine_l4.log"
+        ],
+        "note": "stage3_engine_l32.log: eager and traced PASSED at 32 layers, stage 3 precision (2026 Oct 01 21:05 to 21:06 UTC); stage4r_engine_l32_policy.log: eager, traced and policy PASSED at 32 layers with the selected precision mlp_bfp8 (22:47 to 22:49 UTC); stage3_engine_l4.log: eager and traced PASSED at 4 layers"
+      },
       "watcher": {
         "cases": "tests/test_engine.py::test_hidden_vs_hf[{300,2300}-l4] with TT_METAL_WATCHER=10, base weights, prefill_hidden only",
         "logs": [
@@ -178,8 +202,10 @@
     "not_validated": [
       "rows above 2300 tokens (three or more 2048-token segments)",
       "tile-boundary lengths 1, 31, 32, 33",
-      "prefill_state / question_hidden or merged weights under the watcher",
-      "two states interleaved across snapshot slots (review P1: slots share one KV cache)"
+      "prefill_state / question_hidden or merged weights under the watcher"
+    ],
+    "resolved_since_stage1": [
+      "two states interleaved across snapshot slots (review P1: slots shared one KV cache): fixed in stage 3 by per-slot KV block ranges and page tables (doc/optimized/README.md, doc/optimized/work_log.md); evidence in validated.slots_interleaved"
     ]
   },
   "persistent_allocations_stage3": {
@@ -204,7 +230,7 @@
     "matmul_policy": "KEV_MATMUL_POLICY defaults to 1 again since the stage 4 follow-up: MATMUL_POLICY is keyed on (M, K, N, in1 dtype, in0 dtype) and was re-swept with bfp8 gate/up weights (doc/optimized/matmul_sweep_bfp8.json); during the stage 4 sweep it was 0 because the stage 3 table overflowed L1 with bfp8 in1"
   },
   "stage4_followup": {
-    "date": "2026 Oct 01, 22:55 ET, chip 0",
+    "date": "2026 Oct 01, 22:55 UTC (host clock), chip 0",
     "layout": "KevEngine defaults: max_state_len 65536, 8 snapshot slots, traced, selected precision mlp_bfp8, matmul policy on; the layout the server builds",
     "test": "tests/test_engine.py::test_long_state (snapshot_slots default 8, ttnn.synchronize_device around every timing)",
     "log": "/home/hous/dev/kev/logs/stage4r_long_state.log",
