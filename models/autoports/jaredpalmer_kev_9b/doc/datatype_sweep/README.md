@@ -85,10 +85,11 @@ Plots: `top1_perf_pareto.png` (subset accuracy versus eager rows per second, 1.0
 |---|---|---|---|---|---|---|
 | baseline, traced + policy (stage 3 production) | 105.0 / 150.7 / 266.4 / 476.3 / 916.7 | 898.7 / 1048.9 | 605.9 / 605.4 | 1528.4 / 524.9 | 8 | 273.8 |
 | baseline, traced, policy off | 107.0 / 167.2 / 468.0 / 645.8 / 1528.0 | 1510.2 / 1675.9 | 619.1 / 618.0 | 2152.9 / 535.7 | 8 | 273.1 |
-| **mlp_bfp8, traced, policy off (new default)** | 107.0 / 167.3 / 468.3 / 646.9 / 1537.2 | 1519.8 / 1685.9 | 619.6 / 619.9 | 2163.0 / 537.6 | 8 (19.76 GiB DRAM free) | 273.1 |
+| mlp_bfp8, traced, policy off (default at selection time) | 107.0 / 167.3 / 468.3 / 646.9 / 1537.2 | 1519.8 / 1685.9 | 619.6 / 619.9 | 2163.0 / 537.6 | 8 (19.76 GiB DRAM free) | 273.1 |
+| **mlp_bfp8, traced + re-swept policy (default since the follow-up; chip 0, `../optimized/perf_probe_traced_bfp8_policy.json`)** | 105.1 / 153.5 / 270.0 / 477.5 / 919.4 | 901.3 / 1053.8 | 605.4 / 605.4 | 1531.1 / 525.8 | 8 | 274.0 |
 | mlp_bf16, traced, policy off | 114.0 / 174.0 / 509.7 / 673.5 / 1581.2 | 1563.7 / 1736.9 | 659.6 / 660.0 | 2247.5 / 570.6 | 6 (15.54 GiB DRAM free) | 272.1 |
 
-bfp8 gate / up costs 0 to 0.6 percent on the traced path at equal policy setting. The large difference between the new default and the stage 3 production numbers (short card 620 versus 606 ms, long card 2163 versus 1528 ms) is the matmul policy, not the dtype; see the next section.
+bfp8 gate / up costs 0 to 0.6 percent on the traced path at equal policy setting. The large difference between the policy-off rows and the stage 3 production numbers (short card 620 versus 606 ms, long card 2163 versus 1528 ms) is the matmul policy, not the dtype; the re-swept policy (last row) recovers it. See the next section.
 
 ## Matmul policy incompatibility (stage 3 follow-up)
 
@@ -103,16 +104,16 @@ TT_THROW: Statically allocated dataflow buffers on core range [0-0 - 10-7] grow 
 A bfp8 tile is 1088 B against 576 B for bfp4, so the in1 blocks of the gate / up entries with `in0_block_w=16` and `per_core_N=35` grow about 1.9x and no longer fit L1 next to the in0 and output blocks (estimate from the block sizes; the failing entry was not isolated per shape). `QWEN9B_MLP_DOWN_AUTO=1` cannot help: the failing matmul is `w1`, and `policy_linear` drops the caller's `program_config` for shapes in the policy. The policy is an env switch (`KEV_MATMUL_POLICY`, read by the engine at construction), so:
 
 - the sweep ran with the policy off for every variant (comparable time), and the policy-on baseline is kept as the production-path reference;
-- `tt/precision_defaults.py` sets `KEV_MATMUL_POLICY=0` together with the selected dtypes, so the default engine builds and runs; `KEV_PRECISION=baseline` restores bfp4 gate / up with the policy on;
-- re-tuning `MATMUL_POLICY` for bfp8 in1 (smaller `in0_block_w` or `per_core_N` on the gate / up entries, re-run `scripts/matmul_sweep.py` with `QWEN36_MLP_GATE_UP_DTYPE=bfp8`) belongs to the stage 3 owner and would recover the 1528 ms long card. The `policy` mode of `tests/test_engine.py` (`test_tail_buckets`, `test_slots_interleaved`) passes `matmul_policy=True` explicitly and will hit the same L1 overflow under the new default until then; run it with `KEV_PRECISION=baseline`.
+- `tt/precision_defaults.py` set `KEV_MATMUL_POLICY=0` together with the selected dtypes at selection time, so that the default engine built and ran; since the stage 4 follow-up it sets `KEV_MATMUL_POLICY=1` (policy re-swept for bfp8 gate / up and keyed on dtype, `../optimized/work_log.md` section "Stage 4 follow-up"); `KEV_PRECISION=baseline` restores bfp4 gate / up with the policy on;
+- re-tuning `MATMUL_POLICY` for bfp8 in1 was done in the follow-up (`scripts/matmul_sweep.py` with `QWEN36_MLP_GATE_UP_DTYPE=bfp8`, `../optimized/matmul_sweep_bfp8.json`, 22 bfp8 entries) and brings the long card to 1531.1 ms. The `policy` mode of `tests/test_engine.py` (`test_tail_buckets`, `test_slots_interleaved`) passes with the selected precision (`/home/hous/dev/kev/logs/stage4r_engine_l32_policy.log`, 6 passed).
 
 ## How the default is applied (step 6)
 
-`/home/hous/dev/kev/tt-metal/models/autoports/jaredpalmer_kev_9b/tt/precision_defaults.py`, imported by `tt/loader.py` before any `models.demos.blackhole.qwen36` import (the engine imports the loader first; the server and the tests import the engine), calls `os.environ.setdefault` for `QWEN36_MLP_GATE_UP_DTYPE=bfp8`, `QWEN36_MLP_DOWN_DTYPE=bfp8`, `QWEN36_PROJ_DTYPE=bfp8`, `QWEN36_MATMUL_FIDELITY=LoFi`, `QWEN_GDN_FP32_STATE=0`, `QWEN_SDPA_BF8=0`, `KEV_MATMUL_POLICY=0`. Every value is overridable by setting the variable before import; `KEV_PRECISION=baseline` selects the stage 1 to 3 profile (bfp4 gate / up, policy on). The qwen36 defaults (`models/demos/blackhole/qwen36/tt/precision.py`) are unchanged.
+`/home/hous/dev/kev/tt-metal/models/autoports/jaredpalmer_kev_9b/tt/precision_defaults.py`, imported by `tt/loader.py` before any `models.demos.blackhole.qwen36` import (the engine imports the loader first; the server and the tests import the engine), calls `os.environ.setdefault` for `QWEN36_MLP_GATE_UP_DTYPE=bfp8`, `QWEN36_MLP_DOWN_DTYPE=bfp8`, `QWEN36_PROJ_DTYPE=bfp8`, `QWEN36_MATMUL_FIDELITY=LoFi`, `QWEN_GDN_FP32_STATE=0`, `QWEN_SDPA_BF8=0`, `KEV_MATMUL_POLICY=1` (`0` at selection time, `1` since the follow-up). Every value is overridable by setting the variable before import; `KEV_PRECISION=baseline` selects the stage 1 to 3 profile (bfp4 gate / up, policy on). The qwen36 defaults (`models/demos/blackhole/qwen36/tt/precision.py`) are unchanged.
 
-`KevModelArgs.weight_cache_path` now appends a precision tag derived from the active dtype knobs: `tensor_cache_bfp8_kev_<adapter sha8>_gu-<gate/up>_dn-<down>_pj-<proj>`. The server's default root (`TT_CACHE_PATH=/home/hous/dev/kev/tt_cache`) holds `P150/tensor_cache_bfp8_kev_2b2a70cf_gu-bfp8_dn-bfp8_pj-bfp8` (the sweep's `mlp_bfp8` cache, moved there; 403 files, 10.47 GB) and a symlink `..._gu-bfp4_dn-bfp8_pj-bfp8 -> tensor_cache_bfp8_kev_2b2a70cf` for the baseline profile, so neither profile rebuilds a cache. The sweep roots keep symlinks under both the old and the tagged names. Fidelity and GDN state dtype are not part of the tag because they are not cached.
+`KevModelArgs.weight_cache_path` now appends a precision tag derived from the active dtype knobs: `tensor_cache_bfp8_kev_<adapter sha8>_gu-<gate/up>_dn-<down>_pj-<proj>`. The server's default root (`TT_CACHE_PATH=/home/hous/dev/kev/tt_cache`) holds `P150/tensor_cache_bfp8_kev_2b2a70cf_gu-bfp8_dn-bfp8_pj-bfp8` (the sweep's `mlp_bfp8` cache, moved there; 403 files, 10.47 GB) and a symlink `..._gu-bfp4_dn-bfp8_pj-bfp8 -> tensor_cache_bfp8_kev_2b2a70cf` for the baseline profile, so neither profile rebuilds a cache. The remaining sweep root `tt_cache_mlp_bfp8` keeps symlinks under both the untagged and the tagged name (see "Weight caches and disk"). Fidelity and GDN state dtype are not part of the tag because they are not cached.
 
-Verified on the host (`loader` import): the qwen36 `precision` module resolves to bfp8 / bfp8 / bfp8 / LoFi, the cache path carries the tag, `KEV_MATMUL_POLICY` is `0`. Device confirmation: `tests/test_engine.py -k reference_records --device-id 2` with only `HF_MODEL`, `KEV_RUN`, `MESH_DEVICE`, `TT_CACHE_PATH` set, log `/home/hous/dev/kev/logs/stage4_default_reference_records.log`; result in `work_log.md` section "22:30".
+Verified on the host (`loader` import, re-checked at `0591d956196` during the stage 4 review remediation): the qwen36 `precision` module resolves to bfp8 / bfp8 / bfp8 / LoFi, the cache path carries the tag, `KEV_MATMUL_POLICY` is `1`. Device confirmation of the default path: `tests/test_engine.py -k reference_records --device-id 0`, log `/home/hous/dev/kev/logs/stage4r_reference_records.log` (`KevEngine ... traced=True matmul_policy=True`, cache `tt_cache/P150/tensor_cache_bfp8_kev_2b2a70cf_gu-bfp8_dn-bfp8_pj-bfp8`, all 96 MLP weight files `BFLOAT8_B`). The selection-time run with the policy off (`--device-id 2`, only `HF_MODEL`, `KEV_RUN`, `MESH_DEVICE`, `TT_CACHE_PATH` set, log `stage4_default_reference_records.log`, `work_log.md` section "22:30") gives the same 29-row numbers to six digits (min PCC 0.987337, 28/29, max dp 0.087636, mean dp 0.026433).
 
 ## Why bfp8 gate / up (mechanism)
 
@@ -131,24 +132,24 @@ Module `/home/hous/dev/kev/tt-metal/models/demos/blackhole/qwen36/tt/precision.p
 
 Unchanged and not swept: SDPA HiFi2 with fp32 accumulation (`models/experimental/gated_attention_gated_deltanet/tt/ttnn_gated_attention.py:157-159`); the GDN chunk kernel (float32 kernel, HiFi4 preprocessing matmuls, `ttnn_delta_rule_seq.py:248-251, 414-417`); embeddings and norms bf16; lm_head bfp8 (loaded, not used by the kev head); KV cache bf16 (`QWEN_SDPA_BF8=0`); the engine row-select matmul HiFi4. `QWEN_GDN_FP32_STATE=1` (`ttnn_delta_rule_seq.py:201`, read at call time) was swept as `all_bfp8_gdnfp32`; in the kev engine the new state is copied into a persistent bf16 buffer (`qwen36/tt/gdn/decode.py:100-107`, buffer dtype at `qwen36/tt/model.py:2678`), so the fp32 state is re-quantised between chunks and the knob changes mean dp by 0.0002. No fp32-accumulate knob exists (every `compute_kernel_config` hard-codes `fp32_dest_acc_en=True`), so the `mlp_bfp8_nofp32acc` variant was not run; stage 3's `matmul_sweep.json` has the per-matmul cost of fp32 accumulation.
 
-Propagation check: each variant's JSON records `propagation` with the actual `dtype` of `w1`, `w2`, `w3`, `q_proj`, `o_proj`, `qkv_proj_weight`, `out_proj`, the `math_fidelity` and `fp32_dest_acc_en` of the MLP, attention and GDN `compute_kernel_config`, the KV dtype, the cache path, `traced` and `matmul_policy`, all read back from the built engine; `selected_precision_config.json` copies the selected variant's block.
+Propagation check: each variant's JSON records `propagation` with the actual `dtype` of `w1`, `w2`, `w3`, `q_proj`, `o_proj`, `qkv_proj_weight`, `out_proj`, the `math_fidelity` and `fp32_dest_acc_en` of the MLP, attention and GDN `compute_kernel_config`, the KV dtype, the cache path, `traced` and `matmul_policy`, all read back from the built engine; `selected_precision_config.json` keeps the selected variant's block as `propagation_check_sweep_process`. Its `propagation_check` describes the default engine (policy on, traced, tagged cache path, per-tensor cache file dtypes), built by `scripts/dtype_sweep_summary.py` from the `KevEngine args=` and `Loaded cache` lines of `/home/hous/dev/kev/logs/stage4r_reference_records.log`; the traced timing blocks (`performance_traced`, policy off; `performance_traced_policy_on`) take their regime label from the `matmul_policy` field of the probe JSON they cite.
 
-Diff: `cd /home/hous/dev/kev/tt-metal && git diff models/demos/blackhole/qwen36` (precision.py is tracked with `git add -N`); the autoport directory is untracked.
+Code: committed on `hous/kev-9b-bringup` as `10d0c14f38d` (qwen36 knobs; `git show 10d0c14f38d -- models/demos/blackhole/qwen36`), `f617138441c` (autoport and sweep harness) and `0591d956196` (policy re-sweep and follow-up).
 
 ## Weight caches and disk
 
 `ttnn.as_tensor` writes `<cache_file_name>_dtype_<DTYPE>_layout_<LAYOUT>.tensorbin` and reloads a hit as-is, so a dtype change produces a new file name and never overwrites another dtype's file. Each weight-dtype configuration also has its own root (`TT_CACHE_PATH=/home/hous/dev/kev/tt_cache_<cache>`) and, since step 6, its own tagged directory name.
 
-| root | contents (`du -sh`) | variants | state after step 6 |
+| root | contents (`du -sh`) | variants | state now |
 |---|---|---|---|
-| `tt_cache` (server default) | 8.86 GB baseline kev cache + 8.86 GB stage 1 base cache + 10.47 GB selected (moved in) | baseline, mlp_bfp8 | keep |
-| `tt_cache_baseline` | symlink to `tt_cache` | baseline | keep |
-| `tt_cache_mlp_bfp8` | symlinks only | mlp_bfp8 | keep (no data) |
-| `tt_cache_all_bfp8` | 9.8 GB (same bytes as the selected cache) | all_bfp8_hifi2, all_bfp8_gdnfp32 | deletable |
-| `tt_cache_mlp_bf16` | 14 GB | mlp_bf16 | deletable |
-| `tt_cache_all_bf16` | 16 GB | all_bf16 | deletable |
+| `tt_cache` (server default) | 8.86 GB baseline kev cache + 8.86 GB stage 1 base cache + 10.47 GB selected (moved in) | baseline, mlp_bfp8 | kept |
+| `tt_cache_baseline` | symlink to `tt_cache` | baseline | kept |
+| `tt_cache_mlp_bfp8` | symlinks only (see below) | mlp_bfp8 | kept (no data) |
+| `tt_cache_all_bfp8` | 9.8 GB (same bytes as the selected cache) | all_bfp8_hifi2, all_bfp8_gdnfp32 | deleted in the stage 4 follow-up |
+| `tt_cache_mlp_bf16` | 14 GB | mlp_bf16 | deleted in the stage 4 follow-up |
+| `tt_cache_all_bf16` | 16 GB | all_bf16 | deleted in the stage 4 follow-up |
 
-New disk written by the sweep: 49.6 GB (`df -h /`: 378 GB available at 21:45, 328 GB at 22:18). The plan asks for the non-selected caches to be deleted after selection (about 40 GB); they were left in place for the stage review and can be removed with `rm -r /home/hous/dev/kev/tt_cache_all_bfp8 /home/hous/dev/kev/tt_cache_mlp_bf16 /home/hous/dev/kev/tt_cache_all_bf16`. Device DRAM: `all_bf16` left 13.67 GiB free after weights (max_state 8192 build) and fit on the chip.
+New disk written by the sweep: 49.6 GB (`df -h /`: 378 GB available at 21:45, 328 GB at 22:18). The three non-selected roots (about 40 GB) were deleted in the stage 4 follow-up (`rm -r /home/hous/dev/kev/tt_cache_all_bfp8 /home/hous/dev/kev/tt_cache_mlp_bf16 /home/hous/dev/kev/tt_cache_all_bf16`; `df -h /`: 328 G to 367 G available; `../optimized/work_log.md` section "Disk"). `/home/hous/dev/kev/tt_cache_mlp_bfp8/P150` holds two symlinks to the selected cache `/home/hous/dev/kev/tt_cache/P150/tensor_cache_bfp8_kev_2b2a70cf_gu-bfp8_dn-bfp8_pj-bfp8`: one under the tagged name and one under the untagged name `tensor_cache_bfp8_kev_2b2a70cf`. The same untagged name under `tt_cache/P150` is the bfp4 baseline cache. Current code never reads the untagged name; a checkout without the cache tag (before step 6) pointed at `TT_CACHE_PATH=/home/hous/dev/kev/tt_cache_mlp_bfp8` would load bfp8 gate / up weights under the baseline name. Removing that untagged symlink closes the trap; it was left in place by the review remediation. Device DRAM: `all_bf16` left 13.67 GiB free after weights (max_state 8192 build) and fit on the chip.
 
 ## Harness
 
@@ -174,7 +175,7 @@ export $(python models/autoports/jaredpalmer_kev_9b/scripts/dtype_sweep.py --pri
 ## Open
 
 - Resolved in the stage 4 follow-up: the matmul policy was re-swept for bfp8 gate / up weights, keyed on dtype, and switched back on in `tt/precision_defaults.py` (reference rows identical to the policy-off numbers; timings in `../optimized/work_log.md`).
-- The `policy` test mode in `tests/test_engine.py` needs `KEV_PRECISION=baseline` or the re-tuned policy.
+- Resolved in the stage 4 follow-up: the `policy` test mode in `tests/test_engine.py` passes with the selected precision and the re-tuned policy (`/home/hous/dev/kev/logs/stage4r_engine_l32_policy.log`, 6 passed).
 - Resolved in the stage 4 follow-up: `tests/test_engine.py::test_reference_records` applies the margin rule (flips count only when the fp32 top-2 margin is at least 0.05) and asserts max |dp| <= 0.10; it passes with the near-tie row `0:choice` reported.
 - Non-selected caches deleted in the stage 4 follow-up (`df -h /`: 328 G to 367 G available).
 - Stage 6 re-measures the selected config on the served path; the subset accuracy differences here are 1 to 3 rows and should not be quoted as a gain without the full-split evaluation.

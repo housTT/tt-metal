@@ -50,6 +50,59 @@
   "TT_CACHE_PATH": "/home/hous/dev/kev/tt_cache"
  },
  "propagation_check": {
+  "source": "default KevEngine (no QWEN36_* or KEV_* overrides): KevEngine args= line and the per-tensor 'Loaded cache' lines of /home/hous/dev/kev/logs/stage4r_reference_records.log; compute_kernel_config and kv_cache fields read back from the built engine by scripts/dtype_sweep.py under the same knob values (propagation_check_sweep_process)",
+  "mlp.compute_kernel_config.math_fidelity": "MathFidelity.LoFi",
+  "mlp.compute_kernel_config.fp32_dest_acc_en": true,
+  "attn.compute_kernel_config.math_fidelity": "MathFidelity.LoFi",
+  "gdn.compute_kernel_config.math_fidelity": "MathFidelity.LoFi",
+  "kv_cache.dtype": "DataType.BFLOAT16",
+  "n_layers": 32,
+  "weight_cache_path": "/home/hous/dev/kev/tt_cache/P150/tensor_cache_bfp8_kev_2b2a70cf_gu-bfp8_dn-bfp8_pj-bfp8",
+  "traced": true,
+  "matmul_policy": true,
+  "cached_weight_file_dtypes": {
+   "linear_attn.in_proj_a": [
+    "BFLOAT8_B"
+   ],
+   "linear_attn.in_proj_b": [
+    "BFLOAT8_B"
+   ],
+   "linear_attn.in_proj_z": [
+    "BFLOAT8_B"
+   ],
+   "linear_attn.norm": [
+    "BFLOAT16"
+   ],
+   "linear_attn.out_proj": [
+    "BFLOAT8_B"
+   ],
+   "linear_attn.qkv_proj": [
+    "BFLOAT8_B"
+   ],
+   "mlp.down_proj": [
+    "BFLOAT8_B"
+   ],
+   "mlp.gate_proj": [
+    "BFLOAT8_B"
+   ],
+   "mlp.up_proj": [
+    "BFLOAT8_B"
+   ],
+   "self_attn.k_proj": [
+    "BFLOAT8_B"
+   ],
+   "self_attn.o_proj": [
+    "BFLOAT8_B"
+   ],
+   "self_attn.q_proj": [
+    "BFLOAT8_B"
+   ],
+   "self_attn.v_proj": [
+    "BFLOAT8_B"
+   ]
+  }
+ },
+ "propagation_check_sweep_process": {
   "mlp.w1.dtype": "DataType.BFLOAT8_B",
   "mlp.w2.dtype": "DataType.BFLOAT8_B",
   "mlp.w3.dtype": "DataType.BFLOAT8_B",
@@ -114,7 +167,7 @@
   "engine_load_s": 27.6
  },
  "performance_traced": {
-  "regime": "stage 3 engine, traced=True, matmul policy on, scripts/perf_probe.py --traced --matmul-policy, median of 5 with device sync, 2048-token state in slot 0",
+  "regime": "stage 3 engine, traced=True, matmul policy off (matmul_policy field of probe_json), scripts/perf_probe.py --traced, median of 5 with device sync, 2048-token state in slot 0",
   "tail_bucket128_ms": 106.96,
   "tail_bucket256_ms": 167.33,
   "tail_bucket2048_ms": 1537.19,
@@ -155,6 +208,49 @@
    }
   },
   "probe_json": "/home/hous/dev/kev/reports/sweep/perf_probe_mlp_bfp8.json"
+ },
+ "performance_traced_policy_on": {
+  "regime": "stage 3 engine, traced=True, matmul policy on (matmul_policy field of probe_json), scripts/perf_probe.py --traced --matmul-policy, median of 5 with device sync, 2048-token state in slot 0",
+  "tail_bucket128_ms": 105.08,
+  "tail_bucket256_ms": 153.53,
+  "tail_bucket2048_ms": 919.36,
+  "state_2048_ms": 901.28,
+  "build_s": 37.8,
+  "trace_mib": 274.0,
+  "card_ms": {
+   "6 questions, short state": {
+    "state_tokens": 31,
+    "questions": 6,
+    "question_tokens": [
+     42,
+     73,
+     47,
+     22,
+     16,
+     22
+    ],
+    "new_ms": 605.4,
+    "new_state_ms": 0.0,
+    "new_questions_ms": 605.4,
+    "cached_ms": 605.4
+   },
+   "5 questions, 2,200-token state": {
+    "state_tokens": 2192,
+    "questions": 5,
+    "question_tokens": [
+     42,
+     73,
+     47,
+     16,
+     22
+    ],
+    "new_ms": 1531.1,
+    "new_state_ms": 0.7,
+    "new_questions_ms": 1530.4,
+    "cached_ms": 525.8
+   }
+  },
+  "probe_json": "/home/hous/dev/kev/tt-metal/models/autoports/jaredpalmer_kev_9b/doc/optimized/perf_probe_traced_bfp8_policy.json"
  },
  "weight_cache_gb": 10.47,
  "accuracy_by_suite": {

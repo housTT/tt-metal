@@ -2,6 +2,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import time
 from pathlib import Path
 
@@ -10,6 +11,8 @@ SWEEP = KEV_ROOT / "reports" / "sweep"
 CSV_PATH = SWEEP / "sweep_results.csv"
 DOC = KEV_ROOT / "tt-metal" / "models" / "autoports" / "jaredpalmer_kev_9b" / "doc" / "datatype_sweep"
 SELECTED_PATH = DOC / "selected_precision_config.json"
+POLICY_PROBE = DOC.parent / "optimized" / "perf_probe_traced_bfp8_policy.json"
+DEFAULT_ENGINE_LOG = KEV_ROOT / "logs" / "stage4r_reference_records.log"
 PROBE_GLOB = "perf_probe_{variant}.json"
 CPU_BF16_MAX_DP = 0.0189
 FLIP_MARGIN = 0.05
@@ -69,8 +72,8 @@ def dir_bytes(path):
     return total
 
 
-def probe(variant):
-    path = SWEEP / PROBE_GLOB.format(variant=variant)
+def probe(variant, path=None):
+    path = SWEEP / PROBE_GLOB.format(variant=variant) if path is None else Path(path)
     if not path.exists():
         return {}
     d = json.load(open(path))
@@ -117,6 +120,48 @@ def classify_flips(variant_json):
             }
         )
     return margin, near, detail
+
+
+def traced_block(p):
+    policy = p.get("probe_matmul_policy")
+    label = "on" if policy is True else "off" if policy is False else "unknown (no probe json)"
+    flag = " --matmul-policy" if policy is True else ""
+    return {
+        "regime": f"stage 3 engine, traced=True, matmul policy {label} (matmul_policy field of probe_json), scripts/perf_probe.py --traced{flag}, median of 5 with device sync, 2048-token state in slot 0",
+        "tail_bucket128_ms": num(p.get("traced_tail128_ms")),
+        "tail_bucket256_ms": num(p.get("traced_tail256_ms")),
+        "tail_bucket2048_ms": num(p.get("traced_tail2048_ms")),
+        "state_2048_ms": num(p.get("traced_state2048_ms")),
+        "build_s": num(p.get("traced_build_s")),
+        "trace_mib": num(p.get("trace_mib")),
+        "card_ms": p.get("probe_card_ms", {}),
+        "probe_json": p.get("probe_json"),
+    }
+
+
+def default_engine_propagation(sweep_prop):
+    if not DEFAULT_ENGINE_LOG.exists():
+        return None
+    text = DEFAULT_ENGINE_LOG.read_text(errors="replace")
+    m = re.search(r"KevEngine args=\S+ .*? cache=(\S+) max_len=\d+ traced=(\w+) matmul_policy=(\w+)", text)
+    if m is None:
+        return None
+    files = re.findall(
+        r"Loaded cache for \S+/(mlp\.\w+|self_attn\.\w+|linear_attn\.\w+)\.weight_dtype_(\w+)_layout", text
+    )
+    out = {
+        "source": f"default KevEngine (no QWEN36_* or KEV_* overrides): KevEngine args= line and the per-tensor 'Loaded cache' lines of {DEFAULT_ENGINE_LOG}; compute_kernel_config and kv_cache fields read back from the built engine by scripts/dtype_sweep.py under the same knob values (propagation_check_sweep_process)",
+    }
+    out.update(
+        {k: v for k, v in sweep_prop.items() if "compute_kernel_config" in k or k in ("kv_cache.dtype", "n_layers")}
+    )
+    out["weight_cache_path"] = m.group(1)
+    out["traced"] = m.group(2) == "True"
+    out["matmul_policy"] = m.group(3) == "True"
+    out["cached_weight_file_dtypes"] = {
+        name: sorted({d for n, d in files if n == name}) for name in sorted({n for n, _ in files})
+    }
+    return out
 
 
 def enrich(r):
@@ -276,7 +321,9 @@ def selected_config(r, all_rows, best_acc, eligible, ties, acc_window_pp, tie_pc
             "KEV_MATMUL_POLICY": "1" if str(r.get("matmul_policy")) == "True" else "0",
             "TT_CACHE_PATH": r["cache_dir"],
         },
-        "propagation_check": variant_json.get("propagation", {}),
+        "propagation_check": default_engine_propagation(variant_json.get("propagation", {}))
+        or variant_json.get("propagation", {}),
+        "propagation_check_sweep_process": variant_json.get("propagation", {}),
         "accuracy": {
             "subset_rows": int(float(r["subset_rows"])),
             "acc": num(r["acc"]),
@@ -301,17 +348,10 @@ def selected_config(r, all_rows, best_acc, eligible, ties, acc_window_pp, tie_pc
             "ref_mean_row_s": num(r["ref_mean_row_s"]),
             "engine_load_s": num(r["engine_load_s"]),
         },
-        "performance_traced": {
-            "regime": "stage 3 engine, traced=True, matmul policy on, scripts/perf_probe.py --traced --matmul-policy, median of 5 with device sync, 2048-token state in slot 0",
-            "tail_bucket128_ms": num(r.get("traced_tail128_ms")),
-            "tail_bucket256_ms": num(r.get("traced_tail256_ms")),
-            "tail_bucket2048_ms": num(r.get("traced_tail2048_ms")),
-            "state_2048_ms": num(r.get("traced_state2048_ms")),
-            "build_s": num(r.get("traced_build_s")),
-            "trace_mib": num(r.get("trace_mib")),
-            "card_ms": r.get("probe_card_ms", {}),
-            "probe_json": r.get("probe_json"),
-        },
+        "performance_traced": traced_block(r),
+        "performance_traced_policy_on": traced_block(probe(r["variant"], POLICY_PROBE))
+        if POLICY_PROBE.exists()
+        else None,
         "weight_cache_gb": num(r.get("cache_gb")),
         "accuracy_by_suite": variant_json.get("subset", {}).get("by_suite", {}),
         "cpu_bf16_reference_max_dp": CPU_BF16_MAX_DP,

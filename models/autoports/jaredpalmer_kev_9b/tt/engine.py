@@ -133,10 +133,10 @@ class KevEngine:
         self.read_rows = read_rows
         self.matmul_policy = os.environ.get("KEV_MATMUL_POLICY", "1") == "1" if matmul_policy is None else matmul_policy
         ttnn.linear = policy_linear if self.matmul_policy else _original_linear
-        if self.matmul_policy:
-            os.environ.setdefault("QWEN9B_MLP_DOWN_AUTO", "1")
         self.max_len = max_state_len + MAX_QUESTION_LEN
         args = args_cls(mesh_device=device, max_batch_size=1, max_seq_len=self.max_len)
+        if self.matmul_policy:
+            args.prefill_progcfg = None
         if n_layers is not None:
             args.n_layers = n_layers
             args.attention_type_list = args.attention_type_list[:n_layers]

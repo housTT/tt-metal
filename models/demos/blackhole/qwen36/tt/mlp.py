@@ -15,9 +15,9 @@ from models.demos.blackhole.qwen36.tt.precision import MATMUL_FIDELITY, MLP_DOWN
 
 @dataclass(frozen=True)
 class MLPWeights:
-    w1: ttnn.Tensor  # gate_proj [in, out], bfloat4_b
-    w2: ttnn.Tensor  # down_proj [in, out], bfloat8_b
-    w3: ttnn.Tensor  # up_proj [in, out], bfloat4_b
+    w1: ttnn.Tensor
+    w2: ttnn.Tensor
+    w3: ttnn.Tensor
     w_gate_up: ttnn.Tensor = None  # TP prefill: tile-pair-interleaved packed [gate|up] for fused-swiglu AGMM
 
 
@@ -152,7 +152,6 @@ def load_mlp_weights(mesh_device, state_dict, tensor_cache_path=None, args=None,
             cache_file_name=(tensor_cache_path / f"mlp.{name}.weight") if tensor_cache_path else None,
         )
 
-    # gate/up: bfloat4_b (bandwidth); down: bfloat8_b (accuracy).
     return MLPWeights(
         w1=load("gate_proj", MLP_GATE_UP_DTYPE),
         w2=load("down_proj", MLP_DOWN_DTYPE),
