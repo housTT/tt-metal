@@ -83,6 +83,7 @@ verify:
   - "from models.tt_transformers.tt.model_config import DecodersPrecision, ModelArgs; assert DecodersPrecision.from_string('accuracy')"
   - "import models.tt_transformers.tt.model, models.tt_transformers.tt.prefetcher, models.tt_transformers.tt.rope, models.tt_transformers.tt.load_checkpoints"
   - "from pathlib import Path; p = Path('/opt/tt-metal/models/tt_transformers/tt/prefetcher/prefetcher_config.yaml'); assert p.is_file(), 'prefetcher config missing: prefetcher.py reads it at import'"
+  - "from pathlib import Path; p = Path('/opt/tt-metal/tt_metal/fabric/impl/kernels/edm_fabric/fabric_erisc_router.cpp'); assert p.is_file() and len(p.read_text()) > 0, 'fabric router kernel source unreadable: multi-chip profiles fail at fabric init (file mode)'"
   - "from pathlib import Path; p = Path('/opt/tt-metal/models/autoports/contrastive_lm_clm_v0_1_8b/clm/static/index.html'); assert p.is_file(), 'playground static files missing: server/app.py skips the UI silently without them'"
   - "import hashlib; p='/opt/tt-metal/models/autoports/contrastive_lm_clm_v0_1_8b/weights/CLM_v0.1-8B.pt'; h=hashlib.sha256(open(p,'rb').read()).hexdigest(); assert h=='b2b4a8c9c2d39263eff78a351eb909a342ce9b3bf21a3f07c1d1bf15f1c4eda5', h"
   - "import transformers; assert transformers.__version__.startswith('5.'), transformers.__version__"
@@ -97,24 +98,27 @@ card:
     and an OpenAI-compatible embeddings endpoint on one Blackhole p150 chip.
   performance: >
     Measured on this package served on one Blackhole p150 chip (two p300c boards, four chips, qb2 box),
-    default profile (accuracy policy). Encoder: one text up to 128 tokens 57.6 ms, 1024 tokens 170 ms,
-    2048 tokens 323 ms (p50, warm traces); batch of 8 texts at 128 tokens 162 ms; throughput saturates near
-    6.5k tokens/s. System One API: the README customer example (three questions, 98 tokens) 0.25 s cold and
-    0.1 ms warm (all vectors cached); a new state against a fixed action set 57 ms, revisited states 0.1 ms
-    (the CLM README reports 58.1 ms cold and 28.6 / 1.7 ms for the same table on one RTX 4090). Fidelity vs an
-    fp32 CPU run of the same weights: cosine 0.9991 mean / 0.9960 min on 308 texts; 96.5 percent identical
-    argmax on 200 Typed Decisions subset decisions (98.9 percent of those with a reference margin above 0.10).
-    Zero-shot on LocalLLaMA/typed-decisions (400 cases): accuracy 0.361, KL 2.03, Brier 0.62, about 1.1 s per
-    5-question case; T-Rex real-time game 2 of 5 courses survived (authors on a 4090: 5 of 5). The p150x4
-    profile (four chips, tensor parallel) is 1.9x faster at 128 tokens (30.5 ms); the p150-fast profile
-    (stock bfp8 policy) is 6 percent faster than the default at 97.3 percent decision agreement.
+    default profile (accuracy policy), image a79fd98c9a89. Encoder, p50 with warm traces: one text up to 128 tokens
+    57.8 ms, 256 tokens 72 ms, 512 tokens 94 ms, 1024 tokens 170 ms, 2048 tokens 322 ms; eight 128-token texts
+    162 ms, eight 512-token texts 625 ms; throughput saturates near 6.3 to 6.7k tokens/s. Prefill is traced at
+    128 / 256 / 512 / 1024 / 2048 tokens x batch 1 / 4 / 8. System One API: the README customer example (three
+    questions, 98 tokens) 262 ms cold and 0.1 ms warm (all vectors cached); a new state against a fixed action set
+    60 ms, revisited states 0.1 ms (the CLM README reports 58.1 ms cold and 28.6 / 1.7 ms for the same table on one
+    RTX 4090). Fidelity vs an fp32 CPU run of the same weights: cosine 0.9991 mean / 0.9960 min on 308 texts;
+    96.0 percent identical argmax on 200 Typed Decisions subset decisions served from the package (98.9 percent of
+    those with a reference margin above 0.10). Zero-shot on LocalLLaMA/typed-decisions (400 cases, 2,000 decisions):
+    accuracy 0.364, KL 2.05, Brier 0.63, 312 ms p50 per 5-question case; T-Rex real-time game 2 of 5 courses
+    survived, 2,083 decisions per course (authors on a 4090: 5 of 5, 3,342). The p150x4 profile (four chips,
+    tensor parallel) is 1.9x faster at 128 tokens (30.5 ms); the p150-fast profile (stock bfp8 policy) is 6 percent
+    faster than the default at 97.3 percent decision agreement with the fp32 reference.
   limitations: >
     Encoder-only; produces scores and embeddings, never text. Inputs longer than 2048 tokens are truncated to
     their last 2048 tokens (upstream clm-serve default); the encoder itself supports 40960. Outputs are
     deterministic for identical requests, but a text embedded alongside different batch-mates can differ at the
     cosine 0.999 level (batch-variant reduction order, tt-metal issue 47238), which flips about 2 percent of
     near-tie decisions. The published README example probabilities (0.410 / 0.939 / 1.984) are not reproduced
-    by the published head on any hardware; this package matches the CPU fp32 reference (0.853 / 0.990 / 2.000).
+    by the published head on any hardware; this package gives 0.816 / 0.993 / 2.000 against the CPU fp32
+    reference's 0.842 / 0.988 / 2.000 for the same example.
     Zero-shot Typed Decisions accuracy is below the dataset's prior baseline on both CPU and TT; the CLM authors
     treat that benchmark as a fine-tuning target. Only the p150, p150-fast and p150x4 profiles were run; a
     two-chip 1x2 mesh does not open on this box (fabric router sync timeout). The host must set

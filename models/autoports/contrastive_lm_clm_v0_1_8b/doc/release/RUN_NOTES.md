@@ -44,7 +44,21 @@ tt-model package --container models/autoports/contrastive_lm_clm_v0_1_8b/tt-mode
   (ccache), all 13 `verify:` assertions passed. Image `tt-model/clm-v0.1-8b-p150:38a80e5078b7`, digest
   `sha256:38a80e5078b7e7a303863a18bbf73f4d4bb13041193ec0eff907632d8744a475`, code sha256
   `76a384d3d9d7ea58ae4da3e5f0d1a039440fb43f434ed792135f6efdb3ff2287`, created 2026-10-01T23:10:40Z, tt-metal
-  `a3df3fd2ee` (`0.65.2.dev9726+ga3df3fd2ee`). This is the image that was verified and published below.
+  `a3df3fd2ee` (`0.65.2.dev9726+ga3df3fd2ee`). Verified from the served package (table below), then superseded.
+- Seventh attempt (23:44 to 23:47 UTC, `package exit 0`): after the build 6 evaluation showed the 1024-token bucket
+  cost on Typed Decisions, the encoder gained the 256 and 512 token prefill buckets (`doc/optimized_full_model/README.md`,
+  "Prefill buckets"). Image `tt-model/clm-v0.1-8b-p150:a79fd98c9a89`, digest
+  `sha256:a79fd98c9a89dfb3e19a6b3150f81259aa45f60ee96b5caefcab29f412aed0c1`, code sha256
+  `c87308710a8567474a9cc832873033182fd111e55558ca96cf92b3c6ac34970c`, created 2026-10-01T23:44:45Z. The manifest
+  records tt-metal `a890a5ab05` plus `dirty` because the bucket change was committed (`b39ef75ab6`) a few minutes
+  after the snapshot; the shipped code is the working tree, which equals that commit. This image was evaluated
+  (table below) for the `p150` profile. Its `p150x4` profile did not boot: the fabric router kernel source was
+  again mode 0660 inside the image (`Cannot open kernel source file .../fabric_erisc_router.cpp`). Cause: the
+  pre-commit hooks stash and restore unstaged files on every commit, and the restore re-creates the Ornith-edited
+  kernel files with the project's umask 007, undoing the `chmod` done before build 6. Fix: `package-build.sh` now
+  runs `chmod -R a+rX` over the shipped source trees before every build and logs the count of files that are still
+  not world-readable, and the manifest gained a `verify:` line that opens that kernel source inside the image.
+- Eighth attempt (card text and the mode fix; same code as build 7): recorded under "Publish".
 
 ## Serve profiles
 
@@ -62,28 +76,34 @@ tt-model stop clm-v0.1-8b-p150
 
 ## Verification from the served package
 
-Image `38a80e5078b7`, served with `tt-model serve --port 8700 --device-id 0 --detach --profile p150` and
-`--profile p150x4 --port 8702`; harness `/home/hous/dev/clm-v0.1-8B/bin/run-evals.sh`; results under
-`/home/hous/dev/clm-v0.1-8B/evals/results/`.
+Final image `a79fd98c9a89` (five prefill buckets), served with `tt-model serve --port 8700 --device-id 0 --detach
+--profile p150` and `--profile p150x4 --port 8702 --device-id 0,1,2,3`; harness `/home/hous/dev/clm-v0.1-8B/bin/run-evals.sh`;
+results under `/home/hous/dev/clm-v0.1-8B/evals/results/`.
 
-| check | p150 (default, accuracy) `package_p150_final_20261001T232132Z` | p150x4 `package_p150x4_20261001T232047Z` |
+| check | p150 (default, accuracy) `package_p150_b7_20261001T234742Z` | p150x4 `package_p150x4_b7_*` |
 |---|---|---|
-| `GET /health` | ok, ready, embedder tt, models clm-latest and clm-raw, cache 537 MB reserved | same |
-| README example, cold (`usage.input_tokens latency_ms`) | 98 262.4; answers urgency 0.816, billing 0.993, frustration 2.000 | 98 176.1 |
-| README example, warm x20 | 0 0.1 (client 0.7 ms) | 0 0.1 |
-| vector cache, new state every call, 3 / 50 actions | 60.6 / 60.6 ms | 33.6 / 33.8 ms |
+| `GET /health` | ok, ready, embedder tt, models clm-latest and clm-raw, cache 537 MB reserved | X4_HEALTH_B7 |
+| README example, cold (`usage.input_tokens latency_ms`) | 98 262.4; answers urgency 0.816, billing 0.993, frustration 2.000 | X4_README_B7 |
+| README example, warm x20 | 0 0.1 (client 0.8 ms) | 0 0.1 |
+| vector cache, new state every call, 3 / 50 actions | 60.2 / 60.2 ms | X4_CACHE_B7 |
 | vector cache, revisited and repeated states | 0.1 ms | 0.1 ms |
-| embeddings table (client p50) | 128 tok x 1: 61.4 ms; 128 x 8: 175.9 ms (5,820 tok/s); 1024 x 8: 1,320 ms (6,204 tok/s); 2048 x 32: 10,376 ms (6,316 tok/s) | not run |
-| Typed Decisions, zero-shot | 400 cases, 2,000 decisions, 0 errors: accuracy 0.361, KL 2.045, Brier 0.626, ECE 0.487, p50 1,301 ms per case | first 100 cases: accuracy 0.292, p50 110 ms (same 100 cases cost 147 ms on p150-fast) |
-| agreement with the CPU fp32 reference (40-case subset, 200 decisions) | 95.5 percent; 98.4 percent where the reference margin >= 0.10; accuracy vs gold 0.355 vs 0.370 | not run |
-| T-Rex, 5 seeds x 60 s, shield on | 3 of 5 survived, mean best 541, 2,039 decisions, planner agreement 0.781, answer p50 16.4 ms, model p50 1.3 ms, 0 errors | not run |
+| embeddings table (client p50) | 128 tok x 1: 61.4 ms; 128 x 8: 175.9 ms (5,820 tok/s); 512 x 8: 641 ms (6,393 tok/s); 1024 x 8: 1,320 ms (6,204 tok/s); 2048 x 32: 10,378 ms (6,315 tok/s) | not run |
+| Typed Decisions, zero-shot | 400 cases, 2,000 decisions, 0 errors: accuracy 0.364, KL 2.046, Brier 0.625, ECE 0.484, p50 312 ms per case (p95 630 ms) | X4_TD_B7 |
+| agreement with the CPU fp32 reference (40-case subset, 200 decisions) | 96.0 percent; 98.9 percent where the reference margin >= 0.10; accuracy vs gold 0.360 vs 0.370 | not run |
+| T-Rex, 5 seeds x 60 s, shield on | 2 of 5 survived (seeds 3 and 4 at the 697 course maximum), mean best 589, 2,083 decisions, planner agreement 0.778, answer p50 16.4 ms, model p50 1.3 ms, 1,990 answers discarded, 0 errors (`/home/hous/dev/clm-v0.1-8B/evals/trex/results/20261001T235652Z`) | not run |
+
+Build 6 (image `38a80e5078b7`, same code except the 256 / 512 buckets, `package_p150_final_20261001T232132Z`):
+README example cold 98 262.4; new state 60.6 ms; Typed Decisions 0.361 / 2.045 / 0.626 / 0.487 at 1,301 ms per case
+(the 1024-token bucket cost); agreement 95.5 percent (98.4 percent confident); T-Rex 3 of 5 survived, mean best 541,
+2,039 decisions. The p150x4 profile of build 6 (`package_p150x4_20261001T232047Z`): README example cold 98 176.1,
+new state 33.6 ms, first 100 Typed Decisions cases at 110 ms (147 ms on one chip for the same cases).
 
 The `p150-fast` profile (stock bfp8 policy) was evaluated with the full suite on image `aa6f0847aa7a`
 (`package_p150_20261001T224031Z`): README example cold 98 235.3; new state 56.7 ms; Typed Decisions 0.361 / 2.026 /
-0.624 / 0.484 at 1,140 ms; agreement 93.0 percent (95.7 percent confident); T-Rex 2 of 5 survived. The container's
-serve-time weight download, cache build and warmup were exercised on every serve (first serve of an image loads the
-Qwen3-8B safetensors from the Hub cache and writes the ttnn weight cache; later serves load in about 25 s plus 6 s
-of trace capture).
+0.624 / 0.484 at 1,140 ms; agreement 93.0 percent (95.7 percent confident); T-Rex 2 of 5 survived. Every serve of an
+image exercised the container's weight-cache build and warmup (first serve loads the Qwen3-8B safetensors from the
+Hub cache and writes the ttnn weight cache; later serves load in about 25 s plus 18 s of trace preparation and
+capture for the fifteen variants).
 
 ## Publish
 
