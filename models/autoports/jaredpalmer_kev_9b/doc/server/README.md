@@ -3,6 +3,8 @@
 Code: `/home/hous/dev/kev/tt-metal/models/autoports/jaredpalmer_kev_9b/tt/server.py` (ASGI `app`, FastAPI).
 Reference it mirrors: `/home/hous/dev/kev/kev/kev/serve.py` and `/home/hous/dev/kev/kev/kev/api.py` at kev commit 952ce9d.
 
+Demo: `/home/hous/dev/kev/tt-metal/models/autoports/jaredpalmer_kev_9b/demo/README.md` (a static page plus a CLI that run the presets against this server).
+
 ## Routes
 
 | Route | Body |

@@ -1,0 +1,821 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kev-9b demo</title>
+<style>
+:root {
+  --bg: #f7f7f5;
+  --fg: #1a1a1a;
+  --muted: #6b6b66;
+  --border: #d9d9d4;
+  --card: #ffffff;
+  --input: #ffffff;
+  --accent: #1f5fbf;
+  --accent-fg: #ffffff;
+  --track: #e6e6e1;
+  --bar: #1a1a1a;
+  --bar-dim: #a3a39d;
+  --ok: #1e7f4f;
+  --bad: #b3261e;
+  --warn: #8a5a00;
+  --mark: #1f5fbf;
+  --code-bg: #f0f0ec;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131416;
+    --fg: #ececea;
+    --muted: #9a9a94;
+    --border: #2e3034;
+    --card: #1b1d20;
+    --input: #121315;
+    --accent: #6ea0ea;
+    --accent-fg: #0f1115;
+    --track: #2a2c30;
+    --bar: #ececea;
+    --bar-dim: #6a6a66;
+    --ok: #5fc78f;
+    --bad: #f28b82;
+    --warn: #e0b35a;
+    --mark: #6ea0ea;
+    --code-bg: #0f1012;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131416;
+  --fg: #ececea;
+  --muted: #9a9a94;
+  --border: #2e3034;
+  --card: #1b1d20;
+  --input: #121315;
+  --accent: #6ea0ea;
+  --accent-fg: #0f1115;
+  --track: #2a2c30;
+  --bar: #ececea;
+  --bar-dim: #6a6a66;
+  --ok: #5fc78f;
+  --bad: #f28b82;
+  --warn: #e0b35a;
+  --mark: #6ea0ea;
+  --code-bg: #0f1012;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  padding: 0 16px 48px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+code, pre, textarea, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+h1 { font-size: 20px; margin: 20px 0 2px; letter-spacing: -0.01em; }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 18px 0 6px; font-weight: 600; }
+p { margin: 0 0 8px; }
+a { color: var(--accent); }
+.sub { color: var(--muted); }
+.server-row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: end; margin-top: 10px; }
+.server-row label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); flex: 1 1 220px; min-width: 0; }
+input[type="text"], input[type="password"], input[type="url"], textarea {
+  width: 100%;
+  background: var(--input);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+textarea { resize: vertical; line-height: 1.4; }
+#state { min-height: 140px; }
+#questions { min-height: 260px; }
+button {
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; }
+button.active { border-color: var(--fg); font-weight: 600; }
+.status { margin-top: 8px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.status.ok::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; }
+.status.bad::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); margin-right: 6px; }
+.grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 0 28px; }
+@media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.cases { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.cases button { font-size: 12px; padding: 3px 8px; }
+.blurb { color: var(--muted); font-size: 12px; margin-top: 6px; min-height: 1.4em; }
+.chk { font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; margin-left: 10px; }
+.row-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 10px; }
+.err { color: var(--bad); font-size: 12px; margin-top: 4px; min-height: 1.2em; overflow-wrap: anywhere; white-space: pre-wrap; }
+.run-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.hint { color: var(--muted); font-size: 12px; }
+.tabs { display: flex; gap: 6px; margin: 18px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+.tab[hidden] { display: none; }
+.metrics { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.metrics b { color: var(--fg); font-weight: 600; }
+.metrics .wide { flex-basis: 100%; }
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 11rem) minmax(0, 1fr);
+  gap: 6px 18px;
+}
+@media (max-width: 560px) { .card { grid-template-columns: minmax(0, 1fr); } }
+.card .qid { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.card .instr { font-size: 13px; margin: 2px 0 4px; overflow-wrap: anywhere; }
+.card .headline { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.card .detail { font-size: 12px; color: var(--muted); }
+.card .verdict { font-size: 12px; font-weight: 600; }
+.ok { color: var(--ok); }
+.bad { color: var(--bad); }
+.warn { color: var(--warn); }
+.lanes { display: flex; flex-direction: column; justify-content: center; gap: 3px; min-width: 0; }
+.lane { display: grid; grid-template-columns: minmax(0, 7rem) minmax(0, 1fr) 3rem; align-items: center; gap: 0 10px; font-size: 12px; line-height: 18px; color: var(--muted); }
+.lane.top { color: var(--fg); }
+.lane .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lane .track { position: relative; height: 5px; border-radius: 3px; background: var(--track); }
+.lane .fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 3px; background: var(--bar-dim); }
+.lane.top .fill { background: var(--bar); }
+.lane .value { text-align: right; }
+.scale { display: grid; grid-template-columns: minmax(0, 7rem) minmax(0, 1fr) 3rem; gap: 0 10px; font-size: 11px; color: var(--muted); align-items: center; margin-top: 2px; }
+.scale .axis { position: relative; height: 10px; border-top: 1px solid var(--border); }
+.scale .tick { position: absolute; top: -5px; width: 2px; height: 10px; background: var(--mark); transform: translateX(-1px); }
+.replay-row { display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; align-items: baseline; }
+.replay-row .id { flex: 1 1 200px; overflow-wrap: anywhere; }
+.replay-row .lat { width: 5.5rem; text-align: right; color: var(--muted); }
+.replay-row .qs { flex-basis: 100%; color: var(--muted); overflow-wrap: anywhere; }
+.replay-row .res { width: 2.8rem; font-weight: 600; }
+.snippet { margin-bottom: 14px; }
+.snippet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-size: 12px; color: var(--muted); }
+pre {
+  margin: 0;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 420px;
+  overflow: auto;
+}
+footer { margin-top: 28px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 10px; }
+.empty { color: var(--muted); font-size: 13px; padding: 10px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>kev-9b on Tenstorrent</h1>
+  <p class="sub">One request, several isolated decisions: choice, yes/no and score questions over one state, answered by the kev-9b pointer head served from a Blackhole P150.</p>
+  <div class="server-row">
+    <label>Server URL<input id="server" type="url" value="http://127.0.0.1:8008" spellcheck="false"></label>
+    <label>API key (only if the server sets KEV_API_KEY)<input id="apikey" type="password" autocomplete="off"></label>
+    <button id="refresh" type="button">Check server</button>
+  </div>
+  <div id="status" class="status">checking the server</div>
+</header>
+
+<main class="grid">
+  <section>
+    <h2>Presets</h2>
+    <div id="presets" class="presets"></div>
+    <div id="cases" class="cases"></div>
+    <div id="blurb" class="blurb"></div>
+
+    <div class="row-head"><h2>State</h2><label class="chk"><input id="statejson" type="checkbox"> parse as JSON</label></div>
+    <textarea id="state" spellcheck="false"></textarea>
+    <div id="state-error" class="err"></div>
+
+    <div class="row-head"><h2>Questions</h2><span class="hint">JSON object: id to {type, instructions, criteria}</span></div>
+    <textarea id="questions" spellcheck="false"></textarea>
+    <div id="q-error" class="err"></div>
+
+    <div class="run-row">
+      <button id="run" class="primary" type="button">Run</button>
+      <span class="hint">Ctrl+Enter in either editor also runs</span>
+    </div>
+    <div id="run-error" class="err"></div>
+  </section>
+
+  <section>
+    <div class="tabs" role="tablist">
+      <button type="button" data-tab="answers" class="active">Answers</button>
+      <button type="button" data-tab="replay">Replay</button>
+      <button type="button" data-tab="snippets">Snippets</button>
+    </div>
+
+    <div id="tab-answers" class="tab">
+      <div id="metrics" class="metrics"></div>
+      <div id="answers"><div class="empty">Pick a preset and press Run.</div></div>
+    </div>
+
+    <div id="tab-replay" class="tab" hidden>
+      <p class="hint">Sends the bundled labelled records one after another (one chip answers one request at a time) and compares the top answer with the label. Accuracy is over questions; a record passes when every question is right.</p>
+      <div class="run-row">
+        <button id="replay-run" class="primary" type="button">Run replay</button>
+        <button id="replay-stop" type="button" disabled>Stop</button>
+        <span id="replay-count" class="hint"></span>
+      </div>
+      <div id="replay-stats" class="metrics"></div>
+      <div id="replay-rows"></div>
+    </div>
+
+    <div id="tab-snippets" class="tab" hidden>
+      <p class="hint">The current request, ready to paste. Edit the state or the questions and the snippets follow.</p>
+      <div class="snippet"><div class="snippet-head"><span>curl</span><button type="button" class="copy" data-for="snip-curl">Copy</button></div><pre id="snip-curl"></pre></div>
+      <div class="snippet"><div class="snippet-head"><span>Python, requests</span><button type="button" class="copy" data-for="snip-requests">Copy</button></div><pre id="snip-requests"></pre></div>
+      <div class="snippet"><div class="snippet-head"><span>Python, typesafe_sdk</span><button type="button" class="copy" data-for="snip-sdk">Copy</button></div><pre id="snip-sdk"></pre></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Static page, no build step. It calls <code>POST /v1/systemone</code>, <code>GET /v1/models</code> and <code>GET /health</code> on the server above from the browser. Presets come from <code>presets.json</code>, shared with <code>quickstart.py</code>. Bar layout after the kev playground (Apache-2.0).
+</footer>
+
+<script id="kev-core">
+"use strict";
+const KEV = (() => {
+  const TYPES = new Set(["noul", "choice", "score"]);
+
+  function buildRequest(state, questions, model) {
+    return { state: state, model: model, questions: questions };
+  }
+
+  function parseState(text, asJson) {
+    if (!asJson) return text;
+    return JSON.parse(text);
+  }
+
+  function parseQuestions(text) {
+    let q;
+    try {
+      q = JSON.parse(text);
+    } catch (e) {
+      throw new Error("questions: " + e.message);
+    }
+    if (q === null || typeof q !== "object" || Array.isArray(q)) throw new Error("questions must be a JSON object keyed by question id");
+    const ids = Object.keys(q);
+    if (!ids.length) throw new Error("questions needs at least one question");
+    for (const id of ids) {
+      const item = q[id];
+      if (item === null || typeof item !== "object" || Array.isArray(item)) throw new Error(id + ": must be an object");
+      if (!TYPES.has(item.type)) throw new Error(id + ": type must be noul, choice or score");
+      if (item.type === "choice" && (item.criteria === null || typeof item.criteria !== "object" || Array.isArray(item.criteria) || !Object.keys(item.criteria).length)) throw new Error(id + ": choice needs criteria as an object of options");
+      if (item.type === "score" && (!Array.isArray(item.criteria) || !item.criteria.length)) throw new Error(id + ": score needs criteria as a list of levels");
+    }
+    return q;
+  }
+
+  function predicted(answer) {
+    if (answer.type === "choice") return answer.choice;
+    if (answer.type === "noul") return answer.noul > 0.5;
+    const probs = answer.probabilities;
+    let best = null;
+    for (const k of Object.keys(probs)) if (best === null || probs[k] > probs[best]) best = k;
+    return Number(best);
+  }
+
+  function same(pred, label) {
+    if (typeof pred === "boolean" || typeof label === "boolean") return Boolean(pred) === Boolean(label);
+    return String(pred) === String(label);
+  }
+
+  function formatLabel(v) {
+    if (typeof v === "boolean") return v ? "yes" : "no";
+    return String(v);
+  }
+
+  function pyString(s) {
+    return JSON.stringify(s);
+  }
+
+  function pyLiteral(v, pad) {
+    pad = pad || "";
+    const inner = pad + "    ";
+    if (v === null || v === undefined) return "None";
+    if (v === true) return "True";
+    if (v === false) return "False";
+    if (typeof v === "number") return String(v);
+    if (typeof v === "string") return pyString(v);
+    if (Array.isArray(v)) {
+      if (!v.length) return "[]";
+      return "[\n" + v.map((x) => inner + pyLiteral(x, inner)).join(",\n") + ",\n" + pad + "]";
+    }
+    const keys = Object.keys(v);
+    if (!keys.length) return "{}";
+    return "{\n" + keys.map((k) => inner + pyString(k) + ": " + pyLiteral(v[k], inner)).join(",\n") + ",\n" + pad + "}";
+  }
+
+  function snippetCurl(server, apiKey, req) {
+    const lines = ["curl -s " + server.replace(/\/$/, "") + "/v1/systemone \\", "  -H 'content-type: application/json' \\"];
+    if (apiKey) lines.push("  -H 'authorization: Bearer " + apiKey.replace(/'/g, "'\\''") + "' \\");
+    lines.push("  -d @- <<'KEV_JSON'");
+    lines.push(JSON.stringify(req, null, 2));
+    lines.push("KEV_JSON");
+    return lines.join("\n");
+  }
+
+  function snippetRequests(server, apiKey, req) {
+    const headers = apiKey ? "{\"authorization\": \"Bearer " + apiKey.replace(/"/g, '\\"') + "\"}" : "{}";
+    return [
+      "import json",
+      "import requests",
+      "",
+      "SERVER = " + pyString(server.replace(/\/$/, "")),
+      "HEADERS = " + headers,
+      "request = " + pyLiteral(req),
+      "",
+      "r = requests.post(f\"{SERVER}/v1/systemone\", json=request, headers=HEADERS, timeout=600)",
+      "r.raise_for_status()",
+      "print(json.dumps(r.json(), indent=2))",
+    ].join("\n");
+  }
+
+  function snippetSdk(server, apiKey, req) {
+    const cls = { noul: "Noul", choice: "Choice", score: "Score" };
+    const field = { noul: "nouls", choice: "choices", score: "scores" };
+    const attr = { noul: "noul", choice: "choice", score: "score" };
+    const qs = [];
+    for (const id of Object.keys(req.questions)) {
+      const q = req.questions[id];
+      const args = ["instructions=" + pyLiteral(q.instructions, "            ")];
+      if (q.criteria !== undefined && q.criteria !== null) args.push("criteria=" + pyLiteral(q.criteria, "            "));
+      qs.push("        " + pyString(id) + ": " + cls[q.type] + "(\n            " + args.join(",\n            ") + ",\n        ),");
+    }
+    const prints = Object.keys(req.questions).map((id) => "print(" + pyString(id) + ", response." + field[req.questions[id].type] + "[" + pyString(id) + "]." + attr[req.questions[id].type] + ")");
+    return [
+      "from typesafe_sdk import Choice, Noul, Score, TypeSafeClient",
+      "",
+      "client = TypeSafeClient(",
+      "    api_key=" + pyString(apiKey || "local") + ",",
+      "    base_url=" + pyString(server.replace(/\/$/, "")) + ",",
+      "    model=" + pyString(req.model) + ",",
+      ")",
+      "response = client.system_one(",
+      "    state=" + pyLiteral(req.state, "    ") + ",",
+      "    questions={",
+      qs.join("\n"),
+      "    },",
+      ")",
+      prints.join("\n"),
+    ].join("\n");
+  }
+
+  function detailText(payload) {
+    if (payload === null || payload === undefined) return "";
+    const d = payload.detail !== undefined ? payload.detail : payload;
+    if (Array.isArray(d)) return d.map((e) => (e.loc || []).join(".") + ": " + (e.msg || "")).join("; ");
+    return typeof d === "string" ? d : JSON.stringify(d);
+  }
+
+  function explainError(status, payload, server, apiKey) {
+    if (status === 0) {
+      let msg = "Cannot reach " + server + ". Start the server first (README.md) or fix the URL.";
+      if (apiKey) msg += " A server started with KEV_API_KEY answers the browser's CORS preflight with 401, so the browser never sends the request; use quickstart.py --api-key against such a server.";
+      return msg;
+    }
+    if (status === 401) return "401: " + detailText(payload) + " Enter the key in the API key field.";
+    if (status === 422) return "422: " + detailText(payload);
+    return "HTTP " + status + ": " + detailText(payload);
+  }
+
+  function mean(xs) {
+    return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+  }
+
+  function median(xs) {
+    if (!xs.length) return 0;
+    const s = xs.slice().sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
+
+  function fmt(x, digits) {
+    return Number(x).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  }
+
+  return { buildRequest, parseState, parseQuestions, predicted, same, formatLabel, pyLiteral, snippetCurl, snippetRequests, snippetSdk, detailText, explainError, mean, median, fmt };
+})();
+if (typeof module !== "undefined") module.exports = KEV;
+</script>
+
+<script>
+"use strict";
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const serverInput = $("server");
+  const apiKeyInput = $("apikey");
+  const stateInput = $("state");
+  const stateJson = $("statejson");
+  const questionsInput = $("questions");
+  const runButton = $("run");
+  const status = $("status");
+
+  let data = { presets: [], replay: [], model: "kev-latest" };
+  let currentLabels = null;
+  let lastHits = null;
+  let replayStop = false;
+  let running = false;
+
+  function el(tag, attrs, children) {
+    const node = document.createElement(tag);
+    if (attrs) for (const k of Object.keys(attrs)) {
+      if (k === "class") node.className = attrs[k];
+      else if (k === "text") node.textContent = attrs[k];
+      else if (k === "style") node.style.cssText = attrs[k];
+      else node.setAttribute(k, attrs[k]);
+    }
+    if (children) for (const c of children) if (c !== null && c !== undefined) node.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+    return node;
+  }
+
+  function serverUrl() {
+    return serverInput.value.trim().replace(/\/$/, "") || "http://127.0.0.1:8008";
+  }
+
+  function headers(json) {
+    const h = {};
+    if (json) h["content-type"] = "application/json";
+    const key = apiKeyInput.value.trim();
+    if (key) h["authorization"] = "Bearer " + key;
+    return h;
+  }
+
+  async function fetchJson(path, init) {
+    let r;
+    try {
+      r = await fetch(serverUrl() + path, init);
+    } catch (e) {
+      return { status: 0, payload: { detail: String(e) } };
+    }
+    const text = await r.text();
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch (e) {
+      payload = { detail: text };
+    }
+    return { status: r.status, payload: payload };
+  }
+
+  function applyHash() {
+    const m = /[#&]server=([^&]+)/.exec(location.hash);
+    if (m) serverInput.value = decodeURIComponent(m[1]);
+  }
+
+  async function refreshStatus() {
+    status.className = "status";
+    status.textContent = "checking " + serverUrl();
+    const health = await fetchJson("/health");
+    if (health.status !== 200) {
+      status.className = "status bad";
+      status.textContent = KEV.explainError(health.status, health.payload, serverUrl(), "");
+      return null;
+    }
+    const models = await fetchJson("/v1/models", { headers: headers(false) });
+    if (models.status !== 200) {
+      status.className = "status bad";
+      status.textContent = "health ok (" + health.payload.workers + " worker(s)), /v1/models: " + KEV.explainError(models.status, models.payload, serverUrl(), apiKeyInput.value.trim());
+      return null;
+    }
+    const card = models.payload.models[0];
+    const cache = card.prefix_cache || {};
+    status.className = "status ok";
+    status.textContent = card.name + ", backend " + card.backend + ", device " + card.device + ", " + (card.workers || []).length + " worker(s), prefix cache " + cache.cached_states + "/" + cache.size + " states (hits " + cache.hits + ", misses " + cache.misses + "), queued " + health.payload.queued + ", max state " + KEV.fmt(card.max_state_tokens, 0) + " tokens";
+    return card;
+  }
+
+  function currentRequest() {
+    const state = KEV.parseState(stateInput.value, stateJson.checked);
+    const questions = KEV.parseQuestions(questionsInput.value);
+    return KEV.buildRequest(state, questions, data.model || "kev-latest");
+  }
+
+  function validate() {
+    let ok = true;
+    try {
+      KEV.parseState(stateInput.value, stateJson.checked);
+      $("state-error").textContent = "";
+    } catch (e) {
+      $("state-error").textContent = "state: " + e.message;
+      ok = false;
+    }
+    try {
+      KEV.parseQuestions(questionsInput.value);
+      $("q-error").textContent = "";
+    } catch (e) {
+      $("q-error").textContent = e.message;
+      ok = false;
+    }
+    runButton.disabled = !ok || running;
+    if (ok) renderSnippets();
+    return ok;
+  }
+
+  function renderSnippets() {
+    let req;
+    try {
+      req = currentRequest();
+    } catch (e) {
+      return;
+    }
+    const key = apiKeyInput.value.trim();
+    $("snip-curl").textContent = KEV.snippetCurl(serverUrl(), key, req);
+    $("snip-requests").textContent = KEV.snippetRequests(serverUrl(), key, req);
+    $("snip-sdk").textContent = KEV.snippetSdk(serverUrl(), key, req);
+  }
+
+  function loadCase(preset, c) {
+    const isString = typeof c.state === "string";
+    stateJson.checked = !isString;
+    stateInput.value = isString ? c.state : JSON.stringify(c.state, null, 2);
+    questionsInput.value = JSON.stringify(c.questions, null, 2);
+    currentLabels = c.labels && Object.keys(c.labels).length ? c.labels : null;
+    $("blurb").textContent = preset.what_it_shows + " Source: " + c.source + ".";
+    $("run-error").textContent = "";
+    validate();
+  }
+
+  function renderPresets() {
+    const box = $("presets");
+    box.textContent = "";
+    data.presets.forEach((p, i) => {
+      const b = el("button", { type: "button", text: p.title });
+      b.addEventListener("click", () => selectPreset(i, 0));
+      box.appendChild(b);
+    });
+  }
+
+  function selectPreset(i, j) {
+    const p = data.presets[i];
+    Array.from($("presets").children).forEach((b, k) => b.classList.toggle("active", k === i));
+    const cases = $("cases");
+    cases.textContent = "";
+    if (p.cases.length > 1) {
+      p.cases.forEach((c, k) => {
+        const b = el("button", { type: "button", text: c.name, class: k === j ? "active" : "" });
+        b.addEventListener("click", () => selectPreset(i, k));
+        cases.appendChild(b);
+      });
+    }
+    loadCase(p, p.cases[j]);
+  }
+
+  function lane(label, p, top, mono) {
+    return el("div", { class: "lane" + (top ? " top" : "") }, [
+      el("span", { class: "label" + (mono ? " mono" : ""), title: label, text: label }),
+      el("span", { class: "track" }, [el("span", { class: "fill", style: "width:" + Math.round(Math.max(0, Math.min(1, p)) * 100) + "%" })]),
+      el("span", { class: "value", text: KEV.fmt(p, 2) }),
+    ]);
+  }
+
+  function answerCard(id, q, a, label) {
+    const instr = q && q.instructions !== undefined ? (typeof q.instructions === "string" ? q.instructions : JSON.stringify(q.instructions)) : "";
+    let headline, detail;
+    const lanes = el("div", { class: "lanes" });
+    if (a.type === "noul") {
+      headline = a.noul > 0.5 ? "yes" : "no";
+      detail = "p(yes) " + KEV.fmt(a.noul, 2);
+      lanes.appendChild(lane("yes", a.noul, a.noul > 0.5, false));
+      lanes.appendChild(lane("no", 1 - a.noul, a.noul <= 0.5, false));
+    } else if (a.type === "choice") {
+      headline = a.choice;
+      detail = "confidence " + KEV.fmt(a.confidence, 2);
+      Object.entries(a.probabilities).sort((x, y) => y[1] - x[1]).forEach(([k, p]) => lanes.appendChild(lane(k, p, k === a.choice, true)));
+    } else {
+      const keys = Object.keys(a.probabilities).sort((x, y) => Number(x) - Number(y));
+      const top = String(KEV.predicted(a));
+      headline = KEV.fmt(a.score, 2) + " of " + (keys.length - 1);
+      detail = "confidence " + KEV.fmt(a.confidence, 2);
+      keys.forEach((k) => lanes.appendChild(lane(k + "  " + (a.legend ? a.legend[k] : ""), a.probabilities[k], k === top, false)));
+      const pos = keys.length > 1 ? (a.score / (keys.length - 1)) * 100 : 0;
+      lanes.appendChild(el("div", { class: "scale" }, [
+        el("span", { text: "expected value" }),
+        el("span", { class: "axis" }, [el("span", { class: "tick", style: "left:" + pos + "%", title: "score " + KEV.fmt(a.score, 2) })]),
+        el("span", { class: "value", text: KEV.fmt(a.score, 2) }),
+      ]));
+    }
+    const left = el("div", {}, [
+      el("div", { class: "qid" }, [el("span", { class: "mono", text: id }), " " + a.type]),
+      instr ? el("div", { class: "instr", text: instr }) : null,
+      el("div", {}, [el("span", { class: "headline" + (a.type === "choice" ? " mono" : ""), text: headline }), " ", el("span", { class: "detail", text: detail })]),
+    ]);
+    if (label !== undefined && label !== null) {
+      const hit = KEV.same(KEV.predicted(a), label);
+      left.appendChild(el("div", { class: "verdict " + (hit ? "ok" : "bad"), text: (hit ? "matches label " : "label ") + KEV.formatLabel(label) }));
+    }
+    return el("section", { class: "card" }, [left, lanes]);
+  }
+
+  function renderAnswers(req, res, wallMs, hitDelta) {
+    const box = $("answers");
+    box.textContent = "";
+    for (const id of Object.keys(req.questions)) {
+      const a = res.answers[id];
+      if (!a) continue;
+      box.appendChild(answerCard(id, req.questions[id], a, currentLabels ? currentLabels[id] : null));
+    }
+    const u = res.usage || {};
+    const m = $("metrics");
+    m.textContent = "";
+    const item = (k, v) => el("span", {}, [k + " ", el("b", { text: v })]);
+    m.appendChild(item("server latency_ms", KEV.fmt(res.latency_ms, 1)));
+    m.appendChild(item("client wall", KEV.fmt(wallMs, 0) + " ms"));
+    m.appendChild(item("input_tokens", KEV.fmt(u.input_tokens, 0)));
+    m.appendChild(item("output_tokens", KEV.fmt(u.output_tokens, 0)));
+    if (u.state_tokens !== undefined) m.appendChild(item("state_tokens", KEV.fmt(u.state_tokens, 0) + " (used " + KEV.fmt(u.state_tokens_used, 0) + ")"));
+    if (res.truncated) m.appendChild(el("span", { class: "warn", text: "state truncated by the server" }));
+    if (hitDelta !== null) m.appendChild(item("prefix cache", hitDelta > 0 ? "hit" : "miss"));
+    m.appendChild(el("span", { class: "wide", text: "Run again with the same state: a state of 128 tokens or more stays in the prefix cache, so the second run skips the state prefill. On one P150 the 2,200-token preset goes from about 1,533 ms to 527 ms." }));
+  }
+
+  async function run() {
+    if (running || !validate()) return;
+    let req;
+    try {
+      req = currentRequest();
+    } catch (e) {
+      return;
+    }
+    running = true;
+    runButton.disabled = true;
+    runButton.textContent = "Running";
+    $("run-error").textContent = "";
+    showTab("answers");
+    const before = await fetchJson("/v1/models", { headers: headers(false) });
+    const hitsBefore = before.status === 200 ? before.payload.models[0].prefix_cache.hits : null;
+    const t0 = performance.now();
+    const r = await fetchJson("/v1/systemone", { method: "POST", headers: headers(true), body: JSON.stringify(req) });
+    const wall = performance.now() - t0;
+    if (r.status !== 200) {
+      $("run-error").textContent = KEV.explainError(r.status, r.payload, serverUrl(), apiKeyInput.value.trim());
+    } else {
+      const after = await fetchJson("/v1/models", { headers: headers(false) });
+      const hitsAfter = after.status === 200 ? after.payload.models[0].prefix_cache.hits : null;
+      const delta = hitsBefore !== null && hitsAfter !== null ? hitsAfter - hitsBefore : null;
+      renderAnswers(req, r.payload, wall, delta);
+    }
+    running = false;
+    runButton.textContent = "Run";
+    runButton.disabled = false;
+    refreshStatus();
+  }
+
+  function replayRow(i, rec, result) {
+    const row = el("div", { class: "replay-row" });
+    row.appendChild(el("span", { class: "res " + (result.ok ? "ok" : "bad"), text: result.ok ? "PASS" : "FAIL" }));
+    row.appendChild(el("span", { class: "id" }, [el("span", { class: "mono", text: rec.name }), " ", el("span", { class: "hint", text: rec.suite })]));
+    row.appendChild(el("span", { class: "lat", text: result.latency === null ? "" : KEV.fmt(result.latency, 1) + " ms" }));
+    row.appendChild(el("span", { class: "qs" }, [result.text]));
+    return row;
+  }
+
+  async function runReplay() {
+    if (running) return;
+    running = true;
+    replayStop = false;
+    runButton.disabled = true;
+    $("replay-run").disabled = true;
+    $("replay-stop").disabled = false;
+    const rows = $("replay-rows");
+    const stats = $("replay-stats");
+    rows.textContent = "";
+    stats.textContent = "";
+    let total = 0, correct = 0, passed = 0, failures = 0;
+    const latencies = [];
+    const t0 = performance.now();
+    const item = (k, v) => el("span", {}, [k + " ", el("b", { text: v })]);
+    const renderStats = (done) => {
+      stats.textContent = "";
+      stats.appendChild(item("accuracy", total ? KEV.fmt(correct / total, 3) + " (" + correct + "/" + total + " questions)" : "0/0"));
+      stats.appendChild(item("records passed", passed + "/" + done));
+      stats.appendChild(item("request failures", String(failures)));
+      stats.appendChild(item("latency_ms mean", KEV.fmt(KEV.mean(latencies), 1)));
+      stats.appendChild(item("p50", KEV.fmt(KEV.median(latencies), 1)));
+      stats.appendChild(item("elapsed", KEV.fmt((performance.now() - t0) / 1000, 1) + " s"));
+    };
+    for (let i = 0; i < data.replay.length; i++) {
+      if (replayStop) break;
+      const rec = data.replay[i];
+      $("replay-count").textContent = (i + 1) + " of " + data.replay.length;
+      const req = KEV.buildRequest(rec.state, rec.questions, data.model || "kev-latest");
+      const r = await fetchJson("/v1/systemone", { method: "POST", headers: headers(true), body: JSON.stringify(req) });
+      let result;
+      if (r.status !== 200) {
+        failures += 1;
+        total += Object.keys(rec.labels).length;
+        result = { ok: false, latency: null, text: KEV.explainError(r.status, r.payload, serverUrl(), apiKeyInput.value.trim()) };
+      } else {
+        latencies.push(r.payload.latency_ms);
+        const parts = [];
+        let ok = true;
+        for (const qid of Object.keys(rec.labels)) {
+          const pred = KEV.predicted(r.payload.answers[qid]);
+          const hit = KEV.same(pred, rec.labels[qid]);
+          ok = ok && hit;
+          total += 1;
+          correct += hit ? 1 : 0;
+          parts.push(qid + ": " + KEV.formatLabel(pred) + (hit ? "" : " (label " + KEV.formatLabel(rec.labels[qid]) + ")"));
+        }
+        passed += ok ? 1 : 0;
+        result = { ok: ok, latency: r.payload.latency_ms, text: parts.join("; ") };
+      }
+      rows.appendChild(replayRow(i, rec, result));
+      renderStats(i + 1);
+      if (r.status === 0) break;
+    }
+    running = false;
+    runButton.disabled = false;
+    $("replay-run").disabled = false;
+    $("replay-stop").disabled = true;
+    refreshStatus();
+  }
+
+  function showTab(name) {
+    document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+    document.querySelectorAll(".tab").forEach((t) => { t.hidden = t.id !== "tab-" + name; });
+  }
+
+  async function copyText(button) {
+    const pre = $(button.dataset.for);
+    const text = pre.textContent;
+    const done = (label) => {
+      const old = button.textContent;
+      button.textContent = label;
+      setTimeout(() => { button.textContent = old; }, 1500);
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        done("Copied");
+        return;
+      } catch (e) {}
+    }
+    const range = document.createRange();
+    range.selectNodeContents(pre);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch (e) {}
+    done(ok ? "Copied" : "Selected, press Ctrl+C");
+  }
+
+  async function loadPresets() {
+    let r;
+    try {
+      r = await fetch("presets.json", { cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      data = await r.json();
+    } catch (e) {
+      $("blurb").textContent = "Could not load presets.json (" + e.message + "). Serve this directory with run.sh instead of opening the file directly.";
+      return;
+    }
+    renderPresets();
+    if (data.presets.length) selectPreset(0, 0);
+  }
+
+  applyHash();
+  window.addEventListener("hashchange", () => { applyHash(); refreshStatus(); renderSnippets(); });
+  serverInput.addEventListener("change", () => { refreshStatus(); renderSnippets(); });
+  apiKeyInput.addEventListener("input", renderSnippets);
+  $("refresh").addEventListener("click", refreshStatus);
+  stateInput.addEventListener("input", () => { currentLabels = null; validate(); });
+  stateJson.addEventListener("change", validate);
+  questionsInput.addEventListener("input", () => { currentLabels = null; validate(); });
+  runButton.addEventListener("click", run);
+  [stateInput, questionsInput].forEach((t) => t.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      run();
+    }
+  }));
+  document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+  document.querySelectorAll(".copy").forEach((b) => b.addEventListener("click", () => copyText(b)));
+  $("replay-run").addEventListener("click", runReplay);
+  $("replay-stop").addEventListener("click", () => { replayStop = true; });
+  loadPresets().then(refreshStatus);
+})();
+</script>
+</body>
+</html>
