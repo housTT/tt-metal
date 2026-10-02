@@ -231,8 +231,9 @@ Six revisions of `tt-hous/clm-v0.1-8b-p150` were pushed; all stay in the repo hi
   check was run for this revision (two page files changed; the server, engine and lock are those of revision 5).
 - Hub tags: blackhole, p150, p150x4, tt-dit-server, tt-model-cache, tt-model-container, text-ranking, license
   apache-2.0, base_model Contrastive-LM/CLM-v0.1-8B (the Hub labels the relation "finetune" by default; the weights
-  are the unmodified upstream weights and the card says so). Not listed in the community catalog (`--publish` was not
-  passed); `tt-model publish tt-hous/clm-v0.1-8b-p150` adds the catalog pointer if wanted.
+  are the unmodified upstream weights and the card says so). Listed in the tt-model community catalog on 2026 Oct 2 at 20:49 UTC by
+  `tt-model publish tt-hous/clm-v0.1-8b-p150` (`/home/hous/dev/clm-v0.1-8B/logs/tt_model_publish_catalog.log`); the catalog holds a
+  pointer to the public repo only, and `tt-model unpublish tt-hous/clm-v0.1-8b-p150` delists it.
 
 Consumer check from a clean local install (`tt_model_pull_v2.log`, `evals_pulled_v2.log`, `pulled_v2_rank.txt`;
 every local copy of the image, the `installed.json` entry and the pulled directory removed first):
