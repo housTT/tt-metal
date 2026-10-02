@@ -78,6 +78,15 @@ ready, `501` token-id input with an embedder that has no `embed_ids` and no toke
 | `CLM_CKPT` | `/home/hous/dev/clm-v0.1-8B/checkpoints/CLM_v0.1-8B.pt` | Head checkpoint served as `clm-latest`. |
 | `CLM_ACTION_CACHE` | `512MiB` | Vector arena budget: an absolute size (`512MiB`, `2GB`), a fraction of device memory (`0.02`, CPU assumes 8 GiB), or `0` to disable. |
 | `CLM_MAX_TOKENS` | `2048` | Encoder truncation length, passed to the `hf` and `http` embedders. `from_env()` of the TT encoder should read it too. |
+| `CLM_MESH_SHAPE` | `1x1` | TT encoder mesh (`1x1` one chip, `1x4` four chips tensor parallel); `tt-model` sets it from the profile's `mesh_device`. |
+| `CLM_MAX_BATCH` | `8` | Largest prefill batch; traces are captured for batch 1, 4 and this value. |
+| `CLM_MAX_SEQ_LEN` | `CLM_MAX_TOKENS` | Longest prefill bucket; must be a multiple of 128 and at least `CLM_MAX_TOKENS`. |
+| `CLM_PRECISION` | `accuracy_lofi_mlp` in the package | Precision policy: `accuracy`, `accuracy_lofi_mlp`, `bfp8_attn`, `bfp8_attn_hifi2`, `bfp8_lofi_mlp`, `performance` (`tt/encoder.py` `CUSTOM_POLICIES`, `doc/datatype_sweep/README.md`). |
+| `CLM_TRACE_LENS` | `128,256,512,1024,2048` | Prefill buckets (multiples of 128, each captured at every batch size); texts pad to the smallest bucket that fits. |
+| `CLM_PROGRAM_CONFIGS` | `1` | `0` restores the stock matmul program configs (QKV block shape at 128 tokens, 11x10 MinimalMatmul grid above 128 tokens); single-chip meshes only. |
+| `CLM_SHARDED_NORM` | `1` | `0` restores the stock interleaved RMSNorm (the block-sharded norm is used for 128, 256 and 512 prefill rows); single-chip meshes only. |
+| `CLM_TRACE_REGION_SIZE`, `CLM_L1_SMALL_SIZE` | `200000000`, `32768` | Device open parameters (bytes). |
+| `CLM_FABRIC_CONFIG` | unset (`FABRIC_1D` in the `p150x4` profile) | Fabric configuration for multi-chip meshes. |
 | `CLM_API_KEY` | unset | When set, `/v1/*` routes need `Authorization: Bearer <key>`. |
 | `CLM_NO_UI` | unset | `1` disables the playground at `/`. |
 | `CLM_CORS` | unset | `1` allows browser requests from any origin and exposes the latency header. |

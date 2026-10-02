@@ -63,5 +63,6 @@
    ]
   }
  ],
- "note": "find_prefill_grid overridden on the ModelArgs instance only; layer 0, bfp8 weights, accuracy policy, eager (untraced) layer forward timed with synchronize"
+ "note": "find_prefill_grid overridden on the ModelArgs instance only; layer 0, bfp8 weights, accuracy policy, eager (untraced) layer forward timed with synchronize",
+ "retracted": "2026-10-02T00:40Z: produced by the instance-patch version of tests/grid_experiment.py (git a3df3fd2ee). The four program-config getters are lru_cache methods keyed on the shared ModelArgs instance, so after the first (stock) iteration every later iteration reused the cached stock configs; every row here is a stock-grid repeat (identical PCC 0.9997860599702103). Cap mode could not have changed anything anyway: the MLP and wo configs call find_prefill_grid(8, k_tiles) with a constant row argument and k_tiles already divisible by 8."
 }

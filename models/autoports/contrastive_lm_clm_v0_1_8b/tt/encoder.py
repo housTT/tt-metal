@@ -70,6 +70,19 @@ CUSTOM_POLICIES = {
         "TensorPrecision": {"WQKV": "BFP8", "KV_CACHE": "BFP8", "WO": "BFP8"},
         "OpFidelity": {"LI_FF1_FF3": "LOFI", "LI_FF2": "LOFI"},
     },
+    "accuracy_lofi_mlp": {
+        "TensorPrecision": {"WQKV": "BF16", "KV_CACHE": "BF16", "WO": "BF16"},
+        "OpFidelity": {
+            "LI_QKV_PREFILL": "HIFI4",
+            "LI_O_PREFILL": "HIFI4",
+            "SDPA_PREFILL": "HIFI4",
+            "LI_QKV_DECODE": "HIFI4",
+            "LI_O_DECODE": "HIFI4",
+            "SDPA_DECODE": "HIFI4",
+            "LI_FF1_FF3": "LOFI",
+            "LI_FF2": "LOFI",
+        },
+    },
     "bfp8_attn": {
         "TensorPrecision": {"WQKV": "BFP8", "KV_CACHE": "BFP8", "WO": "BFP8"},
         "OpFidelity": {"LI_FF1_FF3": "HIFI2_FP16", "LI_FF2": "HIFI2_FP16"},
@@ -182,6 +195,8 @@ class TtQwen3Encoder:
             dtype=self.weight_dtype,
         )
         self.load_seconds = time.perf_counter() - t0
+        self.program_config_overrides = self._install_program_configs()
+        self.sharded_norm_rows = self._install_sharded_norms()
         self.generator = Generator([self.model], [self.model_args], mesh_device, tokenizer=self.model_args.tokenizer)
         self.page_table = torch.arange(self.paged_attention_config.max_num_blocks, dtype=torch.int32).reshape(
             max_batch_size, -1
@@ -196,7 +211,8 @@ class TtQwen3Encoder:
         self.ready = False
         logger.info(
             f"TtQwen3Encoder loaded {self.model_args.model_name} on {self.model_args.device_name} in {self.load_seconds:.1f}s; "
-            f"max_batch_size={max_batch_size} max_seq_len={max_seq_len} precision={precision} trace_lens={self.trace_lens}"
+            f"max_batch_size={max_batch_size} max_seq_len={max_seq_len} precision={precision} trace_lens={self.trace_lens} "
+            f"program_config_overrides={self.program_config_overrides} sharded_norm_rows={self.sharded_norm_rows}"
         )
         if warmup:
             self.warmup()
@@ -212,6 +228,9 @@ class TtQwen3Encoder:
             l1_small_size=int(os.environ.get("CLM_L1_SMALL_SIZE", 32768)),
         )
         max_tokens = int(os.environ.get("CLM_MAX_TOKENS", 2048))
+        max_seq_len_env = int(os.environ.get("CLM_MAX_SEQ_LEN", max_tokens))
+        if max_tokens > max_seq_len_env:
+            raise ValueError(f"CLM_MAX_TOKENS ({max_tokens}) must not exceed CLM_MAX_SEQ_LEN ({max_seq_len_env})")
         enc = cls(
             mesh,
             max_batch_size=int(os.environ.get("CLM_MAX_BATCH", 8)),
@@ -224,15 +243,129 @@ class TtQwen3Encoder:
         return enc
 
     DEFAULT_TRACE_LENS = (128, 256, 512, 1024, 2048)
+    SHARDED_NORM_ROWS = (128, 256, 512)
+
+    def _install_program_configs(self) -> list[str]:
+        if os.environ.get("CLM_PROGRAM_CONFIGS", "1") == "0" or self.model_args.num_devices != 1:
+            return []
+        import math
+
+        import ttnn
+        from models.tt_transformers.tt.common import Mode
+
+        ma = self.model_args
+        orig_qkv = ma.get_attn_qkv_program_config
+        orig_ff2 = ma.get_mlp_ff2_prg_config
+        orig_minimal = ma.use_minimal_qkv_prefill_matmul
+        qkv_128 = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+            compute_with_storage_grid_size=(8, 10),
+            in0_block_w=4,
+            out_subblock_h=1,
+            out_subblock_w=4,
+            per_core_M=1,
+            per_core_N=math.ceil(ma.qkv_size / 32 / 8),
+            transpose_mcast=False,
+            fused_activation=None,
+            fuse_batch=True,
+        )
+        minimal_11x10 = ttnn.MinimalMatmulConfig(
+            M_block_size=8, K_block_size=8, N_block_size=8, compute_with_storage_grid_size=ttnn.CoreCoord(11, 10)
+        )
+
+        def get_qkv(mode, seq_len=1, prefetcher=None):
+            if mode == Mode.PREFILL and prefetcher is None:
+                return qkv_128 if seq_len <= 128 else minimal_11x10
+            return orig_qkv(mode, seq_len, prefetcher)
+
+        def get_ff2(mode, seq_len=1, prefetcher=None):
+            if mode == Mode.PREFILL and prefetcher is None and seq_len > 128:
+                return minimal_11x10
+            return orig_ff2(mode, seq_len, prefetcher)
+
+        def use_minimal_qkv(seq_len):
+            return seq_len > 128 or orig_minimal(seq_len)
+
+        ma.get_attn_qkv_program_config = get_qkv
+        ma.get_mlp_ff2_prg_config = get_ff2
+        ma.use_minimal_qkv_prefill_matmul = use_minimal_qkv
+        return [
+            "qkv_prefill_128: in0_block_w 4, out_subblock_w 4",
+            "qkv_prefill_gt128: MinimalMatmul 11x10",
+            "ff2_prefill_gt128: MinimalMatmul 11x10",
+        ]
+
+    def _install_sharded_norms(self) -> tuple:
+        if os.environ.get("CLM_SHARDED_NORM", "1") == "0" or self.model_args.num_devices != 1:
+            return ()
+        import ttnn
+        from models.tt_transformers.tt.common import Mode
+
+        dim = self.model_args.dim
+        cols, rows_grid = 8, 4
+        shard_w = dim // cols
+        block_w = shard_w // 32
+        sub_w = next(w for w in (4, 2, 1) if block_w % w == 0)
+        grid = ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(cols - 1, rows_grid - 1))})
+        plans = {}
+        for rows in self.SHARDED_NORM_ROWS:
+            memcfg = ttnn.MemoryConfig(
+                ttnn.TensorMemoryLayout.BLOCK_SHARDED,
+                ttnn.BufferType.L1,
+                ttnn.ShardSpec(grid, (rows // rows_grid, shard_w), ttnn.ShardOrientation.ROW_MAJOR),
+            )
+            prg = ttnn.LayerNormShardedMultiCoreProgramConfig(
+                compute_with_storage_grid_size=[cols, rows_grid],
+                subblock_w=sub_w,
+                block_h=rows // rows_grid // 32,
+                block_w=block_w,
+                inplace=False,
+            )
+            plans[rows] = (memcfg, prg)
+
+        def wrap(dn):
+            orig = dn.forward
+
+            def forward(x, mode, norm_config=None):
+                if mode != Mode.PREFILL:
+                    return orig(x, mode, norm_config)
+                shape = tuple(x.shape)
+                rows = 1
+                for v in shape[:-1]:
+                    rows *= int(v)
+                plan = plans.get(rows)
+                if plan is None:
+                    return orig(x, mode, norm_config)
+                memcfg, prg = plan
+                xs = ttnn.to_memory_config(x, memcfg)
+                y = ttnn.rms_norm(
+                    xs,
+                    epsilon=dn.norm.eps,
+                    weight=dn.norm.weight,
+                    program_config=prg,
+                    compute_kernel_config=dn.norm.compute_kernel_config_hifi2,
+                )
+                ttnn.deallocate(xs)
+                out = ttnn.sharded_to_interleaved(y, ttnn.DRAM_MEMORY_CONFIG)
+                ttnn.deallocate(y)
+                return out
+
+            dn.forward = forward
+
+        for layer in self.model.layers:
+            wrap(layer.attention_norm)
+            wrap(layer.ff_norm)
+        return tuple(self.SHARDED_NORM_ROWS)
 
     def _select_trace_lens(self, max_seq_len: int) -> list[int]:
         spec = os.environ.get("CLM_TRACE_LENS", "").strip()
         lens = [int(x) for x in spec.split(",") if x.strip()] if spec else list(self.DEFAULT_TRACE_LENS)
         lens = sorted({n for n in lens if 0 < n <= max_seq_len})
-        if any(n % 128 for n in lens):
-            raise ValueError(f"CLM_TRACE_LENS entries must be multiples of 128, got {lens}")
         if not lens or lens[-1] < max_seq_len:
             lens.append(max_seq_len)
+        if any(n % 128 for n in lens):
+            raise ValueError(
+                f"prefill bucket lengths must be multiples of 128 (CLM_TRACE_LENS and max_seq_len), got {lens}"
+            )
         return lens
 
     def padded_len(self, n: int) -> int:
@@ -388,6 +521,8 @@ class TtQwen3Encoder:
             "max_batch_size": self.max_batch_size,
             "max_seq_len": self.max_seq_len,
             "trace_lens": self.trace_lens,
+            "program_config_overrides": self.program_config_overrides,
+            "sharded_norm_rows": list(self.sharded_norm_rows),
         }
 
     def release(self) -> None:

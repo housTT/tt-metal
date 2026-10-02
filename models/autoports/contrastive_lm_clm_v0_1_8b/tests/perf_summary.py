@@ -38,7 +38,7 @@ def main():
     ap.add_argument("--out", default=os.path.join(AUTOPORT, "doc", "optimized_full_model", "perf_summary.json"))
     ap.add_argument(
         "--layer-ms",
-        default="128=1.609,1024=4.692",
+        default="128=1.557,1024=4.519",
         help="per-layer device ms by padded length from the Tracy op-count split of doc/functional_decoder/tracy/layer0 (accuracy policy)",
     )
     a = ap.parse_args()
@@ -67,7 +67,7 @@ def main():
         "rows": rows,
         "notes": [
             "p50 over repeats of enc.embed_ids on warm traces, batch 1 and 4 and 8, host readback and host RMSNorm included",
-            "lower bound = 36 x per-layer device time measured by the Tracy profiler on layer 0 under the accuracy policy (1.609 ms at 128 tokens, 4.692 ms at 1024; 24 ops per layer pass); the terminal work (embedding lookup, output readback, host norm) is the remainder; for the bfp8_attn rows the bound is an upper estimate because that policy reads fewer weight bytes",
+            "lower bound = 36 x per-layer device time measured by the Tracy profiler on layer 0 under the accuracy policy (1.557 ms at 128 tokens, 4.519 ms at 1024 (layer ops only; the harness tilize and typecast rows are excluded)); the terminal work (embedding lookup, output readback, host norm) is the remainder; for the bfp8_attn rows the bound is an upper estimate because that policy reads fewer weight bytes",
         ],
     }
     os.makedirs(os.path.dirname(a.out), exist_ok=True)

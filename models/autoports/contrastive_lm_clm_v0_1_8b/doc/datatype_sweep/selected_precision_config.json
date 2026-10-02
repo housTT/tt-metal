@@ -1,7 +1,7 @@
 {
- "precision": "accuracy",
+ "precision": "accuracy_lofi_mlp_pc",
  "env": {
-  "CLM_PRECISION": "accuracy"
+  "CLM_PRECISION": "accuracy_lofi_mlp_pc"
  },
  "gate": {
   "cosine_mean_min": 0.99,
@@ -9,23 +9,31 @@
   "head_cos_min_min": 0.95,
   "decision_agreement_margin_0p10_min": 0.98
  },
+ "gate_vectors": "single-text vectors (fidelity_<policy>_tt_single.npy): the serving path for a request with one new text; batched vectors differ by batch composition (tt-metal 47238) and move the confident-decision count by up to five",
+ "gate_resolution": "one decision = 0.53 points on the 188 confident decisions",
  "selected_row": {
-  "policy": "accuracy",
+  "policy": "accuracy_lofi_mlp_pc",
+  "program_config_overrides": true,
   "status": "pass",
-  "cosine_mean": 0.9991034865379333,
-  "cosine_min": 0.9959601759910583,
-  "cosine_p05": 0.9975568145513535,
-  "head_cos_state_mean": 0.9974622130393982,
-  "head_cos_min": 0.9943361282348633,
-  "batched_vs_single_min": 0.9964397549629211,
-  "decision_agreement": 0.955,
+  "cosine_mean": 0.9991598725318909,
+  "cosine_min": 0.9959942102432251,
+  "cosine_p05": 0.9978683650493622,
+  "head_cos_state_mean": 0.9976391196250916,
+  "head_cos_min": 0.993104875087738,
+  "batched_vs_single_min": 0.9960959553718567,
+  "decision_agreement": 0.975,
   "decision_agreement_margin_0p10": 0.9893617021276596,
-  "lat_128_b1_ms": 57.641961495392025,
-  "lat_128_b8_ms": 162.02108847210184,
-  "lat_1024_b1_ms": 170.5228934297338,
-  "lat_2048_b1_ms": 322.81175802927464,
-  "tokens_per_s_1024_b8": 6293.093311489061,
-  "fidelity_file": "doc/datatype_sweep/fidelity_accuracy.json"
+  "workload_ms": 1109.049535007216,
+  "bench_file": "doc/optimized_full_model/bench_accuracy_lofi_mlp_pc.json",
+  "lat_128_b1_ms": 53.141664480790496,
+  "lat_256_b1_ms": 63.16354701993987,
+  "lat_512_b1_ms": 78.68816546397284,
+  "lat_512_b8_ms": 510.8858710154891,
+  "lat_128_b8_ms": 135.70399396121502,
+  "lat_1024_b1_ms": 143.29917501891032,
+  "lat_2048_b1_ms": 266.0188305308111,
+  "tokens_per_s_1024_b8": 7687.437171460628,
+  "fidelity_file": "doc/optimized_full_model/fidelity_accuracy_lofi_mlp_pc.json"
  },
  "policy_spec": {
   "TensorPrecision": {
@@ -39,11 +47,20 @@
    "LI_QKV_PREFILL": "HIFI4",
    "LI_O_PREFILL": "HIFI4",
    "SDPA_PREFILL": "HIFI4",
+   "LI_FF1_FF3": "LOFI",
+   "LI_FF2": "LOFI",
    "LI_QKV_DECODE": "HIFI4",
    "LI_O_DECODE": "HIFI4",
-   "SDPA_DECODE": "HIFI4",
-   "LI_FF1_FF3": "HIFI2_FP16",
-   "LI_FF2": "HIFI2_FP16"
+   "SDPA_DECODE": "HIFI4"
   }
- }
+ },
+ "activation_dtype": "bf16 (TensorGroup.ACTIVATION unset; residual stream bf16 interleaved DRAM)",
+ "layer_exceptions": "none: DecodersPrecision applies the same configuration to all 36 decoders",
+ "ccl_dtype": "none on the 1x1 mesh; stock all-gather dtype on the 1x4 profile",
+ "weight_dtype_passed_to_create_tt_model": "ttnn.bfloat8_b (per-group dtypes above override it for WQKV, WO, KV_CACHE)",
+ "final_norm_and_heads": "host fp32: last-token pick and RMSNorm (eps 1e-6) in TtQwen3Encoder._pool_and_norm; CLM heads in torch fp32 (clm/heads.py)",
+ "runtime_flags": {
+  "TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES": "0"
+ },
+ "consumption_evidence": "models/tt_transformers/tt/attention.py lines 116 to 150 (wqkv, wo, kv dtypes from the policy), mlp.py lines 91 to 95 and 340 to 360 (MLP fidelity), doc/functional_decoder/tracy/layer0/prefill_perf_report.csv rows 15/39/63/87 (QKV HiFi4 BF16 x BF16), 28/52/76/100 (WO HiFi4), 31/32/34 (w1/w3/w2 HiFi2 BFP8)"
 }

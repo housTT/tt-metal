@@ -1,13 +1,13 @@
 {
- "timestamp": "2026-10-01T22:25:37.550600+00:00",
+ "timestamp": "2026-10-02T00:47:12.698496+00:00",
  "source_bench": "doc/optimized_full_model/bench_accuracy.json",
  "precision": "accuracy",
  "device": "P150",
  "mesh": "1x1",
  "model_load_seconds": 5.4,
  "per_layer_device_ms_from_tracy": {
-  "128": 1.609,
-  "1024": 4.692
+  "128": 1.557,
+  "1024": 4.519
  },
  "rows": [
   {
@@ -20,8 +20,8 @@
    "p95_ms": 57.806770101888105,
    "tokens_per_s": 554.394762513253,
    "texts_per_s": 17.324836328539156,
-   "layer_stack_lower_bound_ms": 57.92,
-   "gap_to_lower_bound_pct": -0.4
+   "layer_stack_lower_bound_ms": 56.05,
+   "gap_to_lower_bound_pct": 2.9
   },
   {
    "tokens": 32,
@@ -55,8 +55,8 @@
    "p95_ms": 57.748666062252596,
    "tokens_per_s": 2220.604515865278,
    "texts_per_s": 17.348472780197483,
-   "layer_stack_lower_bound_ms": 57.92,
-   "gap_to_lower_bound_pct": -0.5
+   "layer_stack_lower_bound_ms": 56.05,
+   "gap_to_lower_bound_pct": 2.8
   },
   {
    "tokens": 128,
@@ -90,8 +90,8 @@
    "p95_ms": 170.4257000470534,
    "tokens_per_s": 3009.2365583162473,
    "texts_per_s": 5.8774151529614205,
-   "layer_stack_lower_bound_ms": 168.91,
-   "gap_to_lower_bound_pct": 0.7
+   "layer_stack_lower_bound_ms": 162.68,
+   "gap_to_lower_bound_pct": 4.4
   },
   {
    "tokens": 512,
@@ -125,8 +125,8 @@
    "p95_ms": 170.79585553728975,
    "tokens_per_s": 6005.058789492993,
    "texts_per_s": 5.864315224114251,
-   "layer_stack_lower_bound_ms": 168.91,
-   "gap_to_lower_bound_pct": 0.9
+   "layer_stack_lower_bound_ms": 162.68,
+   "gap_to_lower_bound_pct": 4.6
   },
   {
    "tokens": 1024,
@@ -186,6 +186,6 @@
  ],
  "notes": [
   "p50 over repeats of enc.embed_ids on warm traces, batch 1 and 4 and 8, host readback and host RMSNorm included",
-  "lower bound = 36 x per-layer device time measured by the Tracy profiler on layer 0 under the accuracy policy (1.609 ms at 128 tokens, 4.692 ms at 1024; 24 ops per layer pass); the terminal work (embedding lookup, output readback, host norm) is the remainder; for the bfp8_attn rows the bound is an upper estimate because that policy reads fewer weight bytes"
+  "lower bound = 36 x per-layer device time measured by the Tracy profiler on layer 0 under the accuracy policy (1.557 ms at 128 tokens, 4.519 ms at 1024 (layer ops only; the harness tilize and typecast rows are excluded)); the terminal work (embedding lookup, output readback, host norm) is the remainder; for the bfp8_attn rows the bound is an upper estimate because that policy reads fewer weight bytes"
  ]
 }

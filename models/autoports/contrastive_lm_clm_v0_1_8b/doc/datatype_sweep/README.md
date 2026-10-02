@@ -30,42 +30,64 @@ Gate (added after review C): Typed Decisions argmax agreement with the fp32 refe
 at least 98 percent over the 188 decisions whose reference top-2 margin is at least 0.10
 (`tests/decision_agreement.py`, `agreement_<policy>.json`), in addition to the cosine gates above.
 
-## Results (p150, one chip, 2048-token context, batch 1 / 4 / 8 traces; regenerated on the final code 2026 Oct 1 23:11 to 23:19 UTC)
+## Results (p150, one chip, 2048-token context, batch 1 / 4 / 8 traces)
 
-| policy | cosine mean | cosine min | cosine p05 | head cos min | agreement all / margin >= 0.10 | 128 tok b1 | 128 tok b8 | 1024 tok b1 | 2048 tok b1 | gate |
-|---|---|---|---|---|---|---|---|---|---|---|
-| bf16_all | | | | | | | | | | infeasible |
-| accuracy | 0.99910 | 0.99596 | 0.99756 | 0.99434 | 95.5 % / 98.9 % | 57.6 ms | 162.0 ms | 170.5 ms | 322.8 ms | pass |
-| bfp8_attn | 0.99902 | 0.99384 | 0.99749 | 0.99286 | 94.5 % / 97.3 % | 54.0 ms | 142.4 ms | 148.1 ms | 286.2 ms | fail (agreement) |
-| bfp8_attn_hifi2 | 0.99891 | 0.99310 | 0.99697 | 0.99297 | 91.5 % / 95.7 % | 53.9 ms | 142.1 ms | 147.2 ms | 277.0 ms | fail (agreement) |
-| bfp8_lofi_mlp | 0.99902 | 0.99564 | 0.99753 | 0.99110 | 94.0 % / 95.7 % | 54.7 ms | 123.6 ms | 130.1 ms | 250.4 ms | fail (agreement) |
-| performance | 0.98744 | 0.92390 | 0.95782 | 0.91248 | 79.0 % / 82.4 % | 48.9 ms | 119.9 ms | 125.1 ms | 237.2 ms | fail (all gates) |
+| policy | cosine mean | cosine min | cosine p05 | head cos min | agreement all / margin >= 0.10 | 128 tok b1 | 128 tok b8 | 512 tok b8 | 1024 tok b1 | 2048 tok b1 | workload sum | gate |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| bf16_all | | | | | | | | | | | | infeasible |
+| accuracy (stock configs; `p150-accuracy`) | 0.99910 | 0.99596 | 0.99756 | 0.99434 | 95.5 % / 98.9 % | 57.8 ms | 162.1 ms | 624.5 ms | 170.4 ms | 321.7 ms | 1336.5 ms | pass |
+| accuracy_lofi_mlp (stock configs) | 0.99914 | 0.99584 | 0.99787 | 0.99414 | 96.0 % / 98.9 % | 58.5 ms | 144.0 ms | 554.6 ms | 152.0 ms | 285.5 ms | 1194.6 ms | pass |
+| accuracy_lofi_mlp + program-config overrides (shipped default `p150`) | 0.99916 | 0.99599 | 0.99787 | 0.99310 | 97.5 % / 98.9 % | 53.1 ms | 135.7 ms | 510.9 ms | 143.3 ms | 266.0 ms | 1109.0 ms | pass, selected |
+| accuracy + program-config overrides (not shipped) | 0.99897 | 0.99426 | 0.99679 | 0.99237 | 94.0 % / 97.3 % | 52.5 ms | 154.4 ms | 583.3 ms | 162.4 ms | 306.8 ms | 1259.4 ms | fail (agreement) |
+| bfp8_attn (stock configs; `p150-fast`) | 0.99902 | 0.99384 | 0.99749 | 0.99286 | 94.5 % / 97.3 % | 54.0 ms | 142.4 ms |  | 148.1 ms | 286.2 ms |  | fail (agreement) |
+| bfp8_attn_hifi2 | 0.99891 | 0.99310 | 0.99697 | 0.99297 | 91.5 % / 95.7 % | 53.9 ms | 142.1 ms |  | 147.2 ms | 277.0 ms |  | fail (agreement) |
+| bfp8_lofi_mlp | 0.99902 | 0.99564 | 0.99753 | 0.99110 | 94.0 % / 95.7 % | 54.7 ms | 123.6 ms |  | 130.1 ms | 250.4 ms |  | fail (agreement) |
+| performance | 0.98744 | 0.92390 | 0.95782 | 0.91248 | 79.0 % / 82.4 % | 48.6 ms | 120.3 ms | 467.9 ms | 127.0 ms | 241.8 ms | 1005.6 ms | fail (all gates) |
 
-Agreement columns: Typed Decisions argmax agreement with the fp32 reference over the 200 subset decisions, and over
-the 188 decisions whose reference top-2 margin is at least 0.10 (`agreement_<policy>.json`). `bf16_all` cannot run:
-the stock prefill MLP program config sizes its circular buffers for bfp8 weights, and with bf16 w1/w3 the first
-1024-token matmul asks for 2.01 MB of L1 per core against the 1.5 MB maximum (`infeasible_bf16_all.json`,
-exact error text and log path). Making it fit needs a different block split in `model_config.matmul_config`, a
-framework change outside this port.
+The 512-token batch-8 and workload-sum columns exist only for benches taken on the five-bucket encoder (the nine-variant
+benches pad 512 tokens to 1024); the workload sum is 128 b1 + 128 b8 + 512 b8 + 1024 b1 + 2048 b1 (plan amendment
+2026 Oct 2 00:55). Rows marked `_pc` ran with the stage 3 program-config overrides and the block-sharded norm
+(`../optimized_full_model/README.md`).
+
+Provenance: the fidelity and agreement columns of every runnable policy were regenerated on the final encoder code
+(host-side norm, two-phase warmup) on 2026 Oct 1 between 23:10 and 23:17 UTC (`/home/hous/dev/clm-v0.1-8B/logs/fidelity_<policy>_final.log`).
+The latency columns come from `bench_<policy>.json`: accuracy 22:17, bfp8_attn 22:15, bfp8_attn_hifi2 22:21 (the
+final forward path, nine variants), bfp8_lofi_mlp 23:17, and performance re-run on 2026 Oct 2 on the final code
+(`/home/hous/dev/clm-v0.1-8B/logs/bench_performance_final.log`; the earlier 21:58 bench was taken on the first
+encoder generation with the device-side norm tail). Agreement columns: Typed Decisions argmax agreement with the fp32
+reference over the 200 subset decisions, and over the 188 decisions whose reference top-2 margin is at least 0.10
+(`agreement_<policy>.json`). The gate is evaluated on the single-text vectors (`fidelity_<policy>_tt_single.npy`),
+the serving path for a request with one new text; on the batched vectors the confident-decision count moves by up to
+five for one policy (batch-variant reduction order, tt-metal 47238), and one decision is 0.53 points of the 188, so
+the gate has a resolution of about half a point. `bf16_all` cannot run: the stock prefill MLP program config sizes
+its circular buffers for bfp8 weights, and with bf16 w1/w3 the first prepared variant (128 tokens, batch 1, the 8x4
+core grid) asks for 2.01 MB of L1 per core against the 1.5 MB maximum (`infeasible_bf16_all.json`, exact error text
+and log path). Making it fit needs a different block split in the MLP program config; the port overrides program
+configs only where the stage 3 experiment found a measured gain, and this candidate is slower than the selected one
+in every row where it could be compared, so it was not pursued. `fidelity_bfp8_attn_twophase_limit96.json` (96
+texts, 22:23 UTC) is a smoke run of the two-phase warmup, not a sweep input.
 
 Plots: `cosine_mean_perf_pareto.png`, `cosine_min_perf_pareto.png` (selected point in red, dotted gate line).
 
 ## Selection
 
-`accuracy` (stock policy: bf16 attention weights and KV, HiFi4 attention linears and SDPA, bfp8 MLP with HiFi2).
-It is the only candidate above 98 percent decision agreement on confident decisions (98.9 percent). The 2 of 188
-confident disagreements have reference margins of 0.13 and 0.32 and total-variation distances of 0.24 and 0.28, so
-on those two the port's probabilities differ materially from the fp32 reference, not only the argmax; the other 7 of
-the 9 disagreements over all 200 decisions have reference margins below 0.09. Accuracy against the gold labels on
-the subset: 0.375 (port) vs 0.370 (reference). It costs 6.4 percent at 128
-tokens and 13 percent at 1024 and 2048 tokens against the stock-default `bfp8_attn` policy, which stays available as
-the `p150-fast` serve profile (97.3 percent agreement). An earlier version of this sweep, before the agreement gate
-was wired in, selected `bfp8_attn`; review C flagged that the plan's decision-agreement gate had been deferred, and
-the rerun with the gate reversed the choice. `bfp8_lofi_mlp` is the interesting runner-up: LoFi on the bfp8 MLP
-keeps the vector cosine (min 0.9956) and is 24 percent faster at 1024 tokens, but its head-projection minimum and
-decision agreement drop to the `bfp8_attn_hifi2` level, so it fails the same gate. The `performance` policy (bfp4
-w1/w3) is rejected on real-weight, real-text evidence: 0.924 minimum cosine, 0.912 head-projection minimum, 79
-percent agreement.
+`accuracy_lofi_mlp` with the program-config overrides (bf16 attention weights and KV, HiFi4 attention linears and
+SDPA, bfp8 MLP weights with LoFi math; QKV block shape at 128 tokens, 11x10 MinimalMatmul grid above 128 tokens,
+block-sharded RMSNorm up to 512 rows). It passes every gate (cosine min 0.99599, head-projection min 0.9931, 98.9
+percent confident-decision agreement, 97.5 percent plain) and has the lowest served-workload latency sum of the
+passing rows: 1,109 ms against 1,195 ms for the same policy on the stock configs and 1,337 ms for the stock
+`accuracy` policy (the previous default; 17 percent slower). History of this choice: the first sweep (vector gates
+only) selected `bfp8_attn`; review C added the agreement gate, which reversed it to `accuracy`; review C2 asked for
+the LoFi-MLP lever under the accuracy attention policy, which passes and is faster everywhere except 128-token
+batch 1, and the selection rule was widened from that one cell to the served-workload sum; review A2's program-config
+experiment then added the overrides, which are neutral for this policy's fidelity and remove another 7 percent.
+The stock `accuracy` policy stays available as the `p150-accuracy` profile and the stock bfp8 policy as `p150-fast`
+(97.3 percent confident-decision agreement in this sweep, 95.7 percent measured from a served package; it fails the
+gate and the card says so). `bfp8_lofi_mlp` keeps the vector cosine (min 0.9956) but its head-projection minimum
+and decision agreement fall to the `bfp8_attn_hifi2` level. The `performance` policy (bfp4 w1/w3) is rejected on
+real-weight, real-text evidence: 0.924 minimum cosine, 0.912 head-projection minimum, 82 percent agreement.
+The `accuracy` policy with the overrides is the one combination where the overrides hurt (98.9 to 97.3 percent);
+it is recorded and not shipped.
 
 ## Decision-level cross-check
 

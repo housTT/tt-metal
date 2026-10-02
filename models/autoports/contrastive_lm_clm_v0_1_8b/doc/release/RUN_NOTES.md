@@ -7,12 +7,24 @@ built package on this box and running the evaluation harnesses against it.
 ## Host and tree
 
 - Host `qb2-120-p11t01`: 2 x p300c (4 Blackhole chips), TT-KMD 2.10.0, firmware 19.15.0, Ubuntu 24.04, Docker 29.5.2.
-- tt-metal `/home/hous/dev/ornith-1.5-9b/tt-metal`, branch `hous/clm-v0.1-8b`, final build from commit `a3df3fd2ee`
+- tt-metal `/home/hous/dev/ornith-1.5-9b/tt-metal`, branch `hous/clm-v0.1-8b`; builds 6 to 9 from commits `a3df3fd2ee` to `2c710b113b`; the published build is recorded under "Publish"
   (branch pushed to `https://github.com/housTT/tt-metal`; the manifest's `pushed: false` refers to the upstream
-  `tenstorrent/tt-metal` remote, which does not carry this branch). The working tree also carries
-  unrelated uncommitted edits from the earlier Ornith project (`AGENTS.md`, two kernel files), which is why the
-  manifest provenance says `dirty: true`; none of them is on the CLM serving path (the allowlist ships only
-  `models/common` files, `models/tt_transformers/tt` and this autoport).
+  `tenstorrent/tt-metal` remote, which does not carry this branch). The working tree also carries unrelated
+  uncommitted edits from the earlier Ornith project (21 tracked files: `AGENTS.md`, Ornith autoport files, and two
+  kernel sources), which is why the manifests of builds 1 to 9 say `dirty: true`. Correction after review R: the
+  two kernel sources ARE in those images and ARE on the four-chip serving path. `tt_metal/fabric/impl/kernels/edm_fabric/fabric_erisc_router.cpp`
+  (+3 lines, `noc_clear_packet_tags(noc_index)` in `teardown`) and
+  `ttnn/cpp/ttnn/operations/experimental/ccl/all_gather_async/device/kernels/minimal_default_writer.cpp` (+8 / -2,
+  null direction pointers instead of unconditional dereferences) are copied with the builder's `tt_metal/` and
+  `ttnn/` trees into the runtime image (OCI layers 11 and 12 of image `9372e4d3d3c4`), the fabric router is compiled
+  at `FABRIC_1D` initialization and the all-gather writer by `ttnn.experimental.all_gather_async`, so every 1x4
+  measurement up to build 9 (`doc/multichip_decoder/README.md`) ran on the edited kernels; the single-chip profiles
+  compile neither. The earlier sentence "none of them is on the CLM serving path" was wrong. Resolution (2026 Oct 2
+  00:56 to 00:59 UTC): with the two files stashed to their committed versions, the 1x4 fidelity run of the
+  `accuracy_lofi_mlp` policy passes (`/home/hous/dev/clm-v0.1-8B/logs/fidelity_lofi_1x4_stock_kernels.log`,
+  `doc/multichip_decoder/fidelity_accuracy_lofi_mlp_1x4_stock_kernels.json`: cosine vs fp32 reference mean 0.99908 / min 0.99588 / p05 0.99763, head-projection minima 0.9917 (state) and 0.9970 (candidate), single vs batched min 0.99664, no NaN; decision agreement
+  97.0 percent, 99.5 percent on confident decisions), so the edits are not required by this port, and the published
+  build (tenth and later) is produced from a clean worktree of the branch (`dirty: false`), see "Publish".
 - tt-model 0.1.0 from `/home/hous/dev/tt-model-manager` (`5caec6c`).
 
 ## Build
@@ -124,7 +136,7 @@ tt-model push /home/hous/dev/clm-v0.1-8B/package/out/clm-v0.1-8b-p150 --public
   (layers shared with the other tt-hous packages on the same tt-metal base are deduplicated by the Hub).
 - Hub revision `3da3cc872dc36c4d738bbadd42f921d854ddae04`, 124 files, 1,041 MB: `tt_kernel_manifest.json`,
   `README.md` (the card), `requirements.lock`, `code/` (the allowlisted tt-metal Python files, the autoport and the
-  75.6 MB head checkpoint), `image/` (OCI index, manifest and 31 blobs). Hub tags: blackhole, p150, p150x4,
+  75.6 MB head checkpoint), `image/` (OCI index, manifest, layout file and 28 blobs). Hub tags: blackhole, p150, p150x4,
   tt-dit-server, tt-model-container, text-ranking, license apache-2.0, base_model Contrastive-LM/CLM-v0.1-8B. The Hub
   labels the base-model relation "finetune" by default; the weights are the unmodified upstream weights (this is a
   port), and the card text says so.

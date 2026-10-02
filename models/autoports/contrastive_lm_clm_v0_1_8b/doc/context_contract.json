@@ -15,5 +15,7 @@
  "decode_contract": "not applicable (encoder-only; no autoregressive decode, no KV reuse across requests)",
  "batch_contract": "right-padded batches grouped by padded prefill bucket (smallest of 128, 256, 512, 1024, 2048 that fits the longest text in the group; env CLM_TRACE_LENS overrides the list, multiples of 128 only), batch padded to 1, 4 or 8; per-user last token index",
  "output": "4096-d L2-normalized float32 embedding per input; heads produce 512-d projections; score = 100 * cosine",
- "bucket_evidence": "doc/optimized_full_model/README.md, section 'Prefill buckets': single-text vectors are bit-identical between the 128/1024/2048 and the 128/256/512/1024/2048 bucket sets (308 of 308 corpus texts)"
+ "bucket_evidence": "doc/optimized_full_model/README.md, section 'Prefill buckets': single-text vectors are bit-identical between the 128/1024/2048 and the 128/256/512/1024/2048 bucket sets (308 of 308 corpus texts)",
+ "program_config_overrides": "single-chip meshes only, env CLM_PROGRAM_CONFIGS=0 restores the stock path: QKV prefill matmul at 128 tokens uses in0_block_w 4 and out subblock 1x4 on the stock 32-core footprint; QKV and w2 prefill matmuls above 128 tokens use MinimalMatmul on an 11x10 grid (stock 8x10 and 8x8); evidence doc/optimized_decoder/program_config_experiment_<len>.json and doc/optimized_full_model/README.md",
+ "sharded_norm": "single-chip meshes only, env CLM_SHARDED_NORM=0 restores the stock path: the two decoder RMSNorms run block-sharded on an 8x4 core grid when the prefill batch has 128, 256 or 512 rows in total (batch x padded length); larger shapes use the stock interleaved norm"
 }

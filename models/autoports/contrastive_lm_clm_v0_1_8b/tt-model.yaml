@@ -47,7 +47,9 @@ serve:
     CLM_EMBEDDER: tt
     CLM_MAX_TOKENS: "2048"
     CLM_MAX_BATCH: "8"
-    CLM_PRECISION: accuracy
+    CLM_PRECISION: accuracy_lofi_mlp
+    CLM_PROGRAM_CONFIGS: "1"
+    CLM_SHARDED_NORM: "1"
     CLM_ACTION_CACHE: 512MiB
     CLM_CKPT: /opt/tt-metal/models/autoports/contrastive_lm_clm_v0_1_8b/weights/CLM_v0.1-8B.pt
     CLM_TRACE_REGION_SIZE: "200000000"
@@ -56,21 +58,31 @@ serve:
 
 serve_profiles:
   - name: p150
-    description: "One Blackhole p150 chip, accuracy precision policy (bf16 attention weights, HiFi4 attention math, bfp8 MLP). Selected by the datatype sweep as the only policy above 98 percent decision agreement with the fp32 reference."
+    description: "One Blackhole p150 chip, accuracy_lofi_mlp policy (bf16 attention weights with HiFi4 attention math, bfp8 MLP weights with LoFi math) plus the measured program-config overrides (QKV block shape at 128 tokens, 11x10 MinimalMatmul grid above 128 tokens, block-sharded RMSNorm up to 512 rows). Selected by the datatype sweep: passes every gate (98.9 percent decision agreement with the fp32 reference on confident decisions) with the lowest served-workload latency."
     hardware: p150
     mesh_device: P150
+  - name: p150-accuracy
+    description: "One Blackhole p150 chip, the stock accuracy policy (bf16 attention, HiFi4 attention math, bfp8 MLP with HiFi2 math) on the stock program configs; the previous default. Passes every gate (98.9 percent confident-decision agreement); 1.5 percent faster than p150 at 128 tokens batch 1 and 10 to 20 percent slower in every other cell."
+    hardware: p150
+    mesh_device: P150
+    env:
+      CLM_PRECISION: accuracy
+      CLM_PROGRAM_CONFIGS: "0"
+      CLM_SHARDED_NORM: "0"
   - name: p150-fast
-    description: "One Blackhole p150 chip, the stock bfp8 default policy (bfp8 attention weights, HiFi2 linears). About 6 percent lower latency than p150 at 97.3 percent decision agreement with the fp32 reference."
+    description: "One Blackhole p150 chip, the stock bfp8 default policy (bfp8 attention weights, HiFi2 linears) on the stock program configs. Fastest at 128 tokens; fails the port's decision-agreement gate (97.3 percent of confident decisions agree with the fp32 reference in the standalone sweep, 95.7 percent measured from a served package)."
     hardware: p150
     mesh_device: P150
     env:
       CLM_PRECISION: bfp8_attn
+      CLM_PROGRAM_CONFIGS: "0"
+      CLM_SHARDED_NORM: "0"
   - name: p150x4
-    description: "Four Blackhole p150-class chips as a 1x4 tensor-parallel mesh (validated on two p300c boards); about 1.9x lower latency at 128 tokens than one chip; accuracy policy."
+    description: "Four Blackhole p150-class chips as a 1x4 tensor-parallel mesh (validated on two p300c boards); about 1.9x lower latency at 128 tokens than one chip; accuracy_lofi_mlp policy (99.5 percent confident-decision agreement on this mesh); the single-chip program-config overrides do not apply."
     hardware: p150x4
     mesh_device: P150x4
     env:
-      CLM_PRECISION: accuracy
+      CLM_PRECISION: accuracy_lofi_mlp
       CLM_FABRIC_CONFIG: FABRIC_1D
 default_profile: p150
 

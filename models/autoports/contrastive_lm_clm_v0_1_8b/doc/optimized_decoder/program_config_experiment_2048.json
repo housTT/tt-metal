@@ -1,0 +1,154 @@
+{
+ "seq_len": 2048,
+ "precision": "accuracy",
+ "repeats": 10,
+ "timing": "eager layer forward with synchronize_device after each call (includes dispatch); p50 and min of repeats",
+ "reference": "HF Qwen3-8B layer 0 in bfloat16 on CPU (reference/hf_layer_reference.py)",
+ "stock_configs": {
+  "qkv": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=8-10)",
+  "wo": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=4,out_block_w=16,per_core_M=4,per_core_N=16,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=0,allowed_worker_cores=std::nullopt)",
+  "ff1_3": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=2,out_block_w=48,per_core_M=2,per_core_N=48,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=0,allowed_worker_cores=std::nullopt)",
+  "ff2": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=8-8)",
+  "qkv_mem": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)",
+  "use_minimal_qkv": "True"
+ },
+ "rows": [
+  {
+   "name": "stock",
+   "seq_len": 2048,
+   "precision": "accuracy",
+   "applied": [],
+   "consumed": {
+    "qkv": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=8-10)",
+    "use_minimal_qkv": true,
+    "wo": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=4,out_block_w=16,per_core_M=4,per_core_N=16,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=0,allowed_worker_cores=std::nullopt)",
+    "ff1_3": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=2,out_block_w=48,per_core_M=2,per_core_N=48,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=0,allowed_worker_cores=std::nullopt)",
+    "ff2": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=8-8)",
+    "qkv_mem": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)"
+   },
+   "status": "ok",
+   "pcc_vs_hf_bf16_layer": 0.9997608329022553,
+   "layer_ms_p50": 8.822,
+   "layer_ms_min": 8.787
+  },
+  {
+   "name": "qkv_minimal_grid11x10",
+   "seq_len": 2048,
+   "precision": "accuracy",
+   "applied": [
+    "get_attn_qkv_program_config",
+    "use_minimal_qkv_prefill_matmul"
+   ],
+   "consumed": {
+    "qkv": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=11-10)",
+    "use_minimal_qkv": true,
+    "wo": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=4,out_block_w=16,per_core_M=4,per_core_N=16,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=0,allowed_worker_cores=std::nullopt)",
+    "ff1_3": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=2,out_block_w=48,per_core_M=2,per_core_N=48,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=0,allowed_worker_cores=std::nullopt)",
+    "ff2": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=8-8)",
+    "qkv_mem": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)"
+   },
+   "status": "ok",
+   "pcc_vs_hf_bf16_layer": 0.9997607922847913,
+   "layer_ms_p50": 8.641,
+   "layer_ms_min": 8.582
+  },
+  {
+   "name": "ff2_minimal_grid11x10",
+   "seq_len": 2048,
+   "precision": "accuracy",
+   "applied": [
+    "get_mlp_ff2_prg_config"
+   ],
+   "consumed": {
+    "qkv": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=8-10)",
+    "use_minimal_qkv": true,
+    "wo": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=4,out_block_w=16,per_core_M=4,per_core_N=16,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=0,allowed_worker_cores=std::nullopt)",
+    "ff1_3": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=2,out_block_w=48,per_core_M=2,per_core_N=48,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=0,allowed_worker_cores=std::nullopt)",
+    "ff2": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=11-10)",
+    "qkv_mem": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)"
+   },
+   "status": "ok",
+   "pcc_vs_hf_bf16_layer": 0.9997606422904886,
+   "layer_ms_p50": 8.459,
+   "layer_ms_min": 8.375
+  },
+  {
+   "name": "norm_sharded_8x8",
+   "seq_len": 2048,
+   "precision": "accuracy",
+   "applied": [
+    "norm_forward"
+   ],
+   "consumed": {
+    "qkv": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=8-10)",
+    "use_minimal_qkv": true,
+    "wo": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=4,out_block_w=16,per_core_M=4,per_core_N=16,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=0,allowed_worker_cores=std::nullopt)",
+    "ff1_3": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=2,out_block_w=48,per_core_M=2,per_core_N=48,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=0,allowed_worker_cores=std::nullopt)",
+    "ff2": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=8-8)",
+    "qkv_mem": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)"
+   },
+   "status": "error",
+   "error": "TT_THROW @ /work/tt_metal/impl/dataflow_buffer/dataflow_buffer.cpp:2613: tt::exception",
+   "traceback_tail": "300318) [0x5d8f04814318]\n --- python(_PyEval_EvalFrameDefault+0x1e057) [0x5d8f047fcf57]\n --- python(_PyFunction_Vectorcall+0x2e3) [0x5d8f04785023]\n --- python(+0x30011c) [0x5d8f0481411c]\n --- python(_PyEval_EvalFrameDefault+0x1dfdb) [0x5d8f047fcedb]\n --- python(_PyFunction_Vectorcall+0x2e3) [0x5d8f04785023]\n --- python(+0x30011c) [0x5d8f0481411c]\n --- python(_PyEval_EvalFrameDefault+0x1dfdb) [0x5d8f047fcedb]\n --- python(_PyFunction_Vectorcall+0x2e3) [0x5d8f04785023]\n --- python(+0x30011c) [0x5d8f0481411c]\n --- python(_PyEval_EvalFrameDefault+0x1dfdb) [0x5d8f047fcedb]\n --- python(+0x3ed442) [0x5d8f04901442]\n --- python(+0x423d42) [0x5d8f04937d42]\n --- python(+0x1b727c) [0x5d8f046cb27c]\n --- python(_PyRun_SimpleFileObject+0x113) [0x5d8f046cad83]\n --- python(_PyRun_AnyFileObject+0xb6) [0x5d8f046ca776]\n --- python(+0x1c0f48) [0x5d8f046d4f48]\n --- python(+0x1c0a55) [0x5d8f046d4a55]\n --- python(Py_RunMain+0x612) [0x5d8f04944832]\n --- python(+0x430f02) [0x5d8f04944f02]\n --- python(+0x356a5c) [0x5d8f0486aa5c]\n --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x70ec1be2a1ca]\n --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x70ec1be2a28b]\n --- python(+0x35696d) [0x5d8f0486a96d]\n\n"
+  },
+  {
+   "name": "norm_sharded_8x4",
+   "seq_len": 2048,
+   "precision": "accuracy",
+   "applied": [
+    "norm_forward"
+   ],
+   "consumed": {
+    "qkv": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=8-10)",
+    "use_minimal_qkv": true,
+    "wo": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=4,out_block_w=16,per_core_M=4,per_core_N=16,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=0,allowed_worker_cores=std::nullopt)",
+    "ff1_3": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=2,out_block_w=48,per_core_M=2,per_core_N=48,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=0,allowed_worker_cores=std::nullopt)",
+    "ff2": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=8-8)",
+    "qkv_mem": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)"
+   },
+   "status": "error",
+   "error": "TT_THROW @ /work/tt_metal/impl/dataflow_buffer/dataflow_buffer.cpp:2604: tt::exception",
+   "traceback_tail": "300318) [0x5d8f04814318]\n --- python(_PyEval_EvalFrameDefault+0x1e057) [0x5d8f047fcf57]\n --- python(_PyFunction_Vectorcall+0x2e3) [0x5d8f04785023]\n --- python(+0x30011c) [0x5d8f0481411c]\n --- python(_PyEval_EvalFrameDefault+0x1dfdb) [0x5d8f047fcedb]\n --- python(_PyFunction_Vectorcall+0x2e3) [0x5d8f04785023]\n --- python(+0x30011c) [0x5d8f0481411c]\n --- python(_PyEval_EvalFrameDefault+0x1dfdb) [0x5d8f047fcedb]\n --- python(_PyFunction_Vectorcall+0x2e3) [0x5d8f04785023]\n --- python(+0x30011c) [0x5d8f0481411c]\n --- python(_PyEval_EvalFrameDefault+0x1dfdb) [0x5d8f047fcedb]\n --- python(+0x3ed442) [0x5d8f04901442]\n --- python(+0x423d42) [0x5d8f04937d42]\n --- python(+0x1b727c) [0x5d8f046cb27c]\n --- python(_PyRun_SimpleFileObject+0x113) [0x5d8f046cad83]\n --- python(_PyRun_AnyFileObject+0xb6) [0x5d8f046ca776]\n --- python(+0x1c0f48) [0x5d8f046d4f48]\n --- python(+0x1c0a55) [0x5d8f046d4a55]\n --- python(Py_RunMain+0x612) [0x5d8f04944832]\n --- python(+0x430f02) [0x5d8f04944f02]\n --- python(+0x356a5c) [0x5d8f0486aa5c]\n --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x70ec1be2a1ca]\n --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x70ec1be2a28b]\n --- python(+0x35696d) [0x5d8f0486a96d]\n\n"
+  },
+  {
+   "name": "combo:ff2_minimal_grid11x10+qkv_minimal_grid11x10",
+   "seq_len": 2048,
+   "precision": "accuracy",
+   "applied": [
+    "get_attn_qkv_program_config",
+    "use_minimal_qkv_prefill_matmul",
+    "get_mlp_ff2_prg_config"
+   ],
+   "consumed": {
+    "qkv": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=11-10)",
+    "use_minimal_qkv": true,
+    "wo": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=4,out_block_w=16,per_core_M=4,per_core_N=16,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=0,allowed_worker_cores=std::nullopt)",
+    "ff1_3": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=2,out_block_w=48,per_core_M=2,per_core_N=48,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=0,allowed_worker_cores=std::nullopt)",
+    "ff2": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=11-10)",
+    "qkv_mem": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)"
+   },
+   "status": "ok",
+   "pcc_vs_hf_bf16_layer": 0.9997606161305831,
+   "layer_ms_p50": 8.3,
+   "layer_ms_min": 8.25
+  },
+  {
+   "name": "stock_again",
+   "seq_len": 2048,
+   "precision": "accuracy",
+   "applied": [],
+   "consumed": {
+    "qkv": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=8-10)",
+    "use_minimal_qkv": true,
+    "wo": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=4,out_block_w=16,per_core_M=4,per_core_N=16,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=0,allowed_worker_cores=std::nullopt)",
+    "ff1_3": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=2,out_block_w=48,per_core_M=2,per_core_N=48,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=0,allowed_worker_cores=std::nullopt)",
+    "ff2": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=8-8)",
+    "qkv_mem": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0)"
+   },
+   "status": "ok",
+   "pcc_vs_hf_bf16_layer": 0.9997608329022553,
+   "layer_ms_p50": 8.838,
+   "layer_ms_min": 8.774
+  }
+ ]
+}

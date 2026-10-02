@@ -68,6 +68,39 @@ Evidence (accuracy policy, p150, `fidelity_accuracy_buckets5.json`, `bench_accur
   300-token texts costs 625 ms instead of 1,300 ms. Startup grows from nine to fifteen trace captures (warmup
   17.6 s: prepare 16.9 s, capture 0.7 s, after a 5.4 s model load with a warm weight cache).
 
+## Program-config overrides and the block-sharded norm (2026 Oct 2 00:52 to 01:10 UTC)
+
+Stage 3's third experiment (`../optimized_decoder/README.md`, "Matmul geometry") measured three levers that each
+help: a QKV block shape with `in0_block_w 4` and a 1x4 output subblock at 128 tokens, `MinimalMatmul` on an 11x10
+core grid for the QKV and w2 prefill matmuls above 128 tokens, and a block-sharded RMSNorm on 8x4 cores for prefill
+batches of 128, 256 or 512 rows. `tt/encoder.py` installs them after `create_tt_model`:
+`_install_program_configs` shadows the three `ModelArgs` getters on the instance (`get_attn_qkv_program_config`,
+`get_mlp_ff2_prg_config`, `use_minimal_qkv_prefill_matmul`), `_install_sharded_norms` wraps `forward` of every
+layer's `attention_norm` and `ff_norm` for prefill shapes with 128, 256 or 512 rows (other shapes fall through to the
+stock interleaved norm). Both are single-chip only and have environment toggles (`CLM_PROGRAM_CONFIGS=0`,
+`CLM_SHARDED_NORM=0`); the `p150-accuracy` and `p150-fast` profiles ship with both off, the default `p150` profile
+with both on.
+
+End-to-end validation on one p150 (`fidelity_<policy>_pc.json`, `agreement_<policy>_pc.json`, `bench_<policy>_pc.json`,
+`replay_trace_check_accuracy_lofi_mlp_pc.json`; logs `/home/hous/dev/clm-v0.1-8B/logs/*_pc.log`):
+
+| policy, path | cosine mean / min vs fp32 | head min (state / candidate) | agreement all / confident | 128 b1 | 128 b8 | 256 b8 | 512 b8 | 1024 b1 | 2048 b1 |
+|---|---|---|---|---|---|---|---|---|---|
+| accuracy_lofi_mlp, stock configs (`../datatype_sweep/`) | 0.99914 / 0.99584 | 0.9941 / 0.9965 | 96.0 % / 98.9 % | 58.5 ms | 144.0 ms | 271.2 ms | 554.6 ms | 152.0 ms | 285.5 ms |
+| accuracy_lofi_mlp, overrides (shipped default) | 0.99916 / 0.99599 | 0.9931 / 0.9971 | 97.5 % / 98.9 % | 53.1 ms | 135.7 ms | 251.7 ms | 510.9 ms | 143.3 ms | 266.0 ms |
+| accuracy, stock configs (`p150-accuracy`) | 0.99910 / 0.99596 | 0.9943 / 0.9957 | 95.5 % / 98.9 % | 57.7 ms | 161.6 ms | 306.7 ms | 624.5 ms | 170.4 ms | 321.7 ms |
+| accuracy, overrides (not shipped) | 0.99897 / 0.99426 | 0.9924 / 0.9962 | 94.0 % / 97.3 % | 52.5 ms | 154.4 ms | 289.5 ms | 583.3 ms | 162.4 ms | 306.8 ms |
+
+The overrides are neutral to slightly positive for the shipped policy and take 9 to 18 percent off every cell
+against the previous default (stock `accuracy`). With the stock `accuracy` policy (HiFi2 fp16-accumulate MLP) the
+same overrides lower the minimum cosine from 0.9960 to 0.9943 and the confident-decision agreement from 98.9 to 97.3
+percent, which fails the gate; the `p150-accuracy` profile therefore ships without them. Isolation runs with one
+override at a time are recorded below. The fifteen-variant trace-safety check with the overrides passes
+(`replay_trace_check_accuracy_lofi_mlp_pc.json`: no unsafe buffers, repeated replays identical to cosine
+>= 0.9999998, refreshed inputs change the output).
+
+ISOLATION_RESULTS
+
 ## Performance (`perf_summary_accuracy_buckets5.json`, default policy accuracy, p150, warm traces, p50 of 10)
 
 | padded length | real tokens | batch 1 | batch 4 | batch 8 | tokens/s at batch 8 |

@@ -25,19 +25,32 @@ applicable. Their substitute is an embedding fidelity gate against a CPU fp32 re
 Reference: `/home/hous/dev/clm-v0.1-8B/reference/hf_embeddings.npy`, HF `AutoModel` fp32 on CPU, same
 tokenization and pooling, 308 texts (221 states, 87 candidates; README examples, Typed Decisions states and
 options, T-Rex states, tale-of-two-cities excerpts at 32 to 2048 tokens). Script: `tests/run_fidelity.py`.
-Result file: `fidelity_accuracy.json`; raw vectors `fidelity_accuracy_tt_single.npy`, `fidelity_accuracy_tt_batched.npy`.
+Result files: `fidelity_accuracy.json` (final encoder code, 2026 Oct 1 23:10 UTC, nine trace variants; byte-identical
+to `../datatype_sweep/fidelity_accuracy.json`) and `../optimized_full_model/fidelity_accuracy_buckets5.json` (the
+shipped fifteen-variant encoder; single-text vectors bit-identical to the nine-variant run). Raw vectors
+`fidelity_accuracy_tt_single.npy`, `fidelity_accuracy_tt_batched.npy` (not committed).
 
 | metric | gate | measured |
 |---|---|---|
-| cosine TT vs HF fp32, mean | >= 0.99 | 0.99909 |
-| cosine TT vs HF fp32, min / p05 | min >= 0.97 | 0.99588 / 0.99753 |
-| cosine by length bucket (<=128 / <=1024 / >1024), mean | | 0.99910 / 0.99908 / 0.99965 |
-| centered cosine (corpus mean removed), mean / min | report | 0.99434 / 0.98588 |
-| head projection cosine, state head, mean / min (221) | min >= 0.95 | 0.99744 / 0.99429 |
-| head projection cosine, action head, mean / min (87) | min >= 0.95 | 0.99870 / 0.99573 |
-| same text alone vs inside a mixed batch, mean / min | mean >= 0.999 | 0.99934 / 0.99643 |
-| run-to-run determinism (32 texts), min | 1.0 - 1e-4 | 1.0000 |
+| cosine TT vs HF fp32, mean | >= 0.99 | 0.99910 |
+| cosine TT vs HF fp32, min / p05 | min >= 0.97 | 0.99596 / 0.99756 |
+| cosine by length bucket (<=128 / <=1024 / >1024), mean (min) | | 0.99910 (0.99600) / 0.99910 (0.99596) / 0.99965 (0.99961) |
+| PCC TT vs HF fp32, mean / min | report | 0.99914 / 0.99604 |
+| centered cosine (corpus mean removed), mean / min | report | 0.99549 / 0.98845 |
+| head projection cosine, state head, mean / min (221) | min >= 0.95 | 0.99746 / 0.99434 |
+| head projection cosine, action head, mean / min (87) | min >= 0.95 | 0.99871 / 0.99571 |
+| same text alone vs inside a mixed batch, mean / min | mean >= 0.999 (plan amendment 2026 Oct 2) | 0.99934 / 0.99644 |
+| run-to-run determinism (32 texts), mean / min | 1.0 - 1e-4 | 1.0000 / 0.9999998 |
+| Typed Decisions argmax agreement with the fp32 reference, 200 subset decisions | report | 95.5 percent (191 of 200) |
+| same, over the 188 decisions whose reference top-2 margin is >= 0.10 | >= 98 percent (plan row 6, margin-aware form) | 98.9 percent (186 of 188) |
 | NaN count | 0 | 0 |
+
+Why the agreement gate is margin-aware: 12 of the 200 reference decisions are ties within 0.10 (8 within 0.05), and a
+verifier running in bf16 and bfp8 arithmetic cannot be expected to reproduce the argmax of a tie; the gate therefore
+counts the decisions the reference itself is confident about and reports the plain number next to it. The two
+confident disagreements (`invoice_processing_000063` and `_000096`, question `discrepancy_severity`) have reference
+margins 0.13 and 0.32 and total-variation distances 0.24 and 0.28. The gate is evaluated on the single-text vectors;
+on batched vectors the shipped policy scores 185 to 186 of 188 (`../datatype_sweep/README.md`).
 
 Why these numbers and not a token-accuracy gate: the model's output is the pooled vector itself. The raw Qwen3
 embedding space is anisotropic (mean pairwise cosine between unrelated corpus texts is 0.846), so the centered
@@ -59,10 +72,22 @@ Recorded in the card's limitations.
 
 ## Qualitative check substitute
 
-`$qualitative-check` is for generated text. The substitute recorded here: the README's two worked examples
-through both encoders and the CLM heads (`doc/probe/probe_full_encoder.json`): tides ranking Moon 0.992 (HF 0.993),
-customer routing billing 0.990 (HF 0.990); argmax decisions identical. Decision-level agreement on the Typed
-Decisions benchmark is measured against the served package in `doc/release/`.
+`$qualitative-check` is for generated text. The substitute: the README's worked examples through the encoder and the
+CLM heads, computed from the final-path single-text vectors (`../optimized_full_model/fidelity_accuracy_buckets5_tt_single.npy`)
+and from the fp32 reference vectors with the same head code (`tests/decision_agreement.py` method):
+
+| question | TT, single-text path | fp32 reference | served package (request batched) |
+|---|---|---|---|
+| tides ranking, P(Moon) | 0.9922 | 0.9935 | 0.9948 (`/v1/rank`, clean pull check) |
+| urgency, noul P(true) | 0.852 | 0.842 | 0.816 |
+| department, P(billing) | 0.991 | 0.988 | 0.993 |
+| frustration, score on the 0 to 2 scale | 2.000 | 2.000 | 2.000 |
+
+Argmax decisions are identical in all three columns. The served column differs from the single-text column because
+the server embeds a request's state and option texts in one batch (batch-variant reduction order, next section).
+The README's printed values for the same example (0.410 / 0.939 / 1.984) are not reproduced by the published head and
+code on any hardware (`/home/hous/dev/clm-v0.1-8B/reference/README.md`). Decision-level agreement on the Typed
+Decisions benchmark is measured against the served package in `../release/RUN_NOTES.md`.
 
 ## Context contract
 

@@ -1,0 +1,133 @@
+{
+ "timestamp": "2026-10-02T00:59:03.463845+00:00",
+ "host": "qb2-120-p11t01",
+ "precision": "accuracy_lofi_mlp",
+ "max_seq_len": 2048,
+ "max_batch_size": 8,
+ "mesh": "1x1",
+ "n_texts": 308,
+ "device_name": "P150",
+ "load_seconds": 5.3,
+ "single_seconds": 19.32,
+ "batched_seconds": 10.74,
+ "encoder_stats": {
+  "calls": 382,
+  "tokens": 101945,
+  "device_seconds": 31.719,
+  "device_name": "P150",
+  "precision": "accuracy_lofi_mlp",
+  "max_batch_size": 8,
+  "max_seq_len": 2048,
+  "trace_lens": [
+   128,
+   256,
+   512,
+   1024,
+   2048
+  ],
+  "program_config_overrides": [
+   "qkv_prefill_128: in0_block_w 4, out_subblock_w 4",
+   "qkv_prefill_gt128: MinimalMatmul 11x10",
+   "ff2_prefill_gt128: MinimalMatmul 11x10"
+  ],
+  "sharded_norm_rows": [
+   128,
+   256,
+   512
+  ]
+ },
+ "cosine_single_vs_hf": {
+  "mean": 0.9991598725318909,
+  "min": 0.9959942102432251,
+  "p05": 0.9978683650493622,
+  "median": 0.9993124008178711
+ },
+ "cosine_batched_vs_hf": {
+  "mean": 0.9990660548210144,
+  "min": 0.9965860843658447
+ },
+ "cosine_single_vs_batched": {
+  "mean": 0.999330997467041,
+  "min": 0.9960959553718567
+ },
+ "determinism_cosine_first32": {
+  "mean": 1.0,
+  "min": 0.9999998807907104
+ },
+ "pcc_single_vs_hf": {
+  "mean": 0.9991741761552917,
+  "min": 0.9960381932324841
+ },
+ "head_projection_cosine": {
+  "state": {
+   "mean": 0.9976391196250916,
+   "min": 0.993104875087738,
+   "n": 221
+  },
+  "candidate": {
+   "mean": 0.9986849427223206,
+   "min": 0.9970672130584717,
+   "n": 87
+  }
+ },
+ "cosine_by_length_bucket": {
+  "<=128": {
+   "mean": 0.9991767771458357,
+   "min": 0.9959942102432251,
+   "n": 178
+  },
+  "<=1024": {
+   "mean": 0.9991294331848621,
+   "min": 0.9978678226470947,
+   "n": 128
+  },
+  ">1024": {
+   "mean": 0.9996031522750854,
+   "min": 0.9995198249816895,
+   "n": 2
+  }
+ },
+ "nan_count": 0,
+ "worst": [
+  {
+   "id": "readme_customer_state_frustration",
+   "n_tokens": 19,
+   "cos": 0.9959942102432251
+  },
+  {
+   "id": "readme_customer_state_urgency",
+   "n_tokens": 17,
+   "cos": 0.996347963809967
+  },
+  {
+   "id": "td_agent_trace_observability_000017_state_action",
+   "n_tokens": 98,
+   "cos": 0.9969066977500916
+  },
+  {
+   "id": "td_agent_trace_observability_000059_state_outcome",
+   "n_tokens": 95,
+   "cos": 0.996954619884491
+  },
+  {
+   "id": "td_agent_trace_observability_000059_state_action",
+   "n_tokens": 98,
+   "cos": 0.9970574378967285
+  },
+  {
+   "id": "td_agent_trace_observability_000050_state_action",
+   "n_tokens": 94,
+   "cos": 0.9971497654914856
+  },
+  {
+   "id": "td_agent_trace_observability_000042_state_urgency",
+   "n_tokens": 104,
+   "cos": 0.9971963763237
+  },
+  {
+   "id": "readme_customer_state_department",
+   "n_tokens": 19,
+   "cos": 0.9975512027740479
+  }
+ ]
+}

@@ -1,0 +1,129 @@
+{
+ "timestamp": "2026-10-02T01:06:04.942767+00:00",
+ "host": "qb2-120-p11t01",
+ "precision": "accuracy_lofi_mlp",
+ "max_seq_len": 2048,
+ "max_batch_size": 8,
+ "mesh": "1x1",
+ "n_texts": 308,
+ "device_name": "P150",
+ "load_seconds": 6.8,
+ "single_seconds": 20.25,
+ "batched_seconds": 10.76,
+ "encoder_stats": {
+  "calls": 382,
+  "tokens": 101945,
+  "device_seconds": 32.782,
+  "device_name": "P150",
+  "precision": "accuracy_lofi_mlp",
+  "max_batch_size": 8,
+  "max_seq_len": 2048,
+  "trace_lens": [
+   128,
+   256,
+   512,
+   1024,
+   2048
+  ],
+  "program_config_overrides": [
+   "qkv_prefill_128: in0_block_w 4, out_subblock_w 4",
+   "qkv_prefill_gt128: MinimalMatmul 11x10",
+   "ff2_prefill_gt128: MinimalMatmul 11x10"
+  ],
+  "sharded_norm_rows": []
+ },
+ "cosine_single_vs_hf": {
+  "mean": 0.9991258978843689,
+  "min": 0.9959031343460083,
+  "p05": 0.9978582262992859,
+  "median": 0.9992510676383972
+ },
+ "cosine_batched_vs_hf": {
+  "mean": 0.9990654587745667,
+  "min": 0.9965860843658447
+ },
+ "cosine_single_vs_batched": {
+  "mean": 0.9995594024658203,
+  "min": 0.9957266449928284
+ },
+ "determinism_cosine_first32": {
+  "mean": 1.0,
+  "min": 0.9999998807907104
+ },
+ "pcc_single_vs_hf": {
+  "mean": 0.9991406261759573,
+  "min": 0.9959349571679046
+ },
+ "head_projection_cosine": {
+  "state": {
+   "mean": 0.9976312518119812,
+   "min": 0.9925574064254761,
+   "n": 221
+  },
+  "candidate": {
+   "mean": 0.9985467195510864,
+   "min": 0.9956024885177612,
+   "n": 87
+  }
+ },
+ "cosine_by_length_bucket": {
+  "<=128": {
+   "mean": 0.9991831330770857,
+   "min": 0.9959031343460083,
+   "n": 178
+  },
+  "<=1024": {
+   "mean": 0.9990388257429004,
+   "min": 0.9972383379936218,
+   "n": 128
+  },
+  ">1024": {
+   "mean": 0.9996031522750854,
+   "min": 0.9995198249816895,
+   "n": 2
+  }
+ },
+ "nan_count": 0,
+ "worst": [
+  {
+   "id": "td_agent_trace_observability_000059_state_outcome",
+   "n_tokens": 95,
+   "cos": 0.9959031343460083
+  },
+  {
+   "id": "readme_customer_state_frustration",
+   "n_tokens": 19,
+   "cos": 0.9971763491630554
+  },
+  {
+   "id": "td_customer_service_000027_state_category",
+   "n_tokens": 467,
+   "cos": 0.9972383379936218
+  },
+  {
+   "id": "td_agent_trace_observability_000015_state_urgency",
+   "n_tokens": 90,
+   "cos": 0.9972430467605591
+  },
+  {
+   "id": "td_security_incidents_000049_state_disposition",
+   "n_tokens": 209,
+   "cos": 0.9972826242446899
+  },
+  {
+   "id": "readme_customer_state_department",
+   "n_tokens": 19,
+   "cos": 0.9973048567771912
+  },
+  {
+   "id": "td_agent_trace_observability_000035_state_action",
+   "n_tokens": 121,
+   "cos": 0.9973376989364624
+  },
+  {
+   "id": "td_agent_trace_observability_000045_state_action",
+   "n_tokens": 104,
+   "cos": 0.9975565075874329
+  }
+ ]
+}

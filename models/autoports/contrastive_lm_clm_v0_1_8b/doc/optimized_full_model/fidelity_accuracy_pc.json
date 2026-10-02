@@ -1,0 +1,133 @@
+{
+ "timestamp": "2026-10-02T00:59:59.470071+00:00",
+ "host": "qb2-120-p11t01",
+ "precision": "accuracy",
+ "max_seq_len": 2048,
+ "max_batch_size": 8,
+ "mesh": "1x1",
+ "n_texts": 308,
+ "device_name": "P150",
+ "load_seconds": 6.1,
+ "single_seconds": 19.87,
+ "batched_seconds": 12.16,
+ "encoder_stats": {
+  "calls": 382,
+  "tokens": 101945,
+  "device_seconds": 33.675,
+  "device_name": "P150",
+  "precision": "accuracy",
+  "max_batch_size": 8,
+  "max_seq_len": 2048,
+  "trace_lens": [
+   128,
+   256,
+   512,
+   1024,
+   2048
+  ],
+  "program_config_overrides": [
+   "qkv_prefill_128: in0_block_w 4, out_subblock_w 4",
+   "qkv_prefill_gt128: MinimalMatmul 11x10",
+   "ff2_prefill_gt128: MinimalMatmul 11x10"
+  ],
+  "sharded_norm_rows": [
+   128,
+   256,
+   512
+  ]
+ },
+ "cosine_single_vs_hf": {
+  "mean": 0.9989657998085022,
+  "min": 0.9942587614059448,
+  "p05": 0.9967878580093383,
+  "median": 0.9992598295211792
+ },
+ "cosine_batched_vs_hf": {
+  "mean": 0.9990304708480835,
+  "min": 0.9955446124076843
+ },
+ "cosine_single_vs_batched": {
+  "mean": 0.9992454648017883,
+  "min": 0.9962194561958313
+ },
+ "determinism_cosine_first32": {
+  "mean": 1.0,
+  "min": 0.9999998807907104
+ },
+ "pcc_single_vs_hf": {
+  "mean": 0.9990049237232169,
+  "min": 0.9943567026700837
+ },
+ "head_projection_cosine": {
+  "state": {
+   "mean": 0.9972540140151978,
+   "min": 0.9923703074455261,
+   "n": 221
+  },
+  "candidate": {
+   "mean": 0.9986255764961243,
+   "min": 0.9961856007575989,
+   "n": 87
+  }
+ },
+ "cosine_by_length_bucket": {
+  "<=128": {
+   "mean": 0.9988451626863373,
+   "min": 0.9942587614059448,
+   "n": 178
+  },
+  "<=1024": {
+   "mean": 0.9991230955347419,
+   "min": 0.997573971748352,
+   "n": 128
+  },
+  ">1024": {
+   "mean": 0.9996282160282135,
+   "min": 0.9995923638343811,
+   "n": 2
+  }
+ },
+ "nan_count": 0,
+ "worst": [
+  {
+   "id": "td_agent_trace_observability_000059_state_outcome",
+   "n_tokens": 95,
+   "cos": 0.9942587614059448
+  },
+  {
+   "id": "td_agent_trace_observability_000059_state_action",
+   "n_tokens": 98,
+   "cos": 0.9947830438613892
+  },
+  {
+   "id": "td_agent_trace_observability_000045_state_action",
+   "n_tokens": 104,
+   "cos": 0.9951027631759644
+  },
+  {
+   "id": "td_agent_trace_observability_000042_state_urgency",
+   "n_tokens": 104,
+   "cos": 0.9954502582550049
+  },
+  {
+   "id": "td_agent_trace_observability_000050_state_action",
+   "n_tokens": 94,
+   "cos": 0.9955823421478271
+  },
+  {
+   "id": "td_agent_trace_observability_000007_state_action",
+   "n_tokens": 110,
+   "cos": 0.9957528114318848
+  },
+  {
+   "id": "td_agent_trace_observability_000059_state_urgency",
+   "n_tokens": 95,
+   "cos": 0.9959398508071899
+  },
+  {
+   "id": "td_agent_trace_observability_000015_state_urgency",
+   "n_tokens": 90,
+   "cos": 0.9963266253471375
+  }
+ ]
+}

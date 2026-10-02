@@ -1,5 +1,8 @@
 # Work log: stages 4 to 8 (multi-chip, full model, optimized full model, datatype sweep)
 
+Deviation from the plan's per-stage logs: stages 4 to 8 were run by one orchestrator in one evening, so one
+consolidated log is kept here instead of four files; the per-stage README files hold the stage-specific evidence.
+
 All times UTC, 2026 Oct 1. Device commands through `/home/hous/dev/clm-v0.1-8B/bin/devlock`; logs under
 `/home/hous/dev/clm-v0.1-8B/logs/`.
 

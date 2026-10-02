@@ -15,6 +15,7 @@ work of this stage was to verify them on p150 for the encoder use and to measure
 | gated MLP: w1 and w3 fused with the activation | `MatmulDeviceOperation 128x4096x12288` x2 then `MinimalMatmul`/`Matmul 128x12288x4096` | SiLU fused into the w1 matmul epilogue, elementwise multiply via `BinaryNg` |
 | RMSNorm as one op | `LayerNormDeviceOperation` (RMSNORM) x2 per layer | q_norm / k_norm run inside the attention block |
 | residual adds | `BinaryNgDeviceOperation` | |
+| not fused and not needed by the encoder: two `Typecast BF16 => BF16` and two `PagedFillCache` per layer | rows 45 to 48 (128 tokens: 2.6 + 2.8 us and 2.7 + 2.3 us, 0.7 percent of the layer) and 117 to 120 (1024 tokens: 10.8 + 10.4 and 13.0 + 13.1 us, 1.0 percent) of `../functional_decoder/tracy/layer0/prefill_perf_report.csv` | the casts are unconditional in `models/tt_transformers/tt/attention.py` (`forward_prefill`, the K and V head casts before the cache fill) and a fill runs on every path (`paged_fill_cache` with a page table, `fill_cache` otherwise); skipping them needs a per-model `Attention` subclass or a framework flag, neither of which exists; not measured in this port, upper bound of the saving 0.7 to 1.0 percent of layer time |
 | final norm | moved to the host (fp32) in this port, see `../optimized_full_model/README.md` | removes the eager slice + norm + to_layout tail after trace replay |
 
 No remaining host round trips inside the 36-layer forward: the whole encoder forward is one trace per

@@ -28,10 +28,16 @@ Fidelity (`fidelity_accuracy_1x4.json`, accuracy policy, 308 texts vs HF fp32):
 | cosine min | 0.99307 | 0.99596 |
 | single vs batched, mean / min | 0.99954 / 0.99620 | 0.99934 / 0.99644 |
 
-The multi-chip output is within the stage gate but slightly further from the reference than one chip
-(reduction-order differences in the CCL all-gathers and sharded matmuls). The first 1x4 attempt failed in the
-host readback because the residual stream comes back width-sharded across the four devices
-(`ConcatMeshToTensor(dim=-1)` is now used; `tt/encoder.py`).
+The multi-chip output is slightly further from the reference than one chip (reduction-order differences in the
+CCL all-gathers and sharded matmuls). Stage 4 gate from the plan (cosine of the 1x4 output against the one-chip
+output >= 0.999), measured from `fidelity_accuracy_1x4_tt_single.npy` against the one-chip
+`../datatype_sweep/fidelity_accuracy_tt_single.npy` over the 308 corpus texts: mean 0.99929, p05 0.99805, min 0.99547,
+68 of 308 texts below 0.999. The gate is met as a mean and not as a minimum; the texts below 0.999 are the same
+near-tie-sensitive ones that move between a single and a batched one-chip run (`../full_model/README.md`), and the
+plan amendment of 2026 Oct 2 records the mean form. Decision agreement of the 1x4 vectors with the fp32 reference:
+190 of 200 (185 of 188 confident), the same band as one chip. The first 1x4 attempt failed in the host readback
+because the tensor returned by the traced prefill (the pre-norm residual of the last layer, read back before any
+final all-gather) is width-sharded across the four devices; `ConcatMeshToTensor(dim=-1)` is now used (`tt/encoder.py`).
 
 Latency (`bench_accuracy_1x4.json`, accuracy policy, p50, batch 1 unless noted) against the one-chip accuracy run:
 
@@ -48,8 +54,25 @@ CCL-heavy prefill of a model this size. It is published as the `p150x4` serve pr
 
 ## Stage 5 (optimized multi-chip)
 
-Not done beyond the stock TP plan. The inter-layer residual contract is the stock one: the residual is replicated
-on every device after each all-gather; no reshards between layers. The 1x4 serve profile `p150x4` is declared in `tt-model.yaml` with the accuracy policy and `FABRIC_1D`.
+Not done beyond the stock TP plan. The inter-layer residual contract is the stock one: inside the decoder stack the
+residual is replicated on every device after each layer's all-gather, with no reshards between layers; only the
+tensor handed back to the host at the end is the width-sharded pre-norm residual (previous section). No CCL audit
+(per-collective latency, link utilization) was done for this profile; it ships as validated by fidelity, bench and
+the in-container serve check only, and the card marks the package as an experimental community bring-up. The 1x4 serve profile `p150x4` is declared in `tt-model.yaml` with the accuracy policy and `FABRIC_1D`.
+
+## Stock kernels and the LoFi-MLP policy on 1x4 (2026 Oct 2 00:56 to 00:59 UTC)
+
+Review R found that every 1x4 measurement above ran in a working tree with two uncommitted kernel edits from the
+Ornith project (`tt_metal/fabric/impl/kernels/edm_fabric/fabric_erisc_router.cpp`, `.../all_gather_async/device/kernels/minimal_default_writer.cpp`),
+which the container builds also shipped. With both files stashed to their committed versions, the 1x4 fidelity run of
+the `accuracy_lofi_mlp` policy (`fidelity_accuracy_lofi_mlp_1x4_stock_kernels.json`, log
+`/home/hous/dev/clm-v0.1-8B/logs/fidelity_lofi_1x4_stock_kernels.log`) loads in 4.6 s, captures the fifteen trace
+variants in 26.8 s and passes: cosine vs the fp32 reference mean 0.99908 / min 0.99588 / p05 0.99763, head-projection
+minima 0.9917 (state) and 0.9970 (candidate), single vs batched min 0.99664, no NaN; decision agreement with the fp32
+reference 194 of 200 (97.0 percent) and 187 of 188 confident decisions (99.5 percent)
+(`agreement_accuracy_lofi_mlp_1x4_stock_kernels.json`). The edits are therefore not required by this port; the
+published build is made from a clean worktree of the branch and the `p150x4` profile is re-verified from that image
+(`../release/RUN_NOTES.md`). Whether the edits matter for the 1x2 fabric timeout was not tested.
 
 ## In-container 1x4 serving
 
