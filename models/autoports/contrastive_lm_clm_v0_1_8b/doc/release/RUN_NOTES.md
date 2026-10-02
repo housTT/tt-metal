@@ -93,8 +93,13 @@ tt-model package --container models/autoports/contrastive_lm_clm_v0_1_8b/tt-mode
   remains after a game. Image `tt-model/clm-v0.1-8b-p150:85eee9d0dd8b`, digest
   `sha256:85eee9d0dd8b803d07d2d57f66578c3911a0fde5b3609e2819dc6cb273d05993`, code sha256
   `db04b18c9024e224629cbd6f35779404d71b0430403ea09162fa00ae9fd43c6e`, built from the clean worktree at commit
-  `6432259fac` (`dirty: false`; also the head of `hous/clm-v0.1-8b-release`), 17 `verify:` assertions pass, staged lock
-  identical to the repo copy.
+  `6432259fac` (`dirty: false`), 17 `verify:` assertions pass, staged lock identical to the repo copy.
+- Fourteenth attempt (18:37 to 18:40 UTC, `package exit 0`, the published build, Hub revision 6): the demo page defines
+  the shield (lede sentence, a help paragraph under the Run controls, a tooltip on the shield-saves counter); no server
+  or engine change. Image `tt-model/clm-v0.1-8b-p150:f02b781cf8d0`, digest
+  `sha256:f02b781cf8d079f50fa4f045fd81a641d6ef868c5a734502381ae8206196459b`, code sha256
+  `949aa72e5600889b125e98cd047df93504a603dc9fcf85e7ea270318a0cd7cb8`, built from the clean worktree at commit
+  `2641f871d7` (`dirty: false`; also the head of `hous/clm-v0.1-8b-release`), staged lock identical to the repo copy.
 - Eighth attempt (00:24 to 00:26 UTC): card text from the build 7 evaluation and the mode fix; image `f5a706931401`,
   code sha256 unchanged (`c87308710a85...`), which confirms file modes and the card are outside the code hash.
 - Ninth attempt (00:26 to 00:29 UTC, `package exit 0`, the first published build, Hub revision 1): adds the fabric kernel `verify:` line
@@ -177,7 +182,7 @@ per-decision latencies (answer p50 16.5 to 16.6 ms, model p50 1.1 to 1.4 ms) mat
 tt-model push /home/hous/dev/clm-v0.1-8B/package/out/clm-v0.1-8b-p150 --public
 ```
 
-Five revisions of `tt-hous/clm-v0.1-8b-p150` were pushed; all stay in the repo history.
+Six revisions of `tt-hous/clm-v0.1-8b-p150` were pushed; all stay in the repo history.
 
 - Revision 1, 2026 Oct 2 00:31 UTC (`/home/hous/dev/clm-v0.1-8B/logs/tt_model_push.log`): repo created public;
   image `9372e4d3d3c4` (build 9, `accuracy` default, built from the dirty main checkout), Hub revision
@@ -208,7 +213,7 @@ Five revisions of `tt-hous/clm-v0.1-8b-p150` were pushed; all stay in the repo h
   `dirty: false`). Hub revision `b1e818116df1cc78f30b2016249028abe1585052`. Clean pull check (`tt_model_pull_v4.log`,
   `serve_pulled_v4.log`, `demo_client_pulled_v4.log`): healthy 30 s after start, `GET /demo/` 200, 10 s demo game
   204 decisions at agreement 0.946 (table under "Demo verification").
-- Revision 5, 2026 Oct 2 14:55 UTC (`tt_model_push_v5.log`), the current published build: build 13, the runner join fix
+- Revision 5, 2026 Oct 2 14:55 UTC (`tt_model_push_v5.log`): build 13, the runner join fix
   only (image `tt-model/clm-v0.1-8b-p150:85eee9d0dd8b`, digest
   `sha256:85eee9d0dd8b803d07d2d57f66578c3911a0fde5b3609e2819dc6cb273d05993`, code sha256
   `db04b18c9024e224629cbd6f35779404d71b0430403ea09162fa00ae9fd43c6e`, clean worktree at `6432259fac`, `dirty: false`).
@@ -216,6 +221,14 @@ Five revisions of `tt-hous/clm-v0.1-8b-p150` were pushed; all stay in the repo h
   20.6 s. Clean pull check (`tt_model_pull_v5.log`, `serve_pulled_v5.log`, `demo_client_pulled_v5.log`): image loaded in
   18.6 s, healthy 30 s after start, `GET /demo/` 200, 10 s demo game 209 decisions at agreement 0.957, no leftover child
   process after the game (table under "Demo verification").
+- Revision 6, 2026 Oct 2 18:40 UTC (`tt_model_push_v6.log`), the current published build: build 14, the shield definition
+  on the demo page only (image `tt-model/clm-v0.1-8b-p150:f02b781cf8d0`, digest
+  `sha256:f02b781cf8d079f50fa4f045fd81a641d6ef868c5a734502381ae8206196459b`, code sha256
+  `949aa72e5600889b125e98cd047df93504a603dc9fcf85e7ea270318a0cd7cb8`, clean worktree at `2641f871d7`, `dirty: false`).
+  Hub revision `43b663fbac4209ad83323c8352aea21d8a7a0f2b`, 141 files, uploaded in 24.9 s. Checks: the image served on
+  chip 0 (`serve_build14_p150.log`) answers `GET /demo/` with the new text, and the Hub copy of
+  `code/models/autoports/contrastive_lm_clm_v0_1_8b/clm/demo/index.html` at that revision carries it. No clean pull
+  check was run for this revision (two page files changed; the server, engine and lock are those of revision 5).
 - Hub tags: blackhole, p150, p150x4, tt-dit-server, tt-model-cache, tt-model-container, text-ranking, license
   apache-2.0, base_model Contrastive-LM/CLM-v0.1-8B (the Hub labels the relation "finetune" by default; the weights
   are the unmodified upstream weights and the card says so). Not listed in the community catalog (`--publish` was not
