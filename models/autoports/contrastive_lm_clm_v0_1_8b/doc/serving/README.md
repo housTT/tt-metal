@@ -40,6 +40,8 @@ The ASGI target is `models.autoports.contrastive_lm_clm_v0_1_8b.server.app:app`.
 | `GET /v1/models` | | `{"models": [{"name": "clm-latest", "description", "release_date": "2026-09-19"}, {"name": "clm-raw", ...}]}` |
 | `GET /health` | | `{"ok", "ready", "embedder": bool, "embedder_kind", "models": [names], "cache": arena stats or null}` |
 | `GET /` | | The playground (static files from `clm/static/`), unless `CLM_NO_UI=1` |
+| `GET /demo/` | | The T-Rex live demo page (`clm/demo/`), unless `CLM_NO_UI=1` or `CLM_NO_DEMO=1`; `GET /demo` redirects to it |
+| `WS /demo/ws` | `{"type": "start", "seeds", "seed", "duration", "shield", "inflight", "api_key"}`, `{"type": "stop"}`, `{"type": "ping"}` | `hello`, `status`, `course`, `frame`, `stats`, `course_end`, `summary`, `busy`, `error`, `stopped`, `pong` (section "T-Rex live demo") |
 
 Question and Answer objects follow the upstream TypeSafe wire schema (`noul`, `choice`, `score`), see the upstream
 README section "API Reference". `temperature` must be in `(0, 100]`.
@@ -88,7 +90,9 @@ ready, `501` token-id input with an embedder that has no `embed_ids` and no toke
 | `CLM_TRACE_REGION_SIZE`, `CLM_L1_SMALL_SIZE` | `200000000`, `32768` | Device open parameters (bytes). |
 | `CLM_FABRIC_CONFIG` | unset (`FABRIC_1D` in the `p150x4` profile) | Fabric configuration for multi-chip meshes. |
 | `CLM_API_KEY` | unset | When set, `/v1/*` routes need `Authorization: Bearer <key>`. |
-| `CLM_NO_UI` | unset | `1` disables the playground at `/`. |
+| `CLM_NO_UI` | unset | `1` disables the playground at `/` and the demo at `/demo/`. |
+| `CLM_NO_DEMO` | unset | `1` disables the T-Rex demo (`/demo/`, `/demo/ws`) while keeping the playground. |
+| `CLM_DEMO_BASE_URL` | derived | Where the demo's player process posts its `/v1/systemone` requests. Default `http://127.0.0.1:<port the server is bound to>` (read from the WebSocket's own server address, so it is right inside the container whatever port tt-model published). Set it only behind a proxy or in tests. |
 | `CLM_CORS` | unset | `1` allows browser requests from any origin and exposes the latency header. |
 | `CLM_WARMUP` | `1` | `0` skips the start-up warm-up call (`engine.rank("clm server warm-up", ["clm server warm-up"])`). |
 | `CLM_DEVICE` | `cpu` when CUDA is absent | Torch device of the heads and the arena. |
@@ -162,7 +166,54 @@ Other modes: `CLM_EMBEDDER=http CLM_EMB_URL=http://host:8090/v1/embeddings` poin
 Qwen3-8B pooling server (the upstream `vllm serve Qwen/Qwen3-8B --runner pooling` set-up). `CLM_EMBEDDER=tt` (the
 default) is the device path once `tt/encoder.py` exists.
 
+## T-Rex live demo at `/demo/`
+
+The quickstart demo: the CLM repository's T-Rex harness (`examples/t_rex`, vendored unchanged into `server/trex/`, see
+`server/trex/VENDORED.md`) runs headless inside the server's container at 60 FPS, the model on the chip chooses jump,
+duck or run for every decision, and a browser page renders the game and every decision live.
+
+Processes. `tt-model serve` runs uvicorn (`server/app.py`). A `start` message on `/demo/ws` makes `server/demo.py`
+spawn a **runner** process (`server/demo_runner.py`: the upstream `Arena` with a `Pilot` subclass that collects every
+decision and shield event, one course per seed) which spawns the upstream **brain** process (`server/demo_brain.py`:
+the upstream `RemoteBrain` and `serve()`, with three module globals replaced so that each decision also carries the
+server's `X-CLM-Latency-Ms`, the state text and the three option texts). The brain posts to this server's own
+`POST /v1/systemone` at `CLM_DEMO_BASE_URL` (default: the server's bound port on 127.0.0.1). The runner writes
+compact JSON messages to a pipe; the server relays them to every connected page, coalescing frames when a viewer
+lags and never dropping a decision or event. One game runs at a time (`busy` to a second `start`); any number of
+pages may watch it; the game stops ten seconds after the last page disconnects, on `stop`, or at server shutdown.
+The runner is not a daemon process (it must spawn the brain); the server terminates it on stop and shutdown.
+
+Messages. Client: `start` (seeds 1 to 10, seed, duration 5 to 180 s, shield, inflight 1 to 8, `api_key` when the
+server has `CLM_API_KEY`), `stop`, `ping`. Server: `hello` (running flag, config, viewer count, whether a key is
+required; followed by the cached `course` and `stats` when a game is live), `status` (phase starting, warming,
+playing, between, finished, stopped, error), `course` (index, seed, endpoint, warm-up samples, latency frames),
+`frame` (one per 60 FPS tick: game state as compact arrays, the decisions that landed in the tick, pilot events, the
+in-flight count), `stats` (every 0.5 s), `course_end` (the same row as `examples/t_rex/run.py` plus `server_ms_p50`
+and `server_ms_p95`), `summary` (the same summary plus `server_ms_p50_median`, and all rows), `busy`, `error`,
+`stopped`, `pong`. A decision entry carries `seq, frame, state, instructions, criteria, p, proposed, executed, best,
+safe, intervened, arrival, agreed, airborne, threat, distance, latency_ms, inference_ms, server_ms, plan_ms,
+input_tokens, dropped, error, event`. Timings: `latency_ms` is the pilot's round trip from asking to applying,
+`inference_ms` the HTTP call measured in the brain process, `server_ms` the server's header.
+
+Page (`clm/demo/`). Plain HTML, CSS and ES2020 with no build step; shares the playground's palette and theme toggle.
+Canvas renderer with vector shapes (no sprite sheet exists upstream) for the dino, cacti, birds, ground, clouds,
+night mode and score; a decision card with the state text, the three option texts and probability bars, the model's
+pick, the executed action, the planner's best and shield replacements, with sparklines of the three latencies;
+counters from `stats`; the event log; controls; and a results table per course in the shape of the upstream result
+rows with the authors' RTX 4090 file (`reference_rtx4090.json`, the repository's `results/clm_realtime.json`)
+alongside. Relative URLs resolve under `/demo/`, which is why `/demo` redirects.
+
+Effect on other clients. While a game runs, other `/v1` requests queue behind at most `inflight` demo requests
+(about one millisecond each on a cached state, about 56 ms on a new state text on one p150). Do not run latency
+measurements while the demo plays.
+
+Tests and checks: `tests/test_demo.py` (host only, mock encoder: frame encoding, row keys, routes, WebSocket validation
+and API key, a 5 s course end to end behind a real uvicorn, stop mid game); on a device, serve the package and drive a
+game with `/home/hous/dev/clm-v0.1-8B/evals/trex/demo_ws_client.py`.
+
 ## Tests
+
+`python -m pytest models/autoports/contrastive_lm_clm_v0_1_8b/tests/test_demo.py -q` covers the demo (section above).
 
 ```
 source /home/hous/dev/clm-v0.1-8B/bin/ttenv.sh

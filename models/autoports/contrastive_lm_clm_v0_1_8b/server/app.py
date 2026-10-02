@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from ..clm.embedder import EmbedderError
 from ..clm.engine import DEFAULT_MODEL, Engine, ModelNotFound
 from ..clm.heads import HIDDEN, default_device
+from .demo import register_demo
 
 PACKAGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC_DIR = os.path.join(PACKAGE_DIR, "clm", "static")
@@ -197,6 +198,7 @@ def create_app(
     embedder_kind: str | None = None,
     tokenizer: Any = None,
     warmup: bool | None = None,
+    demo: bool = True,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -214,6 +216,9 @@ def create_app(
         log.info("clm models %s heads on %s", [m["name"] for m in eng.models()], eng.device)
         log.info("clm server ready embedder=%s", app.state.embedder_kind)
         yield
+        manager = getattr(app.state, "demo", None)
+        if manager is not None:
+            await manager.shutdown()
 
     app = FastAPI(title="CLM System One API", version="0.1.0", lifespan=lifespan)
     app.state.engine = engine
@@ -414,6 +419,9 @@ def create_app(
         def playground():
             return HTMLResponse(index_html(), headers={"Cache-Control": "no-cache"})
 
+        if demo:
+            register_demo(app)
+
         app.mount("/", RevalidatingStatic(directory=STATIC_DIR, html=True), name="playground")
 
     return app
@@ -421,7 +429,11 @@ def create_app(
 
 def app_from_env() -> FastAPI:
     return create_app(
-        None, api_key=os.environ.get("CLM_API_KEY") or None, ui=not env_flag("CLM_NO_UI"), cors=env_flag("CLM_CORS")
+        None,
+        api_key=os.environ.get("CLM_API_KEY") or None,
+        ui=not env_flag("CLM_NO_UI"),
+        cors=env_flag("CLM_CORS"),
+        demo=not env_flag("CLM_NO_DEMO"),
     )
 
 
@@ -434,6 +446,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--port", type=int, default=None)
     ap.add_argument("--embedder", choices=EMBEDDER_KINDS, default=None)
     ap.add_argument("--no-ui", action="store_true")
+    ap.add_argument("--no-demo", action="store_true")
     ap.add_argument("--cors", action="store_true")
     ap.add_argument("--log-level", default=os.environ.get("CLM_LOG_LEVEL", "info"))
     args = ap.parse_args(argv)
@@ -446,6 +459,8 @@ def main(argv: list[str] | None = None) -> None:
         os.environ["CLM_EMBEDDER"] = args.embedder
     if args.no_ui:
         os.environ["CLM_NO_UI"] = "1"
+    if args.no_demo:
+        os.environ["CLM_NO_DEMO"] = "1"
     if args.cors:
         os.environ["CLM_CORS"] = "1"
     import uvicorn

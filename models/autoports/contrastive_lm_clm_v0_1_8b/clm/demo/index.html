@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CLM T-Rex live</title>
+<meta name="description" content="The Chrome dinosaur game steered in real time by CLM-v0.1-8B on one Tenstorrent chip: every decision, its probabilities and its latency.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='56' y='14' width='30' height='24' fill='%23535353'/%3E%3Crect x='24' y='38' width='48' height='26' fill='%23535353'/%3E%3Crect x='30' y='64' width='10' height='22' fill='%23535353'/%3E%3Crect x='52' y='64' width='10' height='18' fill='%23535353'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../app.css">
+<link rel="stylesheet" href="demo.css">
+</head>
+<body>
+
+<div class="topline"></div>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-name">CLM</span>
+    <span class="brand-sub">T-Rex live on one Tenstorrent chip</span>
+  </div>
+  <div class="topbar-right">
+    <button id="status" class="status" type="button" title="Connection to the demo stream">
+      <span class="dot"></span><span id="status-text">connecting</span>
+    </button>
+    <a class="icon-btn" href="../" title="System One playground" aria-label="System One playground">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h7"/></svg>
+    </a>
+    <button id="btn-theme" class="icon-btn" type="button" title="Toggle theme" aria-label="Toggle theme">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+  </div>
+</header>
+
+<div id="mock-banner" class="mock-banner" hidden>This server runs a mock encoder: the game plays, but the answers are not the model's.</div>
+
+<main class="demo">
+  <section class="card stage">
+    <div class="stage-head">
+      <div>
+        <h1>Can the model keep the dinosaur alive?</h1>
+        <p class="lede">A physics planner labels each move safe or unsafe for the moment the answer will land. The model reads the labels and picks one. Its answer latency is part of the game: several questions stay in flight, and late answers are thrown away.</p>
+      </div>
+      <div id="phase" class="phase">idle</div>
+    </div>
+    <div class="canvas-wrap"><canvas id="game" width="1200" height="300" aria-label="T-Rex game"></canvas></div>
+    <div class="stage-foot">
+      <label class="check"><input id="overlay" type="checkbox"> collision boxes and in-flight requests</label>
+      <span id="course-line" class="muted"></span>
+    </div>
+  </section>
+
+  <div class="grid">
+    <section class="card decision">
+      <h2>Latest decision <span id="dec-seq" class="muted mono"></span></h2>
+      <p id="dec-state" class="state">Waiting for the first question.</p>
+      <p id="dec-instructions" class="muted small"></p>
+      <div id="dec-rows" class="rows">
+        <div class="row" data-a="jump"><span class="key">jump</span><span class="text"></span><span class="bar"><i></i></span><span class="pct mono"></span></div>
+        <div class="row" data-a="duck"><span class="key">duck</span><span class="text"></span><span class="bar"><i></i></span><span class="pct mono"></span></div>
+        <div class="row" data-a="run"><span class="key">run</span><span class="text"></span><span class="bar"><i></i></span><span class="pct mono"></span></div>
+      </div>
+      <div class="legend small"><span class="tag proposed">model's pick</span><span class="tag executed">executed</span><span class="tag best">planner's best</span><span class="tag shield">shield replaced it</span></div>
+      <div id="dec-flash" class="flash" hidden></div>
+      <div class="timing">
+        <div class="tm"><span class="lbl">round trip</span><b id="t-lat" class="mono">0 ms</b><canvas id="sp-lat" width="240" height="28"></canvas></div>
+        <div class="tm"><span class="lbl">model call</span><b id="t-inf" class="mono">0 ms</b><canvas id="sp-inf" width="240" height="28"></canvas></div>
+        <div class="tm"><span class="lbl">on the chip</span><b id="t-srv" class="mono">0 ms</b><canvas id="sp-srv" width="240" height="28"></canvas></div>
+      </div>
+      <p class="muted small">Round trip is from asking to applying the answer; model call is the HTTP request; on the chip is the server's own encoder and head time (<code>X-CLM-Latency-Ms</code>). A repeated state answers from the vector cache in well under a millisecond.</p>
+    </section>
+
+    <section class="card side">
+      <h2>Counters</h2>
+      <dl class="counters">
+        <div><dt>decisions</dt><dd id="c-dec" class="mono">0</dd><small id="c-rate" class="muted">0 / s</small></div>
+        <div><dt>in flight</dt><dd id="c-inflight" class="mono">0</dd><small class="muted">requests open</small></div>
+        <div><dt>late answers dropped</dt><dd id="c-drop" class="mono">0</dd><small class="muted">arrived after the keys changed</small></div>
+        <div><dt>shield saves</dt><dd id="c-shield" class="mono">0</dd><small id="c-shield-split" class="muted">0 replaced, 0 arrival, 0 emergency</small></div>
+        <div><dt>agreed with planner</dt><dd id="c-agree" class="mono">0%</dd><small class="muted">model's pick was the planner's best</small></div>
+        <div><dt>score</dt><dd id="c-score" class="mono">0</dd><small id="c-best" class="muted">best 0</small></div>
+        <div><dt>deaths</dt><dd id="c-deaths" class="mono">0</dd><small id="c-time" class="muted">0 s</small></div>
+        <div><dt>errors</dt><dd id="c-err" class="mono">0</dd><small id="c-stall" class="muted">host stall 0 s</small></div>
+      </dl>
+      <h2>Events</h2>
+      <ul id="events" class="events mono"></ul>
+      <h2>Run</h2>
+      <form id="controls" class="controls">
+        <label>courses <input id="f-seeds" type="number" min="1" max="10" value="5"></label>
+        <label>first seed <input id="f-seed" type="number" min="0" max="1000000" value="0"></label>
+        <label>seconds each <input id="f-duration" type="number" min="5" max="180" value="60"></label>
+        <label>in flight <input id="f-inflight" type="number" min="1" max="8" value="6"></label>
+        <label class="check"><input id="f-shield" type="checkbox" checked> shield on</label>
+        <label id="f-key-wrap" hidden>API key <input id="f-key" type="password" spellcheck="false"></label>
+        <div class="buttons">
+          <button id="btn-start" type="submit" class="primary">Start</button>
+          <button id="btn-stop" type="button" disabled>Stop</button>
+        </div>
+        <p id="ctl-note" class="muted small"></p>
+      </form>
+    </section>
+  </div>
+
+  <section id="summary" class="card" hidden>
+    <h2>Results</h2>
+    <div class="scroll"><table id="summary-table">
+      <thead><tr><th>seed</th><th>survived</th><th>best score</th><th>decisions</th><th>agreed with planner</th><th>answer p50</th><th>model p50</th><th>on chip p50</th><th>dropped</th><th>shield saves</th><th>deaths</th><th>host stall</th></tr></thead>
+      <tbody id="summary-rows"></tbody>
+      <tfoot id="summary-foot"></tfoot>
+    </table></div>
+    <p id="summary-note" class="muted small"></p>
+  </section>
+</main>
+
+<script src="demo.js"></script>
+</body>
+</html>
