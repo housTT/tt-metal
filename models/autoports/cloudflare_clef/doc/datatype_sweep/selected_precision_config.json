@@ -1,0 +1,893 @@
+{
+ "config_id": "baseline_stage1",
+ "model_id": "Cloudflare/clef",
+ "revision": "2f3de3dd85f379784083b0814d997ab627200f0c",
+ "backbone": "Qwen3.5-27B class (64 layers: 48 Gated DeltaNet + 16 full attention) on the qwen36 TP path",
+ "hardware": "Blackhole p150x2: TP=2 on a (1,2) mesh (this box: submesh of a (1,4) parent, FABRIC_1D)",
+ "selected_at": "2026-10-05 20:50:43 UTC",
+ "weight_dtypes": {
+  "mlp gate/up (packed fused SwiGLU weight)": "bfp8",
+  "mlp down": "bf16",
+  "attention q, k, v, o (TP shard_w through the engine tp_proj_dtype override)": "bfp8",
+  "gdn qkvzab and out projections (same override)": "bfp8",
+  "embedding": "bf16",
+  "norms": "bf16",
+  "lm_head": "never on device (32-row stub); lexical rows read on the host from the safetensors",
+  "vision tower (wqkv, fc1, fc2, wo, merger)": "bf16 under CLEF_VISION_PRECISION=accuracy"
+ },
+ "layer_exceptions": [],
+ "compute_fidelities": {
+  "mlp (fused gate/up all-gather matmul, down)": "HiFi2, fp32 acc (QWEN36_MATMUL_FIDELITY)",
+  "attention projections (TP module, own compute config)": "MathFidelity.HiFi2",
+  "gdn projections (TP module, own compute config)": "MathFidelity.HiFi2",
+  "gdn decay gate": "fp32 (QWEN36_GDN_GATE_FP32=1)",
+  "gdn chunk kernel": "fused chunk_gated_delta_rule op: bf16 q, k, v by its contract (the host wrapper casts any other dtype back to bf16), fp32 g, beta and state; internal precision not exposed (open item)",
+  "gdn causal conv and beta sigmoid": "bf16 FIR multiply-accumulate and bf16 sigmoid; the fp32 trial (sweep variant gdn_qkv_fp32, flag removed after the sweep) is recorded in the README",
+  "gdn causal conv kernel": "FIR multiply-accumulate (QWEN_GDN_CONV=fir in traced mode; eager masked path always FIR)",
+  "vision MLP and merger": "HiFi4, fp32 acc under CLEF_VISION_PRECISION=accuracy; SDPA and QKV HiFi4 (tt_transformers accuracy preset)",
+  "head": "fp32 on the host"
+ },
+ "activation_dtype": "bf16",
+ "residual_dtype": "bf16",
+ "ccl_dtype": "bf16 (qwen36 TP all-gather and reduce-scatter on the fractured hidden; not swept)",
+ "kv_cache_dtype": "bf16 (ClefEngine.allocate_kv_caches)",
+ "gdn_recurrent_state_dtype": "fp32 (QWEN35_GDN_STATE_BF16 unset)",
+ "logits_dtype": "no logits; normalized hidden rows read back as fp32 from a bf16 device tensor; joint schema head on the host in fp32",
+ "sampling_dtype": "n/a (option probabilities only)",
+ "runtime_flags": {
+  "QWEN36_MLP_GATE_UP_DTYPE": "bfp8",
+  "QWEN36_MLP_DOWN_DTYPE": "bf16",
+  "QWEN36_PROJ_DTYPE": "bfp8",
+  "QWEN36_MATMUL_FIDELITY": "HiFi2",
+  "QWEN36_GDN_GATE_FP32": "1",
+  "CLEF_VISION_PRECISION": "accuracy",
+  "CLEF_VISION_ACT_BF16": "1"
+ },
+ "propagation_check": {
+  "source": "ClefEngine._device_dtypes() read back from the built model in the sweep process (dtype_sweep.py), plus vision.describe()",
+  "device_dtypes": {
+   "mlp_gate_up_packed": "DataType.BFLOAT8_B",
+   "mlp_w1": null,
+   "mlp_down": "DataType.BFLOAT16",
+   "mlp_fidelity": "MathFidelity.HiFi2",
+   "gdn_qkvzab": "DataType.BFLOAT8_B",
+   "gdn_out_colpar": "DataType.BFLOAT8_B",
+   "gdn_fidelity": "MathFidelity.HiFi2",
+   "gdn_gate_fp32": true,
+   "gdn_dt_bias": "DataType.FLOAT32",
+   "gdn_rec_state": "DataType.FLOAT32",
+   "attn_qkv": "DataType.BFLOAT8_B",
+   "attn_wo": "DataType.BFLOAT8_B",
+   "attn_fidelity": "MathFidelity.HiFi2",
+   "embedding": "DataType.BFLOAT16"
+  },
+  "device_dtypes_note": "the 14 fields the shipped ClefEngine._device_dtypes() logs at start plus gdn_rec_state, which the engine fills after the slots are allocated; readout fields of removed trial flags are not kept",
+  "precision_env_in_process": {
+   "QWEN36_MLP_GATE_UP_DTYPE": "bfp8",
+   "QWEN36_MLP_DOWN_DTYPE": "bf16",
+   "QWEN36_PROJ_DTYPE": "bfp8",
+   "QWEN36_MATMUL_FIDELITY": "HiFi2",
+   "QWEN36_GDN_GATE_FP32": "1",
+   "CLEF_VISION_PRECISION": "accuracy",
+   "CLEF_VISION_ACT_BF16": "1"
+  },
+  "vision": {
+   "dtype": "bf16",
+   "bfp8_weights": [],
+   "pad_granule": 2048,
+   "mask_padding": true,
+   "activation_bf16": true,
+   "precision": "accuracy",
+   "wqkv_dtype": "DataType.BFLOAT16",
+   "sdpa_dtype": "DataType.BFLOAT16",
+   "mlp_fc1_dtype": "DataType.BFLOAT16",
+   "mlp_fidelity": "MathFidelity.HiFi4",
+   "mlp_fp32_acc": true,
+   "merger_fidelity": "MathFidelity.HiFi4",
+   "merger_fp32_acc": true,
+   "attention_activation_dtype": "DataType.BFLOAT16",
+   "attention_k_dtype": "DataType.BFLOAT16",
+   "sdpa_fidelity": "MathFidelity.HiFi4",
+   "qkv_fidelity": "MathFidelity.HiFi4",
+   "tp": 2,
+   "depth": 27,
+   "weight_cache": "None",
+   "build_seconds": 0.6,
+   "shapes": {
+    "tp": 2,
+    "depth": 27,
+    "dim": 1152,
+    "n_heads": 16,
+    "head_dim": 72,
+    "padded_head_dim": 96,
+    "qkv_size": 4608,
+    "local_qkv_size": 2304,
+    "intermediate_size": 4304,
+    "hidden_dim": 4352,
+    "merger_mlp_size": 4608,
+    "out_hidden_size": 5120,
+    "divisible": {
+     "n_heads": true,
+     "qkv_size": true,
+     "dim": true,
+     "hidden_dim": true,
+     "merger_mlp_size": true,
+     "out_hidden_size": true
+    },
+    "deepstack_visual_indexes": []
+   }
+  },
+  "traced_in_sweep": false,
+  "gdn_conv_impl_in_sweep": "fir"
+ },
+ "accuracy": {
+  "sweep200": {
+   "scored_questions": 278,
+   "correct": 224,
+   "accuracy": 0.8057553956834532,
+   "result_errors": 0,
+   "missing_results": []
+  },
+  "sweep200_parity_bf16": {
+   "questions": 278,
+   "max_dp": 0.4661571532487869,
+   "mean_dp": 0.01297477600767726,
+   "median_dp": 0.004667758941650391,
+   "argmax_flips": 4,
+   "flips_at_margin": 4,
+   "near_tie_flips": 0,
+   "labelled_questions": 278,
+   "ref_accuracy": 0.8093525179856115,
+   "cand_accuracy": 0.8057553956834532,
+   "accuracy_delta_pp": -0.3597122302158251,
+   "ref_brier": 0.2841360612564736,
+   "cand_brier": 0.28330773656306024,
+   "ref_ece": 0.04485175024262437,
+   "cand_ece": 0.046526020700983044,
+   "ece_shift": 0.001674270458358676,
+   "records_joined": 200,
+   "candidate_errors": 0,
+   "flips": [
+    {
+     "id": "hard-v1/temporal_numeric/development/00030",
+     "question": "local",
+     "type": "choice",
+     "ref_argmax": "b",
+     "cand_argmax": "a",
+     "ref_margin": 0.07720303535461426,
+     "dp": 0.0454687774181366,
+     "label": "a"
+    },
+    {
+     "id": "hard-v1/multi_hop/development/00017",
+     "question": "paged",
+     "type": "choice",
+     "ref_argmax": "omar",
+     "cand_argmax": "idris",
+     "ref_margin": 0.49004124104976654,
+     "dp": 0.33010151982307434,
+     "label": "omar"
+    },
+    {
+     "id": "hard-v1/probability/development/00084",
+     "question": "value",
+     "type": "choice",
+     "ref_argmax": "e",
+     "cand_argmax": "d",
+     "ref_margin": 0.5038214474916458,
+     "dp": 0.4661571532487869,
+     "label": "a"
+    },
+    {
+     "id": "when2call/26e3f67c-1c91-4098-8e3f-66823ebddf78",
+     "question": "action",
+     "type": "choice",
+     "ref_argmax": "request_for_info",
+     "cand_argmax": "tool_call",
+     "ref_margin": 0.06315663456916809,
+     "dp": 0.04305395483970642,
+     "label": "request_for_info"
+    }
+   ]
+  },
+  "ref16_parity_bf16": {
+   "questions": 27,
+   "max_dp": 0.07215064764022827,
+   "mean_dp": 0.010948134258527446,
+   "median_dp": 0.004701197147369385,
+   "argmax_flips": 0,
+   "flips_at_margin": 0,
+   "near_tie_flips": 0,
+   "labelled_questions": 19,
+   "ref_accuracy": 0.6842105263157895,
+   "cand_accuracy": 0.6842105263157895,
+   "accuracy_delta_pp": 0.0,
+   "ref_brier": 0.5090917266955826,
+   "cand_brier": 0.5195577104738932,
+   "ref_ece": 0.2919688616928301,
+   "cand_ece": 0.2994547109854848,
+   "ece_shift": 0.007485849292654723,
+   "records_joined": 16,
+   "candidate_errors": 0,
+   "flips": []
+  },
+  "ref16_parity_fp32": {
+   "questions": 27,
+   "max_dp": 0.07582151889801025,
+   "mean_dp": 0.010408006436019033,
+   "median_dp": 0.0037126541137695312,
+   "argmax_flips": 0,
+   "flips_at_margin": 0,
+   "near_tie_flips": 0,
+   "labelled_questions": 19,
+   "ref_accuracy": 0.6842105263157895,
+   "cand_accuracy": 0.6842105263157895,
+   "accuracy_delta_pp": 0.0,
+   "ref_brier": 0.5091027531194081,
+   "cand_brier": 0.5195577104738932,
+   "ref_ece": 0.2906067888987692,
+   "cand_ece": 0.2994547109854848,
+   "ece_shift": 0.008847922086715643,
+   "records_joined": 16,
+   "candidate_errors": 0,
+   "flips": []
+  },
+  "ref16_max_dp_bar": 0.1,
+  "image_sets_baseline_stage1": {
+   "ref_image8": {
+    "questions": 8,
+    "max_dp": 0.04629543423652649,
+    "mean_dp": 0.02001887932419777,
+    "median_dp": 0.016715429723262787,
+    "argmax_flips": 0,
+    "flips_at_margin": 0,
+    "near_tie_flips": 0,
+    "labelled_questions": 8,
+    "ref_accuracy": 0.25,
+    "cand_accuracy": 0.25,
+    "accuracy_delta_pp": 0.0,
+    "ref_brier": 0.9796715292716004,
+    "cand_brier": 0.9837547721847493,
+    "ref_ece": 0.35689928755164146,
+    "cand_ece": 0.36413998156785965,
+    "ece_shift": 0.007240694016218185,
+    "records_joined": 8,
+    "candidate_errors": 0,
+    "flips": []
+   },
+   "dev16_image": {
+    "questions": 16,
+    "max_dp": 0.17541834712028503,
+    "mean_dp": 0.031777858384884894,
+    "median_dp": 0.02201494574546814,
+    "argmax_flips": 0,
+    "flips_at_margin": 0,
+    "near_tie_flips": 0,
+    "labelled_questions": 16,
+    "ref_accuracy": 0.625,
+    "cand_accuracy": 0.625,
+    "accuracy_delta_pp": 0.0,
+    "ref_brier": 0.47997213621373386,
+    "cand_brier": 0.5083542871191984,
+    "ref_ece": 0.20209450274705887,
+    "cand_ece": 0.11887412704527378,
+    "ece_shift": -0.08322037570178509,
+    "records_joined": 16,
+    "candidate_errors": 0,
+    "flips": []
+   }
+  },
+  "image_sensitive_record_baseline": {
+   "7b7ef38338fffa28b9106027c882c1b4": 0.17541834712028503
+  }
+ },
+ "performance": {
+  "regime": "eager (CLEF_TRACED=0) full-path probs_for_request, device part per record, warm = bucket sequence seen before in the process; 64 layers, TP=2",
+  "sweep200_latency": {
+   "ok": 200,
+   "failed": 0,
+   "tokens_min": 145,
+   "tokens_median": 417,
+   "tokens_max": 2672,
+   "median_device_s": 0.227,
+   "mean_device_s": 0.3135,
+   "max_device_s": 1.042,
+   "median_seconds": 0.271,
+   "sum_seconds": 73.18,
+   "warm_rows": 189,
+   "warm_median_device_s": 0.227,
+   "warm_ms_per_token": 0.5388,
+   "warm_ms_per_token_median_row": 0.6175
+  },
+  "ref16_latency": {
+   "ok": 16,
+   "failed": 0,
+   "tokens_min": 150,
+   "tokens_median": 415,
+   "tokens_max": 1774,
+   "median_device_s": 0.2275,
+   "mean_device_s": 0.2849,
+   "max_device_s": 0.7,
+   "median_seconds": 0.278,
+   "sum_seconds": 6.58,
+   "warm_rows": 12,
+   "warm_median_device_s": 0.226,
+   "warm_ms_per_token": 0.5521,
+   "warm_ms_per_token_median_row": 0.5655
+  },
+  "bucket_timing_prefill_hidden": {
+   "128": {
+    "median_s": 0.1715,
+    "min_s": 0.1714,
+    "first_s": 0.1766,
+    "reps": 3,
+    "ms_per_token": 1.34
+   },
+   "256": {
+    "median_s": 0.1906,
+    "min_s": 0.1904,
+    "first_s": 0.1898,
+    "reps": 3,
+    "ms_per_token": 0.7445
+   },
+   "512": {
+    "median_s": 0.225,
+    "min_s": 0.2249,
+    "first_s": 0.2253,
+    "reps": 3,
+    "ms_per_token": 0.4394
+   },
+   "1024": {
+    "median_s": 0.3412,
+    "min_s": 0.3399,
+    "first_s": 0.3422,
+    "reps": 3,
+    "ms_per_token": 0.3332
+   },
+   "2048": {
+    "median_s": 0.6921,
+    "min_s": 0.6921,
+    "first_s": 0.6953,
+    "reps": 3,
+    "ms_per_token": 0.3379
+   },
+   "4096": {
+    "median_s": 1.4168,
+    "min_s": 1.414,
+    "first_s": 1.4152,
+    "reps": 3,
+    "ms_per_token": 0.3459
+   },
+   "8192": {
+    "median_s": 2.9596,
+    "min_s": 2.9525,
+    "first_s": 2.948,
+    "reps": 3,
+    "ms_per_token": 0.3613
+   }
+  },
+  "engine_load_s": {
+   "host_state_dict_s": 2.8918210069823544,
+   "model_build_s": 92.99707089699223,
+   "load_total_s": 104.80572509099147,
+   "vision_build_s": 8.915642848995049
+  },
+  "traced_note": "stage 3 measured traced within 2 percent of eager per bucket (doc/optimized/perf_summary.json); the served path is traced"
+ },
+ "context_contract": {
+  "max_state_tokens": 16384,
+  "max_schema_tokens": 4096,
+  "snapshot_slots_requested": 4,
+  "snapshot_slots_allocated": 4,
+  "slot_fit_at_max_state_16384": 17,
+  "dram_free_after_weights_gib": 14.774,
+  "dram_free_after_slots_gib": 11.722,
+  "largest_max_len_with_4_slots_tokens": 101824,
+  "largest_state_with_4_slots_tokens": 97728,
+  "vision_tower_dram_gib_excluded_from_bound": 0.212,
+  "bound_optimism_tokens_from_tower": 1728,
+  "status": "arithmetic only: derived from the DRAM free after the text weights; the vision tower's DRAM is not subtracted; no state above 16,384 tokens was executed",
+  "method": "ClefEngine._fit_slots: (DRAM free after weights - 2 GiB reserve) / 4 slots, minus the GDN snapshot per slot, divided by the KV bytes per token (bf16 paged KV, 16 attention layers), rounded down to the 64-token block; state = that length minus the 4,096-token schema allowance"
+ },
+ "selection_rule": {
+  "rule": "Eligible: complete text variants (status ok, ref16 and sweep200 rows present) with 0 argmax flips at reference top-2 margin >= 0.05 on the 16 reference records (CPU bf16 reference), sweep200 accuracy within 1.0 pp of baseline_stage1, and sweep200 mean dp within 0.005 of the best mean dp among the complete variants. Selected: the fastest eligible variant by the warm median device seconds per sweep200 record (eager, full path, bucket sequence seen before in the process). Ties within 2 percent of that time go to the fewer qwen36 changes, then the lower sweep200 mean dp, then the lower ref16 max dp. Reported, not gated: ref16 max dp against the 0.10 bar, near-tie flips, the fp32 comparison, the image sets (ref_image8, dev16_image, the sensitive record 7b7ef383). vision_upstream is an image-only control and never a selection candidate; the vision knobs of the selected config are the stage 2 values.",
+  "baseline": "baseline_stage1",
+  "baseline_complete": true,
+  "complete_text_variants": [
+   "all_hifi4",
+   "baseline_stage1",
+   "down_bfp8",
+   "gate_fp32_off",
+   "gdn_qkv_fp32",
+   "gdn_qkv_fp32_proj_bf16",
+   "proj_bf16"
+  ],
+  "checks": {
+   "all_hifi4": {
+    "ref16_flips_at_margin_zero": false,
+    "sweep200_acc_within_1pp_of_baseline": true,
+    "sweep200_mean_dp_within_0_005_of_best": true,
+    "ref16_max_dp_le_0_10_reported": true,
+    "speed_s": 0.266,
+    "eligible": false
+   },
+   "baseline_stage1": {
+    "ref16_flips_at_margin_zero": true,
+    "sweep200_acc_within_1pp_of_baseline": true,
+    "sweep200_mean_dp_within_0_005_of_best": true,
+    "ref16_max_dp_le_0_10_reported": true,
+    "speed_s": 0.227,
+    "eligible": true
+   },
+   "down_bfp8": {
+    "ref16_flips_at_margin_zero": false,
+    "sweep200_acc_within_1pp_of_baseline": true,
+    "sweep200_mean_dp_within_0_005_of_best": true,
+    "ref16_max_dp_le_0_10_reported": true,
+    "speed_s": 0.221,
+    "eligible": false
+   },
+   "gate_fp32_off": {
+    "ref16_flips_at_margin_zero": false,
+    "sweep200_acc_within_1pp_of_baseline": true,
+    "sweep200_mean_dp_within_0_005_of_best": false,
+    "ref16_max_dp_le_0_10_reported": false,
+    "speed_s": 0.229,
+    "eligible": false
+   },
+   "gdn_qkv_fp32": {
+    "ref16_flips_at_margin_zero": false,
+    "sweep200_acc_within_1pp_of_baseline": true,
+    "sweep200_mean_dp_within_0_005_of_best": true,
+    "ref16_max_dp_le_0_10_reported": false,
+    "speed_s": 0.277,
+    "eligible": false
+   },
+   "gdn_qkv_fp32_proj_bf16": {
+    "ref16_flips_at_margin_zero": false,
+    "sweep200_acc_within_1pp_of_baseline": true,
+    "sweep200_mean_dp_within_0_005_of_best": true,
+    "ref16_max_dp_le_0_10_reported": true,
+    "speed_s": 0.289,
+    "eligible": false
+   },
+   "proj_bf16": {
+    "ref16_flips_at_margin_zero": false,
+    "sweep200_acc_within_1pp_of_baseline": true,
+    "sweep200_mean_dp_within_0_005_of_best": true,
+    "ref16_max_dp_le_0_10_reported": true,
+    "speed_s": 0.243,
+    "eligible": false
+   }
+  },
+  "baseline_sweep200_acc": 0.8058,
+  "best_sweep200_mean_dp": 0.0121,
+  "eligible": [
+   "baseline_stage1"
+  ],
+  "fastest_s": 0.227,
+  "ties": [
+   "baseline_stage1"
+  ],
+  "selected": "baseline_stage1",
+  "reason": "fastest eligible 0.2270 s per sweep200 record; ties within 2 percent: baseline_stage1; tie break by qwen36 changes, sweep200 mean dp, ref16 max dp"
+ },
+ "selection_sensitivity": {
+  "statement": "The written rule (CPU bf16 reference, flips at margin >= 0.05) is the one applied; it was fixed before the sweep and the selection does not change. This block reports how the eligibility outcome moves under two perturbations of the rule, as the stage 4 review asked.",
+  "decider": {
+   "record": "cfpb/5845071",
+   "question": "issue",
+   "cpu_bf16_top2": [
+    "closing_the_account",
+    0.4366,
+    "getting_a_card",
+    0.3853,
+    0.0513
+   ],
+   "cpu_fp32_top2": [
+    "closing_the_account",
+    0.4176,
+    "getting_a_card",
+    0.4026,
+    0.015
+   ],
+   "tt_top2_per_variant": {
+    "all_hifi4": [
+     "getting_a_card",
+     0.4235,
+     "closing_the_account",
+     0.4115,
+     0.0121
+    ],
+    "baseline_stage1": [
+     "closing_the_account",
+     0.4149,
+     "getting_a_card",
+     0.4119,
+     0.003
+    ],
+    "down_bfp8": [
+     "getting_a_card",
+     0.4217,
+     "closing_the_account",
+     0.4097,
+     0.0121
+    ],
+    "gate_fp32_off": [
+     "getting_a_card",
+     0.6056,
+     "closing_the_account",
+     0.2781,
+     0.3275
+    ],
+    "gdn_qkv_fp32": [
+     "getting_a_card",
+     0.489,
+     "closing_the_account",
+     0.3484,
+     0.1405
+    ],
+    "gdn_qkv_fp32_proj_bf16": [
+     "getting_a_card",
+     0.4534,
+     "closing_the_account",
+     0.385,
+     0.0684
+    ],
+    "proj_bf16": [
+     "getting_a_card",
+     0.4281,
+     "closing_the_account",
+     0.4175,
+     0.0106
+    ]
+   }
+  },
+  "ref16_flips_at_margin_0_05_vs_bf16": {
+   "all_hifi4": 1,
+   "baseline_stage1": 0,
+   "down_bfp8": 1,
+   "gate_fp32_off": 1,
+   "gdn_qkv_fp32": 1,
+   "gdn_qkv_fp32_proj_bf16": 1,
+   "proj_bf16": 1
+  },
+  "ref16_flips_at_margin_0_06_vs_bf16": {
+   "all_hifi4": 0,
+   "baseline_stage1": 0,
+   "down_bfp8": 0,
+   "gate_fp32_off": 0,
+   "gdn_qkv_fp32": 0,
+   "gdn_qkv_fp32_proj_bf16": 0,
+   "proj_bf16": 0
+  },
+  "ref16_flips_at_margin_0_05_vs_fp32": {
+   "all_hifi4": 0,
+   "baseline_stage1": 0,
+   "down_bfp8": 0,
+   "gate_fp32_off": 0,
+   "gdn_qkv_fp32": 0,
+   "gdn_qkv_fp32_proj_bf16": 0,
+   "proj_bf16": 0
+  },
+  "written_rule": {
+   "eligible": [
+    "baseline_stage1"
+   ],
+   "fastest_s": 0.227,
+   "ties": [
+    "baseline_stage1"
+   ],
+   "selected": "baseline_stage1"
+  },
+  "margin_0_06_vs_bf16": {
+   "eligible": [
+    "all_hifi4",
+    "baseline_stage1",
+    "down_bfp8",
+    "gdn_qkv_fp32",
+    "gdn_qkv_fp32_proj_bf16",
+    "proj_bf16"
+   ],
+   "fastest_s": 0.221,
+   "ties": [
+    "down_bfp8"
+   ],
+   "selected": "down_bfp8"
+  },
+  "margin_0_05_vs_fp32": {
+   "eligible": [
+    "all_hifi4",
+    "baseline_stage1",
+    "down_bfp8",
+    "gdn_qkv_fp32",
+    "gdn_qkv_fp32_proj_bf16",
+    "proj_bf16"
+   ],
+   "fastest_s": 0.221,
+   "ties": [
+    "down_bfp8"
+   ],
+   "selected": "down_bfp8"
+  }
+ },
+ "known_disagreements": [
+  {
+   "record": "hard-v1/multi_hop/development/00017",
+   "question": "paged",
+   "cpu_bf16": {
+    "colm": 0.0087,
+    "idris": 0.2115,
+    "mira": 0.0784,
+    "omar": 0.7015
+   },
+   "cpu_fp32": {
+    "colm": 0.0084,
+    "idris": 0.3068,
+    "mira": 0.1078,
+    "omar": 0.577
+   },
+   "per_variant": {
+    "all_hifi4": {
+     "tt_argmax": "idris",
+     "flip": true,
+     "dp_vs_bf16": 0.3155,
+     "tt_top2_margin": 0.0223
+    },
+    "baseline_stage1": {
+     "tt_argmax": "idris",
+     "flip": true,
+     "dp_vs_bf16": 0.3301,
+     "tt_top2_margin": 0.0237
+    },
+    "down_bfp8": {
+     "tt_argmax": "omar",
+     "flip": false,
+     "dp_vs_bf16": 0.2733,
+     "tt_top2_margin": 0.0601
+    },
+    "gate_fp32_off": {
+     "tt_argmax": "idris",
+     "flip": true,
+     "dp_vs_bf16": 0.3403,
+     "tt_top2_margin": 0.077
+    },
+    "gdn_qkv_fp32": {
+     "tt_argmax": "idris",
+     "flip": true,
+     "dp_vs_bf16": 0.3571,
+     "tt_top2_margin": 0.0792
+    },
+    "gdn_qkv_fp32_proj_bf16": {
+     "tt_argmax": "omar",
+     "flip": false,
+     "dp_vs_bf16": 0.3245,
+     "tt_top2_margin": 0.0066
+    },
+    "proj_bf16": {
+     "tt_argmax": "omar",
+     "flip": false,
+     "dp_vs_bf16": 0.234,
+     "tt_top2_margin": 0.1323
+    }
+   },
+   "layer_probe": {
+    "selected": {
+     "teacher_gdn": {
+      "layers": 48,
+      "mean_of_means": 0.999779,
+      "worst_layer_mean": 0.999546,
+      "worst_layer": 16,
+      "worst_row": 0.951977,
+      "layers_below_0_999": []
+     },
+     "teacher_attn": {
+      "layers": 15,
+      "mean_of_means": 0.999746,
+      "worst_layer_mean": 0.999654,
+      "worst_layer": 39,
+      "worst_row": 0.996186,
+      "layers_below_0_999": []
+     },
+     "final_norm_min_mean": [
+      0.698418,
+      0.989278
+     ],
+     "splice_first_hf_prefix_with_ref_argmax": 2,
+     "report": "/home/hous/dev/clef/reports/stage4r_anomaly_probe_selected.json"
+    },
+    "hifi4": {
+     "teacher_gdn": {
+      "layers": 48,
+      "mean_of_means": 0.999784,
+      "worst_layer_mean": 0.999563,
+      "worst_layer": 16,
+      "worst_row": 0.9523,
+      "layers_below_0_999": []
+     },
+     "teacher_attn": {
+      "layers": 15,
+      "mean_of_means": 0.999753,
+      "worst_layer_mean": 0.999661,
+      "worst_layer": 31,
+      "worst_row": 0.995278,
+      "layers_below_0_999": []
+     },
+     "final_norm_min_mean": [
+      0.73073,
+      0.98992
+     ],
+     "splice_first_hf_prefix_with_ref_argmax": 1,
+     "report": "/home/hous/dev/clef/reports/stage4r_anomaly_probe_hifi4.json"
+    },
+    "projbf16": {
+     "teacher_gdn": {
+      "layers": 48,
+      "mean_of_means": 0.99982,
+      "worst_layer_mean": 0.999645,
+      "worst_layer": 14,
+      "worst_row": 0.952025,
+      "layers_below_0_999": []
+     },
+     "teacher_attn": {
+      "layers": 15,
+      "mean_of_means": 0.999791,
+      "worst_layer_mean": 0.999727,
+      "worst_layer": 7,
+      "worst_row": 0.99523,
+      "layers_below_0_999": []
+     },
+     "final_norm_min_mean": [
+      0.783268,
+      0.992122
+     ],
+     "splice_first_hf_prefix_with_ref_argmax": 0,
+     "report": "/home/hous/dev/clef/reports/stage4r_anomaly_probe_projbf16.json"
+    }
+   }
+  },
+  {
+   "record": "hard-v1/probability/development/00084",
+   "question": "value",
+   "cpu_bf16": {
+    "a": 0.0913,
+    "b": 0.0405,
+    "c": 0.0234,
+    "d": 0.1705,
+    "e": 0.6743
+   },
+   "cpu_fp32": {
+    "a": 0.0742,
+    "b": 0.0369,
+    "c": 0.0202,
+    "d": 0.21,
+    "e": 0.6588
+   },
+   "per_variant": {
+    "all_hifi4": {
+     "tt_argmax": "e",
+     "flip": false,
+     "dp_vs_bf16": 0.2043,
+     "tt_top2_margin": 0.1476
+    },
+    "baseline_stage1": {
+     "tt_argmax": "d",
+     "flip": true,
+     "dp_vs_bf16": 0.4662,
+     "tt_top2_margin": 0.2816
+    },
+    "down_bfp8": {
+     "tt_argmax": "d",
+     "flip": true,
+     "dp_vs_bf16": 0.5383,
+     "tt_top2_margin": 0.366
+    },
+    "gate_fp32_off": {
+     "tt_argmax": "e",
+     "flip": false,
+     "dp_vs_bf16": 0.2944,
+     "tt_top2_margin": 0.004
+    },
+    "gdn_qkv_fp32": {
+     "tt_argmax": "d",
+     "flip": true,
+     "dp_vs_bf16": 0.5951,
+     "tt_top2_margin": 0.4173
+    },
+    "gdn_qkv_fp32_proj_bf16": {
+     "tt_argmax": "e",
+     "flip": false,
+     "dp_vs_bf16": 0.1949,
+     "tt_top2_margin": 0.1602
+    },
+    "proj_bf16": {
+     "tt_argmax": "d",
+     "flip": true,
+     "dp_vs_bf16": 0.3626,
+     "tt_top2_margin": 0.1953
+    }
+   },
+   "layer_probe": {
+    "selected": {
+     "teacher_gdn": {
+      "layers": 48,
+      "mean_of_means": 0.999779,
+      "worst_layer_mean": 0.999502,
+      "worst_layer": 2,
+      "worst_row": 0.951977,
+      "layers_below_0_999": []
+     },
+     "teacher_attn": {
+      "layers": 15,
+      "mean_of_means": 0.999756,
+      "worst_layer_mean": 0.999662,
+      "worst_layer": 31,
+      "worst_row": 0.992922,
+      "layers_below_0_999": []
+     },
+     "final_norm_min_mean": [
+      0.764178,
+      0.993244
+     ],
+     "splice_first_hf_prefix_with_ref_argmax": 2,
+     "report": "/home/hous/dev/clef/reports/stage4r_anomaly_probe_selected.json"
+    },
+    "hifi4": {
+     "teacher_gdn": {
+      "layers": 48,
+      "mean_of_means": 0.999784,
+      "worst_layer_mean": 0.999552,
+      "worst_layer": 2,
+      "worst_row": 0.9523,
+      "layers_below_0_999": []
+     },
+     "teacher_attn": {
+      "layers": 15,
+      "mean_of_means": 0.999764,
+      "worst_layer_mean": 0.999661,
+      "worst_layer": 31,
+      "worst_row": 0.993159,
+      "layers_below_0_999": []
+     },
+     "final_norm_min_mean": [
+      0.698971,
+      0.994842
+     ],
+     "splice_first_hf_prefix_with_ref_argmax": 0,
+     "report": "/home/hous/dev/clef/reports/stage4r_anomaly_probe_hifi4.json"
+    },
+    "projbf16": {
+     "teacher_gdn": {
+      "layers": 48,
+      "mean_of_means": 0.999821,
+      "worst_layer_mean": 0.999583,
+      "worst_layer": 2,
+      "worst_row": 0.952025,
+      "layers_below_0_999": []
+     },
+     "teacher_attn": {
+      "layers": 15,
+      "mean_of_means": 0.999799,
+      "worst_layer_mean": 0.999704,
+      "worst_layer": 15,
+      "worst_row": 0.987867,
+      "layers_below_0_999": []
+     },
+     "final_norm_min_mean": [
+      0.829692,
+      0.994793
+     ],
+     "splice_first_hf_prefix_with_ref_argmax": 3,
+     "report": "/home/hous/dev/clef/reports/stage4r_anomaly_probe_projbf16.json"
+    }
+   }
+  }
+ ],
+ "evidence": {
+  "variant_json": "/home/hous/dev/clef/reports/sweep/baseline_stage1.json",
+  "rows_dir": "/home/hous/dev/clef/reports/sweep/baseline_stage1",
+  "sweep_results_csv": "/home/hous/dev/clef/reports/sweep/sweep_results.csv",
+  "timestamp": "2026-10-05 20:20:57 UTC"
+ },
+ "updated_at": "2026-10-05 21:25:10 UTC"
+}
