@@ -1,0 +1,124 @@
+schema: "5.1"
+repo: tt-hous/laya-p150
+name: laya-p150
+weights:
+  repo: convaiinnovations/laya
+  revision: 7b928d828b7b0e022f929d9bd2e44165aa270148
+  ignore_patterns: ["multilingual/*", "typed-decisions/*", "assets/*", "*.png"]
+kind: tt-dit-server
+arch: blackhole
+
+image:
+  registry: hf
+
+source:
+  tt_metal: /home/hous/dev/laya/worktree/tt-metal
+  code:
+    - models/autoports/convaiinnovations_laya/__init__.py
+    - models/autoports/convaiinnovations_laya/common.py
+    - models/autoports/convaiinnovations_laya/vendor
+    - models/autoports/convaiinnovations_laya/tt
+    - models/autoports/convaiinnovations_laya/reference
+    - models/autoports/convaiinnovations_laya/server
+    - models/autoports/convaiinnovations_laya/shim
+    - models/autoports/convaiinnovations_laya/demo
+    - models/autoports/convaiinnovations_laya/tests/__init__.py
+    - models/autoports/convaiinnovations_laya/tests/pcc_utils.py
+  ubuntu: "22.04"
+  python: "3.12"
+
+runtime:
+  app: models.autoports.convaiinnovations_laya.server.app:app
+  mesh_shape_env: LAYA_MESH_SHAPE
+  packages: [transformers==5.12.1, safetensors, huggingface-hub, numpy==1.26.4]
+
+serve:
+  port: 8710
+  hardware: p150
+  mesh_device: P150
+  env:
+    LAYA_BACKEND: tt
+    LAYA_REVISION: 7b928d828b7b0e022f929d9bd2e44165aa270148
+    LAYA_PRECISION: "PLACEHOLDER_SELECTED_POLICY"
+    LAYA_SEQ_BUCKETS: "PLACEHOLDER_SEQ_BUCKETS_FROM_STAGE_7"
+    LAYA_ROW_BUCKETS: "1,2,4,8,16,32,64"
+    LAYA_MAX_ROWS: "64"
+    LAYA_MAX_BATCH_STATES: "64"
+    LAYA_TRACE: "1"
+    LAYA_TRACE_REGION_SIZE: "PLACEHOLDER_MEASURED_TRACE_REGION_BYTES"
+    LAYA_L1_SMALL_SIZE: "79104"
+    LAYA_RAW_FORWARD: "1"
+    TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES: "0"
+
+serve_profiles:
+  - name: p150
+    hardware: p150
+    mesh_device: P150
+    description: "One Blackhole p150 chip; PLACEHOLDER_SELECTED_POLICY; traces for 1..64 rows x PLACEHOLDER_SEQ_BUCKETS tokens captured before the server reports ready."
+  - name: p150x4
+    hardware: p150x4
+    mesh_device: P150x4
+    description: "1x4 mesh, data parallel over rows, no fabric; PLACEHOLDER_MEASURED_OR_DECLARED_NOT_VALIDATED."
+default_profile: p150
+
+verify:
+  - "import models.autoports.convaiinnovations_laya.server.app as a; assert a.app"
+  - "import models.autoports.convaiinnovations_laya.vendor.rl_common as c; assert c.build_sequence and c.DecisionModel"
+  - "import models.autoports.convaiinnovations_laya.tt.laya_model as m; assert m.TtnnLayaModel"
+  - "import models.autoports.convaiinnovations_laya.tt.engine as e; assert e.LayaEngine.from_env"
+  - "import models.autoports.convaiinnovations_laya.server.decode as d; assert d.decode_answers"
+  - "import models.autoports.convaiinnovations_laya.server.engine as g; assert g.Engine.from_env and g.CpuBackend"
+  - "import models.autoports.convaiinnovations_laya.reference.laya_reference as r; assert r.LayaReference"
+  - "from pathlib import Path; assert Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/demo/index.html').is_file()"
+  - "from pathlib import Path; import json; f = json.loads(Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/demo/feed_cases.json').read_text()); assert 40 <= len(f['cases']) <= 100 and f['attribution']['revision']"
+  - "from pathlib import Path; import json; assert len(json.loads(Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/demo/presets.json').read_text())) >= 5"
+  - "from pathlib import Path; import json; assert json.loads(Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/server/sanity_reference.json').read_text())['answers']['routing']['choice']"
+  - "from pathlib import Path; p = Path('/opt/tt-metal/tt_metal/fabric/impl/kernels/edm_fabric/fabric_erisc_router.cpp'); assert p.is_file() and len(p.read_text()) > 0"
+  - "import transformers; assert transformers.__version__.startswith('5.'), transformers.__version__"
+  - "import numpy; assert numpy.__version__.startswith('1.'), numpy.__version__"
+
+card:
+  description: >
+    Laya is a non-LLM calibrated decision model: a ModernBERT-large encoder with an option-marker decision head
+    (421M parameters). One forward pass answers typed noul, choice and score questions about a text or JSON state
+    with calibrated probabilities; it never generates text. This package serves the Jev-compatible /v1/systemone
+    API of the authors' laya-serve on one Blackhole p150 chip, with a live demo at /demo/.
+  performance: >
+    PLACEHOLDER filled from evals/results SUMMARY.md: speed table rows (1, 5, 10, 50 questions per call) beside the
+    authors' Tesla T4 values 39.5, 84.5, 158.6 and 771 ms; batched questions per second beside 103 to 332 on a T4;
+    typed-decisions row (accuracy, soft accuracy, Brier, ECE, score MAE) beside the published 0.362 / 0.332 / 0.316 /
+    0.175 / 0.694 and the CPU fp32 row; AG News and Emotion beside the published 0.910 and 0.480; parity versus CPU
+    fp32 (confident argmax agreement, max abs delta p, scorer-logit PCC).
+  limitations: >
+    English root checkpoint only (max_len 512, head_max_len 192). Raw calibration as shipped: the authors' ECE of
+    0.081 is after domain temperature fitting with an unpublished protocol (their raw value is 0.466). The base
+    checkpoint is near chance zero-shot on typed-decisions; the published 0.766 belongs to the fine-tuned sibling.
+    action.act_probability carries no usable signal (authors' issue #185); gate on answer_confidence. Temperatures
+    are clamped to [0.5, 5.0] as pip laya 0.3.27 does, so choice questions with more than 10 options use 0.5 instead
+    of the shipped 0.1006. Requests are padded to PLACEHOLDER_SEQ_BUCKETS tokens x 1..64 rows; longer sequences are
+    refused with 422. PLACEHOLDER: n of N reference decisions flip within margin m. One device process serializes
+    requests. p150x4 status: PLACEHOLDER. Not reproduced: MASSIVE, XNLI, 45 of 51 languages, post-temperature ECE.
+  risks: >
+    PLACEHOLDER_SELECTED_POLICY numerics move probabilities by up to PLACEHOLDER max abs delta p against the fp32
+    reference; gate on confidence, not act_probability. Long option texts are truncated to 48 tokens silently, as in
+    the reference. The shipped temperatures are over-confident per the authors; refit on your own data.
+  usage: |
+    POST /v1/systemone with {"state": ..., "questions": {id: {"type": "choice"|"score"|"noul", "instructions": ..., "criteria": ...}}, "max_len", "head_max_len", "min_confidence"}
+    returns {"model", "answers": {id: {...}}, "usage": {input_tokens, output_tokens, state_tokens, state_tokens_dropped, truncated, truncated_questions}}.
+    POST /v1/systemone/batch takes {"states": [...], "questions": {...}} (1 to 64 states sharing one question set) and returns {"results": [...], "total_usage": {...}}.
+    GET /v1/health reports backend, precision, mesh, buckets and the startup sanity check. Every /v1 response carries
+    X-Inference-Time-Ms, X-Laya-Device-Ms and X-Laya-Batch. Existing laya and Jev clients work by changing the base URL.
+    The demo page is served at /demo/. shim/laya_tt_backend.py installs a TtBackend on a pip laya Agent that routes
+    agent.model.forward to this server's /v1/forward (served because LAYA_RAW_FORWARD=1 in this package).
+  architecture: ModernBERT-large encoder (28 layers, 1024 hidden, GeGLU, dual-theta RoPE, one global attention layer per three) + a 2-layer decision head with an option-marker scorer and an act head
+  status: Experimental community bring-up
+  intended_use: Calibrated typed decisions over text states (routing, triage, guardrails, relevance, scoring).
+  out_of_scope_use: Text generation; non-English input (use the multilingual checkpoint); more than about 20 options at the default head budget.
+  licensing: >
+    Laya weights and the vendored rl_common.py, rl_agent_api.py and email_utils.py: Apache-2.0 (Convai Innovations);
+    ModernBERT-large: Apache-2.0 (Answer.AI); TTNN port and serving code: Apache-2.0 (Tenstorrent AI ULC);
+    demo feed cases: LocalLLaMA/typed-decisions, Apache-2.0.
+  license:
+    id: apache-2.0
+  pipeline_tag: text-classification
+  base_model: [convaiinnovations/laya, answerdotai/ModernBERT-large]

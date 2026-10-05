@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Laya on p150</title>
+<meta name="description" content="Laya, a non-LLM calibrated decision model, answering typed questions on one Tenstorrent Blackhole p150 chip: presets, an editor, probability cards and a live feed with latency tiles.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='10' y='55' width='18' height='35' fill='%235b8def'/%3E%3Crect x='41' y='25' width='18' height='65' fill='%235b8def'/%3E%3Crect x='72' y='40' width='18' height='50' fill='%235b8def'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="demo.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-name">Laya</span>
+    <span class="brand-sub">calibrated typed decisions on one Tenstorrent chip</span>
+  </div>
+  <div class="topbar-right">
+    <span id="health" class="pill pill-wait" title="GET /v1/health every 5 s">
+      <span class="dot"></span><span id="health-text">connecting</span>
+    </span>
+    <span id="health-detail" class="health-detail"></span>
+  </div>
+</header>
+<div id="cpu-banner" class="banner" hidden>This server runs the fp32 CPU reference backend, not the Tenstorrent chip. Answers are the model's; latencies are not representative.</div>
+<div id="offline-banner" class="banner banner-warn" hidden>The server is not reachable. The page retries every 5 s.</div>
+
+<main class="page">
+  <section class="card intro">
+    <h1>One forward pass, typed answers, calibrated probabilities</h1>
+    <p>Laya is a ModernBERT-large encoder with an option-scoring head (421M parameters). It never generates text. You give it a state (text or JSON) and typed questions: <b>choice</b> (pick one of several labels), <b>score</b> (an ordinal level), <b>noul</b> (true or false). Every question comes back with a probability over its options, a confidence, and the model's own escalation signal. This page talks only to the public API of the server that serves it: <code>POST /v1/systemone</code>, <code>POST /v1/systemone/batch</code> and <code>GET /v1/health</code>.</p>
+  </section>
+
+  <section class="grid-2">
+    <div class="card editor">
+      <div class="card-head">
+        <h2>Decide</h2>
+        <div id="presets" class="chips" aria-label="Presets"></div>
+      </div>
+      <p id="preset-blurb" class="muted"></p>
+      <label for="state">State (JSON object, list, or plain text)</label>
+      <textarea id="state" rows="9" spellcheck="false"></textarea>
+      <label for="questions">Questions (JSON: id to {type, instructions, criteria})</label>
+      <textarea id="questions" rows="12" spellcheck="false"></textarea>
+      <div class="row controls">
+        <label>max_len <input id="max_len" type="number" min="16" max="8192" step="1" placeholder="512"></label>
+        <label>head_max_len <input id="head_max_len" type="number" min="8" max="8192" step="1" placeholder="192"></label>
+        <label>min_confidence <input id="min_confidence" type="number" min="0" max="1" step="0.05" placeholder="off"></label>
+        <button id="decide" class="btn btn-primary" type="button">Decide</button>
+      </div>
+      <div id="decide-error" class="error" role="alert" hidden></div>
+    </div>
+    <div class="card results">
+      <div class="card-head">
+        <h2>Answers</h2>
+        <span id="results-meta" class="muted"></span>
+      </div>
+      <div id="cards" class="cards"><p class="muted">Pick a preset and press Decide.</p></div>
+      <p class="caveat"><b>About the act / escalate tile.</b> The authors report that <code>action.act_probability</code> carries no usable signal in this checkpoint (it reads 1.0 for almost every input; GitHub issue #185 of NandhaKishorM/laya). Gate on <code>answer_confidence</code> instead. The tile is shown because the API returns it.</p>
+    </div>
+  </section>
+
+  <section class="card tiles-card">
+    <div class="card-head">
+      <h2>Last call</h2>
+      <span class="muted">sparklines over the last 60 calls from this page</span>
+    </div>
+    <div id="tiles" class="tiles"></div>
+  </section>
+
+  <section class="card feed">
+    <div class="card-head">
+      <h2>Live feed</h2>
+      <span id="feed-source" class="muted"></span>
+    </div>
+    <div class="row controls feed-controls">
+      <label>rate <input id="rate" type="number" min="0.5" max="20" step="0.5" value="4"> cases/s</label>
+      <label>concurrency <input id="concurrency" type="number" min="1" max="4" step="1" value="1"></label>
+      <label class="check"><input id="loop" type="checkbox"> loop</label>
+      <label class="check"><input id="batch" type="checkbox"> batch mode (8 states per /batch)</label>
+      <label>seconds <input id="seconds" type="number" min="0" max="3600" step="1" value="0" title="0 runs until the feed ends or Stop"></label>
+      <button id="feed-start" class="btn btn-primary" type="button">Start</button>
+      <button id="feed-stop" class="btn" type="button" disabled>Stop</button>
+      <button id="copy-stats" class="btn" type="button">Copy stats JSON</button>
+      <label class="btn file-btn">Load JSONL <input id="feed-file" type="file" accept=".jsonl,.json,.txt" hidden></label>
+    </div>
+    <div id="feed-error" class="error" role="alert" hidden></div>
+    <div id="feed-stats" class="stats"></div>
+    <div class="table-wrap">
+      <table id="feed-table">
+        <thead><tr><th>id</th><th>workflow</th><th colspan="5">argmax per question (green agrees with gold, red differs)</th><th>device ms</th><th>batch</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p id="feed-attribution" class="muted small"></p>
+  </section>
+
+  <footer class="foot">
+    <span>Model: convaiinnovations/laya (Apache-2.0). Port and server: Tenstorrent AI ULC (Apache-2.0).</span>
+    <span>API: <code>/v1/systemone</code>, <code>/v1/systemone/batch</code>, <code>/v1/health</code>. Headers: <code>X-Inference-Time-Ms</code>, <code>X-Laya-Device-Ms</code>, <code>X-Laya-Batch</code>.</span>
+  </footer>
+</main>
+<script src="demo.js"></script>
+</body>
+</html>
