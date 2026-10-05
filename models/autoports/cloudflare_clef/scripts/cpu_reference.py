@@ -1,7 +1,8 @@
 """Run the Cloudflare/clef release on CPU as the parity reference.
 
-Loads joint_schema_model.load_release_model(snapshot, device="cpu", dtype=torch.bfloat16)
-from the Hugging Face snapshot and answers every record of a JSONL file the way
+Loads joint_schema_model.load_release_model(snapshot, device="cpu", dtype=<--dtype>)
+from the Hugging Face snapshot (bfloat16 by default; float32 runs the backbone and the head
+in fp32 and needs about 110 GB of RAM) and answers every record of a JSONL file the way
 systemone() does. Each output row carries the input id, the systemone response
 ("model", "answers", "usage"), a "probs" mapping question id -> option id -> raw softmax
 probability (not rounded), the token count, wall seconds, and, when the input row has
@@ -10,11 +11,13 @@ probability (not rounded), the token count, wall seconds, and, when the input ro
 seconds per record and the peak resident set size in MiB from resource.getrusage.
 
 Image records list absolute PNG paths under "images"; they are opened with PIL and
-converted to RGB before the request is passed to the model.
+converted to RGB before the request is passed to the model. Video records list one list
+of absolute frame PNG paths per video under "videos".
 
 Usage:
   python cpu_reference.py --input records.jsonl --output ref.jsonl [--snapshot DIR]
                           [--threads 8] [--limit N] [--readme-examples OUT.json]
+                          [--dtype {bfloat16,float32}]
 """
 
 from __future__ import annotations
@@ -49,6 +52,8 @@ def build_request(row: dict) -> dict:
     request.setdefault("model", "clef")
     if request.get("images"):
         request["images"] = [Image.open(path).convert("RGB") for path in request["images"]]
+    if request.get("videos"):
+        request["videos"] = [[Image.open(path).convert("RGB") for path in frames] for frames in request["videos"]]
     return request
 
 
@@ -207,6 +212,7 @@ def main() -> None:
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--readme-examples", default=None)
+    parser.add_argument("--dtype", choices=("bfloat16", "float32"), default="bfloat16")
     args = parser.parse_args()
     if len(args.input) != len(args.output):
         raise SystemExit("--input and --output must be given the same number of times")
@@ -218,13 +224,15 @@ def main() -> None:
     add_snapshot_to_path(snapshot)
     import joint_schema_model as jsm
 
-    log(f"snapshot {snapshot} torch {torch.__version__} threads {torch.get_num_threads()}")
+    dtype = getattr(torch, args.dtype)
+    log(f"snapshot {snapshot} torch {torch.__version__} threads {torch.get_num_threads()} dtype {args.dtype}")
     started = time.perf_counter()
-    model, processor = jsm.load_release_model(snapshot, device="cpu", dtype=torch.bfloat16)
+    model, processor = jsm.load_release_model(snapshot, device="cpu", dtype=dtype)
     log(f"model loaded in {time.perf_counter() - started:.1f}s, rss {peak_rss_mib():.0f} MiB")
     summary = {
         "snapshot": str(snapshot),
         "threads": args.threads,
+        "dtype": args.dtype,
         "load_seconds": round(time.perf_counter() - started, 1),
         "runs": {},
     }

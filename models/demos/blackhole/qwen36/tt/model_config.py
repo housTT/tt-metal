@@ -266,6 +266,8 @@ class Qwen36ModelArgs(ModelArgs):
         self.act_shard_gdn_value = tpc.create_activation_shard_config(self.gdn_value_dim_tp)
         self.act_shard_attn_out = tpc.create_activation_shard_config(self.attn_out_dim_tp)
 
+        self.gdn_gate_fp32 = os.environ.get("QWEN36_GDN_GATE_FP32", "0") == "1"
+
         # KV-cache height shard for paged_update_cache (one user per core).
         _B = max(1, self.max_batch_size)
         _cols = next(c for c in range(min(8, _B), 0, -1) if _B % c == 0)

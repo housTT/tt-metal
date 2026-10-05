@@ -28,6 +28,13 @@ def _softplus_add(a, bias):
     return ttnn.add(a, bias, activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.SOFTPLUS, 1.0, 20.0)])
 
 
+def _decay_gate(tw, a, fp32, memory_config=None):
+    if fp32 and a.dtype != ttnn.float32:
+        a = ttnn.typecast(a, ttnn.float32)
+    kw = {"memory_config": memory_config} if memory_config is not None else {}
+    return ttnn.multiply(tw["neg_exp_A"], _softplus_add(a, tw["dt_bias"]), **kw)
+
+
 def _silu_mul(x, z, memory_config, dtype=None):
     """out-gate: x * silu(z). NOT fused into one op: fusing silu via input_tensor_b_activations
     overflows to NaN in the real layer for large-magnitude z (op-level PCC hid it — small inputs).
@@ -208,8 +215,12 @@ def load_gdn_weights_tp(mesh, sd, args, cache_dir=None):
             dtype=ttnn.bfloat8_b,
         )
     # Per-head params
-    tw["dt_bias"] = tpc.shard_small(sd[P + "dt_bias"].float(), mesh, c("dt_bias"))
-    A_log = tpc.shard_small(sd[P + "A_log"].float(), mesh, c("A_log"))
+    if getattr(args, "gdn_gate_fp32", False):
+        tw["dt_bias"] = tpc.shard_small(sd[P + "dt_bias"].float(), mesh, c("dt_bias.f32"), dtype=ttnn.float32)
+        A_log = tpc.shard_small(sd[P + "A_log"].float(), mesh, c("A_log.f32"), dtype=ttnn.float32)
+    else:
+        tw["dt_bias"] = tpc.shard_small(sd[P + "dt_bias"].float(), mesh, c("dt_bias"))
+        A_log = tpc.shard_small(sd[P + "A_log"].float(), mesh, c("A_log"))
     tw["neg_exp_A"] = ttnn.neg(ttnn.exp(A_log))
     tw["norm_w"] = tpc.replicate(sd[P + "norm.weight"].float(), mesh, c("norm_w"))
     # Conv taps (4), sharded per Q/K/V head grouping
@@ -242,6 +253,7 @@ class TPGatedDeltaNet:
         # Fuse adapter output relayout with rms_norm + head-flatten
         self._gdn_fuse_out = True
         self.gdn_program_config = getattr(args, "gdn_program_config", None)
+        self._gate_fp32 = bool(getattr(args, "gdn_gate_fp32", False))
         self.K = args.gdn_conv_kernel_size
         self.scale = self.Dk**-0.5
         self.cfg = tpc.COMPUTE_HIFI2
@@ -560,7 +572,7 @@ class TPGatedDeltaNet:
         # GQA late-expand: adapter L2-norms at Nk, expands to Nv after
         beta = ttnn.reshape(ttnn.sigmoid(b), (1, T, Nv))
         ttnn.deallocate(b)
-        g = ttnn.reshape(ttnn.multiply(tw["neg_exp_A"], _softplus_add(a, tw["dt_bias"])), (1, T, Nv))
+        g = ttnn.reshape(_decay_gate(tw, a, self._gate_fp32), (1, T, Nv))
         ttnn.deallocate(a)
 
         # Fused chunk_gated_delta_rule; also used for masked valid_len.
@@ -985,7 +997,7 @@ class TPGatedDeltaNet:
 
         beta = ttnn.reshape(ttnn.sigmoid(b), (B, T, Nv))
         ttnn.deallocate(b)
-        g = ttnn.reshape(ttnn.multiply(tw["neg_exp_A"], _softplus_add(a, tw["dt_bias"])), (B, T, Nv))
+        g = ttnn.reshape(_decay_gate(tw, a, self._gate_fp32), (B, T, Nv))
         ttnn.deallocate(a)
 
         # Chunk-parallel recurrence over the BH = B*Nv batch (each row an independent scan). Fused
@@ -1134,7 +1146,7 @@ class TPGatedDeltaNet:
 
         beta = ttnn.reshape(ttnn.sigmoid(b, memory_config=_L1), (B, 1, Nv))
         ttnn.deallocate(b)
-        g = ttnn.multiply(tw["neg_exp_A"], _softplus_add(a, tw["dt_bias"]), memory_config=_L1)
+        g = _decay_gate(tw, a, self._gate_fp32, memory_config=_L1)
         ttnn.deallocate(a)
         g = ttnn.reshape(g, (B, 1, Nv))
 
