@@ -13,3 +13,5 @@ and the PCC rows (`pcc_*.json`) of the policy probes of 2026 Oct 5 21:50 to 22:0
 | `layer_pcc_bf8w_hifi3_erf.json`, `pcc_policy_bf8w_hifi3_erf.json` | `bf8w_hifi3_erf` | `/home/hous/dev/laya/logs/p3_s3_policy_probe3_20261005T215933Z.log` |
 
 The policy table of `../README.md` is generated from these PCC rows by `/home/hous/dev/laya/scratch/stage3_tables.py`.
+
+Note from review R1's re-check: the encoder rows of `pcc_candidate.json` and `pcc_fp32res.json` record `mlp_grid [8, 8]`, so those two earliest probes used the 8x8 interleaved GeGLU grid; the six later probe files record `[11, 8]`. The grid affects timing, not the per-layer PCC beyond accumulation order, so no policy conclusion changes.
