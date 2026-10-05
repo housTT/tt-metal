@@ -21,11 +21,19 @@ def policy_from_env():
 
 
 def port_from_env():
-    from models.autoports.convaiinnovations_laya.tt.model_config import DEFAULT_PORT
+    from models.autoports.convaiinnovations_laya.tt.model_config import DEFAULT_PORT, STAGE1_PORT
 
+    base = STAGE1_PORT if os.environ.get("LAYA_PORT", "default") == "stage1" else DEFAULT_PORT
     overrides = json.loads(os.environ.get("LAYA_PORT_OVERRIDES", "{}"))
     overrides = {k: (tuple(v) if isinstance(v, list) else v) for k, v in overrides.items()}
-    return DEFAULT_PORT.with_(**overrides)
+    return base.with_(**overrides)
+
+
+def port_label():
+    label = "stage1port" if os.environ.get("LAYA_PORT", "default") == "stage1" else "shippedport"
+    if os.environ.get("LAYA_PORT_OVERRIDES", "{}").strip() not in ("", "{}"):
+        label += "_overrides"
+    return label
 
 
 @pytest.fixture(scope="module")

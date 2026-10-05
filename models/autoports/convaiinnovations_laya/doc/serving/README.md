@@ -79,7 +79,7 @@ every temperature to `[0.5, 5.0]` (`laya.common.clamp_temperature`). The shipped
 so pip answers a choice question with 11 or more options with temperature 0.5 and the Hub code with 0.1006; all other
 buckets lie inside the range and are unchanged. The server follows pip because pip is the wire-format target and the
 evaluation baseline; `LAYA_TEMPERATURE_CLAMP=0` restores the Hub behaviour. `/v1/health` reports both tables and the
-clamped buckets. Track R's `reference/laya_reference.py` decodes with raw temperatures; its `forward` is what the
+clamped buckets. Track R's `reference/laya_reference.py` applies the same clamp by default (`clamp=True`; `clamp=False` is the raw Hub rule), see PLAN.md amendments A6 and A7; its `forward` is what the
 server calls, so the two agree on logits and differ in decoding only for `choice:11+`.
 
 ## Headers on every `/v1/*` response
@@ -111,7 +111,7 @@ server calls, so the two agree on logits and differ in decoding only for `choice
 | `LAYA_NO_DEMO` | 0 | do not register `/demo` |
 | `LAYA_SANITY_CHECK` | 1 | run the STATE_EN / Q_CHOICE check at startup |
 | `LAYA_CORS` | 0 | permissive CORS with the three headers exposed |
-| `LAYA_CPU_THREADS`, `LAYA_CPU_ATTN`, `LAYA_CPU_IMPL` | unset (Track R's default 16), `eager`, `reference` | CPU backend: torch threads, attention implementation passed to `LayaReference`, `vendored` builds the Hub `DecisionModel` with sdpa instead |
+| `LAYA_CPU_THREADS`, `LAYA_CPU_ATTN`, `LAYA_CPU_IMPL` | unset (`common.DEFAULT_THREADS`, 6), `eager`, `reference` | CPU backend: torch threads, attention implementation passed to `LayaReference`, `vendored` builds the Hub `DecisionModel` with sdpa instead |
 | `LAYA_MESH_SHAPE`, `LAYA_PRECISION`, `LAYA_WARMUP_SHAPES`, `LAYA_TRACE`, `LAYA_TRACE_REGION_SIZE`, `LAYA_L1_SMALL_SIZE` | Track T | read by `LayaEngine.from_env()`; the server only reports what `shapes()` returns |
 | `TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES` | set to 0 by `make_backend("tt")` with `setdefault` | mandatory on this box |
 

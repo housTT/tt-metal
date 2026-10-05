@@ -123,12 +123,17 @@ second), so batching beyond 8 buys little: the device is already busy, at low ma
 
 ## A/B results (traced p50, 20 replays after 3 warm, real inputs; delta against `default` = the stage 1 baseline)
 
-Every row is one process (`bench_<variant>.json`), host 1-minute load per cell in the load column; the orchestrator's
-rule for this run was a load under 8 and the queues waited for it (a few cells sit at 8.0 to 8.8, marked by their load).
-Run-to-run scatter: `default` against `default_rerun` 0.9 / 0.2 / 0.0 percent at B 1 / 8 / 64; two identical shipped
-configurations at B 1 (`cand_C3...` and `qkv_minimal_only`) differ by 3.5 percent, so B 1 differences under about
-3 percent are not readable; B 8 and B 64 are device bound and repeat within 1 percent. `qkv_minimal_only` started
-after the shipped defaults were set and therefore measures the shipped port (its JSON records the port).
+Every row is one process (`bench_<variant>.json`), host 1-minute load per cell in the load column. The orchestrator's
+rule for this run was a load under 8; the queues waited for it before each process, but the load rose during several
+processes: of the 132 A/B cells, 46 record a load at or above 8.0 and 12 sit at 9.3 to 10.5
+(`b2b4_sharded_2816` 9.7, `b2b4_interleaved_2816_11x8` 9.6, `b2b4_interleaved_2816_8x8_wo` 9.3 to 9.4,
+`b2b4_interleaved_auto` 10.0, `geglu_interleaved` 10.0 to 10.5, `il2816_8x8` at 64x512 10.1). The shipped cells
+(`bench_shipped_final*.json`) sit at 7.45 to 8.18. Run-to-run scatter: `default` against `default_rerun` 0.9 / 0.2 /
+0.0 percent at B 1 / 8 / 64; at B 1 two pairs of identical configurations differ by about 5 percent (`sdpa_128` and
+`rotary_never_sharded` at 1x512 equal `default` by construction and measured 13.28 against 13.92 ms; `cand_C3...`
+against `qkv_minimal_only` 11.86 against 12.28 ms), so B 1 differences under about 5 percent are not readable; B 8 and
+B 64 are device bound and repeat within 1 percent. `qkv_minimal_only` started after the shipped defaults were set and
+therefore measures the shipped port (its JSON records the port).
 
 | variant | policy | 1x512 ms (delta) | 2x512 | 4x512 | 8x512 ms (delta) | 64x512 ms (delta) | load | what it ran, outcome |
 |---|---|---|---|---|---|---|---|---|
@@ -224,6 +229,11 @@ Readings per lever:
   (`bf8w_hifi4`) nor the fp32 residual stream (`bf8w_hifi3_fp32res`, +10 to +21 percent) moves the accuracy; HiFi2
   equals HiFi3 and is 8 percent faster; LoFi for Wi and Wo did not hang on p150 (the plan's N300 note) and is
   10 percent faster; its accuracy is for the stage 8 sweep.
+- Erf cost at B 2 and B 4 (sharded GeGLU plan): the shipped erf cells are 21.01 / 36.71 ms against the tanh C1 cells
+  18.94 / 32.12 ms (`bench_cand_C1_b2b4.json`), +10.9 / +14.3 percent; that pair is confounded by the Wo lever (C1 ran
+  Wo through `minimal_matmul` at every row count, the shipped port uses the 8x8 core grid below 4096 rows, worth about
+  2 percent in the other direction at these buckets), and the erf cost on the sharded GeGLU plan alone was not
+  separately measured.
 - Shipped default policy: `bf8w_hifi3_erf` (`DEFAULT_POLICY_NAME`); `bf8w_hifi3` remains in the table for the sweep
   and as the plan's starting point.
 
@@ -283,8 +293,10 @@ tracker error: None):
 | 8x512 | True | True | True (3.32) | False |
 | 64x512 | True | True | True (3.69) | False |
 
-Correctness on the shipped configuration: `pcc_rows_shipped.json` (first pass, L1 chain 2048) and the final-queue-4
-log (L1 chain 4096): encoder 0.99940 (1x512), 0.99805 (fill row), 0.99547 (2x512 sharded), 0.99704 (2x512
+Correctness on the shipped configuration: `pcc_rows_shipped.json` (first pass, L1 chain 2048), the final-queue-4
+log (L1 chain 4096) and the per-layer trace `layer_pcc_shipped.json` (196 rows, policy `bf8w_hifi3_erf`, shipped
+port with the L1 chain at 4096 rows, written by the 22:31 UTC encoder run of `s3_final_tests2`; same layout as the
+stage 1 file): encoder 0.99940 (1x512), 0.99805 (fill row), 0.99547 (2x512 sharded), 0.99704 (2x512
 interleaved), 0.99845 (4x512), 0.99784 (8x512), 0.99939 (1x1024); end to end marker logits 0.99992 with max abs 0.055
 (B 1) and 0.99926 with 0.123 (B 8); MLP 0.99999, attention 0.99986 / 0.99984, layers 0.99997 to 0.9999987, head layers
 0.999996; all encoder-side negative controls unchanged (0.38 to 0.98); head controls 0.906 and 0.756.

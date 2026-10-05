@@ -8,7 +8,14 @@ import pytest
 import torch
 
 import ttnn
-from models.autoports.convaiinnovations_laya.tests.conftest import DOC_DIR, encoder_inputs, policy_from_env, port_from_env, record
+from models.autoports.convaiinnovations_laya.tests.conftest import (
+    DOC_DIR,
+    encoder_inputs,
+    policy_from_env,
+    port_from_env,
+    port_label,
+    record,
+)
 from models.autoports.convaiinnovations_laya.tests.pcc_utils import max_abs_err, outlier_report, pcc
 from models.autoports.convaiinnovations_laya.tt.model_config import DEFAULT_PORT
 from models.autoports.convaiinnovations_laya.tt.modernbert_masks import TtnnMaskBuilder, deallocate_masks
@@ -17,7 +24,12 @@ from models.autoports.convaiinnovations_laya.tt.weights import deallocate_weight
 
 pytestmark = pytest.mark.use_module_device({"l1_small_size": 79104})
 MODEL_PCC = 0.99
-OUT = os.environ.get("LAYA_LAYER_PCC_OUT", os.path.join(DOC_DIR, "functional_decoder", "layer_pcc.json"))
+PORT = port_from_env()
+POLICY = policy_from_env()
+OUT = os.environ.get(
+    "LAYA_LAYER_PCC_OUT",
+    os.path.join(DOC_DIR, "functional_decoder", f"layer_pcc_{POLICY.name}_{port_label()}.json"),
+)
 SHAPES = [
     (1, 512, "default"),
     (1, 512, "fill_only"),
@@ -27,8 +39,6 @@ SHAPES = [
     (8, 512, "default"),
     (1, 1024, "default"),
 ]
-PORT = port_from_env()
-POLICY = policy_from_env()
 PORTS = {"default": PORT, "interleaved": PORT.with_(geglu_plan="interleaved"), "fill_only": PORT}
 
 

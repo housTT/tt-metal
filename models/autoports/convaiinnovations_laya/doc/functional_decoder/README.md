@@ -113,7 +113,12 @@ A=models/autoports/convaiinnovations_laya/tests
 /home/hous/dev/laya/bin/devlock python -m pytest $A/test_ttnn_embeddings.py $A/test_ttnn_rope.py $A/test_ttnn_masks.py \
     $A/test_ttnn_mlp.py $A/test_ttnn_attention.py $A/test_ttnn_layer.py $A/test_ttnn_encoder.py $A/test_ttnn_head.py -q -rA
 ```
-`LAYA_PCC_LOG=<file>` appends every measured PCC row as JSON; `test_ttnn_encoder.py` writes `layer_pcc.json` here.
+`LAYA_PCC_LOG=<file>` appends every measured PCC row as JSON; `test_ttnn_encoder.py` writes the per-layer trace to
+`layer_pcc_<policy>_<port label>.json` here (`LAYA_POLICY` selects the policy, `LAYA_PORT=stage1` selects `STAGE1_PORT`,
+`LAYA_PORT_OVERRIDES` adds `PortConfig` fields), so a later run with another policy or port cannot overwrite stage evidence.
+The stage 1 file is `layer_pcc_bf8w_hifi3_stage1port.json`, regenerated after review R1 by one encoder test run
+(`/home/hous/dev/laya/logs/p3_s1_regen_layer_pcc_20261005T230058Z.log`); the shipped configuration's trace is
+`../optimized_decoder/layer_pcc_shipped.json`.
 
 ## Results (chip 0, real weights, real typed-decisions inputs; every number from `pcc_rows.json`, each row names its source log)
 
@@ -170,7 +175,7 @@ always the same 165-token `agent_trace_observability_000000/action` question. Re
 | B 1, S 1024 | default | 0.997302 | 0.9973 | 13 at 0.9974 | 2.06 |
 | B 1, S 512 | vs bf16 CPU reference (informational) | 0.983844 | | | |
 
-### Per-layer PCC trace (stage 1 baseline policy `bf8w_hifi3`, from `layer_pcc.json`)
+### Per-layer PCC trace (stage 1 baseline policy `bf8w_hifi3` and `STAGE1_PORT`, from `layer_pcc_bf8w_hifi3_stage1port.json`)
 
 Residual stream after each layer against the fp32 reference, real positions only. F marks a full-attention layer, S a
 sliding one. "max abs" is the largest element error of the B 1 run and "ref max abs channel" the reference's largest
@@ -242,7 +247,7 @@ activation after that layer.
 | gate | result |
 |---|---|
 | component PCC >= 0.999 (floor 0.995) versus fp32 | pass: embeddings 0.999995, rope 0.999994 to 0.999995 (both thetas, S 512 and 1024, interleaved and sharded), GeGLU 0.999470 to 0.999660 (layers 0 and 16, both paths), attention 0.999845 and 0.999856 on a padded batch, layers 0, 1, 16, 27 at B 1 and 2 0.999793 to 0.999999, head layers 0.999996, scorer 0.999988 |
-| 28-layer encoder versus fp32 >= 0.99 | pass at every shape run: 0.9971 (1,512), 0.9949 (2,512), 0.9920 (4,512), 0.9928 (8,512), 0.9973 (1,1024); per-layer PCC and outliers in `layer_pcc.json` |
+| 28-layer encoder versus fp32 >= 0.99 | pass at every shape run: 0.9971 (1,512), 0.9949 (2,512), 0.9920 (4,512), 0.9928 (8,512), 0.9973 (1,1024); per-layer PCC and outliers in `layer_pcc_bf8w_hifi3_stage1port.json` |
 | negative controls below threshold | pass for all ten encoder-side controls (GeGLU order 0.803, Q/K permuted 0.383, theta swapped 0.886 and 0.530, band removed 0.591, band +/-32 0.978, layer-0 norm 0.948, pad mask dropped 0.572, embeddings without norm 0.796, rope not applied 0.655). The plan's two head controls cannot be met by any implementation: on the fp32 reference itself ReLU->GELU moves the scorer logits to PCC 0.999943 (marker max abs 0.0136) and dropping the head pad mask to 0.999844 (0.0091); the device reproduces those moves (0.999921, 0.999820) and matches the reference under the same control at 0.99998. They are recorded, not gated; the gated head controls are "head layers skipped" (0.9048) and "wrong question type" (0.7602), both reproducing the reference's own intrinsic numbers |
 | one watcher-clean run of the layer test | pass: `TT_METAL_WATCHER=10`, 10 passed in 37 s (`/home/hous/dev/laya/logs/p3_s1_watcher_20261005T212635Z.log`), `watcher_layer_run.log` has 8 periodic dumps and no error, assert, hang or stall lines |
 | Tracy profile of one layer | pass: layer 1 (sliding, with attention norm) at B 8, S 512, `python -m tracy -r -p -v -o doc/functional_decoder/tracy/layer1_b8s512 tests/profile_layer.py --batch 8 --seq 512 --layer 1 --repeats 5` then `tt-perf-report` (`perf_report.csv`, `perf_report_stacked.csv/.png`, `perf_report.console.log`; the raw `.tracy` under `reports/` is kept locally, not committed). Host 1-minute load at start 7.09. Last of five passes: 20 device ops, 2751.5 us of device kernel time (host-timed pass with dispatch 2.93 ms). Table below; B 1 and B 64 profiles in `tracy/layer1_b1s512` and `tracy/layer1_b64s512` are analysed in `../optimized_decoder/README.md` |

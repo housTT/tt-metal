@@ -60,3 +60,8 @@ PID in `/home/hous/dev/laya/state/jobs/<job>.pid`, last line `DONE <job>` or `FA
   Decision: start the stage 2 correctness runs now (trace safety does not need a quiet host; its timing columns will be
   labelled with the load and re-taken under a quiet host) rather than leave the device idle. `s2_replay_check` queued
   with `TT_METAL_TRACE_ALLOC_TRACKING=1` on buckets 1x512 and 8x512.
+- 23:04 (review R1): `layer_pcc.json` had been overwritten by the shipped erf run; that run now lives in
+  `../optimized_decoder/layer_pcc_shipped.json`, the encoder test writes policy- and port-specific names, and the stage 1
+  file was regenerated as `layer_pcc_bf8w_hifi3_stage1port.json` (`LAYA_POLICY=bf8w_hifi3 LAYA_PORT=stage1`,
+  `/home/hous/dev/laya/logs/p3_s1_regen_layer_pcc_20261005T230058Z.log`, 9 passed); it reproduces the 21:26 run to six
+  digits at every shape.

@@ -85,12 +85,23 @@ against. `bench_default.json` in `../optimized_decoder/` repeats the measurement
 ## Re-validation on the stage 3 shipped configuration
 
 `tests/replay_trace_check.py --buckets 1x512,8x512,64x512 --rounds 3 --repeats 5` with `TT_METAL_TRACE_ALLOC_TRACKING=1`
-on the shipped `PortConfig` and policy (`minimal_matmul`, 11x8 GeGLU, SDPA 8x8, erf GELU;
-`../optimized_decoder/replay_trace_check_shipped_tracked.json`, log `/home/hous/dev/laya/logs/p3_final_queue_20261005T222233Z.log`):
-pass, no tracker error, warmup phase 1 0.57 s and phase 2 0.09 s for three buckets.
+on the final shipped `PortConfig` and policy (`minimal_matmul`, 11x8 GeGLU, SDPA 8x8, L1 attention chain to 4096
+rows, erf GELU; `../optimized_decoder/replay_trace_check_shipped_tracked.json`, written 2026-10-05T22:32 UTC by
+`s3_replay_tracked2` in `/home/hous/dev/laya/logs/p3_final_queue4_20261005T222955Z.log`; an earlier tracked run of the
+same buckets with the L1 chain at 2048 rows, 22:24 UTC in `/home/hous/dev/laya/logs/p3_final_queue_20261005T222233Z.log`,
+also passed with deltas 3.358 / 3.477 / 3.763 and is superseded by this file): pass, no tracker error, warmup phase 1
+0.61 s and phase 2 0.07 s for three buckets.
 
 | bucket | traced == eager (max abs delta logits, CLS) | repeated replay identical | input change moves output (max abs delta) | NaN | replays |
 |---|---|---|---|---|---|
-| 1x512 | True (0.0, 0.0) | True | True (3.358) | False | 10 |
-| 8x512 | True (0.0, 0.0) | True | True (3.477) | False | 10 |
-| 64x512 | True (0.0, 0.0) | True | True (3.763) | False | 10 |
+| 1x512 | True (0.0, 0.0) | True | True (3.282) | False | 10 |
+| 8x512 | True (0.0, 0.0) | True | True (3.323) | False | 10 |
+| 64x512 | True (0.0, 0.0) | True | True (3.691) | False | 10 |
+
+Allocator warning: every untracked `bench_buckets.py` process that captures two or more buckets logs once
+"Allocating device buffers is potentially unsafe due to the existence of an active trace" (Metal `allocator.cpp:130`)
+when `LayaTraceRunner.capture` of the second bucket allocates that bucket's trace outputs while the first trace exists;
+the tracked runs (`TT_METAL_TRACE_ALLOC_TRACKING=1`, 30 replays in stage 2 and 30 on the shipped configuration) pass
+with `unsafe_allocation_error` null and bit-identical repeated replays, so those allocations are the per-bucket output
+buffers that are marked corruptible and never reused across buckets; the stage 7 all-bucket tracked run is the gate
+that covers all seven captures in one process.
