@@ -9,6 +9,7 @@ from typing import Dict, Optional, Sequence, Tuple
 import torch
 
 import ttnn
+from models.autoports.convaiinnovations_laya.tt.laya_head import TtnnLayaHead
 from models.autoports.convaiinnovations_laya.tt.model_config import (
     DEFAULT_POLICY,
     DEFAULT_PORT,
@@ -19,7 +20,6 @@ from models.autoports.convaiinnovations_laya.tt.model_config import (
     describe_plan,
     pick_bucket,
 )
-from models.autoports.convaiinnovations_laya.tt.laya_head import TtnnLayaHead
 from models.autoports.convaiinnovations_laya.tt.modernbert_masks import TtnnMaskBuilder, pad_row_host
 from models.autoports.convaiinnovations_laya.tt.modernbert_model import TtnnModernBertModel
 from models.autoports.convaiinnovations_laya.tt.weights import (
@@ -74,6 +74,34 @@ def open_device(device_id: int = 0, l1_small_size: int = 79104, trace_region_siz
     )
 
 
+def open_mesh(mesh_shape=(1, 4), l1_small_size: int = 79104, trace_region_size: int = 0, num_command_queues=1):
+    """1xN mesh without a fabric config: data parallel only, no collectives."""
+    os.environ.setdefault("TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES", "0")
+    rows, cols = int(mesh_shape[0]), int(mesh_shape[1])
+    if rows * cols == 1:
+        return open_device(0, l1_small_size, trace_region_size, num_command_queues)
+    return ttnn.open_mesh_device(
+        ttnn.MeshShape(rows, cols),
+        l1_small_size=l1_small_size,
+        trace_region_size=trace_region_size,
+        num_command_queues=num_command_queues,
+    )
+
+
+def close_device(device) -> None:
+    if mesh_size(device) > 1:
+        ttnn.close_mesh_device(device)
+    else:
+        ttnn.close_device(device)
+
+
+def mesh_size(device) -> int:
+    try:
+        return int(device.get_num_devices())
+    except AttributeError:
+        return 1
+
+
 class TtnnLayaModel:
     """Device side of Laya: encoder plus head on one device, one sub-model per (rows, seq) bucket.
 
@@ -102,6 +130,15 @@ class TtnnLayaModel:
         self.port = port
         self.row_buckets = tuple(sorted(row_buckets))
         self.seq_buckets = tuple(sorted(seq_buckets))
+        self.num_devices = mesh_size(device)
+        if self.num_devices > 1:
+            if mesh_mapper is None:
+                mesh_mapper = ttnn.ReplicateTensorToMesh(device)
+            self.input_mapper = ttnn.ShardTensorToMesh(device, dim=0)
+            self.output_composer = ttnn.ConcatMeshToTensor(device, dim=0)
+        else:
+            self.input_mapper = None
+            self.output_composer = None
         self.mesh_mapper = mesh_mapper
         self.pad_id = config.pad_token_id
         if state_dict is None:
@@ -123,8 +160,16 @@ class TtnnLayaModel:
         self.act_head = self.head_params["act_head"]
         self.buckets: Dict[Tuple[int, int], Bucket] = {}
 
+    def rows_per_call(self, batch_size: int) -> int:
+        """Rows one call carries: the per-device bucket times the number of devices."""
+        return batch_size * self.num_devices
+
+    def row_buckets_total(self) -> Tuple[int, ...]:
+        return tuple(self.rows_per_call(b) for b in self.row_buckets)
+
     def bucket_for(self, n_rows: int, seq_len: int) -> Tuple[int, int]:
-        return pick_bucket(n_rows, self.row_buckets), pick_bucket(seq_len, self.seq_buckets)
+        per_device = -(-n_rows // self.num_devices)
+        return pick_bucket(per_device, self.row_buckets), pick_bucket(seq_len, self.seq_buckets)
 
     def build_bucket(self, batch_size: int, seq_len: int) -> Bucket:
         key = (batch_size, seq_len)
@@ -149,18 +194,22 @@ class TtnnLayaModel:
 
     def host_inputs(self, input_ids, attention_mask, qtype, batch_size, seq_len) -> HostInputs:
         n, L = input_ids.shape
-        if n > batch_size or L > seq_len:
-            raise ValueError(f"inputs ({n}, {L}) do not fit bucket ({batch_size}, {seq_len})")
-        ids = torch.full((batch_size, seq_len), self.pad_id, dtype=torch.int32)
-        att = torch.zeros((batch_size, seq_len), dtype=torch.long)
-        qt = torch.zeros((batch_size, 1), dtype=torch.int32)
+        rows = self.rows_per_call(batch_size)
+        if n > rows or L > seq_len:
+            raise ValueError(
+                f"inputs ({n}, {L}) do not fit bucket ({batch_size}, {seq_len}) x {self.num_devices} devices"
+            )
+        ids = torch.full((rows, seq_len), self.pad_id, dtype=torch.int32)
+        att = torch.zeros((rows, seq_len), dtype=torch.long)
+        qt = torch.zeros((rows, 1), dtype=torch.int32)
         ids[:n, :L] = input_ids.to(torch.int32)
         att[:n, :L] = attention_mask
         qt[:n, 0] = qtype.to(torch.int32)
+        kw = {} if self.input_mapper is None else {"mesh_mapper": self.input_mapper}
         return HostInputs(
-            input_ids=ttnn.from_torch(ids, dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT),
-            pad_row=ttnn.from_torch(pad_row_host(att), dtype=MASK_DTYPE, layout=ttnn.TILE_LAYOUT),
-            qtype=ttnn.from_torch(qt, dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT),
+            input_ids=ttnn.from_torch(ids, dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT, **kw),
+            pad_row=ttnn.from_torch(pad_row_host(att), dtype=MASK_DTYPE, layout=ttnn.TILE_LAYOUT, **kw),
+            qtype=ttnn.from_torch(qt, dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT, **kw),
             n_real=n,
         )
 
@@ -179,10 +228,15 @@ class TtnnLayaModel:
             ttnn.deallocate(m)
         return logits, cls
 
+    def _to_torch(self, tensor):
+        if self.output_composer is None:
+            return ttnn.to_torch(tensor)
+        return ttnn.to_torch(tensor, mesh_composer=self.output_composer)
+
     def readback(self, logits, cls, n_real: int):
-        lg = ttnn.to_torch(logits).float()
+        lg = self._to_torch(logits).float()
         lg = lg.reshape(lg.shape[0], lg.shape[1])[:n_real]
-        cl = ttnn.to_torch(cls).float()[:n_real, 0, :]
+        cl = self._to_torch(cls).float()[:n_real, 0, :]
         return lg, cl
 
     def forward(self, input_ids, attention_mask, qtype, bucket=None):
@@ -201,12 +255,35 @@ class TtnnLayaModel:
         dt = time.perf_counter() - t0
         return {"logits": lg[:, :L], "cls": cl, "bucket": bucket, "device_ms": dt * 1000.0}
 
+    def forward_with_hidden(self, input_ids, attention_mask, qtype, bucket=None):
+        """Eager path that also returns the encoder output after the final norm and the head output, (n, L, H) fp32 on host."""
+        n, L = input_ids.shape
+        if bucket is None:
+            bucket = self.bucket_for(n, L)
+        b = self.build_bucket(*bucket)
+        host = self.host_inputs(input_ids, attention_mask, qtype, b.batch_size, b.seq_len)
+        self.write_inputs(b, host)
+        masks = b.masks.build(b.pad_row)
+        hidden = b.encoder(b.input_ids, masks)
+        enc = self._to_torch(hidden).float()[:n, :L]
+        logits, cls, h = b.head(hidden, b.qtype, masks[FULL_ATTENTION])
+        head = self._to_torch(h).float()[:n, :L]
+        ttnn.deallocate(h)
+        for m in masks.values():
+            ttnn.deallocate(m)
+        lg, cl = self.readback(logits, cls, n)
+        ttnn.deallocate(logits)
+        ttnn.deallocate(cls)
+        return {"logits": lg[:, :L], "cls": cl, "encoder": enc, "head": head, "bucket": bucket}
+
     def describe(self) -> dict:
         return {
             "policy": self.policy.describe(),
             "port": self.port.describe(),
             "row_buckets": list(self.row_buckets),
             "seq_buckets": list(self.seq_buckets),
+            "num_devices": self.num_devices,
+            "rows_per_call": list(self.row_buckets_total()),
             "buckets": {f"{b}x{s}": describe_plan(v.encoder.plan) for (b, s), v in self.buckets.items()},
             "weight_load_seconds": round(self.weight_load_seconds, 2),
         }
@@ -226,4 +303,10 @@ class TtnnLayaModel:
         for key in list(self.buckets):
             self.release_bucket(key)
         deallocate_weights(self.encoder_params)
-        deallocate_weights({"type_emb": self.head_params["type_emb"], "layers": self.head_params["layers"], "scorer": self.head_params["scorer"]})
+        deallocate_weights(
+            {
+                "type_emb": self.head_params["type_emb"],
+                "layers": self.head_params["layers"],
+                "scorer": self.head_params["scorer"],
+            }
+        )

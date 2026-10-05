@@ -40,11 +40,12 @@ class LayaTraceRunner:
         self.calls = 0
 
     def _dummy_host(self, b: Bucket):
-        ids = torch.full((b.batch_size, b.seq_len), self.model.pad_id, dtype=torch.long)
+        rows = self.model.rows_per_call(b.batch_size)
+        ids = torch.full((rows, b.seq_len), self.model.pad_id, dtype=torch.long)
         ids[:, 0] = self.model.config.cls_token_id if hasattr(self.model.config, "cls_token_id") else self.model.pad_id
-        att = torch.zeros((b.batch_size, b.seq_len), dtype=torch.long)
+        att = torch.zeros((rows, b.seq_len), dtype=torch.long)
         att[:, :8] = 1
-        qt = torch.zeros(b.batch_size, dtype=torch.long)
+        qt = torch.zeros(rows, dtype=torch.long)
         return self.model.host_inputs(ids, att, qt, b.batch_size, b.seq_len)
 
     def warmup(self) -> None:
@@ -72,7 +73,9 @@ class LayaTraceRunner:
         ttnn.end_trace_capture(self.device, tid, cq_id=self.cq_id)
         after = b.input_addresses()
         if before != after:
-            raise RuntimeError(f"input addresses moved during capture of bucket {(b.batch_size, b.seq_len)}: {before} -> {after}")
+            raise RuntimeError(
+                f"input addresses moved during capture of bucket {(b.batch_size, b.seq_len)}: {before} -> {after}"
+            )
         mark_corruptible(logits)
         mark_corruptible(cls)
         b.trace_id = tid
@@ -102,6 +105,38 @@ class LayaTraceRunner:
         self.calls += 1
         return {"logits": lg[:, :L], "cls": cl, "bucket": tuple(bucket), "device_ms": dt * 1000.0}
 
+    def run_timed(self, input_ids, attention_mask, qtype, bucket=None) -> dict:
+        """Blocking replay so the write, the device replay and the host readback are timed apart (stage 5 report)."""
+        n, L = input_ids.shape
+        if bucket is None:
+            bucket = self.model.bucket_for(n, L)
+        b = self.captured.get(tuple(bucket))
+        if b is None:
+            b = self.model.build_bucket(*bucket)
+            self.capture(b)
+        host = self.model.host_inputs(input_ids, attention_mask, qtype, b.batch_size, b.seq_len)
+        if b.input_addresses() != b.addresses:
+            raise RuntimeError("input buffers moved since construction")
+        t0 = time.perf_counter()
+        self.model.write_inputs(b, host)
+        ttnn.synchronize_device(self.device)
+        t1 = time.perf_counter()
+        ttnn.execute_trace(self.device, b.trace_id, cq_id=self.cq_id, blocking=True)
+        t2 = time.perf_counter()
+        logits, cls = b.trace_outputs
+        lg, cl = self.model.readback(logits, cls, host.n_real)
+        t3 = time.perf_counter()
+        self.calls += 1
+        return {
+            "logits": lg[:, :L],
+            "cls": cl,
+            "bucket": tuple(bucket),
+            "write_ms": (t1 - t0) * 1000.0,
+            "replay_ms": (t2 - t1) * 1000.0,
+            "readback_ms": (t3 - t2) * 1000.0,
+            "device_ms": (t3 - t0) * 1000.0,
+        }
+
     def run_eager(self, input_ids, attention_mask, qtype, bucket=None) -> dict:
         return self.model.forward(input_ids, attention_mask, qtype, bucket=bucket)
 
@@ -119,4 +154,5 @@ class LayaTraceRunner:
             "captured": [list(k) for k in self.captured],
             "warmup_seconds": {k: round(v, 2) for k, v in self.warmup_seconds.items()},
             "calls": self.calls,
+            "num_devices": self.model.num_devices,
         }

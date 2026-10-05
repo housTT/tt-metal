@@ -16,21 +16,104 @@
   "head_max_len": 256,
   "temperature_by_options": "identical to the root checkpoint; per-type temperature differs"
  },
- "seq_buckets": {"laya": [512], "laya-typed-decisions": [512, 1024]},
- "row_buckets": {"512": [1, 2, 4, 8, 16, 32, 64], "1024": [1, 2, 4, 8, 16]},
- "exact_row_buckets_optional": [5, 10, 50],
- "bucket_env": {"seq": "LAYA_SEQ_BUCKETS", "rows": "LAYA_ROW_BUCKETS"},
+ "seq_buckets": {
+  "laya": [
+   512
+  ],
+  "laya-typed-decisions": [
+   512,
+   1024
+  ]
+ },
+ "row_buckets": {
+  "512": [
+   1,
+   2,
+   4,
+   8,
+   16,
+   32,
+   64
+  ],
+  "1024": [
+   1,
+   2,
+   4,
+   8,
+   16
+  ]
+ },
+ "exact_row_buckets_optional": [
+  5,
+  10,
+  50
+ ],
+ "bucket_env": {
+  "seq": "LAYA_SEQ_BUCKETS",
+  "rows": "LAYA_ROW_BUCKETS"
+ },
  "limiting_reason": "rl_agent_config.json max_len 512 is the sequence budget of the shipped checkpoint; the vendored build_sequence truncates the state to fit it",
  "input_truncation": "vendor/rl_common.py build_sequence: options capped at 48 tokens each, the option block squeezed to leave at least 16 head tokens, the question text capped to the head budget (at least 8 tokens), the state truncated on the right to max_len - len(head) - 1 tokens, closing [SEP] kept",
  "sequence_format": "[CLS] <type> question: <instructions> [SEP] [MASK] opt0 [MASK] opt1 ... [SEP] <state> [SEP]; token ids cls 50281, sep 50282, pad 50283, mask 50284",
  "batch_contract": "one row per question; rows right-padded with pad id 50283; attention_mask 1 real / 0 pad; marker_pos padded with 0 and marker_mask False; the CPU reference pads to the longest row of the call, the device pads to the seq bucket and the row bucket; padding changes fp32 logits by at most about 4e-6 (doc/probe/README.md)",
- "backend_contract": "forward(input_ids int64 [B,S], attention_mask int64 [B,S], marker_pos int64 [B,kmax], marker_mask bool [B,kmax], qtype int64 [B] with choice 0 / score 1 / noul 2) -> (logits float32 [B,kmax] with -1e4 where marker_mask is False, act_logits float32 [B,2]); shapes() describes the geometry",
+ "backend_contract": "forward(input_ids int64 [B,S], attention_mask int64 [B,S], marker_pos int64 [B,kmax], marker_mask bool [B,kmax], qtype int64 [B] with choice 0 / score 1 / noul 2) -> (logits float32 [B,kmax] with -1e4 where marker_mask is False, act_logits float32 [B,2]); shapes() describes the geometry; implemented by reference/laya_reference.py (CPU fp32) and tt/engine.py LayaEngine (device); the two were compared on the 200-decision gate subset in stage 6 (doc/full_model/README.md)",
  "host_tail": "temperature = temperature_by_options[temp_bucket(type, k)] else temperature[type], clamped to [0.5, 5.0] as pip laya 0.3.27 does (plan amendment A6; the Hub rl_agent_api.py uses the raw value, which differs only for choice:11+); p = softmax(logits[:k] / temperature) in float32; confidence = 1 - H(p)/log k; answer_confidence = max p; score = sum(i p_i); noul = p[1]; act_probability = softmax(act_logits)[0]",
  "activation_outliers": "fp32 residual stream max abs 1404 after layer 5, 4007 after layer 12, 11696 after layer 14, 33109 after layer 19 (channels 379 and 382); post-norm tensors stay under 24; see doc/probe/README.md section 6",
- "attention": {"local_attention": 128, "half_window": 64, "band_width": 129, "full_layers": [0, 3, 6, 9, 12, 15, 18, 21, 24, 27]},
- "rope_theta": {"full_attention": 160000.0, "sliding_attention": 10000.0},
- "typed_decisions_gate_token_lengths": {"min": 130, "mean": 301, "max": 510, "n": 200, "source": "the 200 gate sequences at max_len 512 / head_max_len 192"},
+ "attention": {
+  "local_attention": 128,
+  "half_window": 64,
+  "band_width": 129,
+  "full_layers": [
+   0,
+   3,
+   6,
+   9,
+   12,
+   15,
+   18,
+   21,
+   24,
+   27
+  ]
+ },
+ "rope_theta": {
+  "full_attention": 160000.0,
+  "sliding_attention": 10000.0
+ },
+ "typed_decisions_gate_token_lengths": {
+  "min": 130,
+  "mean": 301,
+  "max": 510,
+  "n": 200,
+  "source": "the 200 gate sequences at max_len 512 / head_max_len 192"
+ },
  "decode_contract": "not applicable (no autoregressive decode)",
  "capacity_evidence": "doc/probe/README.md and /home/hous/dev/laya/reference/parity_corpus_index.json (CPU fp32 corpus at 512); device bucket evidence is added by stages 6 and 7",
- "status": "stage 0 (probe): CPU reference only; the bucket lists are the plan's Appendix A.5 values and are not yet measured on the device"
+ "status": "stage 6 (full model): device engine with the server contract passes the 200-decision gates with bf8w_hifi3_erf; stage 4 data-parallel 1x4 passes; buckets 1 to 64 x 512 captured by the server at startup; seq buckets 256 and 128 are a stage 7 decision from the served token-length histogram",
+ "device_engine": {
+  "module": "tt/engine.py LayaEngine.from_env()",
+  "env": [
+   "LAYA_MODEL_DIR",
+   "LAYA_MESH_SHAPE",
+   "LAYA_PRECISION",
+   "LAYA_SEQ_BUCKETS",
+   "LAYA_ROW_BUCKETS",
+   "LAYA_TRACE",
+   "LAYA_TRACE_REGION_SIZE",
+   "LAYA_L1_SMALL_SIZE",
+   "LAYA_WARMUP_SHAPES",
+   "LAYA_DEVICE_ID",
+   "LAYA_PORT_OVERRIDES",
+   "LAYA_CPU_THREADS"
+  ],
+  "device_outputs": "scorer logits over every position (n, L) float32 and the CLS rows (n, 1024) after the two head layers; the marker gather, the -1e4 fill, the features and act_head run on the host in fp32 (tt/engine.py host_tail, equal to vendor/rl_common.py DecisionModel.forward after the gather)",
+  "pad_rows": "rows beyond the request carry the pad id, an all-zero attention row and qtype 0; shapes()['pad_rows_keep_one_token'] is False (the -1e30 masks keep SDPA finite)",
+  "row_buckets_reported": "total rows per call = per-device bucket x devices; LAYA_ROW_BUCKETS is per device",
+  "mesh": "LAYA_MESH_SHAPE=1x4 opens ttnn.MeshShape(1, 4) without a fabric config: weights replicated, per-call inputs sharded on dim 0, outputs concatenated on dim 0 (doc/multichip_decoder/README.md)"
+ },
+ "device_bucket_evidence": {
+  "measured_on_device": "stage 3 (one chip) buckets 1, 2, 4, 8, 16, 32, 64 x 512 traced; stage 4 (1x4 mesh) per-device buckets 8 and 16 (32 and 64 rows per call); stage 6 gate run at bucket 8x512, B 2 and B 4 end-to-end rows and the alone/B 2/B 4/B 8/B 64 invariance",
+  "precision_policy_passing_stage_6": "bf8w_hifi3_erf (bfp8 matmul weights, bf16 activations, HiFi3, erf GELU fused, fp32 scorer output); gates in doc/full_model/README.md",
+  "throughput_1x4": "453.6 rows per second at 16 rows per chip (3.74x one chip at 64 rows)"
+ }
 }
