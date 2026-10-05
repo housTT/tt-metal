@@ -1,0 +1,231 @@
+{
+ "timestamp": "2026-10-05T22:19:27.193941+00:00",
+ "host": "qb2-120-p11t01",
+ "policy": {
+  "name": "bf8w_hifi3_head_bf16",
+  "linear_dtype": "DataType.BFLOAT8_B",
+  "act_dtype": "DataType.BFLOAT16",
+  "fidelity": "MathFidelity.HiFi3",
+  "mlp_fidelity": "MathFidelity.HiFi3",
+  "gelu": "tanh",
+  "head_policy": "bf16_hifi4",
+  "head_linear_dtype": "DataType.BFLOAT16",
+  "head_fidelity": "MathFidelity.HiFi4",
+  "scorer_fp32_out": true,
+  "scorer_gelu": "erf",
+  "fp32_dest_acc_en": true,
+  "packer_l1_acc": true,
+  "dst_full_sync_en": false,
+  "dest_tiles": 4,
+  "residual_dtype": "DataType.BFLOAT16"
+ },
+ "buckets": [
+  [
+   1,
+   512
+  ],
+  [
+   8,
+   512
+  ],
+  [
+   64,
+   512
+  ]
+ ],
+ "warm": 3,
+ "reps": 20,
+ "loadavg_start": [
+  7.43,
+  7.54,
+  9.02
+ ],
+ "variants": {
+  "policy_bf8w_hifi3_head_bf16": {
+   "port": {
+    "down_grid": "minimal_11x10",
+    "wo_minimal_min_rows": 4096,
+    "qkv_mode": "minimal_11x10",
+    "geglu_plan": "sharded",
+    "intermediate_pad": 2816,
+    "interleaved_pad": 2816,
+    "mlp_grid": [
+     11,
+     8
+    ],
+    "wo_program_config": false,
+    "shard_grid": [
+     8,
+     8
+    ],
+    "shard_min_tiles_per_core": 12,
+    "shard_max_rows": 2048,
+    "shard_mlp_norm": true,
+    "resident_residual": true,
+    "l1_attention_max_rows": 2048,
+    "rotary_shard_min_rows": 24576,
+    "rotary_shard_max_bytes_per_core": 0,
+    "sdpa_grid": "8x8",
+    "sdpa_q_chunk": null,
+    "sdpa_k_chunk": null,
+    "sdpa_large_chunk_rows": 768,
+    "qkv_out_block_h_max": 8,
+    "minimal_block": [
+     8,
+     8,
+     8
+    ],
+    "minimal_grid": [
+     11,
+     10
+    ]
+   },
+   "buckets": {
+    "1x512": {
+     "plan": {
+      "batch_size": 1,
+      "seq_len": 512,
+      "rows": 512,
+      "attention_memory": "L1",
+      "down_core_grid": "ttnn.CoreGrid(x=8, y=8)",
+      "qkv_program_config": null,
+      "minimal_config": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=11-10)",
+      "sdpa_program_config": "SDPAProgramConfig(compute_with_storage_grid_size=8-8, sub_core_grids=std::nullopt, q_chunk_size=128, k_chunk_size=128, exp_approx_mode=false, max_cores_per_head_batch=16)",
+      "mlp_sharded": false,
+      "mlp_width": 2816,
+      "wo_program_config": null,
+      "mlp_down_program_config": null,
+      "qkv_minimal": true,
+      "wo_minimal": false
+     },
+     "eager_ms": [
+      48.724,
+      12.309,
+      12.103,
+      12.063,
+      12.089
+     ],
+     "eager_ms_p50": 12.096107500838116,
+     "traced_ms_p50": 11.810250507551245,
+     "traced_ms_min": 11.770890007028356,
+     "traced_ms_p95": 11.865661013871431,
+     "rows_per_s": 84.67220905776887,
+     "traced_vs_eager_max_abs_logits": 0.0,
+     "loadavg": [
+      6.67,
+      7.37,
+      8.95
+     ],
+     "marker_logits": [
+      1.8154296875,
+      -1.8837890625,
+      0.3505859375,
+      -0.4033203125
+     ]
+    },
+    "8x512": {
+     "plan": {
+      "batch_size": 8,
+      "seq_len": 512,
+      "rows": 4096,
+      "attention_memory": "DRAM",
+      "down_core_grid": "ttnn.CoreGrid(x=8, y=8)",
+      "qkv_program_config": null,
+      "minimal_config": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=11-10)",
+      "sdpa_program_config": "SDPAProgramConfig(compute_with_storage_grid_size=8-8, sub_core_grids=std::nullopt, q_chunk_size=256, k_chunk_size=256, exp_approx_mode=false, max_cores_per_head_batch=16)",
+      "mlp_sharded": false,
+      "mlp_width": 2816,
+      "wo_program_config": null,
+      "mlp_down_program_config": null,
+      "qkv_minimal": true,
+      "wo_minimal": true
+     },
+     "eager_ms": [
+      82.267,
+      67.554,
+      67.321,
+      67.322,
+      67.317
+     ],
+     "eager_ms_p50": 67.32153249322437,
+     "traced_ms_p50": 67.29211547644809,
+     "traced_ms_min": 67.16238299850374,
+     "traced_ms_p95": 67.57291461108252,
+     "rows_per_s": 118.88465600104311,
+     "traced_vs_eager_max_abs_logits": 0.0,
+     "loadavg": [
+      6.67,
+      7.37,
+      8.95
+     ],
+     "marker_logits": [
+      1.853515625,
+      -1.861328125,
+      0.377197265625,
+      -0.3994140625,
+      1.1748046875,
+      -0.0606689453125,
+      1.6396484375,
+      -1.40625
+     ]
+    },
+    "64x512": {
+     "plan": {
+      "batch_size": 64,
+      "seq_len": 512,
+      "rows": 32768,
+      "attention_memory": "DRAM",
+      "down_core_grid": "ttnn.CoreGrid(x=8, y=8)",
+      "qkv_program_config": null,
+      "minimal_config": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=11-10)",
+      "sdpa_program_config": "SDPAProgramConfig(compute_with_storage_grid_size=8-8, sub_core_grids=std::nullopt, q_chunk_size=256, k_chunk_size=256, exp_approx_mode=false, max_cores_per_head_batch=16)",
+      "mlp_sharded": false,
+      "mlp_width": 2816,
+      "wo_program_config": null,
+      "mlp_down_program_config": null,
+      "qkv_minimal": true,
+      "wo_minimal": true
+     },
+     "eager_ms": [
+      486.222,
+      482.278,
+      482.005,
+      482.266,
+      481.851
+     ],
+     "eager_ms_p50": 482.1356579923304,
+     "traced_ms_p50": 482.64325549826026,
+     "traced_ms_min": 481.8267119990196,
+     "traced_ms_p95": 483.0209245919832,
+     "rows_per_s": 132.6031168381896,
+     "traced_vs_eager_max_abs_logits": 0.0,
+     "loadavg": [
+      5.8,
+      7.16,
+      8.86
+     ],
+     "marker_logits": [
+      1.853515625,
+      -1.861328125,
+      0.377197265625,
+      -0.3994140625,
+      1.1748046875,
+      -0.0606689453125,
+      1.6396484375,
+      -1.40625
+     ]
+    }
+   },
+   "error": null,
+   "warmup_seconds": {
+    "phase1": 0.5650849110097624,
+    "phase2": 0.050858105008956045
+   }
+  }
+ },
+ "loadavg_end": [
+  5.8,
+  7.16,
+  8.86
+ ]
+}

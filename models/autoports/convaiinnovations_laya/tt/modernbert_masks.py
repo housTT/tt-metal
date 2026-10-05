@@ -1,86 +1,89 @@
-# SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
-
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-
-"""Additive attention masks, one per layer type.
-
-Built once per sequence length and shared by every layer of that type: 8 full
-layers and 14 sliding layers for ModernBERT-base.
-
-Band geometry: config.local_attention is 128 and the band is symmetric +/-64,
-total width 129. HF's attn.sliding_window attribute holds 65, an internal
-half-representation that is not the band width.
-
-The sliding window is carried by the mask rather than SDPA's
-`sliding_window_size` (see modernbert_attention), so the two layer types differ
-only in this tensor. Full attention needs no mask when nothing is padded.
-"""
 
 import torch
 
 import ttnn
-from models.autoports.convaiinnovations_laya.common import FULL_ATTENTION, SLIDING_ATTENTION
-from models.autoports.convaiinnovations_laya.tt.model_config import ACTIVATIONS_DTYPE
-
-# bfloat16's most negative value is around -3.39e38; use a large finite negative
-# rather than -inf so that softmax cannot produce NaN on fully-masked rows.
-MASK_NEG = -1e30
-
-# Pass no mask on full-attention layers when nothing is padded, rather than an
-# all-zero (B,1,S,S) tensor. Worth -1.8%, and it is why full-attention layers cost
-# 93 us against 146 for sliding ones.
-FULL_MASK_NONE = True
-
-# Materialise the batch dimension rather than broadcasting (1,1,S,S). Broadcasting
-# measured 0.9% slower: SDPA re-reads the mask per (batch, head) either way, so a
-# smaller tensor moves the same bytes.
-BROADCAST_BATCH = False
+from models.autoports.convaiinnovations_laya.tt.model_config import (
+    FULL_ATTENTION,
+    MASK_DTYPE,
+    MASK_NEG,
+    SLIDING_ATTENTION,
+)
 
 
-def build_masks(config, device, seq_len, attention_mask=None, batch_size=1, dtype=ACTIVATIONS_DTYPE):
-    """Return {layer_type: ttnn additive mask}, both attention-shaped (B, 1, S, S).
-
-    attention_mask: torch (B, S), 1 for real tokens and 0 for padding, or None.
-    batch_size: used only when attention_mask is None.
-
-    The masked value is finite, not -inf: see MASK_NEG. Batch is materialised: see
-    BROADCAST_BATCH.
-    """
-    padded = attention_mask is not None and not bool(torch.all(attention_mask == 1))
-
-    pad_row = None
-    if padded:
-        # (B, 1, 1, S) broadcast over query positions
-        pad_row = torch.zeros(attention_mask.shape, dtype=torch.float32)
-        pad_row = pad_row.masked_fill(attention_mask == 0, MASK_NEG)[:, None, None, :]
-
-    batch = attention_mask.shape[0] if attention_mask is not None else batch_size
-
-    half = config.local_attention // 2
+def band_mask(seq_len: int, half_window: int, neg: float = MASK_NEG) -> torch.Tensor:
     idx = torch.arange(seq_len)
-    band = (idx[None, :] - idx[:, None]).abs() <= half
-    sliding = torch.zeros(seq_len, seq_len, dtype=torch.float32).masked_fill(~band, MASK_NEG)[None, None]
-    full = torch.zeros(1, 1, seq_len, seq_len, dtype=torch.float32)
+    band = (idx[None, :] - idx[:, None]).abs() <= half_window
+    return torch.zeros(seq_len, seq_len, dtype=torch.float32).masked_fill(~band, neg)[None, None]
 
-    if pad_row is not None:
-        # broadcasting with (B, 1, 1, S) already yields the batch dimension
-        sliding = sliding + pad_row
-        full = full + pad_row
-    elif not BROADCAST_BATCH:
-        sliding = sliding.expand(batch, 1, seq_len, seq_len).contiguous()
-        full = full.expand(batch, 1, seq_len, seq_len).contiguous()
 
-    full_mask = None
-    if padded or not FULL_MASK_NONE:
-        full_mask = ttnn.from_torch(full, dtype=dtype, layout=ttnn.TILE_LAYOUT, device=device)
+def pad_row_host(attention_mask: torch.Tensor, neg: float = MASK_NEG) -> torch.Tensor:
+    pad = torch.zeros(attention_mask.shape, dtype=torch.float32)
+    return pad.masked_fill(attention_mask == 0, neg)[:, None, None, :]
 
-    return {
-        SLIDING_ATTENTION: ttnn.from_torch(sliding, dtype=dtype, layout=ttnn.TILE_LAYOUT, device=device),
-        FULL_ATTENTION: full_mask,
-    }
+
+def build_masks_host(config, attention_mask: torch.Tensor, seq_len: int, half_window=None, neg: float = MASK_NEG):
+    """Reference (B,1,S,S) additive masks on host, both layer types, same arithmetic as the device path."""
+    half = config.local_attention // 2 if half_window is None else half_window
+    pad = pad_row_host(attention_mask, neg)
+    batch = attention_mask.shape[0]
+    sliding = band_mask(seq_len, half, neg) + pad
+    full = torch.zeros(batch, 1, seq_len, seq_len, dtype=torch.float32) + pad
+    return {SLIDING_ATTENTION: sliding, FULL_ATTENTION: full}
+
+
+def _upload(t, device, mesh_mapper, dtype):
+    kw = {"device": device, "memory_config": ttnn.DRAM_MEMORY_CONFIG}
+    if mesh_mapper is not None:
+        kw["mesh_mapper"] = mesh_mapper
+    return ttnn.from_torch(t, dtype=dtype, layout=ttnn.TILE_LAYOUT, **kw)
+
+
+class TtnnMaskBuilder:
+    """Static per-bucket band and zero tensors in DRAM; per call the pad row is added on device."""
+
+    def __init__(self, config, device, seq_len, batch_size, mesh_mapper=None, dtype=MASK_DTYPE, half_window=None):
+        self.seq_len = seq_len
+        self.batch_size = batch_size
+        self.dtype = dtype
+        self.device = device
+        self.mesh_mapper = mesh_mapper
+        half = config.local_attention // 2 if half_window is None else half_window
+        band = band_mask(seq_len, half).expand(batch_size, 1, seq_len, seq_len).contiguous()
+        zeros = torch.zeros(batch_size, 1, seq_len, seq_len, dtype=torch.float32)
+        self.band = _upload(band, device, mesh_mapper, dtype)
+        self.zeros = _upload(zeros, device, mesh_mapper, dtype)
+
+    def pad_row_tensor(self, attention_mask: torch.Tensor):
+        """Host tensor (B,1,1,S) bf16 TILE, ready for copy_host_to_device_tensor or from_torch."""
+        return ttnn.from_torch(pad_row_host(attention_mask), dtype=self.dtype, layout=ttnn.TILE_LAYOUT)
+
+    def allocate_pad_row(self):
+        return ttnn.allocate_tensor_on_device(
+            ttnn.Shape((self.batch_size, 1, 1, self.seq_len)),
+            self.dtype,
+            ttnn.TILE_LAYOUT,
+            self.device,
+            ttnn.DRAM_MEMORY_CONFIG,
+        )
+
+    def upload_pad_row(self, attention_mask: torch.Tensor):
+        return _upload(pad_row_host(attention_mask), self.device, self.mesh_mapper, self.dtype)
+
+    def build(self, pad_row):
+        """pad_row: device (B,1,1,S) tensor. Returns {layer_type: (B,1,S,S) DRAM mask}."""
+        sliding = ttnn.add(self.band, pad_row, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        full = ttnn.add(self.zeros, pad_row, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        return {SLIDING_ATTENTION: sliding, FULL_ATTENTION: full}
+
+    def deallocate(self):
+        for t in (self.band, self.zeros):
+            if t.is_allocated():
+                ttnn.deallocate(t)
 
 
 def deallocate_masks(masks):
     for m in masks.values():
-        if m is not None:
+        if m is not None and m.is_allocated():
             ttnn.deallocate(m)

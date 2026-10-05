@@ -1,0 +1,223 @@
+{
+ "timestamp": "2026-10-05T21:43:27.491378+00:00",
+ "host": "qb2-120-p11t01",
+ "policy": {
+  "name": "bf8w_hifi3",
+  "linear_dtype": "DataType.BFLOAT8_B",
+  "act_dtype": "DataType.BFLOAT16",
+  "fidelity": "MathFidelity.HiFi3",
+  "mlp_fidelity": "MathFidelity.HiFi3",
+  "gelu": "tanh",
+  "head_policy": "same",
+  "head_linear_dtype": "DataType.BFLOAT8_B",
+  "head_fidelity": "MathFidelity.HiFi3",
+  "scorer_fp32_out": true,
+  "scorer_gelu": "erf",
+  "fp32_dest_acc_en": true,
+  "packer_l1_acc": true,
+  "dst_full_sync_en": false,
+  "dest_tiles": 4
+ },
+ "buckets": [
+  [
+   1,
+   512
+  ],
+  [
+   8,
+   512
+  ],
+  [
+   64,
+   512
+  ]
+ ],
+ "warm": 3,
+ "reps": 20,
+ "loadavg_start": [
+  2.11,
+  8.75,
+  17.45
+ ],
+ "variants": {
+  "down_grid_auto": {
+   "port": {
+    "down_grid": "auto",
+    "qkv_mode": "mcast_8x8",
+    "geglu_plan": "sharded",
+    "intermediate_pad": 2816,
+    "interleaved_pad": 0,
+    "mlp_grid": [
+     8,
+     8
+    ],
+    "wo_program_config": false,
+    "shard_grid": [
+     8,
+     8
+    ],
+    "shard_min_tiles_per_core": 12,
+    "shard_max_rows": 2048,
+    "shard_mlp_norm": true,
+    "resident_residual": true,
+    "l1_attention_max_rows": 2048,
+    "rotary_shard_min_rows": 24576,
+    "rotary_shard_max_bytes_per_core": 524288,
+    "sdpa_grid": "full",
+    "sdpa_q_chunk": null,
+    "sdpa_k_chunk": null,
+    "sdpa_large_chunk_rows": 768,
+    "qkv_out_block_h_max": 8,
+    "minimal_block": [
+     8,
+     8,
+     8
+    ],
+    "minimal_grid": [
+     11,
+     10
+    ]
+   },
+   "buckets": {
+    "1x512": {
+     "plan": {
+      "batch_size": 1,
+      "seq_len": 512,
+      "rows": 512,
+      "attention_memory": "L1",
+      "down_core_grid": null,
+      "qkv_program_config": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=2,out_block_w=12,per_core_M=2,per_core_N=12,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=1,allowed_worker_cores=std::nullopt)",
+      "minimal_config": null,
+      "sdpa_program_config": "SDPAProgramConfig(compute_with_storage_grid_size=11-10, sub_core_grids=std::nullopt, q_chunk_size=128, k_chunk_size=128, exp_approx_mode=false, max_cores_per_head_batch=16)",
+      "mlp_sharded": false,
+      "mlp_width": 2624,
+      "wo_program_config": null,
+      "mlp_down_program_config": null
+     },
+     "eager_ms": [
+      1832.819,
+      17.056,
+      16.817,
+      16.834,
+      16.767
+     ],
+     "eager_ms_p50": 16.8258479970973,
+     "traced_ms_p50": 16.406602022470906,
+     "traced_ms_min": 16.379218985093758,
+     "traced_ms_p95": 16.465652240731288,
+     "rows_per_s": 60.95107314911242,
+     "traced_vs_eager_max_abs_logits": 0.0,
+     "loadavg": [
+      1.87,
+      8.37,
+      17.19
+     ],
+     "marker_logits": [
+      1.8330078125,
+      -1.8896484375,
+      0.3564453125,
+      -0.35791015625
+     ]
+    },
+    "8x512": {
+     "plan": {
+      "batch_size": 8,
+      "seq_len": 512,
+      "rows": 4096,
+      "attention_memory": "DRAM",
+      "down_core_grid": null,
+      "qkv_program_config": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=8,out_block_w=12,per_core_M=16,per_core_N=12,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=1,allowed_worker_cores=std::nullopt)",
+      "minimal_config": null,
+      "sdpa_program_config": "SDPAProgramConfig(compute_with_storage_grid_size=11-10, sub_core_grids=std::nullopt, q_chunk_size=256, k_chunk_size=256, exp_approx_mode=false, max_cores_per_head_batch=16)",
+      "mlp_sharded": false,
+      "mlp_width": 2624,
+      "wo_program_config": null,
+      "mlp_down_program_config": null
+     },
+     "eager_ms": [
+      1578.576,
+      96.856,
+      96.643,
+      96.589,
+      96.624
+     ],
+     "eager_ms_p50": 96.63372700742912,
+     "traced_ms_p50": 96.66130848927423,
+     "traced_ms_min": 96.47884999867529,
+     "traced_ms_p95": 97.02235652512172,
+     "rows_per_s": 82.76320820639107,
+     "traced_vs_eager_max_abs_logits": 0.0,
+     "loadavg": [
+      1.87,
+      8.37,
+      17.19
+     ],
+     "marker_logits": [
+      1.865234375,
+      -1.8798828125,
+      0.355224609375,
+      -0.3759765625,
+      1.16796875,
+      -0.058013916015625,
+      1.6494140625,
+      -1.4619140625
+     ]
+    },
+    "64x512": {
+     "plan": {
+      "batch_size": 64,
+      "seq_len": 512,
+      "rows": 32768,
+      "attention_memory": "DRAM",
+      "down_core_grid": null,
+      "qkv_program_config": "MatmulMultiCoreReuseMultiCastProgramConfig(compute_with_storage_grid_size=8-8,in0_block_w=8,out_subblock_h=1,out_subblock_w=4,out_block_h=8,out_block_w=12,per_core_M=128,per_core_N=12,transpose_mcast=0,fused_activation=std::nullopt,fuse_batch=1,allowed_worker_cores=std::nullopt)",
+      "minimal_config": null,
+      "sdpa_program_config": "SDPAProgramConfig(compute_with_storage_grid_size=11-10, sub_core_grids=std::nullopt, q_chunk_size=256, k_chunk_size=256, exp_approx_mode=false, max_cores_per_head_batch=16)",
+      "mlp_sharded": false,
+      "mlp_width": 2624,
+      "wo_program_config": null,
+      "mlp_down_program_config": null
+     },
+     "eager_ms": [
+      1562.661,
+      714.568,
+      715.214,
+      715.48,
+      715.025
+     ],
+     "eager_ms_p50": 715.1195100013865,
+     "traced_ms_p50": 716.0954990104074,
+     "traced_ms_min": 714.8359739803709,
+     "traced_ms_p95": 717.410393046157,
+     "rows_per_s": 89.3735543491663,
+     "traced_vs_eager_max_abs_logits": 0.0,
+     "loadavg": [
+      2.37,
+      8.05,
+      16.9
+     ],
+     "marker_logits": [
+      1.865234375,
+      -1.8798828125,
+      0.355224609375,
+      -0.3759765625,
+      1.16796875,
+      -0.058013916015625,
+      1.6494140625,
+      -1.4619140625
+     ]
+    }
+   },
+   "error": null,
+   "warmup_seconds": {
+    "phase1": 0.8316447570105083,
+    "phase2": 0.05467295600101352
+   }
+  }
+ },
+ "loadavg_end": [
+  2.37,
+  8.05,
+  16.9
+ ]
+}

@@ -1,0 +1,182 @@
+{
+ "timestamp": "2026-10-05T22:13:54.623139+00:00",
+ "host": "qb2-120-p11t01",
+ "policy": {
+  "name": "bf8w_hifi3",
+  "linear_dtype": "DataType.BFLOAT8_B",
+  "act_dtype": "DataType.BFLOAT16",
+  "fidelity": "MathFidelity.HiFi3",
+  "mlp_fidelity": "MathFidelity.HiFi3",
+  "gelu": "tanh",
+  "head_policy": "same",
+  "head_linear_dtype": "DataType.BFLOAT8_B",
+  "head_fidelity": "MathFidelity.HiFi3",
+  "scorer_fp32_out": true,
+  "scorer_gelu": "erf",
+  "fp32_dest_acc_en": true,
+  "packer_l1_acc": true,
+  "dst_full_sync_en": false,
+  "dest_tiles": 4,
+  "residual_dtype": "DataType.BFLOAT16"
+ },
+ "buckets": [
+  [
+   2,
+   512
+  ],
+  [
+   4,
+   512
+  ]
+ ],
+ "warm": 3,
+ "reps": 20,
+ "loadavg_start": [
+  7.38,
+  7.85,
+  9.71
+ ],
+ "variants": {
+  "cand_C4_C1_geglu_interleaved_b2b4": {
+   "port": {
+    "down_grid": "minimal_11x10",
+    "qkv_mode": "minimal_11x10",
+    "geglu_plan": "interleaved",
+    "intermediate_pad": 2816,
+    "interleaved_pad": 2816,
+    "mlp_grid": [
+     11,
+     8
+    ],
+    "wo_program_config": false,
+    "shard_grid": [
+     8,
+     8
+    ],
+    "shard_min_tiles_per_core": 12,
+    "shard_max_rows": 2048,
+    "shard_mlp_norm": true,
+    "resident_residual": true,
+    "l1_attention_max_rows": 2048,
+    "rotary_shard_min_rows": 24576,
+    "rotary_shard_max_bytes_per_core": 0,
+    "sdpa_grid": "8x8",
+    "sdpa_q_chunk": null,
+    "sdpa_k_chunk": null,
+    "sdpa_large_chunk_rows": 768,
+    "qkv_out_block_h_max": 8,
+    "minimal_block": [
+     8,
+     8,
+     8
+    ],
+    "minimal_grid": [
+     11,
+     10
+    ]
+   },
+   "buckets": {
+    "2x512": {
+     "plan": {
+      "batch_size": 2,
+      "seq_len": 512,
+      "rows": 1024,
+      "attention_memory": "L1",
+      "down_core_grid": "ttnn.CoreGrid(x=8, y=8)",
+      "qkv_program_config": null,
+      "minimal_config": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=11-10)",
+      "sdpa_program_config": "SDPAProgramConfig(compute_with_storage_grid_size=8-8, sub_core_grids=std::nullopt, q_chunk_size=256, k_chunk_size=256, exp_approx_mode=false, max_cores_per_head_batch=16)",
+      "mlp_sharded": false,
+      "mlp_width": 2816,
+      "wo_program_config": null,
+      "mlp_down_program_config": null,
+      "qkv_minimal": true,
+      "wo_minimal": true
+     },
+     "eager_ms": [
+      82.326,
+      19.892,
+      19.902,
+      20.415,
+      20.292
+     ],
+     "eager_ms_p50": 20.097442509722896,
+     "traced_ms_p50": 19.536473002517596,
+     "traced_ms_min": 19.325244007632136,
+     "traced_ms_p95": 21.48717551463051,
+     "rows_per_s": 102.37262374545637,
+     "traced_vs_eager_max_abs_logits": 0.0,
+     "loadavg": [
+      7.99,
+      7.97,
+      9.74
+     ],
+     "marker_logits": [
+      1.8525390625,
+      -1.8876953125,
+      0.379150390625,
+      -0.376708984375,
+      0.68359375,
+      0.427490234375
+     ]
+    },
+    "4x512": {
+     "plan": {
+      "batch_size": 4,
+      "seq_len": 512,
+      "rows": 2048,
+      "attention_memory": "L1",
+      "down_core_grid": "ttnn.CoreGrid(x=8, y=8)",
+      "qkv_program_config": null,
+      "minimal_config": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=11-10)",
+      "sdpa_program_config": "SDPAProgramConfig(compute_with_storage_grid_size=8-8, sub_core_grids=std::nullopt, q_chunk_size=256, k_chunk_size=256, exp_approx_mode=false, max_cores_per_head_batch=16)",
+      "mlp_sharded": false,
+      "mlp_width": 2816,
+      "wo_program_config": null,
+      "mlp_down_program_config": null,
+      "qkv_minimal": true,
+      "wo_minimal": true
+     },
+     "eager_ms": [
+      2019.763,
+      32.746,
+      33.49,
+      33.119,
+      32.775
+     ],
+     "eager_ms_p50": 32.947326501016505,
+     "traced_ms_p50": 32.55310699751135,
+     "traced_ms_min": 32.11766801541671,
+     "traced_ms_p95": 32.86443591641728,
+     "rows_per_s": 122.87613591863277,
+     "traced_vs_eager_max_abs_logits": 0.0,
+     "loadavg": [
+      7.99,
+      7.97,
+      9.74
+     ],
+     "marker_logits": [
+      1.8525390625,
+      -1.8876953125,
+      0.379150390625,
+      -0.376708984375,
+      1.177734375,
+      -0.072601318359375,
+      1.63671875,
+      -1.404296875
+     ]
+    }
+   },
+   "error": null,
+   "warmup_seconds": {
+    "phase1": 0.05688349899719469,
+    "phase2": 0.048459999001352116
+   }
+  }
+ },
+ "loadavg_end": [
+  7.99,
+  7.97,
+  9.74
+ ]
+}

@@ -1,182 +1,304 @@
-# SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
-
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Torch -> TTNN weight preparation for ModernBERT.
+import os
+from typing import Dict, Iterable, Optional
 
-Hand-rolled rather than preprocess_model_parameters, which dereferences
-`model.bias` on every LayerNorm and so raises on this bias-free model.
-
-  * ttnn.linear wants [in, out]; torch stores [out, in], so linear weights are
-    transposed here at load time.
-  * Layer 0 has no attn_norm (nn.Identity in HF), so its entry is None.
-  * Matmul weights are bfloat8_b, embeddings and norms bfloat16.
-"""
+import torch
 
 import ttnn
-from models.autoports.convaiinnovations_laya.tt.model_config import LINEAR_WEIGHTS_DTYPE, WEIGHTS_DTYPE
+from models.autoports.convaiinnovations_laya.tt.model_config import (
+    DEFAULT_POLICY,
+    WEIGHTS_DTYPE,
+    expected_tensor_count,
+    padded_intermediate,
+)
 
-EXPECTED_TENSOR_COUNT = 134
-# encoder (134) + head.dense.weight + head.norm.weight + decoder.weight + decoder.bias
-EXPECTED_MLM_TENSOR_COUNT = 138
+ENCODER_PREFIX = "encoder."
+HEAD_LAYER_KEYS = (
+    "self_attn.in_proj_weight",
+    "self_attn.in_proj_bias",
+    "self_attn.out_proj.weight",
+    "self_attn.out_proj.bias",
+    "linear1.weight",
+    "linear1.bias",
+    "linear2.weight",
+    "linear2.bias",
+    "norm1.weight",
+    "norm1.bias",
+    "norm2.weight",
+    "norm2.bias",
+)
+SCORER_KEYS = ("0.weight", "0.bias", "1.weight", "1.bias", "3.weight", "3.bias")
+ACT_HEAD_KEYS = ("0.weight", "0.bias", "2.weight", "2.bias")
+HEAD_LAYERS = 2
 
 
-def _linear(weight, device, dtype):
-    """torch nn.Linear stores [out, in]; ttnn.linear wants [in, out]."""
-    return ttnn.from_torch(
-        weight.transpose(-1, -2).contiguous(),
-        dtype=dtype,
-        layout=ttnn.TILE_LAYOUT,
-        device=device,
-    )
+def default_weights_path() -> str:
+    env = os.environ.get("LAYA_MODEL_DIR")
+    if env:
+        return os.path.join(env, "model.safetensors")
+    return "/home/hous/dev/laya/state/laya_models/laya/model.safetensors"
 
 
-def _qkv_linear(weight, device, dtype, head_dim):
-    """Wqkv with the attention scaling folded into the Q third.
+def load_state_dict(path: Optional[str] = None, dtype=torch.float32) -> Dict[str, torch.Tensor]:
+    from safetensors.torch import load_file
 
-    sdpa.cpp rescales attn_mask by 1/scale on every call unless scale is exactly
-    1.0. Folding 1/sqrt(head_dim) into Wq lets attention pass scale=1.0 and skip
-    that rescale in every layer carrying a mask.
+    path = path or default_weights_path()
+    sd = load_file(path)
+    return {k: v.to(dtype) for k, v in sd.items()}
 
-    Exact, not an approximation: head_dim 64 gives 1/8, a power of two. RoPE is
-    linear in Q, so scaling before it is equivalent to scaling after. Q is the
-    first contiguous third of rows (Wqkv reshapes to (B, S, 3, n_heads, head_dim)).
-    """
+
+def split_state_dict(sd: Dict[str, torch.Tensor]) -> Dict[str, object]:
+    enc = {k[len(ENCODER_PREFIX) :]: v for k, v in sd.items() if k.startswith(ENCODER_PREFIX)}
+    head = {k[len("head.") :]: v for k, v in sd.items() if k.startswith("head.")}
+    scorer = {k[len("scorer.") :]: v for k, v in sd.items() if k.startswith("scorer.")}
+    act = {k[len("act_head.") :]: v for k, v in sd.items() if k.startswith("act_head.")}
+    return {
+        "encoder": enc,
+        "head": head,
+        "scorer": scorer,
+        "act_head": act,
+        "type_emb": sd["type_emb.weight"],
+        "temperature": sd["temperature"],
+    }
+
+
+def encoder_key_map(config) -> Iterable[str]:
+    keys = ["embeddings.tok_embeddings.weight", "embeddings.norm.weight", "final_norm.weight"]
+    for i in range(config.num_hidden_layers):
+        if i > 0:
+            keys.append(f"layers.{i}.attn_norm.weight")
+        keys += [
+            f"layers.{i}.attn.Wqkv.weight",
+            f"layers.{i}.attn.Wo.weight",
+            f"layers.{i}.mlp_norm.weight",
+            f"layers.{i}.mlp.Wi.weight",
+            f"layers.{i}.mlp.Wo.weight",
+        ]
+    return keys
+
+
+def check_encoder_keys(enc: Dict[str, torch.Tensor], config) -> None:
+    want = set(encoder_key_map(config))
+    got = set(enc)
+    if want != got:
+        raise ValueError(f"encoder key map mismatch: missing={sorted(want - got)} extra={sorted(got - want)}")
+    if len(got) != expected_tensor_count(config):
+        raise ValueError(f"expected {expected_tensor_count(config)} encoder tensors, got {len(got)}")
+    h, inter = config.hidden_size, config.intermediate_size
+    shapes = {
+        "embeddings.tok_embeddings.weight": (config.vocab_size, h),
+        "layers.0.attn.Wqkv.weight": (3 * h, h),
+        "layers.0.attn.Wo.weight": (h, h),
+        "layers.0.mlp.Wi.weight": (2 * inter, h),
+        "layers.0.mlp.Wo.weight": (h, inter),
+    }
+    for k, shape in shapes.items():
+        if tuple(enc[k].shape) != shape:
+            raise ValueError(f"{k} has shape {tuple(enc[k].shape)}, expected {shape}")
+
+
+def check_head_keys(parts: Dict[str, object], config) -> None:
+    h = config.hidden_size
+    for i in range(HEAD_LAYERS):
+        for k in HEAD_LAYER_KEYS:
+            if f"layers.{i}.{k}" not in parts["head"]:
+                raise ValueError(f"missing head key layers.{i}.{k}")
+    for k in SCORER_KEYS:
+        if k not in parts["scorer"]:
+            raise ValueError(f"missing scorer key {k}")
+    if tuple(parts["head"]["layers.0.self_attn.in_proj_weight"].shape) != (3 * h, h):
+        raise ValueError("head in_proj_weight shape mismatch")
+    if tuple(parts["scorer"]["3.weight"].shape) != (1, h):
+        raise ValueError("scorer final linear shape mismatch")
+    if tuple(parts["type_emb"].shape) != (3, h):
+        raise ValueError("type_emb shape mismatch")
+
+
+def fold_q_scale(weight: torch.Tensor, head_dim: int) -> torch.Tensor:
     scaled = weight.clone()
     q_rows = scaled.shape[0] // 3
     scaled[:q_rows] *= head_dim**-0.5
-    return _linear(scaled, device, dtype)
+    return scaled
 
 
-def _norm(weight, device, dtype):
-    return ttnn.from_torch(weight, dtype=dtype, layout=ttnn.TILE_LAYOUT, device=device)
+def fold_q_scale_bias(bias: torch.Tensor, head_dim: int) -> torch.Tensor:
+    scaled = bias.clone()
+    q = scaled.shape[0] // 3
+    scaled[:q] *= head_dim**-0.5
+    return scaled
 
 
-def head_dim(torch_model):
-    """head_dim, read from the model's own config.
-
-    Both the reference ModernBertModel and HF's expose .config, and
-    prepare_weights accepts either.
-    """
-    cfg = torch_model.config
-    return cfg.hidden_size // cfg.num_attention_heads
+def split_wi(wi: torch.Tensor, intermediate_size: int):
+    return wi[:intermediate_size, :], wi[intermediate_size:, :]
 
 
-def config_intermediate(layer):
-    """intermediate_size, read from the layer's own Wi shape.
-
-    Wi emits 2 * intermediate_size, so the split point is half its output.
-    """
-    return layer.mlp.Wi.weight.shape[0] // 2
-
-
-def _embedding(weight, device, dtype):
-    """Embedding tables are stored row-major.
-
-    ttnn.embedding consumes a row-major table. A tiled one is converted on every
-    call, which for this 50368x768 table showed up in the profile as a 752 us
-    untilize immediately before the embedding op -- 5.5% of the forward pass.
-    """
-    return ttnn.from_torch(weight, dtype=dtype, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+def pad_up_projection(weight_out_in: torch.Tensor, width: int) -> torch.Tensor:
+    out, inp = weight_out_in.shape
+    if width == out:
+        return weight_out_in
+    padded = torch.zeros(width, inp, dtype=weight_out_in.dtype)
+    padded[:out] = weight_out_in
+    return padded
 
 
-def prepare_weights(torch_model, device, dtype=WEIGHTS_DTYPE, linear_dtype=LINEAR_WEIGHTS_DTYPE):
-    """Convert a torch ModernBertModel (ours or HF) into device tensors.
+def pad_down_projection(weight_out_in: torch.Tensor, width: int) -> torch.Tensor:
+    out, inp = weight_out_in.shape
+    if width == inp:
+        return weight_out_in
+    padded = torch.zeros(out, width, dtype=weight_out_in.dtype)
+    padded[:, :inp] = weight_out_in
+    return padded
 
-    Returns a nested dict mirroring the module tree:
-        {"embeddings": {...}, "layers": [ {...} x22 ], "final_norm": t}
 
-    `linear_dtype` covers the matmul weight matrices, `dtype` the embedding table and
-    the norm weights. They differ because bfloat8_b is only representable for the
-    former: it is a tiled block format, so it cannot hold the row-major embedding
-    table, and a 1-D norm weight would share its exponent with 31 rows of tile
-    padding. Both are exposed as arguments so the choice stays measurable -- see
-    model_config for what the measurement showed.
-    """
-    sd_count = len(torch_model.state_dict())
-    if sd_count != EXPECTED_TENSOR_COUNT:
-        raise ValueError(f"expected {EXPECTED_TENSOR_COUNT} tensors, got {sd_count}")
+class _Uploader:
+    def __init__(self, device, mesh_mapper=None):
+        self.device = device
+        self.mesh_mapper = mesh_mapper
+
+    def _kw(self):
+        kw = {"device": self.device}
+        if self.mesh_mapper is not None:
+            kw["mesh_mapper"] = self.mesh_mapper
+        return kw
+
+    def linear(self, weight_out_in, dtype):
+        return ttnn.from_torch(
+            weight_out_in.transpose(-1, -2).contiguous(), dtype=dtype, layout=ttnn.TILE_LAYOUT, **self._kw()
+        )
+
+    def row(self, vec, dtype):
+        return ttnn.from_torch(vec.reshape(1, -1).contiguous(), dtype=dtype, layout=ttnn.TILE_LAYOUT, **self._kw())
+
+    def norm(self, vec, dtype):
+        return ttnn.from_torch(vec.contiguous(), dtype=dtype, layout=ttnn.TILE_LAYOUT, **self._kw())
+
+    def embedding(self, table, dtype):
+        return ttnn.from_torch(table.contiguous(), dtype=dtype, layout=ttnn.ROW_MAJOR_LAYOUT, **self._kw())
+
+
+def _as_encoder_state_dict(source) -> Dict[str, torch.Tensor]:
+    if isinstance(source, dict):
+        sd = source
+    else:
+        sd = source.state_dict()
+    if any(k.startswith(ENCODER_PREFIX) for k in sd):
+        return split_state_dict(sd)["encoder"]
+    return dict(sd)
+
+
+def prepare_weights(
+    source,
+    config,
+    device,
+    policy=DEFAULT_POLICY,
+    mesh_mapper=None,
+    intermediate_pads=(None, 2816),
+    dtype=WEIGHTS_DTYPE,
+    layers=None,
+):
+    """Upload the 170 encoder tensors. Returns {"embeddings", "layers": [{attn_norm, attn, mlp_norm, mlp: {width: {...}}}], "final_norm"}."""
+    enc = _as_encoder_state_dict(source)
+    check_encoder_keys(enc, config)
+    up = _Uploader(device, mesh_mapper)
+    linear_dtype = policy.linear_dtype
+    head_dim = config.hidden_size // config.num_attention_heads
+    inter = config.intermediate_size
+    widths = sorted({padded_intermediate(inter, p or 0) for p in intermediate_pads})
+    wanted = None if layers is None else set(layers)
 
     params = {
         "embeddings": {
-            "tok_embeddings": _embedding(torch_model.embeddings.tok_embeddings.weight, device, dtype),
-            "norm": _norm(torch_model.embeddings.norm.weight, device, dtype),
+            "tok_embeddings": up.embedding(enc["embeddings.tok_embeddings.weight"], dtype),
+            "norm": up.norm(enc["embeddings.norm.weight"], dtype),
         },
         "layers": [],
-        "final_norm": _norm(torch_model.final_norm.weight, device, dtype),
+        "final_norm": up.norm(enc["final_norm.weight"], dtype),
+        "widths": widths,
     }
-
-    qkv_head_dim = head_dim(torch_model)
-    for idx, layer in enumerate(torch_model.layers):
-        entry = {
-            # None for layer 0: HF uses nn.Identity there because the embedding
-            # LayerNorm has already normalised the input.
-            "attn_norm": None if idx == 0 else _norm(layer.attn_norm.weight, device, dtype),
-            "attn": {
-                # Kept fused. Wqkv output reshapes to (B, S, 3, n_heads, head_dim),
-                # i.e. the 3 is the OUTER dim, so Q/K/V split contiguously.
-                "Wqkv": _qkv_linear(layer.attn.Wqkv.weight, device, linear_dtype, qkv_head_dim),
-                "Wo": _linear(layer.attn.Wo.weight, device, linear_dtype),
-            },
-            "mlp_norm": _norm(layer.mlp_norm.weight, device, dtype),
-            "mlp": {
-                # Wi produces 2 * intermediate_size, which HF chunks into
-                # (input, gate). Splitting it here into two weights lets the MLP
-                # run two matmuls instead of one wide matmul plus two runtime
-                # slices, measured faster at every validated shape:
-                #   seq 256   189.7 us -> 151.1 us
-                #   seq 512   218.0 us -> 203.8 us
-                # torch stores [out, in]; after transposing to [in, out] the
-                # activated half is the first intermediate_size columns.
-                "Wi_act": _linear(layer.mlp.Wi.weight[: config_intermediate(layer), :], device, linear_dtype),
-                "Wi_gate": _linear(layer.mlp.Wi.weight[config_intermediate(layer) :, :], device, linear_dtype),
-                "Wo": _linear(layer.mlp.Wo.weight, device, linear_dtype),
-            },
-        }
-        params["layers"].append(entry)
-
+    for i in range(config.num_hidden_layers):
+        if wanted is not None and i not in wanted:
+            params["layers"].append(None)
+            continue
+        p = f"layers.{i}."
+        wi_act, wi_gate = split_wi(enc[p + "mlp.Wi.weight"], inter)
+        mlp = {}
+        for w in widths:
+            mlp[w] = {
+                "Wi_act": up.linear(pad_up_projection(wi_act, w), linear_dtype),
+                "Wi_gate": up.linear(pad_up_projection(wi_gate, w), linear_dtype),
+                "Wo": up.linear(pad_down_projection(enc[p + "mlp.Wo.weight"], w), linear_dtype),
+            }
+        params["layers"].append(
+            {
+                "attn_norm": None if i == 0 else up.norm(enc[p + "attn_norm.weight"], dtype),
+                "attn": {
+                    "Wqkv": up.linear(fold_q_scale(enc[p + "attn.Wqkv.weight"], head_dim), linear_dtype),
+                    "Wo": up.linear(enc[p + "attn.Wo.weight"], linear_dtype),
+                },
+                "mlp_norm": up.norm(enc[p + "mlp_norm.weight"], dtype),
+                "mlp": mlp,
+            }
+        )
     return params
 
 
-def deallocate_weights(params):
-    """Release every device tensor held by prepare_weights()."""
-
-    def _walk(node):
-        if isinstance(node, dict):
-            for v in node.values():
-                _walk(v)
-        elif isinstance(node, list):
-            for v in node:
-                _walk(v)
-        elif isinstance(node, ttnn.Tensor):
-            ttnn.deallocate(node)
-
-    _walk(params)
-
-
-def prepare_mlm_weights(torch_mlm, device, dtype=WEIGHTS_DTYPE, linear_dtype=LINEAR_WEIGHTS_DTYPE):
-    """Convert a torch ModernBertForMaskedLM into device tensors.
-
-    Returns the encoder params under "model", plus the MLM head:
-        {"model": {...}, "head": {...}, "decoder": {"weight": t, "bias": t}}
-
-    The decoder is the only biased layer in the model (decoder_bias=True) and its
-    weight is tied to embeddings.tok_embeddings.weight (tie_word_embeddings=True),
-    so it is uploaded a second time here in transposed [in, out] form for use as a
-    linear rather than shared with the embedding lookup.
-    """
-    sd_count = len(torch_mlm.state_dict())
-    if sd_count != EXPECTED_MLM_TENSOR_COUNT:
-        raise ValueError(f"expected {EXPECTED_MLM_TENSOR_COUNT} tensors, got {sd_count}")
-
-    return {
-        "model": prepare_weights(torch_mlm.model, device, dtype, linear_dtype),
-        "head": {
-            "dense": _linear(torch_mlm.head.dense.weight, device, linear_dtype),
-            "norm": _norm(torch_mlm.head.norm.weight, device, dtype),
-        },
-        "decoder": {
-            "weight": _linear(torch_mlm.decoder.weight, device, linear_dtype),
-            "bias": _norm(torch_mlm.decoder.bias, device, dtype),
+def prepare_head_weights(sd, config, device, policy=DEFAULT_POLICY, mesh_mapper=None, dtype=WEIGHTS_DTYPE):
+    """Upload type_emb, the two head layers (fused in_proj with the Q-scale fold) and the scorer."""
+    parts = split_state_dict(sd) if "type_emb.weight" in sd else sd
+    check_head_keys(parts, config)
+    up = _Uploader(device, mesh_mapper)
+    head_dim = config.hidden_size // config.num_attention_heads
+    ldt = policy.head_linear_dtype
+    layers = []
+    for i in range(HEAD_LAYERS):
+        g = lambda k: parts["head"][f"layers.{i}.{k}"]
+        layers.append(
+            {
+                "norm1": {"weight": up.norm(g("norm1.weight"), dtype), "bias": up.norm(g("norm1.bias"), dtype)},
+                "in_proj": {
+                    "weight": up.linear(fold_q_scale(g("self_attn.in_proj_weight"), head_dim), ldt),
+                    "bias": up.row(fold_q_scale_bias(g("self_attn.in_proj_bias"), head_dim), dtype),
+                },
+                "out_proj": {
+                    "weight": up.linear(g("self_attn.out_proj.weight"), ldt),
+                    "bias": up.row(g("self_attn.out_proj.bias"), dtype),
+                },
+                "norm2": {"weight": up.norm(g("norm2.weight"), dtype), "bias": up.norm(g("norm2.bias"), dtype)},
+                "linear1": {"weight": up.linear(g("linear1.weight"), ldt), "bias": up.row(g("linear1.bias"), dtype)},
+                "linear2": {"weight": up.linear(g("linear2.weight"), ldt), "bias": up.row(g("linear2.bias"), dtype)},
+            }
+        )
+    sc = parts["scorer"]
+    out_dtype = ttnn.float32 if policy.scorer_fp32_out else ldt
+    scorer = {
+        "norm": {"weight": up.norm(sc["0.weight"], dtype), "bias": up.norm(sc["0.bias"], dtype)},
+        "dense": {"weight": up.linear(sc["1.weight"], ldt), "bias": up.row(sc["1.bias"], dtype)},
+        "out": {
+            "weight": up.linear(sc["3.weight"], out_dtype),
+            "bias": up.row(sc["3.bias"], out_dtype if policy.scorer_fp32_out else dtype),
         },
     }
+    return {
+        "type_emb": up.embedding(parts["type_emb"], dtype),
+        "layers": layers,
+        "scorer": scorer,
+        "temperature": parts["temperature"].clone(),
+        "act_head": {k: v.clone() for k, v in parts["act_head"].items()},
+    }
+
+
+def deallocate_weights(params) -> None:
+    def walk(node):
+        if isinstance(node, dict):
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, (list, tuple)):
+            for v in node:
+                walk(v)
+        elif isinstance(node, ttnn.Tensor):
+            if node.is_allocated():
+                ttnn.deallocate(node)
+
+    walk(params)
