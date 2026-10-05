@@ -1,0 +1,41 @@
+Cloudflare/clef port for Tenstorrent Blackhole (models/autoports/cloudflare_clef)
+Licensed under the Apache License, Version 2.0 (the tt-metal repository license).
+
+This directory vendors code and designs from two Apache-2.0 sources.
+
+1. Cloudflare/clef release code
+   Source:  https://huggingface.co/Cloudflare/clef, file joint_schema_model.py
+   Revision: 2f3de3dd85f379784083b0814d997ab627200f0c
+   License: Apache License, Version 2.0 (the LICENSE file of that repository)
+   Vendored:
+     tt/head.py  <- joint_schema_model.py lines 242 to 461: the classes EvidenceRoutingLayer and
+                    JointSchemaHead, copied verbatim so the joint schema head runs on the host CPU
+                    in fp32 without loading the release backbone.
+   Used at run time without copying (loaded from the weights snapshot with importlib):
+     encode_record, render, question_options, systemone_answer, SYSTEM_PROMPT and the token
+     helpers of joint_schema_model.py (tt/encode.py, tt/server.py).
+
+2. kev (jaredpalmer/kev) serving design, through the Tenstorrent kev-9b port
+   Source:  https://github.com/jaredpalmer/kev at commit 952ce9d, and
+            models/autoports/jaredpalmer_kev_9b in this repository (its NOTICE lists kev's files)
+   License: Apache License, Version 2.0
+   Reused as a design and partly as code (rewritten for Clef's joint head, no byte copies of kev):
+     tt/server.py  <- jaredpalmer_kev_9b/tt/server.py: Settings, parse_mesh_shape, worker threads,
+                      least-recently-used prefix cache with per-slot handling, the FastAPI routes
+                      and middleware, the lifespan, the request log line.
+     tt/api.py     <- jaredpalmer_kev_9b/tt/api.py: request model layout. The validation rules and
+                      the answer bodies follow joint_schema_model.systemone() instead of kev.
+     tt/fake_engine.py <- the FakeEngine of jaredpalmer_kev_9b/tt/server.py (seeded pseudo-random
+                      hidden rows through the real head and tokenizer).
+     tests/test_server_api.py <- jaredpalmer_kev_9b/tests/test_server_api.py (test plan).
+   Demo presets (demo/presets.json, when the demo stage ships them) reuse kev's Apache-2.0 presets
+   and labelled development records as jaredpalmer_kev_9b/NOTICE describes.
+
+The vendored code was reduced to what the Tenstorrent serving path needs. Class and function
+names of the Cloudflare release are unchanged.
+
+3. New Yorker caption contest cartoons (demo/assets/*.png, 10 files)
+   Source:  https://huggingface.co/datasets/jmhessel/newyorker_caption_contest (matching config, revision d81cbab7d0392708d5371d3a4960e69261824db4),
+            Hessel et al., "Do Androids Laugh at Electric Sheep?", arXiv:2209.06293
+   License: Creative Commons Attribution 4.0 (CC BY 4.0), as stated on the dataset card
+   Used:    unmodified PNG copies as demo inputs; the demo page and README carry the attribution.

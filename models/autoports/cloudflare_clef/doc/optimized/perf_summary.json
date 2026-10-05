@@ -1,0 +1,509 @@
+{
+ "model": "Cloudflare/clef",
+ "revision": "2f3de3dd85f379784083b0814d997ab627200f0c",
+ "device": "P150x2 (TP=2 on a (1,2) submesh of a (1,4) parent, FABRIC_1D, path A of stage 0)",
+ "layers": 64,
+ "chunk_size": 1024,
+ "buckets": [
+  128,
+  256,
+  512,
+  1024
+ ],
+ "precision": {
+  "QWEN36_MLP_GATE_UP_DTYPE": "bfp8",
+  "QWEN36_MLP_DOWN_DTYPE": "bf16",
+  "QWEN36_PROJ_DTYPE": "bfp8",
+  "QWEN36_MATMUL_FIDELITY": "HiFi2",
+  "QWEN36_GDN_GATE_FP32": "1"
+ },
+ "gdn_conv_kernel_traced": "fir (QWEN_GDN_CONV=fir, the eager masked-bucket kernel)",
+ "traces": {
+  "count": 13,
+  "keys": [
+   "('fwd', 128)",
+   "('fwd', 256)",
+   "('fwd', 512)",
+   "('fwd', 1024)",
+   "('restore', 0)",
+   "('save', 0)",
+   "('restore', 1)",
+   "('save', 1)",
+   "('restore', 2)",
+   "('save', 2)",
+   "('restore', 3)",
+   "('save', 3)",
+   "('zero',)"
+  ],
+  "trace_region_reserved_bytes": 1073741824,
+  "trace_region_used_bytes": 137232384,
+  "trace_region_used_mib": 130.9,
+  "trace_region_used_mib_kda_conv_body": 92.6
+ },
+ "engine_load_s": {
+  "total": 109.8,
+  "host_state_dict": 2.4,
+  "model_build": 93.6,
+  "vision_build": 8.9,
+  "vision_warm": 0.65,
+  "trace_warm": 2.69,
+  "trace_capture": 0.81
+ },
+ "dram_free_gib_per_device": {
+  "after_text_weights": 13.772,
+  "after_slots": 10.661,
+  "after_traces": 10.591,
+  "snapshot_slots": 4
+ },
+ "prefill_hidden_s_by_bucket": {
+  "128": {
+   "traced": 0.1734,
+   "eager": 0.1718
+  },
+  "256": {
+   "traced": 0.1871,
+   "eager": 0.1913
+  },
+  "512": {
+   "traced": 0.2201,
+   "eager": 0.2257
+  },
+  "1024": {
+   "traced": 0.3375,
+   "eager": 0.345
+  }
+ },
+ "state_prefill_s": {
+  "2200": {
+   "traced_prefill": 0.8621,
+   "eager_prefill": 0.8712,
+   "traced_schema_198": 0.2027,
+   "eager_schema_198": 0.2085
+  },
+  "8192": {
+   "traced_prefill": 2.9439,
+   "eager_prefill": 2.9537,
+   "traced_schema_198": 0.2491,
+   "eager_schema_198": 0.2554
+  }
+ },
+ "state_prefill_s_16384_tokens_traced_cached_miss_device": 6.901,
+ "state_16384_cache_hit_device_s": 0.479,
+ "replay_correctness": {
+  "traced_vs_eager_max_dp_16_records": 0.0,
+  "traced_vs_cpu_bf16_max_dp": 0.07215064764022827,
+  "traced_vs_cpu_bf16_flips_at_margin": 0,
+  "image_traced_vs_eager_max_dp": 0.0,
+  "video_traced_vs_eager_max_dp": 0.0,
+  "long_records_traced_cached_vs_eager_full_max_dp": 0.0,
+  "alloc_tracking_log": "/home/hous/dev/clef/logs/stage3r_traced_l64_alloc_tracking.log (clean rerun, 6 passed, 1 skipped; first run stage3_traced_l64_alloc_tracking.log)"
+ },
+ "server": {
+  "mode": "traced (CLEF_TRACED=1), path A on this box",
+  "startup_s_starting_to_application_startup_complete": 107,
+  "engine_load_s": 102.7,
+  "warmup_latency_ms": 271.5,
+  "dram_free_gib_after_slots": 10.66,
+  "dram_free_gib_after_traces": 10.59,
+  "parity_over_http": {
+   "text_16_records_max_dp_vs_cpu_bf16": 0.0722,
+   "text_flips_at_margin": 0,
+   "image_8_records_max_dp": 0.0463,
+   "video_max_dp": 0.0126,
+   "served_vs_engine_rows_max_dp": 4.9e-05,
+   "summary": "/home/hous/dev/clef/reports/stage3_http_parity_summary.json"
+  },
+  "bench_report": "/home/hous/dev/clef/reports/bench/p150x2_traced/report.json",
+  "card_row": "| P150x2 (TP=2) | 416.0 / 411.9 ms | 1412.8 / 534.5 ms | 2.37 |",
+  "latency_ms": {
+   "3 questions, blog triage state": {
+    "tokens": 346,
+    "new": 268.8,
+    "cached": 269.25
+   },
+   "2 questions, short state": {
+    "tokens": 274,
+    "new": 262.1,
+    "cached": 260.45
+   },
+   "6 questions, short state": {
+    "tokens": 723,
+    "new": 416.0,
+    "cached": 411.9
+   },
+   "5 questions, 370-token state": {
+    "tokens": 964,
+    "new": 781.65,
+    "cached": 424.75
+   },
+   "5 questions, 2,200-token state": {
+    "tokens": 2789,
+    "new": 1412.85,
+    "cached": 534.45
+   }
+  },
+  "requests_per_s_64_clients_short": 2.37,
+  "requests_per_s_64_clients_2200_token_state": 0.71,
+  "demo": {
+   "replay_accuracy": 0.917,
+   "replay_records_passed": "22/24",
+   "replay_latency_ms_mean": 773.4,
+   "logs": "/home/hous/dev/clef/logs/stage8_device_quickstart_*.log"
+  },
+  "card_row_traced_planner": "| P150x2 (TP=2), traced + prefix planner | 406.5 / 404.9 ms | 1214.1 / 523.4 ms | n/a |",
+  "card_row_eager": "| P150x2 (TP=2), eager | 430.3 / 428.0 ms | 1429.3 / 583.2 ms | n/a |",
+  "latency_ms_traced_planner": {
+   "3 questions, blog triage state": {
+    "tokens": 346,
+    "new": 268.35,
+    "cached": 271.45000000000005
+   },
+   "2 questions, short state": {
+    "tokens": 274,
+    "new": 257.9,
+    "cached": 254.60000000000002
+   },
+   "6 questions, short state": {
+    "tokens": 723,
+    "new": 406.5,
+    "cached": 404.85
+   },
+   "5 questions, 370-token state": {
+    "tokens": 964,
+    "new": 419.1,
+    "cached": 419.45
+   },
+   "5 questions, 2,200-token state": {
+    "tokens": 2789,
+    "new": 1214.1,
+    "cached": 523.4000000000001
+   }
+  },
+  "latency_ms_eager": {
+   "3 questions, blog triage state": {
+    "tokens": 346,
+    "new": 281.04999999999995,
+    "cached": 279.0
+   },
+   "2 questions, short state": {
+    "tokens": 274,
+    "new": 268.7,
+    "cached": 267.45
+   },
+   "6 questions, short state": {
+    "tokens": 723,
+    "new": 430.29999999999995,
+    "cached": 427.95000000000005
+   },
+   "5 questions, 370-token state": {
+    "tokens": 964,
+    "new": 682.7,
+    "cached": 447.2
+   },
+   "5 questions, 2,200-token state": {
+    "tokens": 2789,
+    "new": 1429.3000000000002,
+    "cached": 583.2
+   }
+  },
+  "bench_report_traced_planner": "/home/hous/dev/clef/reports/bench/p150x2_traced_planner/report.json",
+  "bench_report_eager": "/home/hous/dev/clef/reports/bench/p150x2_eager/report.json",
+  "card_row_eager_planner_off": "| P150x2 (TP=2), eager, planner=0 | 416.8 / 414.3 ms | 1407.7 / 522.8 ms | n/a |",
+  "card_row_eager_planner_on": "| P150x2 (TP=2), eager, planner=1 | 415.2 / 409.3 ms | 1229.1 / 527.5 ms | n/a |",
+  "latency_ms_eager_planner_off": {
+   "3 questions, blog triage state": {
+    "tokens": 346,
+    "new": 268.29999999999995,
+    "cached": 268.8
+   },
+   "2 questions, short state": {
+    "tokens": 274,
+    "new": 263.95000000000005,
+    "cached": 259.5
+   },
+   "6 questions, short state": {
+    "tokens": 723,
+    "new": 416.8,
+    "cached": 414.3
+   },
+   "5 questions, 370-token state": {
+    "tokens": 964,
+    "new": 655.1500000000001,
+    "cached": 424.29999999999995
+   },
+   "5 questions, 2,200-token state": {
+    "tokens": 2789,
+    "new": 1407.7,
+    "cached": 522.75
+   }
+  },
+  "latency_ms_eager_planner_on": {
+   "3 questions, blog triage state": {
+    "tokens": 346,
+    "new": 271.15,
+    "cached": 269.2
+   },
+   "2 questions, short state": {
+    "tokens": 274,
+    "new": 261.55,
+    "cached": 258.85
+   },
+   "6 questions, short state": {
+    "tokens": 723,
+    "new": 415.25,
+    "cached": 409.29999999999995
+   },
+   "5 questions, 370-token state": {
+    "tokens": 964,
+    "new": 424.2,
+    "cached": 416.9
+   },
+   "5 questions, 2,200-token state": {
+    "tokens": 2789,
+    "new": 1229.1,
+    "cached": 527.55
+   }
+  },
+  "bench_report_eager_planner_off": "/home/hous/dev/clef/reports/bench/p150x2_eager_planner0/report.json",
+  "bench_report_eager_planner_on": "/home/hous/dev/clef/reports/bench/p150x2_eager_planner1/report.json"
+ },
+ "device_profile": {
+  "variant": "4 layers (3 GDN + 1 attention), eager 1024-token prefill window PERF_EAGER_1024",
+  "ops_csv": "/home/hous/dev/clef/reports/stage3_tracy/ops_perf_results_clef_l4.csv (38 MB, kept out of the repo)",
+  "window_report": "/home/hous/dev/clef/tt-metal/models/autoports/cloudflare_clef/doc/optimized/tracy/PERF_EAGER_1024_perf_report.csv",
+  "ops": 273,
+  "rows_without_device_duration": 53,
+  "device_kernel_sum_ms_per_4_layers": 17.5,
+  "op_to_op_gap_sum_ms_per_4_layers": 3.9,
+  "by_class_ms": {
+   "matmul": 11.32,
+   "other_relayout_conv": 3.82,
+   "gdn_kernel": 1.05,
+   "ccl_with_duration": 0.88,
+   "attention": 0.34,
+   "norm": 0.14
+  },
+  "scaled_64_layers_device_kernel_ms_per_1024_chunk": 280,
+  "measured_wall_ms_per_1024_chunk": {
+   "eager": 345,
+   "traced": 338
+  },
+  "host_dispatch_removed_by_tracing_ms_per_1024_chunk": 7,
+  "traced_windows": "empty in the post-processed CSV (replayed ops attributed to capture time); traced programs are bit-identical to eager",
+  "matmul_policy": "not applied: dominant matmuls are the fused AllGatherMinimalMatmulAsyncOp of qwen36 tp_common (not reachable by a ttnn.linear rebind, outside the allowed changes); the plain down projection runs at 188 TFLOP/s per chip"
+ },
+ "matmul_program_config_policy": "not applied (see README, Perf breakdown)",
+ "sources": {
+  "engine_test": "/home/hous/dev/clef/reports/stage3_traced_l64.json",
+  "tracker_test": "/home/hous/dev/clef/reports/stage3_traced_l64_alloc_r.json",
+  "unseen_grid_probe": "/home/hous/dev/clef/reports/stage3r_unseen_grid_probe_l4.json"
+ },
+ "watcher": {
+  "log": "/home/hous/dev/clef/logs/stage3_watcher_l4_watcher.log",
+  "tests": "4 passed",
+  "scope": "Tensix cores; TT_METAL_WATCHER_DISABLE_ETH=1 after the ACTIVE_ETH kernel config buffer overflow",
+  "errors": 0
+ },
+ "prefix_planner": {
+  "engine": "ClefEngine.plan_prefix (traced and eager since the review remediation; CLEF_PLANNER)",
+  "cost_table_s": {
+   "128": 0.173,
+   "256": 0.187,
+   "512": 0.22,
+   "1024": 0.338
+  },
+  "effect_370_token_state_new_ms": {
+   "before": 781.65,
+   "after": 419.1
+  },
+  "effect_2200_token_state_new_ms": {
+   "before": 1412.85,
+   "after": 1214.1
+  },
+  "parity_unchanged_max_dp": 0.0,
+  "eager_cost_table_s": {
+   "128": 0.172,
+   "256": 0.191,
+   "512": 0.226,
+   "1024": 0.345
+  },
+  "eager_effect_370_token_state_new_ms": {
+   "planner_off": 655.1500000000001,
+   "planner_on": 424.2
+  },
+  "eager_effect_2200_token_state_new_ms": {
+   "planner_off": 1407.7,
+   "planner_on": 1229.1
+  },
+  "eager_parity_unchanged_max_dp": 0.0
+ },
+ "engine_file_sha256": "3b9a5ee009f8aee7d740dd391b8f9419824341371f977b93211abf17563268e2",
+ "shipped_mode": {
+  "engine": "eager (CLEF_TRACED=0) with the prefix planner (CLEF_PLANNER=1)",
+  "decided": "2026 Oct 05 after the stage 3 review (reports/review_stage3.md P1); doc/optimized/README.md 'Why eager is the default'",
+  "traced_opt_in": "CLEF_TRACED=1 with CLEF_VISION_WARM_GRID; grids outside the list are refused with 422",
+  "unseen_grid_probe": "/home/hous/dev/clef/reports/stage3r_unseen_grid_probe_l4.json (9 program-cache buffers, slice and patch merger, 2.116 s)"
+ },
+ "server_shipped": {
+  "mode": "eager (CLEF_TRACED=0), prefix planner on (CLEF_PLANNER=1), path A on this box",
+  "startup_s_starting_to_application_startup_complete": 106,
+  "engine_load_s": 100.6,
+  "warmup_latency_ms": 374.6,
+  "dram_free_gib_after_weights": 14.77,
+  "dram_free_gib_after_slots": 11.72,
+  "bench_report": "/home/hous/dev/clef/reports/bench/p150x2_eager_shipped/report.json",
+  "card_row": "| P150x2 (TP=2), eager, prefix planner (shipped) | 412.6 / 410.4 ms | 1231.2 / 533.8 ms | 2.36 |",
+  "latency_ms": {
+   "3 questions, blog triage state": {
+    "tokens": 346,
+    "new": 268.2,
+    "new_p95": 274.4,
+    "cached": 265.0,
+    "cached_p95": 276.4
+   },
+   "2 questions, short state": {
+    "tokens": 274,
+    "new": 267.85,
+    "new_p95": 272.1,
+    "cached": 257.79999999999995,
+    "cached_p95": 266.8
+   },
+   "6 questions, short state": {
+    "tokens": 723,
+    "new": 412.55,
+    "new_p95": 432.3,
+    "cached": 410.35,
+    "cached_p95": 418.4
+   },
+   "5 questions, 370-token state": {
+    "tokens": 964,
+    "new": 426.04999999999995,
+    "new_p95": 452.9,
+    "cached": 423.15,
+    "cached_p95": 447.4
+   },
+   "5 questions, 2,200-token state": {
+    "tokens": 2789,
+    "new": 1231.15,
+    "new_p95": 1273.6,
+    "cached": 533.75,
+    "cached_p95": 558.2
+   }
+  },
+  "throughput": {
+   "6 questions, new short state @ 1 clients": {
+    "p50_ms": 423.7,
+    "p99_ms": 445.8,
+    "model_p50_ms": 416.6,
+    "requests_per_s": 2.35,
+    "requests": 256,
+    "wall_s": 109.0
+   },
+   "6 questions, new short state @ 8 clients": {
+    "p50_ms": 3390.0,
+    "p99_ms": 3458.8,
+    "model_p50_ms": 419.1,
+    "requests_per_s": 2.36,
+    "requests": 256,
+    "wall_s": 108.5
+   },
+   "6 questions, new short state @ 32 clients": {
+    "p50_ms": 13585.4,
+    "p99_ms": 13677.4,
+    "model_p50_ms": 420.0,
+    "requests_per_s": 2.35,
+    "requests": 256,
+    "wall_s": 108.7
+   },
+   "6 questions, new short state @ 64 clients": {
+    "p50_ms": 27101.8,
+    "p99_ms": 27298.1,
+    "model_p50_ms": 419.1,
+    "requests_per_s": 2.36,
+    "requests": 256,
+    "wall_s": 108.6
+   },
+   "dev64 text records @ 1 clients": {
+    "p50_ms": 432.3,
+    "p99_ms": 896.4,
+    "model_p50_ms": 428.6,
+    "requests_per_s": 2.31,
+    "requests": 64,
+    "wall_s": 27.7
+   },
+   "dev64 text records @ 8 clients": {
+    "p50_ms": 3180.5,
+    "p99_ms": 5137.7,
+    "model_p50_ms": 427.7,
+    "requests_per_s": 2.34,
+    "requests": 64,
+    "wall_s": 27.4
+   },
+   "dev64 text records @ 32 clients": {
+    "p50_ms": 12357.5,
+    "p99_ms": 15174.1,
+    "model_p50_ms": 428.1,
+    "requests_per_s": 2.32,
+    "requests": 64,
+    "wall_s": 27.6
+   },
+   "dev64 text records @ 64 clients": {
+    "p50_ms": 12688.6,
+    "p99_ms": 27225.0,
+    "model_p50_ms": 428.3,
+    "requests_per_s": 2.31,
+    "requests": 64,
+    "wall_s": 27.7
+   },
+   "5 questions, 2,200-token state @ 1 clients": {
+    "p50_ms": 1232.9,
+    "p99_ms": 1293.2,
+    "model_p50_ms": 1222.8,
+    "requests_per_s": 0.81,
+    "requests": 64,
+    "wall_s": 79.4
+   },
+   "5 questions, 2,200-token state @ 8 clients": {
+    "p50_ms": 9912.6,
+    "p99_ms": 9975.0,
+    "model_p50_ms": 1231.1,
+    "requests_per_s": 0.81,
+    "requests": 64,
+    "wall_s": 79.3
+   },
+   "5 questions, 2,200-token state @ 32 clients": {
+    "p50_ms": 39438.9,
+    "p99_ms": 39592.7,
+    "model_p50_ms": 1229.9,
+    "requests_per_s": 0.81,
+    "requests": 64,
+    "wall_s": 79.1
+   },
+   "5 questions, 2,200-token state @ 64 clients": {
+    "p50_ms": 40132.3,
+    "p99_ms": 77659.6,
+    "model_p50_ms": 1228.8,
+    "requests_per_s": 0.81,
+    "requests": 64,
+    "wall_s": 78.9
+   }
+  },
+  "parity_over_http": {
+   "text_16_records_max_dp_vs_cpu_bf16": 0.0722,
+   "text_flips_at_margin": 0,
+   "image_8_records_max_dp": 0.0463,
+   "video_max_dp": 0.0126,
+   "vs_traced_server_rows_max_dp": 0.0,
+   "summary": "/home/hous/dev/clef/reports/stage3r_http_shipped_parity_summary.json"
+  },
+  "long_max_16384_over_http": {
+   "latency_ms_miss": 7471.8,
+   "latency_ms_hit": 1600.0,
+   "max_dp_vs_cpu_bf16": 0.0181,
+   "flips": 0,
+   "rows": "/home/hous/dev/clef/reports/stage3r_http_shipped_long_max.jsonl"
+  },
+  "server_log": "/home/hous/dev/clef/logs/stage3r_server_shipped.log"
+ },
+ "server_file_sha256": "9118f83773250c36c927caa3068d2359db446e64d0b5e4e742539a96f8612bc1"
+}

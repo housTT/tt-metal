@@ -36,8 +36,28 @@ CACHE_RELOAD_MODES = ("off", "host_to_device", "stock")
 VISION_MAX_SEQ_LEN = 4096
 MEDIA_KEYS = ("pixel_values", "image_grid_thw", "pixel_values_videos", "video_grid_thw")
 SPARE_BLOCKS = MAX_BUCKET // BLOCK_SIZE
+REPLAY_COST_S = {128: 0.173, 256: 0.187, 512: 0.220, 1024: 0.338}
+EAGER_COST_S = {128: 0.172, 256: 0.191, 512: 0.226, 1024: 0.345}
 TRACE_GUARD_BYTES = 2 << 30
-VISION_WARM_GRID = (1, 16, 16)
+REFERENCE_GRIDS = "1,16,20;1,22,38;1,26,36;1,28,36;1,28,38;1,40,50;2,16,20"
+WARM_GRID_HELP = (
+    "CLEF_TRACED=1 serves only image grids compiled before the traces were captured: set "
+    "CLEF_VISION_WARM_GRID to a ;-separated list of t,h,w grids (for the 8 reference images and the video: "
+    f"{REFERENCE_GRIDS}), or run eager with CLEF_TRACED=0 (the default), which accepts any grid"
+)
+
+
+def single_grid_message(n_grids):
+    return (
+        f"this request carries {n_grids} image or video grids; a traced server (CLEF_TRACED=1) takes one grid "
+        "per request, because the tower joins several images with a concat program compiled per image count "
+        "and no vision program may compile while traces are live: send one image (or one video) per request, "
+        "or serve with CLEF_TRACED=0 (the default), which accepts several"
+    )
+
+
+def parse_grids(text):
+    return [tuple(int(g) for g in part.split(",")) for part in text.split(";") if part.strip()]
 
 
 def aligned_pieces(length):
@@ -264,6 +284,7 @@ class ClefEngine:
         traced=None,
         trace_guard_bytes=None,
         vision_warm_grid=None,
+        planner=None,
     ):
         assert chunk_size == MAX_BUCKET, f"chunk_size must be {MAX_BUCKET} at TP=2 (stage 0 finding 2)"
         self.mesh = mesh
@@ -277,12 +298,18 @@ class ClefEngine:
         self.prefill_only_mlp = prefill_only_mlp
         self.precision = precision_defaults.active()
         self.traced = (os.environ.get("CLEF_TRACED", "0") == "1") if traced is None else bool(traced)
+        self.planner = (os.environ.get("CLEF_PLANNER", "1") == "1") if planner is None else bool(planner)
+        if self.traced:
+            os.environ.setdefault("QWEN_GDN_CONV", "fir")
+        self.gdn_conv_impl = os.environ.get("QWEN_GDN_CONV", "kda") if self.traced else "fir"
+        self.cost_table = REPLAY_COST_S if self.traced else EAGER_COST_S
         self.trace_guard_bytes = (
             int(os.environ.get("CLEF_TRACE_GUARD_BYTES", str(TRACE_GUARD_BYTES)))
             if trace_guard_bytes is None
             else int(trace_guard_bytes)
         )
         self.vision_warm_grid = vision_warm_grid
+        self.vision_warmed_grids = []
         self.traces = {}
         self.trace_bytes = 0
         self.bufs = {}
@@ -379,8 +406,10 @@ class ClefEngine:
             f"ClefEngine ready: load {self.timings['load_total_s']:.1f} s (state dict "
             f"{self.timings['host_state_dict_s']:.1f} s, build {self.timings['model_build_s']:.1f} s), "
             f"DRAM free after weights {self.dram_free_after_weights / 2**30:.2f} GiB, after slots "
-            f"{self.dram_free_after_slots / 2**30:.2f} GiB, slots {self.snapshot_slots}, blocks/slot {self.blocks_per_slot}, "
-            f"traced={self.traced} traces={len(self.traces)} trace_region_used={self.trace_bytes / 2**20:.1f} MiB"
+            f"{self.dram_free_after_slots / 2**30:.2f} GiB, slots {self.snapshot_slots}, "
+            f"blocks/slot {self.blocks_per_slot}, traced={self.traced} traces={len(self.traces)} "
+            f"trace_region_used={self.trace_bytes / 2**20:.1f} MiB, gdn_conv={self.gdn_conv_impl}, "
+            f"planner={self.planner}, warm_grids={[g for g, _ in self.vision_warmed_grids]}"
         )
 
     def _dev(self, t, dtype, layout):
@@ -398,33 +427,47 @@ class ClefEngine:
         if not self.traces:
             yield
             return
-        self.mesh.set_program_cache_misses_allowed(True)
+        self._misses_depth = getattr(self, "_misses_depth", 0) + 1
+        if self._misses_depth == 1:
+            self.mesh.set_program_cache_misses_allowed(True)
         try:
             yield
         finally:
-            self.mesh.set_program_cache_misses_allowed(False)
+            self._misses_depth -= 1
+            if self._misses_depth == 0:
+                self.mesh.set_program_cache_misses_allowed(False)
 
     def _warm_vision_tower(self):
-        grid = self.vision_warm_grid
-        if grid is None:
-            text = os.environ.get("CLEF_VISION_WARM_GRID", ",".join(str(g) for g in VISION_WARM_GRID))
-            grid = tuple(int(g) for g in text.split(",")) if text.strip() else None
-        if not grid:
-            return
+        grids = self.vision_warm_grid
+        if grids is None:
+            text = os.environ.get("CLEF_VISION_WARM_GRID")
+            if text is None:
+                raise ValueError(WARM_GRID_HELP)
+            grids = parse_grids(text)
+        elif grids and isinstance(grids[0], int):
+            grids = [tuple(grids)]
+        if not grids:
+            raise ValueError(WARM_GRID_HELP)
         t0 = time.perf_counter()
-        grid_t = torch.tensor([list(grid)], dtype=torch.long)
-        n_patches = int(grid_t.prod())
-        pixels = torch.randn(
-            n_patches, 3 * 2 * 16 * 16, dtype=torch.float32, generator=torch.Generator().manual_seed(0)
-        )
-        tokens = self.model.get_image_features(pixels, grid_t)
-        ttnn.synchronize_device(self.mesh)
-        ttnn.deallocate(tokens)
+        warmed = []
+        for grid in grids:
+            grid_t = torch.tensor([list(grid)], dtype=torch.long)
+            n_patches = int(grid_t.prod())
+            pixels = torch.randn(
+                n_patches, 3 * 2 * 16 * 16, dtype=torch.float32, generator=torch.Generator().manual_seed(0)
+            )
+            if int(grid[0]) > 1:
+                tokens = self.model.get_video_features(pixels, grid_t)
+            else:
+                tokens = self.model.get_image_features(pixels, grid_t)
+            ttnn.synchronize_device(self.mesh)
+            ttnn.deallocate(tokens)
+            warmed.append((tuple(grid), n_patches))
         self.model._req_image_grid_thw = None
+        self.model._req_video_grid_thw = None
         self.timings["vision_warm_s"] = time.perf_counter() - t0
-        logger.info(
-            f"vision tower warmed on grid {grid} ({n_patches} patches) in {self.timings['vision_warm_s']:.1f} s"
-        )
+        self.vision_warmed_grids = warmed
+        logger.info(f"vision tower warmed on grids {warmed} in {self.timings['vision_warm_s']:.1f} s")
 
     def _alloc_guard(self, nbytes):
         if nbytes <= 0:
@@ -685,16 +728,16 @@ class ClefEngine:
             raise ValueError("this engine was built without the vision tower (CLEF_VISION=0)")
         if pixels is not None and video_pixels is not None:
             raise ValueError("one media kind per request: the backbone stages one grid (images or videos)")
+        video = video_pixels is not None
+        grid = torch.as_tensor(media["video_grid_thw" if video else "image_grid_thw"]).reshape(-1, 3)
+        if self.traced:
+            self.check_warm_grids(grid)
         t0 = time.perf_counter()
         with self._misses_allowed():
-            if pixels is not None:
-                grid = torch.as_tensor(media["image_grid_thw"]).reshape(-1, 3)
-                tokens = self.model.get_image_features(pixels, grid)
-                video = False
-            else:
-                grid = torch.as_tensor(media["video_grid_thw"]).reshape(-1, 3)
+            if video:
                 tokens = self.model.get_video_features(video_pixels, grid)
-                video = True
+            else:
+                tokens = self.model.get_image_features(pixels, grid)
             ttnn.synchronize_device(self.mesh)
             n_rows = int(tokens.shape[0])
             rows_host = None
@@ -723,6 +766,19 @@ class ClefEngine:
             tower=dict(self.vision.last_run),
         )
         return request
+
+    def check_warm_grids(self, grid):
+        rows = torch.as_tensor(grid).reshape(-1, 3).tolist()
+        if len(rows) > 1:
+            raise ValueError(single_grid_message(len(rows)))
+        warmed = {tuple(g) for g, _ in self.vision_warmed_grids}
+        for row in rows:
+            if tuple(row) not in warmed:
+                raise ValueError(
+                    f"image grid {tuple(row)} is not in this traced server's warm list {sorted(warmed)}: "
+                    "resize the image to a warmed grid, add the grid to CLEF_VISION_WARM_GRID, "
+                    "or serve with CLEF_TRACED=0"
+                )
 
     def _stage_rope(self, token_ids, vision):
         if vision is None:
@@ -826,9 +882,37 @@ class ClefEngine:
             if vision is not None:
                 vision.release()
 
-    def prefill_state(self, state_ids, slot=0, key=None, media=None):
+    def _chunk_cost(self, length, exact):
+        if length <= 0:
+            return 0.0
+        if exact:
+            pieces = [self.chunk_size] * (length // self.chunk_size) + aligned_pieces(length % self.chunk_size)
+        else:
+            full, rest = divmod(length, self.chunk_size)
+            pieces = [self.chunk_size] * full + ([self.bucket_for(rest)] if rest else [])
+        return sum(self.cost_table[p] for p in pieces)
+
+    def plan_prefix(self, S, tail_len=None):
+        S0_max = (S // ALIGN) * ALIGN
+        if not self.planner or tail_len is None:
+            return S0_max
+        exact = self.traced
+        base_tail = self._chunk_cost(S - S0_max + tail_len, exact=False)
+        best, best_cost = S0_max, self._chunk_cost(S0_max, exact=exact) + base_tail
+        S0 = S0_max - ALIGN
+        while S0 >= 0 and S0 > S0_max - self.chunk_size:
+            tail_cost = self._chunk_cost(S - S0 + tail_len, exact=False)
+            if tail_cost > base_tail:
+                break
+            cost = self._chunk_cost(S0, exact=exact) + tail_cost
+            if cost < best_cost:
+                best, best_cost = S0, cost
+            S0 -= ALIGN
+        return best
+
+    def prefill_state(self, state_ids, slot=0, key=None, media=None, tail_len=None):
         S = state_ids.shape[1]
-        S0 = (S // ALIGN) * ALIGN
+        S0 = self.plan_prefix(S, tail_len)
         assert state_ids.shape[0] == 1
         assert S <= self.max_state_len, f"S={S} exceeds max_state_len={self.max_state_len}"
         assert 0 <= slot < self.snapshot_slots, f"slot {slot} out of range"
@@ -856,7 +940,7 @@ class ClefEngine:
         handle = self.handles[slot]
         hit = handle is not None and handle.key == key
         if not hit:
-            handle = self.prefill_state(state_ids, slot, key, media=media)
+            handle = self.prefill_state(state_ids, slot, key, media=media, tail_len=int(tail_ids.shape[1]))
         tail_hidden = self.schema_hidden(handle, tail_ids)
         return torch.cat([self.prefix_hidden[slot], tail_hidden], dim=0), hit
 

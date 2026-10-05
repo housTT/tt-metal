@@ -1,0 +1,115 @@
+{
+  "model_id": "Cloudflare/clef",
+  "revision": "2f3de3dd85f379784083b0814d997ab627200f0c",
+  "backbone": "Qwen3_5ForConditionalGeneration, 64 layers (48 Gated DeltaNet + 16 full attention), hidden 5120, with the 27-block Qwen3.5 vision tower and the 65M-parameter joint schema head; prefill only, no decode",
+  "hf_advertised_context": 262144,
+  "hf_context_source": "config.json:text_config.max_position_embeddings in the snapshot (M-RoPE, rope_theta 10000000, partial_rotary_factor 0.25)",
+  "release_encoder_max_length": 16384,
+  "release_encoder_source": "joint_schema_model.py encode_record(max_length=16384) and systemone(max_length=16384) in the snapshot: the release truncates the state silently so that prefix + state + schema fit in 16384 tokens, and raises ValueError when the schema alone needs more",
+  "served_context": 20480,
+  "served_context_note": "integer for a context check: the engine's max_len is CLEF_MAX_STATE 16384 (the state piece: 36-token system prefix, media placeholder tokens, the rendered state) plus CLEF_MAX_TAIL 4096 (the schema and the 18-token suffix). A request above either limit is refused with 422 instead of the release's silent truncation; CLEF_TRUNCATE_STATES=1 opts into truncation of the state to its first tokens and marks the response. The longest state validated end to end, on device and over HTTP, is 16384 tokens (below)",
+  "serving_limits": {
+    "max_state_tokens": 16384,
+    "max_schema_tokens": 4096,
+    "chunk_size": 1024,
+    "prefill_buckets": [
+      128,
+      256,
+      512,
+      1024
+    ],
+    "prefix_align": 128,
+    "snapshot_slots": 4,
+    "kv_blocks_per_slot": 320,
+    "kv_block_size": 64,
+    "source": "tt/engine.py (ClefEngine defaults max_state_len 16384, max_tail_len 4096, chunk 1024, BUCKETS <= 1024 because the 2048 bucket overflows L1 in the GDN prefill conv at TP=2, doc/stage0/README.md finding 2), tt/server.py Settings (CLEF_MAX_STATE, CLEF_MAX_TAIL, CLEF_PREFIX_CACHE 4 clamped by engine.snapshot_slots)"
+  },
+  "shipped_mode": {
+    "engine": "eager (CLEF_TRACED=0) with the prefix planner (CLEF_PLANNER=1)",
+    "why": "doc/optimized/README.md, 'Why eager is the default': the traced engine compiles vision-tower programs after capture for an image grid outside its warm list, which the trace allocation tracker reports as unsafe; eager has no live traces and accepts any grid",
+    "traced_opt_in": "CLEF_TRACED=1 with CLEF_VISION_WARM_GRID listing every admitted (t, h, w) grid; a request with another grid, or with more than one image or video grid (the per-image ttnn.concat of tt/vision.py is a program the one-grid warm-up never compiles), is refused with 422 at the server and in the engine before any tower op (/v1/models traced_media.rule); multi-image and multi-video requests are served by the eager default",
+    "gdn_conv_kernel": "fir in both modes (the eager masked buckets always run the FIR kernel; a traced engine sets QWEN_GDN_CONV=fir)"
+  },
+  "validated_context": {
+    "engine_16384_state": {
+      "record": "long/max of /home/hous/dev/clef/reports/reference/long_records.jsonl (15783 state tokens with the prefix, 601-token tail, 16384 input tokens)",
+      "traced_cached_vs_eager_full_max_dp": 0.0,
+      "device_s_eager_full": 6.361,
+      "device_s_traced_miss": 6.901,
+      "device_s_traced_hit": 0.479,
+      "report": "/home/hous/dev/clef/reports/stage3_traced_l64.json (long_state)",
+      "log": "/home/hous/dev/clef/logs/stage3_traced_l64.log"
+    },
+    "engine_long_records_vs_cpu_bf16": {
+      "records": 8,
+      "token_range": [
+        2637,
+        16384
+      ],
+      "questions": 32,
+      "max_dp": 0.0557,
+      "flips_at_margin_0_05": 0,
+      "report": "/home/hous/dev/clef/reports/stage1r_parity_long_records_full.json",
+      "rows": "/home/hous/dev/clef/reports/stage1r_tt_long_records_full.jsonl"
+    },
+    "http_16384_state": {
+      "record": "long/max (15783 state tokens, 601-token tail, 16384 input tokens) through parity_remote.py --passes 2 against the shipped server (eager, planner on)",
+      "status": 200,
+      "latency_ms_miss": 7471.8,
+      "latency_ms_hit": 1600.0,
+      "wall_ms_miss": 7506.5,
+      "planned_prefix_S0": 15360,
+      "max_dp_vs_cpu_bf16": 0.0181,
+      "flips_at_margin_0_05": 0,
+      "max_dp_vs_stage1_engine_rows": 4.9e-05,
+      "rows": "/home/hous/dev/clef/reports/stage3r_http_shipped_long_max.jsonl",
+      "report": "/home/hous/dev/clef/reports/stage3r_parity_http_shipped_long_max.json",
+      "log": "/home/hous/dev/clef/logs/stage3r_parity_shipped_long_max.log",
+      "date": "2026 Oct 05 16:04 ET (20:04 UTC)"
+    },
+    "http_served_maximum_before_remediation": "2789 tokens (stage3_server.log); 16384 since the remediation (above)"
+  },
+  "images": {
+    "largest_validated_patches": 57344,
+    "largest_validated_grid": [
+      1,
+      224,
+      256
+    ],
+    "largest_validated_pixels": "3584 x 4096",
+    "largest_validated_image_tokens": 14336,
+    "bound": "the release encoder's 16384-token request limit (about 16000 image tokens, 64000 patches, for a minimal request; less with a longer state or schema), raised on the host before any device work and returned as 422; no L1, DRAM or op limit was reached up to 57344 patches",
+    "mode_rule": "eager accepts any grid (a new grid compiles its windowed-attention programs on first use, 1 to 2 s at 2048 rows, 6 to 9 s at 4096 rows, once per box); traced accepts only CLEF_VISION_WARM_GRID and one image or video grid per request",
+    "source": "doc/vision/README.md ('P2: image size capability'), /home/hous/dev/clef/reports/stage2r_large_vision_capacity.json, /home/hous/dev/clef/reports/stage2r_default_vision_capacity.json"
+  },
+  "hidden_state_gate": {
+    "status": "amended gate of the plan (2026 Oct 05): (a) met, (b) met, (c) reported and not gated, (d) met",
+    "a_layer_floor": "teacher-forced delta PCC per layer at T=300 and T=8192: GDN mean within 0.0005 of the attention mean (0.999785 vs 0.999761; 0.999721 vs 0.999743), every layer except 63 above 0.999; tests/test_engine.py::test_layer_floor_gate, /home/hous/dev/clef/logs/stage1r_layer_floor_gate.log",
+    "b_sampled_T300": "min sampled-position PCC 0.994961 >= 0.99; /home/hous/dev/clef/reports/stage1_engine_l64.json hidden_vs_hf.T300",
+    "c_reported_not_gated": "T=1500 min sampled 0.758306 (all-rows mean 0.989877), T=2300 0.989805 (0.987159), T=8192 0.973491 (0.976802) against HF bf16; HF bf16 itself fails a whole-row 0.99 bar against fp32 on 3.9 to 7.4 percent of rows; /home/hous/dev/clef/reports/stage1r_hidden_fp32_control_T{1500,2300,8192}.json",
+    "d_parity": "0 argmax flips at reference margin >= 0.05 on the 16 reference records (max dp 0.0722, /home/hous/dev/clef/reports/stage1_parity_l64_full.json), the 100 BANKING77 rows (max dp 0.1102 on one near-tie question, /home/hous/dev/clef/reports/stage1r_parity_banking77_full.json) and the 8 long records (max dp 0.0557)",
+    "readme": "doc/functional/README.md ('GDN decay gate precision', 'Results', 'Open items' 1)"
+  },
+  "parity_evidence": {
+    "engine_eager_vs_cpu_bf16_16_records": "/home/hous/dev/clef/reports/stage1_parity_l64_full.json (max dp 0.0722, 0 flips)",
+    "engine_traced_vs_eager": "/home/hous/dev/clef/reports/stage3_traced_l64.json (16 text records 0.0, 8 images 0.0, video 0.0, long records 0.0, exact buckets bit-equal)",
+    "server_http_traced": "/home/hous/dev/clef/reports/stage3_http_parity_summary.json and stage3_parity_http_{text,image,video}.json (text 0.0722 / 0 flips, images 0.0463 / 0, video 0.0126 / 0; served vs engine rows 4.9e-5)",
+    "server_http_eager": "/home/hous/dev/clef/reports/stage3_http_eager_text.jsonl (equal to the traced server's rows at 0.0)",
+    "server_http_shipped": "/home/hous/dev/clef/reports/stage3r_http_shipped_parity_summary.json and stage3r_parity_http_shipped_{text,image,video,long_max}.json (text 0.0722 / 0 flips, images 0.0463 / 0, video 0.0126 / 0, long/max 0.0181 / 0; equal to the traced server's rows at max dp 0.0 over 163 options)"
+  },
+  "precision": {
+    "profile": "selected (tt/precision_defaults.py profile_name(), read from doc/datatype_sweep/selected_precision_config.json runtime_flags; config_id baseline_stage1, equal to the stage1 profile): QWEN36_MLP_GATE_UP_DTYPE bfp8, QWEN36_MLP_DOWN_DTYPE bf16, QWEN36_PROJ_DTYPE bfp8, QWEN36_MATMUL_FIDELITY HiFi2, QWEN36_GDN_GATE_FP32 1, CLEF_VISION_PRECISION accuracy, CLEF_VISION_ACT_BF16 1; bf16 KV cache, fp32 GDN recurrent state (QWEN35_GDN_STATE_BF16 unset). The QWEN36_GDN_QKV_FP32 trial flag of the sweep was measured, not selected, and removed",
+    "stage4": "doc/datatype_sweep/selected_precision_config.json (selection baseline_stage1, 2026 Oct 05; confirmed on the device with no override: /home/hous/dev/clef/logs/stage4_confirm_selected_default.log). The selected profile equals the stage1 values, so the context limits above are unchanged; the DRAM-bound context_contract block in that file (97,728-token state with 4 slots) is arithmetic only and was not executed"
+  },
+  "not_validated": [
+    "states above 16384 tokens (refused with 422 by design; the release truncates them)",
+    "a schema tail above 4096 tokens (refused with 422)",
+    "the direct (1, 2) mesh open on a true two-chip host (this box always takes the parent-plus-submesh path)",
+    "the traced opt-in on image grids outside the reference set (refused with 422 by design; the compile it avoids is enumerated in doc/optimized/README.md)"
+  ],
+  "traced_opt_in_evidence": {
+    "tracker_rerun": "/home/hous/dev/clef/logs/stage3r_traced_l64_alloc_tracking.log: 64-layer traced-only suite with the current test file under TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0, 6 passed, 1 skipped (the eager comparison), 1 deselected (timing), zero tracker errors over at least 318 replays (the counter at the end of test_media_records; test_long_state ran after it); /home/hous/dev/clef/reports/stage3_traced_l64_alloc_r.json",
+    "unseen_grid_probe": "/home/hous/dev/clef/reports/stage3r_unseen_grid_probe_l4.json",
+    "two_grid_refusal": "/home/hous/dev/clef/logs/stage3r2_traced_l4_two_grid_refused.log and /home/hous/dev/clef/reports/stage3_traced_l4_r2_two_grid.json (two_grid): 4-layer traced engine under TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0, a two-image request of warmed grids (1, 16, 20) and (1, 22, 38) refused in _vision_request before any tower op, tower runs and program-cache entries (402) unchanged, 2 replays after the refusal with no tracker error; 3 passed"
+  }
+}

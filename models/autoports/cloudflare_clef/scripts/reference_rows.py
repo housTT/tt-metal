@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+import traceback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -51,6 +52,7 @@ def run_rows(engine, rows, mode="full", slot=0):
             )
         except Exception as error:
             result["error"] = f"{type(error).__name__}: {error}"
+            result["traceback"] = traceback.format_exc()
             result["seconds"] = round(time.perf_counter() - started, 3)
             log(f"{index + 1}/{len(rows)} {record_id} FAILED: {result['error']}")
         out.append(result)
