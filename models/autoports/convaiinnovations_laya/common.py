@@ -1,81 +1,272 @@
-# SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
-
+# SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
+from __future__ import annotations
 
-"""Shared config / weight / input helpers for the ModernBERT demo.
+import importlib
+import json
+import os
+import sys
+from pathlib import Path
 
-Written against transformers 5.10.2. Field names differ in other releases:
-`global_rope_theta` / `local_rope_theta` do NOT exist here, the thetas live in
-the nested `config.rope_parameters` dict.
-"""
-
+import numpy as np
 import torch
-from transformers import AutoConfig, AutoModel, AutoModelForMaskedLM, AutoTokenizer
 
-MODEL_ID = "answerdotai/ModernBERT-base"
-MODEL_REVISION = "8949b909ec900327062f0ebf497f51aef5e6f0c8"
+HF_MODEL = "convaiinnovations/laya"
+LAYA_REVISION = "7b928d828b7b0e022f929d9bd2e44165aa270148"
+MODEL_ID = HF_MODEL
+MODEL_REVISION = LAYA_REVISION
 
-# transformers exposes the two rotary thetas keyed by layer type.
 FULL_ATTENTION = "full_attention"
 SLIDING_ATTENTION = "sliding_attention"
 
+ROOT_ALLOW_PATTERNS = [
+    "config.json",
+    "rl_agent_config.json",
+    "model.safetensors",
+    "encoder/config.json",
+    "tokenizer/tokenizer.json",
+    "tokenizer/tokenizer_config.json",
+]
 
-def load_config():
-    return AutoConfig.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
+DEFAULT_MAX_LEN = 512
+DEFAULT_HEAD_MAX_LEN = 192
+DEFAULT_THREADS = 6
+DEFAULT_GATE_SEED = 13
+DEFAULT_GATE_PER_WORKFLOW = 10
+DEFAULT_TYPED_DECISIONS_PARQUET = "/home/hous/dev/laya/evals/typed_decisions/data/test-00000-of-00001.parquet"
+
+AUTOPORT_DIR = Path(__file__).resolve().parent
+VENDOR_DIR = AUTOPORT_DIR / "vendor"
 
 
-def load_torch_model(dtype=torch.float32, attn_implementation=None):
-    """HuggingFace reference model (ModernBertModel -> last_hidden_state).
+def cpu_threads() -> int:
+    return int(os.environ.get("LAYA_CPU_THREADS", DEFAULT_THREADS))
 
-    Pass attn_implementation="eager" when comparing in bf16. HF defaults to
-    "sdpa", a fused kernel; our reference uses the explicit matmul/softmax/matmul
-    form. They agree exactly in fp32 and differ by 0.9979327794 in bf16, which is
-    torch's own kernel spread rather than a modelling difference.
-    """
-    kwargs = {"dtype": dtype}
-    if attn_implementation is not None:
-        kwargs["attn_implementation"] = attn_implementation
-    model = AutoModel.from_pretrained(MODEL_ID, revision=MODEL_REVISION, **kwargs)
-    model.eval()
+
+def configure_torch_threads(threads: int | None = None) -> int:
+    n = int(threads) if threads else cpu_threads()
+    os.environ.setdefault("OMP_NUM_THREADS", str(n))
+    torch.set_num_threads(n)
+    return n
+
+
+def model_dir() -> str:
+    explicit = os.environ.get("LAYA_MODEL_DIR")
+    if explicit:
+        d = explicit
+    else:
+        from huggingface_hub import snapshot_download
+
+        repo = os.environ.get("HF_MODEL", HF_MODEL)
+        rev = os.environ.get("LAYA_REVISION", LAYA_REVISION)
+        try:
+            d = snapshot_download(repo, revision=rev, allow_patterns=ROOT_ALLOW_PATTERNS, local_files_only=True)
+        except Exception:
+            d = snapshot_download(repo, revision=rev, allow_patterns=ROOT_ALLOW_PATTERNS)
+    sub = os.environ.get("LAYA_SUBFOLDER")
+    if sub:
+        d = os.path.join(d, sub)
+    if not os.path.isfile(os.path.join(d, "model.safetensors")):
+        raise FileNotFoundError(f"model.safetensors not found under {d}")
+    return d
+
+
+def load_rl_config(d: str | None = None) -> dict:
+    with open(os.path.join(d or model_dir(), "rl_agent_config.json")) as f:
+        return json.load(f)
+
+
+def load_config(d: str | None = None):
+    from transformers import AutoConfig
+
+    return AutoConfig.from_pretrained(os.path.join(d or model_dir(), "encoder"))
+
+
+def rope_theta(config, layer_type: str) -> float:
+    return float(config.rope_parameters[layer_type]["rope_theta"])
+
+
+def rope_thetas(config) -> dict:
+    return {lt: rope_theta(config, lt) for lt in (FULL_ATTENTION, SLIDING_ATTENTION)}
+
+
+def layer_types(config) -> list:
+    return list(config.layer_types)
+
+
+def sliding_window_half(config) -> int:
+    half = int(config.local_attention) // 2
+    if int(getattr(config, "sliding_window", half)) != half:
+        raise ValueError(f"config.sliding_window {config.sliding_window} != local_attention // 2 {half}")
+    return half
+
+
+def load_tokenizer(d: str | None = None):
+    from transformers import AutoTokenizer
+
+    return AutoTokenizer.from_pretrained(os.path.join(d or model_dir(), "tokenizer"))
+
+
+def load_state_dict(d: str | None = None, dtype=torch.float32) -> dict:
+    from safetensors.torch import load_file
+
+    sd = load_file(os.path.join(d or model_dir(), "model.safetensors"))
+    if dtype is None:
+        return sd
+    return {k: (v.to(dtype) if v.is_floating_point() else v) for k, v in sd.items()}
+
+
+def encoder_state_dict(sd: dict) -> dict:
+    return {k[len("encoder.") :]: v for k, v in sd.items() if k.startswith("encoder.")}
+
+
+def load_torch_model(dtype=torch.float32, attn_implementation=None, d: str | None = None):
+    from transformers import AutoModel
+
+    d = d or model_dir()
+    config = load_config(d)
+    model = AutoModel.from_config(config, attn_implementation=attn_implementation or "eager")
+    sd = encoder_state_dict(load_state_dict(d, dtype=torch.float32))
+    result = model.load_state_dict(sd, strict=True)
+    if result.missing_keys or result.unexpected_keys:
+        raise RuntimeError(f"encoder load: missing={result.missing_keys} unexpected={result.unexpected_keys}")
+    model = model.to(dtype).eval()
+    for p in model.parameters():
+        p.requires_grad_(False)
     return model
 
 
-def load_torch_mlm_model(dtype=torch.float32, attn_implementation=None):
-    """HuggingFace ModernBertForMaskedLM (encoder + prediction head + decoder).
-
-    The base checkpoint ships as ModernBertForMaskedLM, so head.dense.weight,
-    head.norm.weight, decoder.weight and decoder.bias are present in the file;
-    loading it as ModernBertModel simply reports them as unexpected.
-    """
-    kwargs = {"dtype": dtype}
-    if attn_implementation is not None:
-        kwargs["attn_implementation"] = attn_implementation
-    model = AutoModelForMaskedLM.from_pretrained(MODEL_ID, revision=MODEL_REVISION, **kwargs)
-    model.eval()
-    return model
+def vendor_module(name: str):
+    if str(VENDOR_DIR) not in sys.path:
+        sys.path.insert(0, str(VENDOR_DIR))
+    return importlib.import_module(name)
 
 
-def load_tokenizer():
-    return AutoTokenizer.from_pretrained(MODEL_ID, revision=MODEL_REVISION)
+def rl_common():
+    from models.autoports.convaiinnovations_laya.vendor import rl_common as mod
+
+    return mod
 
 
-def rope_theta(config, layer_type):
-    """Rotary theta for a layer type: 160000.0 full, 10000.0 sliding."""
-    return config.rope_parameters[layer_type]["rope_theta"]
+def to_internal(qdef: dict) -> dict:
+    return vendor_module("rl_agent_api").RLAgent._to_internal(qdef)
 
 
-def sliding_window_half(config):
-    """Half-width of the symmetric local attention band: +/-64, total 129.
-
-    Do NOT use HF's `attn.sliding_window`, which holds 65 - an internal
-    half-representation, not the band width.
-    """
-    return config.local_attention // 2
+def typed_decisions_path() -> str:
+    return os.environ.get("LAYA_TYPED_DECISIONS_PARQUET", DEFAULT_TYPED_DECISIONS_PARQUET)
 
 
-# Long enough, non-repeating text. A repeated short sentence is periodic and the
-# period interacts with the 129-wide attention window differently at each
-# sequence length, which produces misleading PCC numbers.
+def load_typed_decisions(path: str | None = None) -> list:
+    import pyarrow.parquet as pq
+
+    rows = pq.read_table(path or typed_decisions_path()).to_pylist()
+    cases = []
+    for i, r in enumerate(rows):
+        state = r["state"]
+        try:
+            state = json.loads(state)
+        except Exception:
+            pass
+        cases.append(
+            {
+                "index": i,
+                "id": r["id"],
+                "workflow": r["workflow"],
+                "state": state,
+                "questions": json.loads(r["questions"]),
+                "gold": json.loads(r["gold"]),
+            }
+        )
+    return cases
+
+
+def gate_subset(cases: list, seed: int = DEFAULT_GATE_SEED, per_workflow: int = DEFAULT_GATE_PER_WORKFLOW) -> list:
+    by_wf = {}
+    for c in cases:
+        by_wf.setdefault(c["workflow"], []).append(c["index"])
+    rng = np.random.RandomState(seed)
+    picked = []
+    for wf in by_wf:
+        idxs = by_wf[wf]
+        n = min(per_workflow, len(idxs))
+        picked.extend(sorted(int(i) for i in rng.choice(idxs, n, replace=False)))
+    picked = sorted(picked)
+    by_index = {c["index"]: c for c in cases}
+    return [by_index[i] for i in picked]
+
+
+def case_items(tok, case: dict, max_len: int = DEFAULT_MAX_LEN, head_max_len: int = DEFAULT_HEAD_MAX_LEN) -> list:
+    rc = rl_common()
+    items = []
+    for qid, qdef in case["questions"].items():
+        q = to_internal(qdef)
+        ids, markers = rc.build_sequence(tok, case["state"], q, max_len, head_max_len)
+        k = len(rc.render_options(q))
+        if len(markers) != k:
+            raise ValueError(f"case {case.get('id')} question {qid}: {len(markers)} markers for {k} options")
+        items.append(
+            {
+                "ids": ids,
+                "markers": markers,
+                "qtype": rc.QTYPES[q["t"]],
+                "target": [0.0] * k,
+                "label": -1,
+                "episode": 0,
+                "ep_step": 0,
+                "ep_len": 1,
+                "src": "typed_decisions",
+                "case_id": case.get("id"),
+                "case_index": case.get("index"),
+                "workflow": case.get("workflow"),
+                "qid": qid,
+                "q": q,
+                "k": k,
+            }
+        )
+    return items
+
+
+def collate(items: list, pad_id: int, seq_len: int | None = None) -> dict:
+    b = rl_common().collate_items([items], pad_id)
+    if seq_len is not None:
+        n, L = b["input_ids"].shape
+        if L > seq_len:
+            raise ValueError(f"items are {L} tokens long, bucket is {seq_len}")
+        ids = torch.full((n, seq_len), pad_id, dtype=torch.long)
+        att = torch.zeros((n, seq_len), dtype=torch.long)
+        ids[:, :L] = b["input_ids"]
+        att[:, :L] = b["attention_mask"]
+        b["input_ids"], b["attention_mask"] = ids, att
+    return b
+
+
+_GATE_ITEMS_CACHE = {}
+
+
+def gate_items(tok, seq_len: int = DEFAULT_MAX_LEN, head_max_len: int = DEFAULT_HEAD_MAX_LEN) -> list:
+    key = (seq_len, head_max_len)
+    if key not in _GATE_ITEMS_CACHE:
+        cases = gate_subset(load_typed_decisions())
+        items = []
+        for c in cases:
+            items.extend(case_items(tok, c, max_len=seq_len, head_max_len=head_max_len))
+        _GATE_ITEMS_CACHE[key] = items
+    return _GATE_ITEMS_CACHE[key]
+
+
+def build_batch(seq_len: int = DEFAULT_MAX_LEN, batch_size: int = 1, seed: int = 0, head_max_len: int = DEFAULT_HEAD_MAX_LEN) -> dict:
+    tok = load_tokenizer()
+    items = gate_items(tok, seq_len=seq_len, head_max_len=head_max_len)
+    order = np.random.RandomState(seed).permutation(len(items))
+    chosen = [items[int(order[i % len(items)])] for i in range(batch_size)]
+    return collate(chosen, tok.pad_token_id, seq_len=seq_len)
+
+
+def build_inputs(seq_len: int = DEFAULT_MAX_LEN, batch_size: int = 1, seed: int = 0):
+    b = build_batch(seq_len=seq_len, batch_size=batch_size, seed=seed)
+    return b["input_ids"], b["attention_mask"]
+
+
 SAMPLE_TEXT = """The development of specialized hardware for machine learning has followed a
 winding path. Early neural networks ran on general purpose processors, where the dominant
 cost was moving data rather than computing on it. Graphics processors changed that calculus
@@ -123,14 +314,3 @@ to hold a shape yet mobile enough to yield. Skill consists largely in anticipati
 that window closes, and in reheating before it does. An apprentice learns to read the colour of
 the glowing mass rather than trust a clock, because the same nominal temperature behaves
 differently depending on the thickness of the piece and the draught in the room."""
-
-
-def build_inputs(seq_len=256, batch_size=1):
-    """Realistic tokenized inputs. Never use torch.randint here - random token ids
-    produce degenerate attention patterns that can mask real bugs."""
-    tok = load_tokenizer()
-    ids = tok(SAMPLE_TEXT, return_tensors="pt")["input_ids"]
-    if ids.shape[1] < seq_len:
-        raise ValueError(f"SAMPLE_TEXT yields only {ids.shape[1]} tokens, need {seq_len}")
-    ids = ids[:, :seq_len].repeat(batch_size, 1)
-    return ids, torch.ones_like(ids)
