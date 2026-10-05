@@ -44,6 +44,7 @@ class PatchMerger(LightweightModule):
         dtype,
         tt_ccl,
         postshuffle_norm: bool = False,
+        compute_kernel_config=None,
     ):
         super().__init__()
 
@@ -58,6 +59,11 @@ class PatchMerger(LightweightModule):
         self.args = args
         self.tt_ccl = tt_ccl
         self.postshuffle_norm = postshuffle_norm
+        if compute_kernel_config is None:
+            compute_kernel_config = getattr(args, "vision_merger_compute_kernel_config", None)
+        if compute_kernel_config is None:
+            compute_kernel_config = args.compute_kernel_config_hifi2_fp16
+        self.compute_kernel_config = compute_kernel_config
         self.cluster_shape = args.cluster_shape
         # TP across cluster axis 1 (the row axis on T3K/QB2).
         self.tp = self.cluster_shape[1]
@@ -172,7 +178,7 @@ class PatchMerger(LightweightModule):
             self.w1,
             bias=self.b1,
             activation="gelu",
-            compute_kernel_config=self.args.compute_kernel_config_hifi2_fp16,
+            compute_kernel_config=self.compute_kernel_config,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
         ttnn.deallocate(x_norm)
@@ -182,7 +188,7 @@ class PatchMerger(LightweightModule):
         w2_partial = ttnn.linear(
             w1_out,
             self.w2,
-            compute_kernel_config=self.args.compute_kernel_config_hifi2_fp16,
+            compute_kernel_config=self.compute_kernel_config,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
         ttnn.deallocate(w1_out)

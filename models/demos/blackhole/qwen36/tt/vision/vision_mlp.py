@@ -36,6 +36,8 @@ class MLP(LightweightModule):
         weight_cache_path,
         layer_num,
         state_dict_prefix=None,
+        weight_dtype=None,
+        compute_kernel_config=None,
     ):
         super().__init__()
 
@@ -43,6 +45,12 @@ class MLP(LightweightModule):
         self.mesh_device = mesh_device
         self.tt_ccl = tt_ccl
         self.args = args
+        if weight_dtype is None:
+            weight_dtype = getattr(args, "vision_weight_dtype", ttnn.bfloat8_b)
+        if compute_kernel_config is None:
+            compute_kernel_config = getattr(args, "vision_mlp_compute_kernel_config", None)
+        self.weight_dtype = weight_dtype
+        self.compute_kernel_config = compute_kernel_config
         self.dim = args.dim
         self.cluster_shape = args.cluster_shape
         # We TP across cluster axis 1 (the row axis on T3K/QB2).
@@ -70,7 +78,7 @@ class MLP(LightweightModule):
         # Shape: [1, 1, dim, hidden_dim]; shard dim=-1 across cluster axis 1.
         self.linear_fc1_weight = ttnn.as_tensor(
             fc1_w,
-            dtype=ttnn.bfloat4_b if args.optimizations.bfp4_mlp else ttnn.bfloat8_b,
+            dtype=ttnn.bfloat4_b if args.optimizations.bfp4_mlp else self.weight_dtype,
             device=self.mesh_device,
             mesh_mapper=ttnn.ShardTensor2dMesh(self.mesh_device, dims=(None, -1), mesh_shape=self.cluster_shape),
             layout=ttnn.TILE_LAYOUT,
@@ -97,7 +105,7 @@ class MLP(LightweightModule):
         # Shape: [1, 1, hidden_dim, dim]; shard dim=-2 across cluster axis 1.
         self.linear_fc2_weight = ttnn.as_tensor(
             fc2_w,
-            dtype=ttnn.bfloat8_b,
+            dtype=self.weight_dtype,
             device=self.mesh_device,
             mesh_mapper=ttnn.ShardTensor2dMesh(self.mesh_device, dims=(None, -2), mesh_shape=self.cluster_shape),
             layout=ttnn.TILE_LAYOUT,
@@ -119,6 +127,13 @@ class MLP(LightweightModule):
 
         self.four_bit_mlp = args.optimizations.bfp4_mlp
 
+    def _compute_kernel_config(self):
+        if self.compute_kernel_config is not None:
+            return self.compute_kernel_config
+        if self.four_bit_mlp:
+            return self.args.compute_kernel_config_lofi
+        return self.args.compute_kernel_config_hifi2_fp16
+
     def forward(self, x: ttnn.Tensor, mode: Mode) -> ttnn.Tensor:
         """
         HF reference: self.linear_fc2(self.act_fn(self.linear_fc1(hidden_state)))
@@ -134,9 +149,7 @@ class MLP(LightweightModule):
             self.linear_fc1_weight,
             bias=self.linear_fc1_bias,
             activation="gelu",
-            compute_kernel_config=self.args.compute_kernel_config_lofi
-            if self.four_bit_mlp
-            else self.args.compute_kernel_config_hifi2_fp16,
+            compute_kernel_config=self._compute_kernel_config(),
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
 
@@ -145,9 +158,7 @@ class MLP(LightweightModule):
         w2_partial = ttnn.linear(
             w1_out,
             self.linear_fc2_weight,
-            compute_kernel_config=self.args.compute_kernel_config_lofi
-            if self.four_bit_mlp
-            else self.args.compute_kernel_config_hifi2_fp16,
+            compute_kernel_config=self._compute_kernel_config(),
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
         ttnn.deallocate(w1_out)

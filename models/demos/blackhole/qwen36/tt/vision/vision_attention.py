@@ -67,6 +67,8 @@ class VisionAttention(LightweightModule):
         configuration,
         paged_attention_config=None,
         causal_mask=True,
+        weight_dtype=None,
+        sdpa_dtype=None,
     ):
         super().__init__()
 
@@ -74,6 +76,12 @@ class VisionAttention(LightweightModule):
         self.mesh_device = mesh_device
         self.tt_ccl = tt_ccl
         self.configuration = configuration
+        if weight_dtype is None:
+            weight_dtype = getattr(configuration, "vision_weight_dtype", ttnn.bfloat8_b)
+        if sdpa_dtype is None:
+            sdpa_dtype = getattr(configuration, "vision_sdpa_dtype", ttnn.bfloat8_b)
+        self.weight_dtype = weight_dtype
+        self.sdpa_dtype = sdpa_dtype
         self.cluster_shape = configuration.cluster_shape
         # We TP across cluster axis 1.
         self.tp = self.cluster_shape[1]
@@ -184,7 +192,7 @@ class VisionAttention(LightweightModule):
         # qkv_cat shape: [1, 1, dim, tp * local_qkv_size]; shard dim=-1 across cluster axis 1.
         self.wqkv = ttnn.as_tensor(
             qkv_cat,
-            dtype=ttnn.bfloat8_b,
+            dtype=self.weight_dtype,
             layout=ttnn.TILE_LAYOUT,
             device=self.mesh_device,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
@@ -210,7 +218,7 @@ class VisionAttention(LightweightModule):
                 qkv_bias,
                 device=self.mesh_device,
                 mesh_mapper=ttnn.ShardTensor2dMesh(self.mesh_device, dims=(None, -1), mesh_shape=self.cluster_shape),
-                dtype=ttnn.bfloat8_b,
+                dtype=self.weight_dtype,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
                 layout=ttnn.TILE_LAYOUT,
                 cache_file_name=cache_name("wqkv_bias_col"),
@@ -280,6 +288,13 @@ class VisionAttention(LightweightModule):
             fused_activation=None,
             fuse_batch=seq_len <= self.MAX_QKV_MM_SEQ_LEN,
         )
+
+    def _to_sdpa_dtype(self, heads):
+        if heads.dtype == self.sdpa_dtype:
+            return heads
+        cast = ttnn.typecast(heads, dtype=self.sdpa_dtype)
+        ttnn.deallocate(heads)
+        return cast
 
     def forward_prefill(
         self,
@@ -367,14 +382,12 @@ class VisionAttention(LightweightModule):
         )
         ttnn.deallocate(k_heads_1KSD_pre_rot)
 
-        q_heads_1QSD_8b = ttnn.typecast(q_heads_1QSD, dtype=ttnn.bfloat8_b)
-        ttnn.deallocate(q_heads_1QSD)
+        q_heads_1QSD_8b = self._to_sdpa_dtype(q_heads_1QSD)
 
         k_heads_1KSD_8b = ttnn.typecast(k_heads_1KSD, dtype=self.kv_cache_dtype)
         ttnn.deallocate(k_heads_1KSD)
 
-        v_heads_1VSD_8b = ttnn.typecast(v_heads_1VSD, dtype=ttnn.bfloat8_b)
-        ttnn.deallocate(v_heads_1VSD)
+        v_heads_1VSD_8b = self._to_sdpa_dtype(v_heads_1VSD)
 
         # ---- SDPA (purely local; each device runs its own n_local_heads) ----------
         attn_output_84SD = ttnn.transformer.scaled_dot_product_attention(

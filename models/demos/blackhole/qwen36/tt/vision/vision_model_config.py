@@ -55,6 +55,10 @@ class VisionModelArgs(ModelArgs):
         self.optimizations = ModelOptimizations(
             self.model_name
         )  # todo)) implement finer grained control similar to tt_transformers'
+        self.vision_weight_dtype = ttnn.bfloat8_b
+        self.vision_sdpa_dtype = ttnn.bfloat8_b
+        self.vision_mlp_compute_kernel_config = None
+        self.vision_merger_compute_kernel_config = None
 
         num_rows = lambda seq_len: min(seq_len, 1024 if self.is_galaxy else 2048)
         k_dim = self.dim // self.cluster_shape[0] if self.is_galaxy else self.dim
