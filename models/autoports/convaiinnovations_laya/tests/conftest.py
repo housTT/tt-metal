@@ -91,6 +91,9 @@ def encoder_inputs(batch_size=1, seq_len=512, fill=False, offset=0):
     return laya_inputs.build_inputs(batch_size=batch_size, seq_len=seq_len, fill=fill, offset=offset)
 
 
+CPU_MODEL_DIR = os.environ.get("LAYA_MODEL_DIR") or "/home/hous/dev/laya/state/laya_models/laya"
+
+
 @pytest.fixture(scope="session")
 def cpu_engine():
     if not os.path.isfile(os.path.join(CPU_MODEL_DIR, "model.safetensors")):
