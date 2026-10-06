@@ -65,3 +65,7 @@ Review: `/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/convaiinnovation
   and the status line names them.
 - Not changed: `DEFAULT_POLICY_NAME` (`bf8w_hifi3_erf`), the manifests, any stage 1 to 6 document beyond the dated notes
   already recorded. Device time used for this round: 2 invariance runs (about 25 s). No commit.
+
+## Orchestrator closure, 2026 Oct 6 00:55 UTC
+
+The Required Work is closed by measurement: `bf8w_hifi3` and `bf8w_hifi3_head_bf16` fail the placement-invariance gate (max abs dp 0.0150 and 0.0154 against 0.01; `doc/datatype_sweep/decision_agreement_bf8w_hifi3.json`, `decision_agreement_bf8w_hifi3_head_bf16.json`), so every A.7-passing policy faster than `bf8w_hifi3_erf` fails invariance and the shipped policy is the rule's selection; no accuracy-preference amendment is needed. The Tracy binaries left the branch by a history rewrite of the unpushed commits (tip `d30b32e311` at the rewrite, old tip tagged `laya-pre-rewrite-20261006T0044`, copies under `/home/hous/dev/laya/evidence/tracy/`). Track E writes `parity/decisions.jsonl` from the build 2 run onward. Track S's host-path trim is in build 2 (served client minus device now 1.5 to 5.9 ms).
