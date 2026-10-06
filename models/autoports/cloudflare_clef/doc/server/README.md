@@ -141,7 +141,7 @@ Result on 2026 Oct 05, 09:05 ET: `45 passed, 3 warnings in 20.37s` (`/home/hous/
 
 HTTP smoke with uvicorn (`/home/hous/dev/clef/logs/stage3_fake_server.log`, 09:07 ET): startup 3.5 s (tokenizer 5.4 s in the first probe; cached afterwards), warmup `latency_ms` 61.2, the README SystemOne example `input_tokens` 300 and `latency_ms` 57.8 (`/home/hous/dev/clef/logs/stage3_fake_server_checkout.json`), the image example `input_tokens` 236 (`stage3_fake_server_image.json`), a `choice` question without criteria `{"detail": "q: criteria must not be empty"}`, clean `Application shutdown complete` on SIGTERM.
 
-Manifest verify lines (`/home/hous/dev/clef/logs/stage3_manifest_verify_lines.log`): the two server lines and the `ClefEngine` line pass through `hostrun`; the `precision_defaults.profile_name() == 'selected'` line still fails because stage 4 owns that function (the package README already records this).
+Manifest verify lines (`/home/hous/dev/clef/logs/stage3_manifest_verify_lines.log`): the two server lines and the `ClefEngine` line pass through `hostrun`; the `precision_defaults.profile_name() == 'selected'` line failed at stage 3 time because stage 4 owns that function. Closed at stage 4: all 13 verify lines pass (`/home/hous/dev/clef/logs/stage6_manifest_verify_lines_r2.log`) and inside the package image (`/home/hous/dev/clef/package/WORKLOG.md`).
 
 ## Open items
 
