@@ -39,13 +39,13 @@ serve:
   env:
     LAYA_BACKEND: tt
     LAYA_REVISION: 7b928d828b7b0e022f929d9bd2e44165aa270148
-    LAYA_PRECISION: "PLACEHOLDER_SELECTED_POLICY"
-    LAYA_SEQ_BUCKETS: "PLACEHOLDER_SEQ_BUCKETS_FROM_STAGE_7"
-    LAYA_ROW_BUCKETS: "1,2,4,8,16,32,64"
+    LAYA_PRECISION: "bf8w_hifi3_erf"
+    LAYA_SEQ_BUCKETS: "128,256,512"
+    LAYA_ROW_BUCKETS: "1,2,4,5,8,10,16,32,50,64"
     LAYA_MAX_ROWS: "64"
     LAYA_MAX_BATCH_STATES: "64"
     LAYA_TRACE: "1"
-    LAYA_TRACE_REGION_SIZE: "PLACEHOLDER_MEASURED_TRACE_REGION_BYTES"
+    LAYA_TRACE_REGION_SIZE: "536870912"
     LAYA_L1_SMALL_SIZE: "79104"
     LAYA_RAW_FORWARD: "1"
     TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES: "0"
@@ -54,11 +54,11 @@ serve_profiles:
   - name: p150
     hardware: p150
     mesh_device: P150
-    description: "One Blackhole p150 chip; PLACEHOLDER_SELECTED_POLICY; traces for 1..64 rows x PLACEHOLDER_SEQ_BUCKETS tokens captured before the server reports ready."
+    description: "One Blackhole p150 chip; policy bf8w_hifi3_erf (bfp8 weights, bf16 activations, HiFi3, exact erf GELU); 30 traces (rows 1, 2, 4, 5, 8, 10, 16, 32, 50, 64 x 128, 256, 512 tokens; 141.5 MiB) captured before the server reports ready."
   - name: p150x4
     hardware: p150x4
     mesh_device: P150x4
-    description: "1x4 mesh, data parallel over rows, no fabric; PLACEHOLDER_MEASURED_OR_DECLARED_NOT_VALIDATED."
+    description: "1x4 mesh, data parallel over rows, no fabric; host-served measurement (build 1): 299 to 712 questions per second batched, 85.4 ms for 50 questions; a single question is slower than one chip (13.3 versus 11.0 ms) by the mesh host overhead."
 default_profile: p150
 
 verify:
@@ -84,23 +84,29 @@ card:
     with calibrated probabilities; it never generates text. This package serves the Jev-compatible /v1/systemone
     API of the authors' laya-serve on one Blackhole p150 chip, with a live demo at /demo/.
   performance: >
-    PLACEHOLDER filled from evals/results SUMMARY.md: speed table rows (1, 5, 10, 50 questions per call) beside the
-    authors' Tesla T4 values 39.5, 84.5, 158.6 and 771 ms; batched questions per second beside 103 to 332 on a T4;
-    typed-decisions row (accuracy, soft accuracy, Brier, ECE, score MAE) beside the published 0.362 / 0.332 / 0.316 /
-    0.175 / 0.694 and the CPU fp32 row; AG News and Emotion beside the published 0.910 and 0.480; parity versus CPU
-    fp32 (confident argmax agreement, max abs delta p, scorer-logit PCC).
+    Measured on this code served on one p150 before packaging (host-served build 1,
+    /home/hous/dev/laya/evals/results/host_tt_p150_b1_20261006T000400Z); the packaged-image numbers are in
+    doc/release/RUN_NOTES.md. Latency per call (client median, warm, authors' bench_latency protocol), p150 versus the
+    authors' Tesla T4: 1 question 11.0 ms (T4 39.5), 5 questions 26.5 ms (84.5), 10 questions 46.0 ms (158.6),
+    50 questions 212.9 ms (771); device forward 9.2 / 22.7 / 40.2 / 191.7 ms. Batched /v1/systemone/batch: 187 to 231
+    questions per second on one p150 (T4 103 to 332); 1x4 mesh 299 to 712. Typed-decisions test set (400 cases,
+    2,000 decisions, zero-shot): accuracy 0.359, soft accuracy 0.332, Brier 0.311, ECE 0.172, score MAE 0.689
+    (published 0.362 / 0.332 / 0.316 / 0.175 / 0.694; CPU fp32 on this host 0.3615 / 0.3315 / 0.3155 / 0.1747 / 0.6937).
+    AG News 0.955 and DAIR Emotion 0.593 accuracy (authors' CPU run 0.950 / 0.595; Jev 0.910 / 0.480). Parity against
+    the CPU fp32 reference on 488 decisions: 403 of 403 confident decisions (reference margin at least 0.10) agree,
+    476 of 488 argmax agree, median max abs delta p 0.008, p95 0.031, max 0.12, scorer-logit PCC 0.994.
   limitations: >
     English root checkpoint only (max_len 512, head_max_len 192). Raw calibration as shipped: the authors' ECE of
     0.081 is after domain temperature fitting with an unpublished protocol (their raw value is 0.466). The base
     checkpoint is near chance zero-shot on typed-decisions; the published 0.766 belongs to the fine-tuned sibling.
     action.act_probability carries no usable signal (authors' issue #185); gate on answer_confidence. Temperatures
     are clamped to [0.5, 5.0] as pip laya 0.3.27 does, so choice questions with more than 10 options use 0.5 instead
-    of the shipped 0.1006. Requests are padded to PLACEHOLDER_SEQ_BUCKETS tokens x 1..64 rows; longer sequences are
-    refused with 422. PLACEHOLDER: n of N reference decisions flip within margin m. One device process serializes
-    requests. p150x4 status: PLACEHOLDER. Not reproduced: MASSIVE, XNLI, 45 of 51 languages, post-temperature ECE.
+    of the shipped 0.1006. Requests are padded to 128, 256 or 512 tokens x 1 to 64 rows (exact buckets at 5, 10 and 50 rows); longer
+    sequences are refused with 422. 12 of 488 reference decisions flip against the CPU fp32 reference, all with a
+    reference margin under 0.10 (none of the 403 confident decisions flips). One device process serializes
+    requests. p150x4 status: data parallel over rows, bit-identical to one chip at equal per-chip batch, measured host-served; container boot recorded in the release notes. Not reproduced: MASSIVE, XNLI, 45 of 51 languages, post-temperature ECE.
   risks: >
-    PLACEHOLDER_SELECTED_POLICY numerics move probabilities by up to PLACEHOLDER max abs delta p against the fp32
-    reference; gate on confidence, not act_probability. Long option texts are truncated to 48 tokens silently, as in
+    bf8w_hifi3_erf numerics move probabilities by up to 0.12 (median 0.008) against the fp32 reference; gate on confidence, not act_probability. Long option texts are truncated to 48 tokens silently, as in
     the reference. The shipped temperatures are over-confident per the authors; refit on your own data.
   usage: |
     POST /v1/systemone with {"state": ..., "questions": {id: {"type": "choice"|"score"|"noul", "instructions": ..., "criteria": ...}}, "max_len", "head_max_len", "min_confidence"}
