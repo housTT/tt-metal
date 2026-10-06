@@ -59,7 +59,8 @@ review (PLAN.md, decisions of 2026 Oct 4); the exact commands are at the end of 
   run within 0.3 ms); feed 20.07 decisions per second, agreement 0.382, 0 errors; demo page
   `/home/hous/dev/laya/evidence/demo_laya-p150_b6.png`; p150x4 healthy in 20 s, 11.1 / 16.1 / 23.7 / 68.9 ms, 308 to 936
   questions per second.
-- Build 7, the English release candidate (2026 Oct 6 03:28 to 03:30 UTC, `package exit 0`, commit `578c6dbdb5`): card
+- Build 7, the English release candidate (2026 Oct 6 03:28 to 03:30 UTC, `package exit 0`, commit `01e82b93e4`, which
+  differs from `578c6dbdb5` only in review documents): card
   only (review R3 re-check corrections: the `bf16_hifi4` sentence scoped to the measured sets, the placement spread
   stated at its measured bucket); code sha256 identical to builds 5 and 6. Image `tt-model/laya-p150:42bac8981309`,
   digest `sha256:42bac89813098e37ed4d405b906e640301f139e80a7722d901362989e6e25b9e`, code sha256
