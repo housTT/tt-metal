@@ -94,9 +94,45 @@ exactly on every accuracy row. On the p150x4 profile the cells differ by up to 1
 questions) and the batched low end moved from 301 to 351 questions per second because one noisy 1x5 cell (16.6 against
 14.2 ms client p50) sets it; the card keeps the lower figure.
 
+Note on logs: the sibling bundle's first chain run (2026 Oct 6 02:02 UTC) reused the English log names, so
+`p5_container_b1_p150.log`, `p5_serve_b1_p150.log`, `p5_evals_b1_p150.log` and `p5_feed_b1.log` now hold the sibling's
+run; the English build 1 evidence stays in its result directory and in `p4_final_build_1.log`. Log names carry the
+package name from then on.
+
+## Sibling bundle tt-hous/laya-typed-decisions-p150 (staged, not pushed)
+
+Manifest `tt-model-typed-decisions.yaml`: the same server and port, weights `convaiinnovations/laya-typed-decisions` at
+revision `e929ae5cf69bc34259cd2f95c9e91145b818b1f0`, sequence buckets 128, 256, 512 and 1024 (rows 1, 2, 4, 5, 8, 10, 16
+at 1024; 37 traces, 176.8 MiB), `LAYA_MAX_BATCH_TOKENS` 16384, a sibling sanity reference
+(`server/sanity_reference_typed_decisions.json`, selected by `LAYA_SANITY_REFERENCE`). Stage evidence:
+`doc/release_typed_decisions/README.md`.
+
+- Build 1 (2026 Oct 6 01:59 to 02:02 UTC, `package exit 0`, commit `6e09a909f5`): image
+  `tt-model/laya-typed-decisions-p150:566a0febd4b4`, digest
+  `sha256:566a0febd4b4973195531cd104de58cadb0dfcf222369e384a8f95a900027f9f`, code sha256
+  `e4ef6027ed9dcd4d305b5a1bd03218dd18e5d89066c1a239b0c613bd6092b957`, `dirty: false`; card with the host-served numbers.
+  The chain's first evaluation step did not run (a shell quirk in the chain, fixed) and reused the English log names
+  (note above); the evaluation was rerun on the same image at 02:08 UTC.
+
+Verification from the served sibling package (build 1, profile p150, chip 0, port 8710;
+`/home/hous/dev/laya/evals/results/package_laya-typed-decisions-p150_p150_b1_20261006T020850Z/SUMMARY.md`; healthy 20 s
+after start; startup sanity check against the sibling reference ok, max abs dp 0.0093; 37 traces):
+
+| check | result |
+|---|---|
+| E1 parity vs the sibling CPU fp32 reference (488 decisions; wire and tensor paths) | 485 of 488 argmax, 383 of 383 confident, median max abs dp 0.0039, max 0.040, probability PCC 0.9997, scorer-logit PCC 0.9989, 0 NaN |
+| E2 typed-decisions (400 cases at max_len 1024 / head_max_len 256) | 0.764 / 0.469 / 0.062 / 0.214 / 0.244 (published 0.766 / 0.471 / 0.062 / 0.213 / 0.242; CPU fp32 0.766 / 0.471 / 0.061 / 0.213 / 0.242) |
+| E3 AG News / DAIR Emotion (400 each, at 1024 / 256) | 0.953 (ECE 0.156) / 0.595 (ECE 0.201); 9.4 and 9.3 ms per case; the CPU fp32 reference for these suites with this checkpoint is produced separately (the first summary compared against the English checkpoint's reference by mistake) |
+| E5 client p50 for 1 / 5 / 10 / 50 questions | 10.8 / 24.6 / 42.9 / 197.7 ms (device 9.2 / 22.7 / 40.3 / 191.8); batched 202 to 249 questions per second |
+| demo feed (`/home/hous/dev/laya/evidence/demo_feed_laya-typed-decisions-p150_b1.json`) | 241 cases, 1,205 decisions, 20.08 per second, agreement with gold 0.751, 0 errors |
+| demo page | `/home/hous/dev/laya/evidence/demo_laya-typed-decisions-p150_b1.png` |
+| p150x4 (`--device-id 0,1,2,3`, `package_laya-typed-decisions-p150_p150x4_b1_20261006T021310Z`) | healthy 20 s after start; parity smoke 100 of 100 argmax, 81 of 81 confident; E2 first 100 cases 0.728 (one workflow, partial); E5 13.2 / 14.6 / 23.7 / 68.5 ms for 1 / 5 / 10 / 50 questions, batched 310 to 936 questions per second |
+
 ## Publish (gated, not run)
 
 ```
 tt-model push /home/hous/dev/laya/package/out/laya-p150 --public
 tt-model publish tt-hous/laya-p150
+tt-model push /home/hous/dev/laya/package/out/laya-typed-decisions-p150 --public
+tt-model publish tt-hous/laya-typed-decisions-p150
 ```

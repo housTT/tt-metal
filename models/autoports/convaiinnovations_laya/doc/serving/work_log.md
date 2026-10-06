@@ -190,3 +190,12 @@ in 18.4 s (`/home/hous/dev/laya/logs/p2_tests_demo_20261006T003702Z.log`).
 - For Track E (passed on by the orchestrator): `feed_client.py` `--parquet-only` and `--cases` paths should apply the
   integral-float normalization before posting.
 - 02:16: three suites after the sibling items (`p2_tests_cpu_20261006T015557Z.log`): 58 passed, 3 warnings in 33.58s.
+
+## 2026 Oct 6, 02:20 UTC: demo footer model name from health
+
+The sibling package's screenshot (`/home/hous/dev/laya/evidence/demo_laya-typed-decisions-p150_b1.png`) showed the
+static footer "Model: convaiinnovations/laya". `demo/index.html` wraps the name in `<span id="foot-model">` (static
+fallback text unchanged, licence text kept); `demo.js` fills it from `GET /v1/health` with `model` and the first 12
+characters of `revision` on every poll. `test_demo_page.py::test_page_documents_autorun_options` asserts the span, the
+licence text, the fill in `demo.js` and that `/v1/health` carries `model` and `revision`. `node --check` passes; no dash.
+- 02:25: three suites after the footer change (`p2_tests_cpu_20261006T021515Z.log`): 58 passed, 3 warnings in 51.06s.

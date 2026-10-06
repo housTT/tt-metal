@@ -95,6 +95,7 @@
       if (h.warm_shapes && h.warm_shapes.length) parts.push(h.warm_shapes.length + " traces");
       $("health-detail").textContent = parts.join(" | ");
       $("cpu-banner").hidden = h.backend !== "cpu";
+      if (h.model) $("foot-model").textContent = h.model + (h.revision ? " at " + String(h.revision).slice(0, 12) : "");
     } catch (e) {
       app.online = false;
       pill.className = "pill pill-bad";

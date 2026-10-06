@@ -61,7 +61,7 @@ serve_profiles:
   - name: p150x4
     hardware: p150x4
     mesh_device: P150x4
-    description: "1x4 mesh, data parallel over rows, no fabric; declared from the English bundle's measurement (bit-identical to one chip at equal per-chip bucket, 3.74x in throughput); validated in the sibling's own build if the chain's four-chip check passes."
+    description: "1x4 mesh, data parallel over rows, no fabric; measured from the packaged image (build 1): 13.2 / 14.6 / 23.7 / 68.5 ms for 1 / 5 / 10 / 50 questions and 310 to 936 questions per second batched; parity smoke 100 of 100 decisions; a single question is slower than one chip (13.2 versus 10.8 ms) by the mesh host overhead."
 default_profile: p150
 
 verify:
@@ -88,20 +88,21 @@ card:
     never generates text. This package serves the Jev-compatible /v1/systemone API of the authors' laya-serve on one
     Blackhole p150 chip, with a live demo at /demo/.
   performance: >
-    Host-served build 1 numbers (the sibling served from the development checkout on one p150, result files under
-    /home/hous/dev/laya/evals/results/host_tt_td-p150_b1_20261006T012706Z; the orchestrator replaces them with the
-    packaged run's values after the build). Latency per call (client median, warm, authors' bench_latency protocol,
-    rows of 194 to 205 tokens), p150 versus the authors' Tesla T4: 1 question 10.7 ms (T4 39.5), 5 questions 24.5 ms
-    (84.5), 10 questions 42.5 ms (158.6), 50 questions 197.5 ms (771). Batched /v1/systemone/batch: 202 to 249
-    questions per second on one p150 (T4 103 to 332). Long states of about 750 tokens per row at the 1024-token bucket:
-    23.9 / 99.0 / 183.2 / 305.6 ms for 1 / 5 / 10 / 16 questions and 52 questions per second batched. Typed-decisions
-    test set (400 cases, 2,000 decisions, max_len 1024 / head_max_len 256): accuracy 0.764, soft accuracy 0.469,
-    Brier 0.062, ECE 0.214, score MAE 0.244 (published 0.766 / 0.471 / 0.062 / 0.213 / 0.242; CPU fp32 on this host
-    0.766 / 0.471 / 0.061 / 0.213 / 0.242); argmax agreement with the CPU fp32 decisions 99.35 percent, 100 percent on
-    confident decisions (reference margin at least 0.10). AG News 0.953 and DAIR Emotion 0.595 accuracy at 1024 / 256
-    (authors' CPU run of the English checkpoint 0.950 / 0.595; Jev 0.910 / 0.480). Parity against the CPU fp32
-    reference on 488 decisions: 383 of 383 confident decisions agree, 485 of 488 argmax agree, median max abs delta p
-    0.0039, max 0.040, scorer-logit PCC 0.9989.
+    Measured from the packaged image served on one p150 (build 1, image tt-model/laya-typed-decisions-p150:566a0febd4b4,
+    whose code sha256 e4ef6027ed9dcd4d305b5a1bd03218dd18e5d89066c1a239b0c613bd6092b957 equals this image's: only the
+    card changed after it; result files under
+    /home/hous/dev/laya/evals/results/package_laya-typed-decisions-p150_p150_b1_20261006T020850Z, release notes in
+    doc/release/RUN_NOTES.md). Typed-decisions test set (400 cases, 2,000 decisions, max_len 1024 / head_max_len 256):
+    accuracy 0.764, soft accuracy 0.469, Brier 0.062, ECE 0.214, score MAE 0.244 (published 0.766 / 0.471 / 0.062 /
+    0.213 / 0.242; CPU fp32 on this host 0.766 / 0.471 / 0.061 / 0.213 / 0.242). Latency per call (client median, warm,
+    authors' bench_latency protocol), p150 versus the authors' Tesla T4 for the English checkpoint: 1 question 10.8 ms
+    (T4 39.5), 5 questions 24.6 ms (84.5), 10 questions 42.9 ms (158.6), 50 questions 197.7 ms (771); device forward
+    9.2 / 22.7 / 40.3 / 191.8 ms. Batched /v1/systemone/batch: 202 to 249 questions per second on one p150 (T4 103 to
+    332); the p150x4 profile 310 to 936. Long states that reach the 1024-token bucket (750-token rows, host-served):
+    23.9 / 99.0 / 183.2 / 305.6 ms for 1 / 5 / 10 / 16 questions. AG News 0.953 and DAIR Emotion 0.595 accuracy at the
+    1024 / 256 budget (the authors publish these suites for the English checkpoint only: 0.950 / 0.595). Parity against
+    this checkpoint's CPU fp32 reference on 488 decisions: 383 of 383 confident decisions agree, 485 of 488 argmax agree,
+    median max abs delta p 0.004, max 0.040.
   limitations: >
     Fine-tuned for the four typed-decisions workflows (agent trace observability, customer service, invoice
     processing, security incidents); outside them use the base checkpoint. max_len 1024, head_max_len 256; requests
@@ -118,7 +119,7 @@ card:
     checkpoint. Not reproduced: MASSIVE, XNLI, 45 of 51 languages, post-temperature ECE.
   risks: >
     bf8w_hifi3_erf numerics move probabilities by up to 0.040 (parity corpus, median 0.0039) and 0.031
-    (typed-decisions) against the fp32 reference in the host-served run; the single-row Emotion deviation seen on the
+    (typed-decisions) against the fp32 reference in the packaged run (build 1); the single-row Emotion deviation seen on the
     English bundle is not measured for this checkpoint; gate on confidence, not act_probability. Long option texts are
     truncated to 48 tokens silently, as in the reference. The shipped temperatures are over-confident per the authors;
     refit on your own data.

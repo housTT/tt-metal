@@ -106,6 +106,10 @@ def test_page_documents_autorun_options(client):
     with open(os.path.join(DEMO_DIR, "demo.js"), encoding="utf-8") as fh:
         js = fh.read()
     assert 'modes.includes("decide")' in js and 'modes.includes("feed")' in js and 'qp.get("preset")' in js
+    assert 'id="foot-model"' in html and "(Apache-2.0)" in html
+    assert '$("foot-model").textContent = h.model' in js and "h.revision" in js
+    health = client.get("/v1/health").json()
+    assert health["model"] and "revision" in health
 
 
 @needs_weights
