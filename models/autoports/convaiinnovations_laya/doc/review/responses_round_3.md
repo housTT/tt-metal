@@ -20,4 +20,17 @@ Review: `/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/convaiinnovation
 
 ## Track T3 responses
 
-(appended by Track T3)
+Track T3 wrote `tests/single_row_investigation.py` (01:57 UTC) and did not report further; the orchestrator ran it.
+
+## Orchestrator investigation (Track T3's script, run by the orchestrator), 2026 Oct 6 02:18 to 02:35 UTC
+
+Evidence: `doc/full_model/single_row_investigation.md`, `doc/full_model/single_row/` (device_*.json, gates_single_row_*.json,
+served_single_row_gates_build4.json), corpus `/home/hous/dev/laya/reference/parity_corpus_single.npz` (800 items).
+Findings: the two confident Emotion flips reproduce bit for bit alone at 1x128 and inside 5x256 and 5x128 batches (not a
+bucket or placement effect); `bf16_hifi4` keeps the same texts within 0.108 with no flip (a policy effect on near-tied
+short inputs). On the 800 served single-row decisions 777 of 779 confident decisions agree, median max abs
+dp 0.0012: the decision gates pass; the placement spread on 16 single-row questions is 0.019 (shipped) and
+0.011 (`bf16_hifi4`) against the 0.01 gate that holds on the gate corpus, with the same answers. Disposition: the
+shipped policy stays by the plan's rule; the card states agreement and spread per evidence set and names
+`LAYA_PRECISION=bf16_hifi4` as the slower alternative; build 5 carries the card. The E1 tensor path runs in the chain
+from build 5 (`RAW_FORWARD=1`), together with E1 on the single-row corpus.

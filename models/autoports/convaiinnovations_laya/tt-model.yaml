@@ -103,11 +103,20 @@ card:
     action.act_probability carries no usable signal (authors' issue #185); gate on answer_confidence. Temperatures
     are clamped to [0.5, 5.0] as pip laya 0.3.27 does, so choice questions with more than 10 options use 0.5 instead
     of the shipped 0.1006. Requests are padded to 128, 256 or 512 tokens x 1 to 64 rows (exact buckets at 5, 10 and 50 rows); longer
-    sequences are refused with 422. 12 of 488 reference decisions flip against the CPU fp32 reference, all with a
-    reference margin under 0.10 (none of the 403 confident decisions flips). One device process serializes
+    sequences are refused with 422. Agreement with the CPU fp32 reference depends on the evidence set: on the 488-decision parity corpus
+    (5-row calls, typed-decisions and benchmark-ticket questions) 12 decisions flip, all with a reference margin under
+    0.10, and none of the 403 confident decisions flips; on the 400 single-row six-option DAIR Emotion decisions 6 flip
+    and 2 of 386 confident decisions flip (reference margins 0.125 and 0.369), on the 400 single-row four-option AG News
+    decisions 2 flip and none of the 393 confident decisions. Short single-row inputs with several near-tied options are
+    the most sensitive shape. The investigation (doc/full_model/single_row_investigation.md) shows the
+    deviation is a property of the bfp8 numerics on those inputs, not of the bucket or batch placement; serving with
+    LAYA_PRECISION=bf16_hifi4 keeps the same decisions within 0.11 of the reference with no flip at about 11 percent more
+    latency. Placement invariance (the same question answered alone or inside a batch): max probability spread 0.009
+    on the gate corpus; 0.019 on short single-row inputs, with the same answer in every placement. One device process serializes
     requests. p150x4 status: data parallel over rows, bit-identical to one chip at equal per-chip batch, served from the packaged image (build 3: healthy in 20 s, 69.9 ms for 50 questions; build 1: 97 of 100 parity decisions and 82 of 82 confident on the smoke subset). Not reproduced: MASSIVE, XNLI, 45 of 51 languages, post-temperature ECE.
   risks: >
-    bf8w_hifi3_erf numerics move probabilities by up to 0.12 (median 0.008) against the fp32 reference; gate on confidence, not act_probability. Long option texts are truncated to 48 tokens silently, as in
+    bf8w_hifi3_erf numerics move probabilities against the fp32 reference by up to 0.12 (median 0.008) on the parity
+    corpus, up to 0.056 on AG News and up to 0.27 on DAIR Emotion (7 of 400 decisions above 0.12), see limitations; gate on confidence, not act_probability. Long option texts are truncated to 48 tokens silently, as in
     the reference. The shipped temperatures are over-confident per the authors; refit on your own data.
   usage: |
     POST /v1/systemone with {"state": ..., "questions": {id: {"type": "choice"|"score"|"noul", "instructions": ..., "criteria": ...}}, "max_len", "head_max_len", "min_confidence"}

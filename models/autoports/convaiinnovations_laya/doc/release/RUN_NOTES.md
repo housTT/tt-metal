@@ -113,6 +113,19 @@ at 1024; 37 traces, 176.8 MiB), `LAYA_MAX_BATCH_TOKENS` 16384, a sibling sanity 
   `e4ef6027ed9dcd4d305b5a1bd03218dd18e5d89066c1a239b0c613bd6092b957`, `dirty: false`; card with the host-served numbers.
   The chain's first evaluation step did not run (a shell quirk in the chain, fixed) and reused the English log names
   (note above); the evaluation was rerun on the same image at 02:08 UTC.
+- Build 2, the sibling release candidate (2026 Oct 6 02:19 to 02:22 UTC, `package exit 0`, commit `8a843f009a`): card with
+  the packaged build 1 numbers, demo footer reading the served model from `/v1/health`. Image
+  `tt-model/laya-typed-decisions-p150:a4c8f7eecc1b`, digest
+  `sha256:a4c8f7eecc1bad867654963c6427a64cf3df97f13d98290afcece2a1485f8533`, code sha256
+  `7b36a18faed4998a61c5c6e355eb2bd62cdd9ca9f8ec408bf489b6c30def831b` (the demo page changed, so the code sha differs from
+  build 1), `dirty: false`. Staged bundle `/home/hous/dev/laya/package/out/laya-typed-decisions-p150/`. Verification
+  (`package_laya-typed-decisions-p150_p150_b2_20261006T022244Z`, `..._p150x4_b2_20261006T022728Z`): E1 485 of 488 and 383
+  of 383 (wire and tensor), E2 0.764 / 0.469 / 0.062 / 0.214 / 0.244 with 1,492 of 1,492 confident agreements against the
+  sibling CPU reference, E3 AG News 0.953 (400 of 400 argmax, 392 of 392 confident against the sibling CPU reference) and
+  Emotion 0.595 (CPU 0.600), E5 10.8 / 24.5 / 42.9 / 197.6 ms, 203 to 249 questions per second, feed 20.07 decisions per
+  second at agreement 0.751, p150x4 healthy in 20 s with 12.7 / 16.1 / 23.8 / 68.5 ms and 309 to 936 questions per second,
+  parity smoke 100 of 100. The `parity_single_row/` directories under the sibling runs compare against the English
+  single-row corpus by mistake (marked with a NOTE.md, not quoted).
 
 Verification from the served sibling package (build 1, profile p150, chip 0, port 8710;
 `/home/hous/dev/laya/evals/results/package_laya-typed-decisions-p150_p150_b1_20261006T020850Z/SUMMARY.md`; healthy 20 s
