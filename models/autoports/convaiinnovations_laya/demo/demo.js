@@ -259,11 +259,10 @@
       const gtick = gold && typeof gold.noul === "number" ? `<span class="tick" style="left:${(100 * gold.noul).toFixed(2)}%" title="gold P(true) ${pct(gold.noul)}"></span>` : "";
       body = `<div class="noul"><span class="f" style="width:${(100 * (1 - pt)).toFixed(2)}%"></span><span class="t" style="width:${(100 * pt).toFixed(2)}%"></span><span class="lab l">false ${pct(1 - pt)}</span><span class="lab r">true ${pct(pt)}</span>${gtick}</div>`;
     }
-    const act = a.action && typeof a.action.act_probability === "number" ? `<span class="act" title="action.act_probability as returned by the API; see the caveat below">act ${fmt(a.action.act_probability, 3)} / escalate ${fmt(1 - a.action.act_probability, 3)}</span>` : "";
     const abst = a.abstention ? `<span class="abst">${esc(a.abstention)} at ${fmt(a.abstention_threshold, 2)}</span>` : "";
     const goldLine = gold && gold.label !== undefined ? `<span>gold <b>${esc(gold.label)}</b></span>` : "";
     const headline = type === "choice" ? `<b>${esc(a.choice)}</b>` : type === "score" ? `<b>score ${fmt(a.score, 3)}</b>` : `<b>${pt(a) }</b>`;
-    return `<div class="acard"><div class="acard-head"><span class="qid">${esc(qid)}</span><span class="badge badge-${esc(type)}">${esc(type)}</span>${headline}${goldLine}</div><div class="ins">${esc(q.instructions)}</div>${body}<div class="meta"><span>confidence <b>${fmt(a.confidence, 3)}</b></span><span>answer_confidence <b>${fmt(a.answer_confidence, 3)}</b></span>${act}${abst}</div></div>`;
+    return `<div class="acard"><div class="acard-head"><span class="qid">${esc(qid)}</span><span class="badge badge-${esc(type)}">${esc(type)}</span>${headline}${goldLine}</div><div class="ins">${esc(q.instructions)}</div>${body}<div class="meta"><span>confidence <b>${fmt(a.confidence, 3)}</b></span><span>answer_confidence <b>${fmt(a.answer_confidence, 3)}</b></span>${abst}</div></div>`;
     function pt(x) {
       return x.noul >= 0.5 ? "true " + pct(x.noul) : "false " + pct(1 - x.noul);
     }

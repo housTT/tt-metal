@@ -248,8 +248,9 @@ Concurrency: one `asyncio.Lock` around every forward (systemone, batch, raw); th
 - Editor: state (JSON or text; JSON is parsed when it parses, else sent as a string), questions JSON, `max_len`,
   `head_max_len`, `min_confidence`, Decide. Server errors (400, 413, 422) are shown inline with the server's `detail`.
 - Answer cards: type badge, instructions, per-option probability bars with the argmax in full colour; score cards add
-  a ruler with the expected score; noul cards a two-tone false/true bar; `confidence`, `answer_confidence`, the act /
-  escalate tile with the authors' caveat (issue #185), `abstention` when a gate ran, gold ticks when the preset has gold.
+  a ruler with the expected score; noul cards a two-tone false/true bar; `confidence`, `answer_confidence`,
+  `abstention` when a gate ran, gold ticks when the preset has gold. The API's `action.act_probability` is not shown:
+  the authors report it carries no usable signal in these checkpoints (issue #185).
 - Tiles with sparklines over the last 60 calls: client ms, server ms (`X-Inference-Time-Ms`), device ms
   (`X-Laya-Device-Ms`), batch (`X-Laya-Batch`), input tokens, state tokens, truncated.
 - Live feed: `demo/feed.json` = `demo/feed_cases.json` (60 typed-decisions test cases, the first 15 of each workflow,

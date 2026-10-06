@@ -69,6 +69,7 @@ def test_lede_links_and_variant_band():
     for model in ("convaiinnovations/laya", "convaiinnovations/laya-typed-decisions"):
         assert '"%s": {' % model in js, model
     assert "document.title = v.title" in js and "applyVariant(h.model)" in js and "document.body.dataset.model" in js
+    assert "act_probability" not in html and "act_probability" not in js and "escalate" not in js
 
 
 def test_demo_html_stamps_served_model():
