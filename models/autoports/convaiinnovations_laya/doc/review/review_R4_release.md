@@ -141,3 +141,103 @@ Post-inspection note (2026 Oct 6, about 03:20 UTC). After the inspection the orc
 - The `stop` instruction in REPORT section 9 fails for a staged package; a user who follows it will leave the container running until they use the manifest path or `docker rm -f`.
 - Single-row six-option inputs with near-tied options can flip against the fp32 reference under the shipped policy (2 confident flips in 386 on DAIR Emotion, max abs dp 0.273); the card discloses this and names `LAYA_PRECISION=bf16_hifi4` as the slower alternative, but no 800-item gate run exists for that alternative.
 - The branch tip `bb12fa7256` is not yet on `housTT`; the push follows this verdict and the P2 fixes above will move the tip again.
+
+## Re-check after responses round 4 (2026 Oct 6, about 03:40 UTC)
+
+Scope: `/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/convaiinnovations_laya/doc/review/responses_round_4.md`; branch `hous/laya` at `d420493e44` (two commits after `578c6dbdb5`: `01e82b93e4` adds the R4 report and dispositions, `d420493e44` adds the build 7 and sibling build 4 release notes; the diff `578c6dbdb5..d420493e44` touches only `doc/release/RUN_NOTES.md`, `doc/review/responses_round_4.md` and `doc/review/review_R4_release.md`); final staged bundles English build 7 and sibling build 4. Read-only as before; the two new demo PNG files were read as images.
+
+Verdict: more-work-needed
+
+Three text items remain (no rebuild, no measured number changes). Everything that touches the shipped images, the cards, the sweep table, the publish commands, the summarizer template, the plan amendment and the scorecard is closed.
+
+### Deliverable 2 re-verification
+
+- English build 7, `/home/hous/dev/laya/package/out/laya-p150/`: manifest `container.image.tag` `tt-model/laya-p150:42bac8981309`, digest `sha256:42bac89813098e37ed4d405b906e640301f139e80a7722d901362989e6e25b9e`, equal to `docker images --digests` (created 2026-10-06T03:30:18Z); `built.tt_metal.dirty` false; `built.code_sha256` `7b36a18faed4998a61c5c6e355eb2bd62cdd9ca9f8ec408bf489b6c30def831b`, recomputed over `code/` (47 files) with the `_sha256_tree` method: equal; `runtime.lock: requirements.lock`; staged lock byte-identical to `requirements.lock` at `578c6dbdb5` and to the sibling's staged lock; 38 manifest fields equal to `tt-model.yaml` at `578c6dbdb5` (0 mismatches); no `PLACEHOLDER`. Source commit: `built.tt_metal.sha` is `01e82b93e47962c126b396f748eacfb8bbf8aa34`, the image label `org.opencontainers.image.revision` is `01e82b93e4`, and `/home/hous/dev/laya/logs/p4_final_build_7.log` line 2 reads "worktree at 01e82b93e4, dirty 0". `git diff 578c6dbdb5 01e82b93e4` changes only the two review files; `tt-model.yaml` and every `source.code` path are identical between the two commits, so the shipped content equals `578c6dbdb5`. The recorded commit in REPORT.md and RUN_NOTES.md does not match the manifest (see Required Work).
+- Sibling build 4, `/home/hous/dev/laya/package/out/laya-typed-decisions-p150/`: tag `tt-model/laya-typed-decisions-p150:aed3896b5546`, digest `sha256:aed3896b5546096b8aae031a5a258034f6b0cff08a8ee802995f67e0d483f1f8`, equal to `docker images` (03:22:10Z); `dirty` false; `built.tt_metal.sha` `578c6dbdb5` (manifest, image label and `/home/hous/dev/laya/logs/p6_final_build_td_4.log` line 2 agree); code sha256 recomputed equal (47 files); `runtime.lock: requirements.lock` and no `packages`; 38 fields equal to `tt-model-typed-decisions.yaml` at `578c6dbdb5` (0 mismatches); `card.limitations` reads "3 of 488 parity decisions flip, all with a reference margin under 0.015 (none of the 383 confident decisions flips)", which matches the derived flip margins 0.0027, 0.0009 and 0.0145.
+- `p150x4` result directories present and served from the images: `/home/hous/dev/laya/evals/results/package_p150x4_b7_20261006T033521Z/health_before.json` `mesh_shape` 1x4, `model_dir` under `/hf/`, device "blackhole x4 ids [1, 0, 3, 2]", 30 warm shapes; `package_laya-typed-decisions-p150_p150x4_b4_20261006T032658Z/health_before.json` 1x4, `/hf/`, 37 warm shapes. Single-chip runs `package_p150_b7_20261006T033045Z` and `package_laya-typed-decisions-p150_p150_b4_20261006T032237Z` 1x1, `/hf/`.
+- Hub: `huggingface_hub.model_info` returns RepositoryNotFoundError for `tt-hous/laya-p150` and `tt-hous/laya-typed-decisions-p150`. Chain logs end with "no push: staged bundle ... (user review gate)", `BUILD7_DONE 03:36:41`, `BUILD4_DONE 03:28:19`.
+- REPORT.md section 1 names build 7 (`42bac8981309`, digest, code sha) and sibling build 4 (`aed3896b5546`); RUN_NOTES.md has a build 7 paragraph and a sibling build 4 paragraph with digests, code sha, result directories and the "(this build)" marker; the four-command publish block is present.
+- Branch: no `.tracy` file at `d420493e44`; no autoport file over 1 MB; `git diff --name-only 05b8eb70ae d420493e44` touches autoport paths only; `housTT/hous/laya` is still `54c8e796b3` (tip unpushed).
+- Accuracy rows of the new runs equal the previous builds: b7 E1 476 of 488 and 403 of 403 (median 0.00815), single-row 792 of 800 and 777 of 779 (median 0.00118, max 0.2727), E2 0.359 / 0.332 / 0.311 / 0.172 / 0.689, E3 0.955 / 0.593; sibling b4 E1 485 of 488 and 383 of 383, E2 0.764 / 0.469 / 0.062 / 0.214 / 0.244, E3 0.953 / 0.595. The cards still quote the build 5 and sibling build 2 runs with the "only the card changed after it" statement, which the unchanged code sha supports.
+
+### The five Required Work items
+
+1. REPORT section 4: closed. Rows read `0.0150 | 248.1 | fails invariance` and `0.0154 | 249.2 | fails invariance`; the paragraph under the table names both and states that every faster policy fails placement invariance; "`bf16_hifi4` ... 10.7 percent slower" equals 294.85 / 266.36 from `sweep_results.csv`.
+2. REPORT section 7 and the summarizer: closed in the text; one generated file is stale. REPORT section 7 attributes MASSIVE 0.783 and XNLI 0.860 to the English checkpoint (n 300 each, the Colab notebook and `t4_colab_benchmark.json`), keeps the 45-of-51 and non-English rows with the multilingual checkpoint, and adds the scope statement (SST-5 0.372, AUROC 0.30 against 0.77 on 396 decisions, the Khmer case). `/home/hous/dev/laya/evals/summarize.py` `NOT_REPRODUCIBLE` carries the same wording (file mtime 03:25:46). `SUMMARY.md` files written after that time carry it (`package_laya-typed-decisions-p150_p150x4_b4_20261006T032658Z` 03:28:18, `package_p150_b7_20261006T033045Z` 03:33:36, `package_p150x4_b7_20261006T033521Z` 03:36:40). `package_laya-typed-decisions-p150_p150_b4_20261006T032237Z/SUMMARY.md` was written at 03:25:30, 16 seconds before the template change, and still reads "MASSIVE intent 0.783 and language coverage 45 of 51: multilingual mmBERT checkpoint ..." and "XNLI 0.860: Colab notebook protocol, not run here". PLAN.md amendment A15 (03:26 UTC) is present and states the attribution correctly.
+3. REPORT section 9: closed. The sibling serve path, the two sibling publish commands, `tt-model stop` by manifest path for both bundles and the `docker rm -f` fallback are present; the container names in the fallback (`tt-model-laya-p150-p150`, `-p150x4`, `tt-model-laya-typed-decisions-p150-p150`) match the names in the build 7 and sibling build 4 chain logs.
+4. Sibling card margin: closed in the built manifest of build 4 (quoted above).
+5. Demo script: the evidence references now point at `demo_laya-p150_b7.png`, `demo_feed_laya-p150_b7.json` and `package_p150_b7_20261006T033045Z/SUMMARY.md`; the throughput row reads 202 to 249 (equal to the b7 SUMMARY); the stats strip (20.1 decisions per second, p50 48 ms, device 45 ms, agreement 38 percent, 0 errors) matches the b7 screenshot (20.27, 48.0 / 50.0, 44.9, 38.0 percent, 114 of 300) and `demo_feed_laya-p150_b7.json` (20.075, 48.113, 44.87, 0.3817, 0). The tile row reads "client 26.0 ms, server 21.6 ms, device 19.6 ms, batch 4x256" and the voice-over "Round trip 26 milliseconds"; the cited `/home/hous/dev/laya/evidence/demo_laya-p150_b7.png` shows "client 27.0 ms | server 21.6 ms | device 19.6 ms | batch 4x256" (read as an image). The client value is the build 6 screenshot's, not build 7's.
+
+Scorecard: closed. `/home/hous/dev/laya/scorecard/laya-p150-scorecard.html` now gives one single-chip range (202 to 249, three places) and one four-chip range (309 to 937, two places); latency cells 10.8 / 24.7 / 42.7 / 197.2 ms, profile cells 197 ms and 68 ms, 13.2 ms for one question on four chips; build 7 with image `42bac8981309` and sibling build 4 with `aed3896b5546`; all equal to the b7 and b7 x4 SUMMARY files.
+
+Demo evidence of the final builds: `demo_laya-typed-decisions-p150_b4.png` shows 37 traces, seq 128/256/512/1024, footer `convaiinnovations/laya-typed-decisions at e929ae5cf69b`, routing billing 60.5 percent, feed 75.0 percent (225 of 300), device p50 45.0 ms; `demo_feed_laya-typed-decisions-p150_b4.json`: 241 cases, 1,205 decisions, 20.074 per second, client p50 48.286 ms, device p50 44.93 ms, agreement 0.751, 0 errors, served model `convaiinnovations/laya-typed-decisions`, 37 warm shapes.
+
+### Required Work (round 4)
+
+- P2: REPORT.md section 1 and RUN_NOTES.md record build 7 as built from `578c6dbdb5`; the manifest, the image label and the chain log record `01e82b93e4`
+  Evidence: `/home/hous/dev/laya/REPORT.md` section 1 "built from the clean worktree at commit `578c6dbdb5`"; `/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/convaiinnovations_laya/doc/release/RUN_NOTES.md` build 7 paragraph "commit `578c6dbdb5`"; `/home/hous/dev/laya/package/out/laya-p150/tt_kernel_manifest.json` `built.tt_metal.sha` `01e82b93e47962c126b396f748eacfb8bbf8aa34`, `describe` `v0.79.0-dev20260903-152-g01e82b93e4`; `docker image inspect tt-model/laya-p150:42bac8981309` label `org.opencontainers.image.revision` `01e82b93e4...`; `/home/hous/dev/laya/logs/p4_final_build_7.log` line 2. `git diff 578c6dbdb5 01e82b93e4` changes only `doc/review/responses_round_4.md` and `doc/review/review_R4_release.md`, so the YAML and the code are the same at both commits.
+  Why this matters: the provenance line a reviewer re-derives with `git show <commit>:.../tt-model.yaml` must name the commit the manifest records; this is the one statement about the shipped English build that the artifacts contradict.
+  Required next step: write `01e82b93e4` (and optionally "identical YAML and code to `578c6dbdb5`") in REPORT.md section 1 and in the RUN_NOTES.md build 7 paragraph. Text only.
+
+- P2: the demo script's client tile does not match the cited build 7 screenshot
+  Evidence: `/home/hous/dev/laya/demo-script.md` row 0:20 "client 26.0 ms" and voice-over "Round trip 26 milliseconds"; `/home/hous/dev/laya/evidence/demo_laya-p150_b7.png` header "client 27.0 ms | server 21.6 ms | device 19.6 ms | batch 4x256".
+  Why this matters: the script states that its numbers are from this screenshot.
+  Required next step: 27.0 ms and "Round trip 27 milliseconds, of which 19.6 on the chip". Text only.
+
+- P2: one cited result file still carries the old not-reproducible wording
+  Evidence: `/home/hous/dev/laya/evals/results/package_laya-typed-decisions-p150_p150_b4_20261006T032237Z/SUMMARY.md` (written 03:25:30) section "Not reproducible here" against `/home/hous/dev/laya/evals/summarize.py` `NOT_REPRODUCIBLE` (mtime 03:25:46) and the three later SUMMARY files.
+  Why this matters: REPORT.md section 7 cites this directory as the source of the sibling row, and the SUMMARY header says "REPORT.md quotes only this file".
+  Required next step: re-run the summarizer on that directory (CPU only, no device) so the file matches the template; no measured number changes.
+
+### Other Concerns (round 4)
+
+- REPORT.md section 2 "health uptime 13.1 s at that poll" is build 6's value (`p4_final_build_6.log` line 12); build 7's first successful poll shows `uptime_s` 13.5 (`p4_final_build_7.log` line 12). Trivial.
+- REPORT.md section 3 still introduces the application-suite agreement block as "release candidate, `package_p150_b4_20261006T010016Z/apps/score.json`". The numbers are identical in build 7 (`package_p150_b7_20261006T033045Z/apps/score.json`: 398 of 400, 393 of 393, max 0.05573; 394 of 400, 384 of 386, max 0.27265), so only the label is stale.
+- The English card's `p150x4` profile description and `limitations` still quote the build 5 four-chip run (13.2 / 16.1 / 22.3 / 68.5 ms, 349 to 940, 97 of 100, 82 of 82); the build 7 four-chip run gives 13.2 / 16.1 / 23.6 / 68.4 ms, 309 to 937, 97 of 100, 82 of 82. Consistent with the card's "measured from the packaged image (build 5)" statement and with the unchanged code sha; no action needed.
+
+### Anomaly Ledger additions (round 4)
+
+- Observed anomaly: recorded build 7 commit differs from the manifest's.
+  Evidence: REPORT section 1 and RUN_NOTES ("578c6dbdb5") against `built.tt_metal.sha` `01e82b93e4`, image label, chain log line 2.
+  Affected path: provenance text of the English release candidate.
+  Control or comparison: YAML and code identical at both commits (`git diff 578c6dbdb5 01e82b93e4` touches two review files only); manifest equals the YAML at `578c6dbdb5` in 38 of 38 fields; code sha unchanged.
+  Likely subsystem: the chain detaches the worktree at the branch head at build time; the notes were written from the intended commit.
+  Investigation performed: manifest, label, log and git diff compared.
+  Resolution: more-work-needed (text).
+
+- Observed anomaly: demo script client tile 26.0 ms against 27.0 ms on the cited screenshot.
+  Evidence: `demo-script.md` row 0:20; `demo_laya-p150_b7.png`.
+  Affected path: demo deliverable text.
+  Control or comparison: server 21.6 and device 19.6 ms match; the stats strip and throughput match the b7 evidence; the b6 screenshot shows 26.0 ms.
+  Likely subsystem: the values suggested in the first review (from b6) were copied under the b7 reference.
+  Investigation performed: PNG read as an image; feed JSON read.
+  Resolution: more-work-needed (text).
+
+- Observed anomaly: one SUMMARY written 16 seconds before the template change carries the old attribution.
+  Evidence: file mtimes 03:25:30 against 03:25:46; the text of the four final SUMMARY files.
+  Affected path: `package_laya-typed-decisions-p150_p150_b4_20261006T032237Z/SUMMARY.md`.
+  Control or comparison: the three later SUMMARY files carry the new wording; REPORT section 7 carries it.
+  Likely subsystem: ordering of the template edit and the sibling chain's summarizer step.
+  Investigation performed: mtimes and text compared.
+  Resolution: more-work-needed (regenerate the file, CPU only).
+
+### Scope Inspected (round 4)
+
+- `responses_round_4.md`; `git log 578c6dbdb5..d420493e44`, `git diff --stat 578c6dbdb5 d420493e44`, `git diff --stat 578c6dbdb5 01e82b93e4`, `git diff --quiet` of the YAML and `source.code` paths between `578c6dbdb5` and `01e82b93e4`, `git ls-tree` checks for `.tracy` and size at `d420493e44`, `git ls-remote` of `housTT`; both staged manifests, READMEs, locks and `code/` trees (sha256 recomputed); `docker images --digests` and `docker image inspect` of both new tags; PyYAML comparison of both manifests with the YAML at `578c6dbdb5`; `huggingface_hub.model_info` for both repos; the four final result directories (`SUMMARY.md`, `health_before.json`, b7 `parity_single_row/SUMMARY.md`); REPORT.md sections 1, 2, 3, 4, 7 and 9; RUN_NOTES.md diff and publish block; `summarize.py` `NOT_REPRODUCIBLE`; PLAN.md A15; `demo-script.md`; `demo_laya-p150_b7.png` and `demo_laya-typed-decisions-p150_b4.png` (read as images); `demo_feed_laya-p150_b7.json` and `demo_feed_laya-typed-decisions-p150_b4.json`; the scorecard HTML text; chain logs `p4_final_build_7.log` and `p6_final_build_td_4.log`.
+
+### Residual Risk (round 4)
+
+- Until the three text items are applied, REPORT.md names a commit for build 7 that the manifest does not record, the demo script quotes a client tile from the previous screenshot, and one cited SUMMARY carries the superseded attribution. None affects an image, a card or a measured number; no rebuild is needed.
+- The branch tip will move once more with these fixes; the push to `housTT` should follow the commit that carries them.
+
+## Re-check 2 after responses round 4 (2026 Oct 6, about 03:50 UTC)
+
+Scope: branch `hous/laya` at `877bdd02ca` (`d420493e44..877bdd02ca` is two commits: `1431d2b4a1` edits `doc/review/responses_round_4.md`, `877bdd02ca` edits `doc/release/RUN_NOTES.md`; `git diff --quiet 578c6dbdb5 877bdd02ca` over `tt-model.yaml`, `tt-model-typed-decisions.yaml`, `requirements.lock` and every `source.code` path reports no change). Read-only. The staged bundles were not rebuilt: `/home/hous/dev/laya/package/out/laya-p150/tt_kernel_manifest.json` (mtime 03:30:45, `built.tt_metal.sha` `01e82b93e4`) and `/home/hous/dev/laya/package/out/laya-typed-decisions-p150/tt_kernel_manifest.json` (03:22:37, `578c6dbdb5`) are the files verified in the first re-check; both image tags are still present in `docker images`; `housTT/hous/laya` is still `54c8e796b3`.
+
+Verdict: clean-pass
+
+- Item 1 (build 7 commit): closed. `/home/hous/dev/laya/REPORT.md` section 1 reads "the clean worktree at commit `01e82b93e4` (`dirty: false`; identical code and manifest to `578c6dbdb5`)"; `/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/convaiinnovations_laya/doc/release/RUN_NOTES.md` line 62 reads "Build 7 ... commit `01e82b93e4`, which ..."; the sibling line keeps `578c6dbdb5`, which its manifest records. REPORT section 2 now reads "health uptime 13.5 s at that poll" (`/home/hous/dev/laya/logs/p4_final_build_7.log` line 12 `uptime_s` 13.5); section 3 cites "release candidate build 7, `package_p150_b7_20261006T033045Z/apps/score.json`".
+- Item 2 (demo script tile): closed. `/home/hous/dev/laya/demo-script.md` row 0:20 reads "client 27.0 ms, server 21.6 ms, device 19.6 ms, batch 4x256" and "Round trip 27 milliseconds, of which 19.6 on the chip", equal to the header of `/home/hous/dev/laya/evidence/demo_laya-p150_b7.png`.
+- Item 3 (stale SUMMARY): closed. `/home/hous/dev/laya/evals/results/package_laya-typed-decisions-p150_p150_b4_20261006T032237Z/SUMMARY.md` was regenerated at 03:45:12 with the corrected "Not reproducible here" block; its measured rows are unchanged (E1 485 of 488 and 383 of 383, max 0.0402; E2 0.764 / 0.469 / 0.062 / 0.214 / 0.244; E3 0.953 / 0.595; E5 10.8 / 24.7 / 42.8 / 197.7 ms, 202 to 249 questions per second; feed agreement 0.7521, 0 errors).
+
+No Required Work remains. The release meets PLAN.md section 10 checkpoint R4 and the section 11 stop condition as reviewed: the branch holds the autoport, stage evidence, reviews and release notes; the two staged bundles (English build 7 `tt-model/laya-p150:42bac8981309`, sibling build 4 `tt-model/laya-typed-decisions-p150:aed3896b5546`) are hardware-verified from their images on both profiles and not pushed; REPORT.md traces to the result files and stage JSON; the demo evidence matches the served results. Remaining residual risks are the ones listed above (single-row near-tied flips under the shipped policy, disclosed on the card; the branch tip still to be pushed to `housTT` after this verdict).
