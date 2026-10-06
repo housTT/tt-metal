@@ -6,20 +6,14 @@ import json
 import logging
 import os
 import time
+from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
 
 from ..vendor.rl_common import QTYPES, build_sequence, collate_items, render_options, serialize_state
-from .decode import (
-    MODEL_NAME,
-    Temperatures,
-    apply_confidence_gate,
-    decode_answers,
-    empty_result,
-    usage_for_state,
-)
+from .decode import MODEL_NAME, Temperatures, apply_confidence_gate, decode_answers, empty_result, usage_for_state
 
 log = logging.getLogger("laya.server")
 
@@ -139,18 +133,27 @@ def check_question(qid: Any, qdef: Any) -> None:
         raise RequestError("question %r: no 'instructions'; add the text the model should answer" % (qid,))
     ins = qdef["instructions"]
     if ins is None:
-        raise RequestError("question %r: 'instructions' must not be None; add the text the model should answer" % (qid,))
+        raise RequestError(
+            "question %r: 'instructions' must not be None; add the text the model should answer" % (qid,)
+        )
     if isinstance(ins, str) and not ins.strip():
-        raise RequestError("question %r: 'instructions' must not be empty; add the text the model should answer" % (qid,))
+        raise RequestError(
+            "question %r: 'instructions' must not be empty; add the text the model should answer" % (qid,)
+        )
     if isinstance(ins, (list, dict)) and not ins:
-        raise RequestError("question %r: 'instructions' must not be empty; add the text the model should answer" % (qid,))
+        raise RequestError(
+            "question %r: 'instructions' must not be empty; add the text the model should answer" % (qid,)
+        )
     if not isinstance(ins, (str, dict, list, int, float)):
-        raise RequestError("question %r: 'instructions' must be a string, dict, or list, got %s" % (qid, type(ins).__name__))
+        raise RequestError(
+            "question %r: 'instructions' must be a string, dict, or list, got %s" % (qid, type(ins).__name__)
+        )
     crit = qdef.get("criteria")
     if t == "choice":
         if not isinstance(crit, (dict, list)):
             raise RequestError(
-                "question %r: a choice question takes 'criteria' as a dict of label -> description, or a list of labels" % (qid,)
+                "question %r: a choice question takes 'criteria' as a dict of label -> description, or a list of labels"
+                % (qid,)
             )
         if not crit:
             raise RequestError("question %r: a choice question needs at least one criterion" % (qid,))
@@ -172,7 +175,8 @@ def check_question(qid: Any, qdef: Any) -> None:
                     first = keys[label]
                 except TypeError as exc:
                     raise RequestError(
-                        "question %r: choice label %d (%r) cannot be an answer key because it is unhashable" % (qid, i, label)
+                        "question %r: choice label %d (%r) cannot be an answer key because it is unhashable"
+                        % (qid, i, label)
                     ) from exc
                 except KeyError:
                     keys[label] = i
@@ -190,7 +194,8 @@ def check_question(qid: Any, qdef: Any) -> None:
             raise RequestError("question %r: a score question needs at least one level" % (qid,))
         if None in crit:
             raise RequestError(
-                "question %r: score level %d is null; give every level a description, index 0 first" % (qid, crit.index(None))
+                "question %r: score level %d is null; give every level a description, index 0 first"
+                % (qid, crit.index(None))
             )
     elif crit is not None and not isinstance(crit, dict):
         raise RequestError(
@@ -290,14 +295,17 @@ def check_request_limits(state: Any, questions: Any, limits: Limits) -> None:
         if qtype == "choice" and isinstance(crit, (dict, list)):
             total += len(crit)
             if len(crit) > limits.max_choice_options:
-                raise LimitError("too many choice options for %r (%d > %d)" % (qid, len(crit), limits.max_choice_options))
+                raise LimitError(
+                    "too many choice options for %r (%d > %d)" % (qid, len(crit), limits.max_choice_options)
+                )
         elif qtype == "score" and isinstance(crit, list):
             total += len(crit)
             if len(crit) > limits.max_score_levels:
                 raise LimitError("too many score levels for %r (%d > %d)" % (qid, len(crit), limits.max_score_levels))
             if None in crit:
                 raise RequestError(
-                    "score question %r has a null level at index %d; give every level a description" % (qid, crit.index(None))
+                    "score question %r has a null level at index %d; give every level a description"
+                    % (qid, crit.index(None))
                 )
     if total > limits.max_total_options:
         raise LimitError("too many answer options across questions (%d > %d)" % (total, limits.max_total_options))
@@ -343,24 +351,109 @@ def head_stats(tok, q: Dict[str, Any], head_max_len: int) -> Dict[str, Any]:
     return {"options": len(opt_ids), "options_distinct": len({tuple(o) for o in opt_ids}), "tokens_per_option": per}
 
 
-def encode_state(tok, state: Any, ids: Sequence[str], internal: Dict[str, Dict[str, Any]], max_len: int, head_max_len: int) -> List[Dict[str, Any]]:
+def _tick(stages: Optional[Dict[str, float]], key: str, t0: float) -> float:
+    now = time.perf_counter()
+    if stages is not None:
+        stages[key] = stages.get(key, 0.0) + (now - t0) * 1000.0
+    return now
+
+
+HEAD_CACHE_SIZE = 512
+
+
+def head_key(q: Dict[str, Any], max_len: int, head_max_len: int) -> str:
+    return json.dumps([q, max_len, head_max_len], sort_keys=True, ensure_ascii=False, default=str)
+
+
+def build_heads(
+    tok,
+    ids: Sequence[str],
+    internal: Dict[str, Dict[str, Any]],
+    max_len: int,
+    head_max_len: int,
+    stages: Optional[Dict[str, float]] = None,
+    cache: Optional["OrderedDict[str, Dict[str, Any]]"] = None,
+) -> Dict[str, Dict[str, Any]]:
+    heads: Dict[str, Dict[str, Any]] = {}
+    t = time.perf_counter()
+    for qid in ids:
+        q = internal[qid]
+        key = head_key(q, max_len, head_max_len)
+        plan = cache.get(key) if cache is not None else None
+        if plan is None:
+            head_only, markers = build_sequence(tok, "", q, max_len, head_max_len, option_order=q.get("option_order"))
+            t = _tick(stages, "build_heads", t)
+            options = head_stats(tok, q, head_max_len)
+            t = _tick(stages, "head_stats", t)
+            plan = {
+                "head": head_only[:-1] if len(head_only) < max_len else None,
+                "head_len": len(head_only) - 1,
+                "markers": markers,
+                "n_opts": len(render_options(q)),
+                "options": options,
+            }
+            if cache is not None:
+                cache[key] = plan
+                while len(cache) > HEAD_CACHE_SIZE:
+                    cache.popitem(last=False)
+        elif cache is not None:
+            cache.move_to_end(key)
+        heads[qid] = plan
+        t = _tick(stages, "build_heads", t)
+    return heads
+
+
+def tokenize_states(tok, states: Sequence[Any]) -> List[List[int]]:
+    texts = [serialize_state(st).replace(tok.mask_token, " ") for st in states]
+    if len(texts) == 1:
+        return [tok(texts[0], add_special_tokens=False)["input_ids"]]
+    return tok(texts, add_special_tokens=False)["input_ids"]
+
+
+def encode_state(
+    tok,
+    state: Any,
+    ids: Sequence[str],
+    internal: Dict[str, Dict[str, Any]],
+    max_len: int,
+    head_max_len: int,
+    stages: Optional[Dict[str, float]] = None,
+    heads: Optional[Dict[str, Dict[str, Any]]] = None,
+    state_ids: Optional[List[int]] = None,
+) -> List[Dict[str, Any]]:
+    if heads is None:
+        heads = build_heads(tok, ids, internal, max_len, head_max_len, stages)
     truncate_left = isinstance(state, list)
-    state_ids = tok(serialize_state(state).replace(tok.mask_token, " "), add_special_tokens=False)["input_ids"]
+    t = time.perf_counter()
+    if state_ids is None:
+        state_ids = tokenize_states(tok, [state])[0]
+    t = _tick(stages, "tokenize_state", t)
+    sep = tok.sep_token_id
     items = []
     for qid in ids:
         q = internal[qid]
-        order = q.get("option_order")
-        seq, markers = build_sequence(tok, state, q, max_len, head_max_len, option_order=order, truncate_left=truncate_left)
-        n_opts = len(render_options(q))
+        plan = heads[qid]
+        head = plan["head"]
+        if head is not None:
+            room = max(0, max_len - len(head) - 1)
+            st = state_ids[-room:] if truncate_left else state_ids[:room]
+            seq = (head + st + [sep])[:max_len]
+            markers = [m for m in plan["markers"] if m < max_len]
+        else:
+            seq, markers = build_sequence(
+                tok, state, q, max_len, head_max_len, option_order=q.get("option_order"), truncate_left=truncate_left
+            )
+        t = _tick(stages, "build_rows", t)
+        n_opts = plan["n_opts"]
         if len(markers) != n_opts:
             raise RequestError(
                 "question %r: only %d of its %d option markers fit in max_len=%d with head_max_len=%d spent on the question; "
-                "lower head_max_len, raise max_len, or use fewer options" % (qid, len(markers), n_opts, max_len, head_max_len)
+                "lower head_max_len, raise max_len, or use fewer options"
+                % (qid, len(markers), n_opts, max_len, head_max_len)
             )
-        head_only, _ = build_sequence(tok, "", q, max_len, head_max_len, option_order=order)
-        head_len = len(head_only) - 1
-        room = max(0, max_len - head_len - 1)
+        room = max(0, max_len - plan["head_len"] - 1)
         used = min(len(state_ids), room)
+        options = plan["options"]
         items.append(
             {
                 "ids": seq,
@@ -372,7 +465,7 @@ def encode_state(tok, state: Any, ids: Sequence[str], internal: Dict[str, Dict[s
                 "ep_step": 0,
                 "ep_len": 1,
                 "src": "api",
-                "options": head_stats(tok, q, head_max_len),
+                "options": options,
                 "state_stats": {
                     "state_tokens": len(state_ids),
                     "state_tokens_used": used,
@@ -445,7 +538,9 @@ def pad_batch(b: Dict[str, torch.Tensor], rows: int, seq: int, pad_id: int, keep
     return ids, att, mpos, mmask, qt
 
 
-def plan_chunks(lengths: Sequence[int], buckets: Buckets, max_rows: int, max_batch_tokens: int) -> List[Tuple[List[int], int, int]]:
+def plan_chunks(
+    lengths: Sequence[int], buckets: Buckets, max_rows: int, max_batch_tokens: int
+) -> List[Tuple[List[int], int, int]]:
     order = sorted(range(len(lengths)), key=lambda i: lengths[i])
     cap = min(max_rows, buckets.max_rows)
     plan: List[Tuple[List[int], int, int]] = []
@@ -478,7 +573,11 @@ class CpuBackend:
         if self.threads:
             torch.set_num_threads(self.threads)
         self.impl_name = "vendored DecisionModel"
-        self.impl = None if os.environ.get("LAYA_CPU_IMPL", "reference").lower() == "vendored" else self._try_reference(model_dir, self.threads)
+        self.impl = (
+            None
+            if os.environ.get("LAYA_CPU_IMPL", "reference").lower() == "vendored"
+            else self._try_reference(model_dir, self.threads)
+        )
         if self.impl is None:
             self.model = self._build_vendored(model_dir, cfg)
         else:
@@ -502,7 +601,9 @@ class CpuBackend:
             attn = os.environ.get("LAYA_CPU_ATTN") or "eager"
             impl = cls(model_dir, attn_implementation=attn, threads=threads)
         except Exception as e:
-            log.warning("reference.laya_reference.LayaReference could not be built (%s); using the vendored DecisionModel", e)
+            log.warning(
+                "reference.laya_reference.LayaReference could not be built (%s); using the vendored DecisionModel", e
+            )
             return None
         if not callable(getattr(impl, "forward", None)):
             return None
@@ -571,7 +672,15 @@ def make_backend(kind: str, model_dir: str, cfg: Dict[str, Any]):
 
 
 class Engine:
-    def __init__(self, backend, tokenizer, cfg: Dict[str, Any], model_dir: str, backend_kind: str, limits: Optional[Limits] = None):
+    def __init__(
+        self,
+        backend,
+        tokenizer,
+        cfg: Dict[str, Any],
+        model_dir: str,
+        backend_kind: str,
+        limits: Optional[Limits] = None,
+    ):
         self.backend = backend
         self.tok = tokenizer
         self.cfg = cfg
@@ -588,6 +697,8 @@ class Engine:
         self.requests = 0
         self.rows_served = 0
         self.batch_histogram: Dict[str, int] = {}
+        self._head_cache: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+        self.last_stages: Dict[str, float] = {}
         self.hf_model = os.environ.get("HF_MODEL") or DEFAULT_HF_MODEL
         self.revision = os.environ.get("LAYA_REVISION") or ""
 
@@ -641,7 +752,9 @@ class Engine:
         logits = torch.as_tensor(logits)
         act = torch.as_tensor(act)
         if logits.ndim != 2 or logits.shape[0] < n or logits.shape[1] < kmax:
-            raise RuntimeError("backend logits shape %s does not cover %d rows x %d markers" % (tuple(logits.shape), n, kmax))
+            raise RuntimeError(
+                "backend logits shape %s does not cover %d rows x %d markers" % (tuple(logits.shape), n, kmax)
+            )
         if act.ndim != 2 or act.shape[0] < n or act.shape[1] != 2:
             raise RuntimeError("backend act_logits shape %s is not [rows, 2]" % (tuple(act.shape),))
         device_ms = getattr(self.backend, "last_device_ms", None)
@@ -663,8 +776,10 @@ class Engine:
         min_confidence: Any = None,
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         self.requests += 1
+        t = time.perf_counter()
+        stages: Dict[str, float] = {}
         ids = list(questions.keys())
-        meta: Dict[str, Any] = {"device_ms": 0.0, "batches": [], "rows": 0}
+        meta: Dict[str, Any] = {"device_ms": 0.0, "batches": [], "rows": 0, "stages": stages}
         if not ids:
             return [empty_result() for _ in states], meta
         for qid in ids:
@@ -674,20 +789,33 @@ class Engine:
         head_max_len = int(head_max_len or self.head_max_len)
         if max_len > self.buckets.max_seq:
             raise RequestError("max_len exceeds the served context (%d > %d)" % (max_len, self.buckets.max_seq))
-        encoded = [encode_state(self.tok, st, ids, internal, max_len, head_max_len) for st in states]
+        t = _tick(stages, "validate", t)
+        heads = build_heads(self.tok, ids, internal, max_len, head_max_len, stages, self._head_cache)
+        t = time.perf_counter()
+        all_state_ids = tokenize_states(self.tok, states)
+        t = _tick(stages, "tokenize_state", t)
+        encoded = [
+            encode_state(self.tok, st, ids, internal, max_len, head_max_len, stages, heads, sids)
+            for st, sids in zip(states, all_state_ids)
+        ]
+        t = time.perf_counter()
         flat = [item for items in encoded for item in items]
         lengths = [len(item["ids"]) for item in flat]
         plan = plan_chunks(lengths, self.buckets, self.limits.max_rows, self.limits.max_batch_tokens)
         logits_rows: List[Optional[np.ndarray]] = [None] * len(flat)
         act_rows: List[Optional[np.ndarray]] = [None] * len(flat)
+        t = _tick(stages, "plan", t)
         for idx, rows, seq in plan:
             b = collate_items([[flat[i] for i in idx]], self.pad_id)
+            t = _tick(stages, "collate", t)
             logits_np, act_np, device_ms = self._run_chunk(b, rows, seq)
+            t = _tick(stages, "forward_and_pad", t)
             meta["device_ms"] += device_ms
             meta["batches"].append("%dx%d" % (rows, seq))
             for r, i in enumerate(idx):
                 logits_rows[i] = logits_np[r]
                 act_rows[i] = act_np[r]
+            t = _tick(stages, "scatter", t)
         meta["rows"] = len(flat)
         results = []
         offset = 0
@@ -699,7 +827,11 @@ class Engine:
             answers = decode_answers(ids, internal, items, logits_state, act_state, self.temps)
             results.append({"model": MODEL_NAME, "answers": answers, "usage": usage_for_state(ids, items, n_tokens)})
             offset += n
+        t = _tick(stages, "decode", t)
         apply_confidence_gate(results, min_confidence)
+        _tick(stages, "gate", t)
+        stages["forward_device"] = meta["device_ms"]
+        self.last_stages = stages
         return results, meta
 
     def raw_forward(self, body: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -711,9 +843,21 @@ class Engine:
             mmask = torch.as_tensor(body["marker_mask"], dtype=torch.bool)
             qt = torch.as_tensor(body["qtype"], dtype=torch.long)
         except (KeyError, TypeError, ValueError) as e:
-            raise RequestError("body must carry input_ids, attention_mask, marker_pos, marker_mask and qtype as nested integer lists: %s" % e)
-        if ids.ndim != 2 or att.shape != ids.shape or mpos.ndim != 2 or mmask.shape != mpos.shape or qt.shape != (ids.shape[0],):
-            raise RequestError("tensor shapes disagree: input_ids %s attention_mask %s marker_pos %s marker_mask %s qtype %s" % (tuple(ids.shape), tuple(att.shape), tuple(mpos.shape), tuple(mmask.shape), tuple(qt.shape)))
+            raise RequestError(
+                "body must carry input_ids, attention_mask, marker_pos, marker_mask and qtype as nested integer lists: %s"
+                % e
+            )
+        if (
+            ids.ndim != 2
+            or att.shape != ids.shape
+            or mpos.ndim != 2
+            or mmask.shape != mpos.shape
+            or qt.shape != (ids.shape[0],)
+        ):
+            raise RequestError(
+                "tensor shapes disagree: input_ids %s attention_mask %s marker_pos %s marker_mask %s qtype %s"
+                % (tuple(ids.shape), tuple(att.shape), tuple(mpos.shape), tuple(mmask.shape), tuple(qt.shape))
+            )
         if mpos.shape[0] != ids.shape[0]:
             raise RequestError("marker_pos rows %d differ from input_ids rows %d" % (mpos.shape[0], ids.shape[0]))
         n, length = ids.shape

@@ -83,7 +83,11 @@ def test_decode_matches_hub_math_on_recorded_logits(fixture):
         p_ref, act_ref = hub_postprocess(fixture["cfg"], logits[r], act[r], item["qtype"], k)
         a = decode.decode_answer(q, logits[r], act_probs[r], k, temps)
         assert a["action"]["act_probability"] == pytest.approx(round(act_ref, 4), abs=1e-4)
-        probs = np.array(list(a["probabilities"].values())) if "probabilities" in a else np.array([1 - a["noul"], a["noul"]])
+        probs = (
+            np.array(list(a["probabilities"].values()))
+            if "probabilities" in a
+            else np.array([1 - a["noul"], a["noul"]])
+        )
         assert np.allclose(probs, np.round(p_ref, 4), atol=1e-4)
         assert abs(probs.sum() - 1.0) <= 1e-3
         if q["t"] == "choice":
@@ -123,7 +127,9 @@ def test_recorded_answers_match_decode_answers(fixture):
     ids = [item["qid"] for item in fixture["items"]]
     internal = {qid: to_internal(fixture["questions"][qid]) for qid in ids}
     act_probs = torch.softmax(torch.tensor(fixture["act_logits"]), -1).numpy()
-    answers = decode.decode_answers(ids, internal, fixture["items"], np.asarray(fixture["logits"], dtype=np.float32), act_probs, temps)
+    answers = decode.decode_answers(
+        ids, internal, fixture["items"], np.asarray(fixture["logits"], dtype=np.float32), act_probs, temps
+    )
     for qid in ids:
         rec = recorded["answers"][qid]
         got = answers[qid]
@@ -145,7 +151,9 @@ def test_usage_fields_from_items(fixture):
     assert usage["state_tokens"] == fixture["items"][0]["state_stats"]["state_tokens"]
     assert usage["state_tokens_dropped"] == max(i["state_stats"]["state_tokens_dropped"] for i in fixture["items"])
     assert usage["truncated"] == (usage["state_tokens_dropped"] > 0)
-    assert set(usage["truncated_questions"]) == {qid for qid, i in zip(ids, fixture["items"]) if i["state_stats"]["truncated"]}
+    assert set(usage["truncated_questions"]) == {
+        qid for qid, i in zip(ids, fixture["items"]) if i["state_stats"]["truncated"]
+    }
 
 
 def test_pad_batch_rule():
@@ -157,7 +165,13 @@ def test_pad_batch_rule():
         "qtype": torch.tensor([2, 0]),
     }
     ids, att, mpos, mmask, qt = pad_batch(b, rows=4, seq=8, pad_id=50283, keep_one_token=True)
-    assert ids.shape == (4, 8) and att.shape == (4, 8) and mpos.shape == (4, 2) and mmask.shape == (4, 2) and qt.shape == (4,)
+    assert (
+        ids.shape == (4, 8)
+        and att.shape == (4, 8)
+        and mpos.shape == (4, 2)
+        and mmask.shape == (4, 2)
+        and qt.shape == (4,)
+    )
     assert ids[:2, :3].tolist() == b["input_ids"].tolist()
     assert (ids[:, 3:] == 50283).all() and (ids[2:] == 50283).all()
     assert att[:2, :3].tolist() == b["attention_mask"].tolist()
@@ -170,7 +184,12 @@ def test_pad_batch_rule():
 
 def test_buckets_and_chunk_plan():
     buckets = Buckets([1, 2, 4, 8], [128, 256, 512])
-    assert buckets.rows_for(3) == 4 and buckets.rows_for(8) == 8 and buckets.seq_for(1) == 128 and buckets.seq_for(300) == 512
+    assert (
+        buckets.rows_for(3) == 4
+        and buckets.rows_for(8) == 8
+        and buckets.seq_for(1) == 128
+        and buckets.seq_for(300) == 512
+    )
     with pytest.raises(LimitError):
         buckets.rows_for(9)
     with pytest.raises(RequestError):
@@ -247,7 +266,11 @@ def test_min_confidence_validation_and_gate():
     assert c["abstention"] == decode.GATE_ABSTAINED and c["abstention_threshold"] == 0.6
     assert d["abstention"] == decode.GATE_UNEVALUATED and "low_confidence" not in d
     decode.apply_confidence_gate(results, 0.0)
-    assert all(v["abstention"] == decode.GATE_PASSED and "low_confidence" not in v for k, v in results[0]["answers"].items() if k != "d")
+    assert all(
+        v["abstention"] == decode.GATE_PASSED and "low_confidence" not in v
+        for k, v in results[0]["answers"].items()
+        if k != "d"
+    )
     assert results[0]["answers"]["d"]["abstention"] == decode.GATE_UNEVALUATED
     decode.apply_confidence_gate(results, {"choice:2": 0.9, "default": 0.0})
     assert results[0]["answers"]["a"]["abstention"] == decode.GATE_ABSTAINED
@@ -256,6 +279,123 @@ def test_min_confidence_validation_and_gate():
     gone = [{"answers": {"z": {"type": "choice", "probabilities": {"x": 1.0}, "answer_confidence": float("nan")}}}]
     decode.apply_confidence_gate(gone, 0.5)
     assert gone[0]["answers"]["z"]["abstention"] == decode.GATE_UNEVALUATED
+
+
+MODEL_DIR = os.environ.get("LAYA_MODEL_DIR", "/home/hous/dev/laya/state/laya_models/laya")
+
+
+@pytest.fixture(scope="module")
+def tokenizer():
+    if not os.path.isfile(os.path.join(MODEL_DIR, "tokenizer", "tokenizer.json")):
+        pytest.skip("tokenizer missing: %s" % MODEL_DIR)
+    from models.autoports.convaiinnovations_laya.server.engine import load_tokenizer
+
+    return load_tokenizer(MODEL_DIR)
+
+
+def test_encode_state_matches_vendored_builder(tokenizer, fixture):
+    from models.autoports.convaiinnovations_laya.server.engine import encode_state
+    from models.autoports.convaiinnovations_laya.vendor.rl_common import build_sequence
+
+    questions = dict(fixture["questions"])
+    questions["ordered"] = {
+        "type": "choice",
+        "instructions": "Pick one",
+        "criteria": ["alpha", "beta", "gamma"],
+        "option_order": [2, 0, 1],
+    }
+    questions["wide"] = {
+        "type": "choice",
+        "instructions": "Which of these many labels fits best?",
+        "criteria": ["label number %d with a fairly long description text" % i for i in range(40)],
+    }
+    ids = list(questions)
+    internal = {qid: to_internal(questions[qid]) for qid in ids}
+    long_text = "The customer is furious about the double charge and wants a refund today. " * 60
+    states = [
+        fixture["state"],
+        "plain text state",
+        "",
+        {"ticket": long_text},
+        ["turn one: hello", "turn two: " + long_text],
+        [long_text, "last turn"],
+        {"nested": {"a": [1, 2, {"b": "[MASK] inside"}], "c": None}},
+    ]
+    budgets = [(512, 192), (128, 64), (96, 192), (64, 48), (300, 299)]
+    checked = 0
+    for state in states:
+        for max_len, head_max_len in budgets:
+            truncate_left = isinstance(state, list)
+            try:
+                items = encode_state(tokenizer, state, ids, internal, max_len, head_max_len)
+            except RequestError:
+                for qid in ids:
+                    q = internal[qid]
+                    _, markers = build_sequence(
+                        tokenizer,
+                        state,
+                        q,
+                        max_len,
+                        head_max_len,
+                        option_order=q.get("option_order"),
+                        truncate_left=truncate_left,
+                    )
+                    if len(markers) != len(render_options_count(q)):
+                        break
+                else:
+                    raise
+                continue
+            for qid, item in zip(ids, items):
+                q = internal[qid]
+                seq, markers = build_sequence(
+                    tokenizer,
+                    state,
+                    q,
+                    max_len,
+                    head_max_len,
+                    option_order=q.get("option_order"),
+                    truncate_left=truncate_left,
+                )
+                assert item["ids"] == seq, (qid, max_len, head_max_len)
+                assert item["markers"] == markers, (qid, max_len, head_max_len)
+                checked += 1
+    assert checked >= 60
+
+
+def test_batch_tokenization_and_head_cache_match_single_calls(tokenizer, fixture):
+    from collections import OrderedDict
+
+    from models.autoports.convaiinnovations_laya.server.engine import build_heads, encode_state, tokenize_states
+    from models.autoports.convaiinnovations_laya.vendor.rl_common import serialize_state
+
+    states = [fixture["state"], "plain text", {"ticket": "Payout failed " * 50}, ["a", "b [MASK] c"], ""]
+    batch = tokenize_states(tokenizer, states)
+    for st, ids in zip(states, batch):
+        single = tokenizer(serialize_state(st).replace(tokenizer.mask_token, " "), add_special_tokens=False)[
+            "input_ids"
+        ]
+        assert ids == single
+    ids = list(fixture["questions"])
+    internal = {qid: to_internal(fixture["questions"][qid]) for qid in ids}
+    cache = OrderedDict()
+    first = build_heads(tokenizer, ids, internal, 512, 192, None, cache)
+    second = build_heads(tokenizer, ids, internal, 512, 192, None, cache)
+    fresh = build_heads(tokenizer, ids, internal, 512, 192, None, None)
+    assert len(cache) == len(ids)
+    for qid in ids:
+        assert second[qid] is first[qid]
+        assert fresh[qid] == first[qid]
+    rows_cached = encode_state(tokenizer, states[0], ids, internal, 512, 192, None, second, batch[0])
+    rows_fresh = encode_state(tokenizer, states[0], ids, internal, 512, 192)
+    assert [(r["ids"], r["markers"], r["options"], r["state_stats"]) for r in rows_cached] == [
+        (r["ids"], r["markers"], r["options"], r["state_stats"]) for r in rows_fresh
+    ]
+
+
+def render_options_count(q):
+    from models.autoports.convaiinnovations_laya.vendor.rl_common import render_options
+
+    return render_options(q)
 
 
 def test_confidence_helpers():

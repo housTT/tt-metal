@@ -138,6 +138,58 @@ server calls, so the two agree on logits and differ in decoding only for `choice
    layers produce NaN for an all-masked row), marker 0 live, qtype 0. This is pip `backends.base.pad_batch`'s rule.
 8. Logits are decoded per state in request order; `usage` uses the real token count of the state's rows.
 
+## Host path cost per stage (2026 Oct 6, load average 0.4 to 2.5, 4 torch threads)
+
+The served E5 table of stage 7 showed the client time 1.8 to 21 ms above the device forward (1 to 50 questions),
+with the engine's host tail at 0.1 to 0.5 ms. The rest is the server's own host path: `predict_batch` now
+accumulates per-stage milliseconds into `meta["stages"]` and `engine.last_stages` (not exposed on the wire). The
+numbers below come from `/tmp/claude-1002/-home-hous-dev-clm-v0-1-8B/de1e49f4-4397-4492-ad6a-a06b0696f5a6/scratchpad/host_bench.py`:
+the real tokenizer and config, a fake backend whose `forward` returns zeros at once with the stage 7 bucket set
+(seq 128/256/512, rows 1/2/4/5/8/10/16/32/50/64), STATE_EN with `qs(n)` (Q_NOUL and Q_CHOICE alternating, the
+`bench_latency.py` shapes), warm 3, p50 of 20; the HTTP rows go through a real uvicorn on 127.0.0.1 with a
+`requests.Session`, as Track E's client does. Results are in `/home/hous/dev/laya/scratch/host_bench_before.json` and
+`host_bench_after.json`.
+
+| shape | stage | before (ms) | after (ms) |
+|---|---|---|---|
+| 1 question | engine host path total | 0.58 | 0.25 |
+| 5 questions | engine host path total | 2.02 | 0.40 |
+| 10 questions | engine host path total | 3.77 | 0.57 |
+| 50 questions | engine host path total | 17.63 | 1.96 |
+| 50 questions | build_rows (vendored `build_sequence` per question, re-tokenizing the state) | 9.73 | 0.09 |
+| 50 questions | build_heads (vendored `build_sequence` on an empty state) | 3.80 | 0.11 |
+| 50 questions | head_stats (option token statistics) | 2.09 | in build_heads |
+| 50 questions | tokenize_state | 0.16 | 0.15 |
+| 50 questions | collate (vendored `collate_items`) | 1.08 | 0.98 |
+| 50 questions | decode and usage | 0.59 | 0.51 |
+| 50 questions | pad plus fake forward, plan, scatter, validate, gate | 0.17 | 0.11 |
+| 8 states x 5 questions (`/batch`) | engine host path total | 14.73 | 1.98 |
+| 64 states x 5 questions (`/batch`) | engine host path total | 120.96 | 12.52 |
+| 64 states x 5 questions | tokenize_state (64 single calls before, one batch call after) | 8.32 | 1.73 |
+| 64 states x 5 questions | collate / decode | 7.30 / 3.65 | 6.02 / 3.39 |
+| 1 / 5 / 10 / 50 questions | HTTP layer (client p50 minus `X-Inference-Time-Ms`) | 0.86 / 0.90 / 1.05 / 1.09 | 0.64 / 0.85 / 0.89 / 1.05 |
+| 64 states x 5 questions | HTTP layer (60.7 KB response) | 4.08 | 1.83 |
+
+What changed (behaviour-preserving; the 15 recorded responses in `/home/hous/dev/laya/scratch/wire_before/` and
+`wire_after/` are byte-identical, including the fixture request, the five presets, three feed cases, an 8-state feed
+batch, a truncated state, a conversation list and a `min_confidence` request):
+
+1. The head of each question (`[CLS] <type> instructions [SEP] [MASK] opt ... [SEP]`) is built once per request with
+   the vendored `build_sequence(tok, "", q, ...)` and reused for every state; a row is `head + state_slice + [SEP]`
+   with the vendored truncation expressions (`state_ids[-room:]` for a list state, else `state_ids[:room]`, then
+   `[:max_len]`). When the head alone reaches `max_len` the row falls back to the full vendored call.
+   `tests/test_host_engine.py::test_encode_state_matches_vendored_builder` compares ids and markers with direct
+   vendored calls over 7 states x 5 budgets x 6 question kinds.
+2. Heads and option statistics are memoized across requests in a 512-entry LRU keyed by the normalized question
+   definition, `max_len` and `head_max_len` (`Engine._head_cache`); `qs(50)` has two distinct definitions.
+3. All states of a batch request are tokenized in one fast-tokenizer call (`tokenize_states`);
+   `test_batch_tokenization_and_head_cache_match_single_calls` checks equality with single calls.
+
+What was not changed: the vendored `collate_items` (now the largest stage at 50 rows, 1.0 ms, row-by-row tensor
+assignment) and the numpy decode (0.5 ms for 50 answers) are left as they are; uvicorn already runs on uvloop and
+httptools (both installed), so the HTTP layer of 0.6 to 1.1 ms per request is the h11-free baseline; orjson is
+installed but was not adopted because its float formatting is not guaranteed byte-identical to `json.dumps`.
+
 ## Backend contract the server expects (CPU reference and `tt/engine.py` alike)
 
 ```

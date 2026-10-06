@@ -108,3 +108,30 @@ stopped and relaunched with 4 threads), `p2_tests_cpu_*`, `p2_tests_demo_*` (2).
   `laya-demo-feed-stats/1`, `source` `feed_client`).
 - Orchestrator: fill the `PLACEHOLDER` values in both manifests and `demo-script.md`; switch `runtime.packages` to
   `runtime.lock` after the first build; CPU timing only when the load average is under 8.
+
+## 2026 Oct 6, 00:15 to 00:30 UTC: host path profiling (orchestrator follow-up from the device tracks)
+
+Trigger: the stage 7 served E5 table (client 11.0 / 26.5 / 46.0 / 212.9 ms against device 9.2 / 22.7 / 40.2 / 191.7
+ms at 1 / 5 / 10 / 50 questions, engine host tail 0.1 to 0.5 ms). From that table the split is: inside the engine
+call (server header minus device) 1.0 / 3.0 / 4.8 / 19.4 ms, HTTP layer (client minus server header) 0.8 / 0.8 /
+1.0 / 1.8 ms.
+
+- 00:17: stage accumulators added to `predict_batch` and `encode_state` (`meta["stages"]`, `engine.last_stages`;
+  nothing on the wire). Load average 0.35.
+- 00:17: before wire capture through the real CPU engine (`logs/p2_wire_before_20261006T001700Z.log`, 15 requests,
+  `scratch/wire_before/`), then the before benchmark with a zero-forward backend on port 8732
+  (`logs/p2_host_bench_before_20261006T001814Z.log`): 50 questions 17.6 ms host path, of which build_rows 9.7 (the
+  vendored `build_sequence` re-tokenizing the state per question), build_heads 3.8, head_stats 2.1, collate 1.1,
+  decode 0.6; HTTP layer 0.86 to 1.09 ms; 64x5 batch 121 ms. This reproduces the served gap.
+- 00:20: `build_heads` (vendored builder on an empty state, once per question per request), rows as head plus state
+  slice with the vendored truncation expressions, fallback to the full vendored call when the head alone reaches
+  `max_len`; equivalence test against direct vendored calls (84 rows compared) passes.
+- 00:22: 512-entry LRU of heads keyed by normalized question, `max_len`, `head_max_len`; one batch tokenizer call
+  per request for all states; equivalence tests for both. After capture and benchmark on port 8733
+  (`logs/p2_wire_after_20261006T002242Z.log`): all 15 responses byte-identical (`cmp`); 50 questions 2.0 ms host
+  path (collate 0.98, decode 0.51, build_heads 0.11, build_rows 0.09); 64x5 batch 12.5 ms; HTTP layer 0.64 to 1.05 ms.
+- Not changed: `vendor/collate_items` (largest remaining stage), the numpy decode, the response encoder (orjson is
+  installed but float formatting identity is not guaranteed), uvicorn backends (uvloop 0.22.1 and httptools 0.8.0
+  are installed and auto-selected).
+- Ports used: 8732 and 8733 (in-process uvicorn inside the benchmark, closed at exit). Pid files removed.
+- 00:30: full CPU run after the changes (`logs/p2_tests_cpu_20261006T002425Z.log`): 54 passed, 3 warnings in 33.74s.
