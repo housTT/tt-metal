@@ -275,7 +275,16 @@ English bundle, pushed and listed at the user's request after the demo review (2
   `/health` ok on backend `tt`, `/demo/` 200 with the title `Laya (original) on p150`, a noul decision answered
   (`urgent` 0.7511). Port 8710 keeps serving the published bundle; port 8711 serves the staged sibling build 6.
 
-Sibling bundle `tt-hous/laya-typed-decisions-p150` (build 6): still staged only, awaiting the user's decision:
+Sibling bundle `tt-hous/laya-typed-decisions-p150` (build 6), pushed and listed at the user's request ("push both")
+on 2026 Oct 6 at 21:23 UTC (`/home/hous/dev/laya/logs/p9_push_laya-typed-decisions-p150_b6.log`,
+`p9_publish_laya-typed-decisions-p150.log`): repo created public, upload 20.9 s (shared layers), Hub revision
+`43442920d5bc`, 82 files, `listed tt-hous/laya-typed-decisions-p150 in the community catalog`. Consumers:
+`tt-model pull tt-hous/laya-typed-decisions-p150` then `tt-model serve tt-hous/laya-typed-decisions-p150 --device-id 0
+--profile p150`. Pull check (21:24 UTC): `tt-model pull tt-hous/laya-typed-decisions-p150` resolved revision
+`43442920d5bc` to image `tt-model/laya-typed-decisions-p150:2d0db36e9ec0`, already loaded here (image transfer not
+exercised); the staged container on port 8711 was replaced by the published bundle served by repo id on chip 1: ready
+after about 20 s, `/health` ok, `/demo/` 200 with the title `Laya typed-decisions (fine-tuned) on p150`, a noul decision
+answered (`urgent` 0.6702). Both demo ports now serve the published bundles.
 
 ```
 /home/hous/.tenstorrent-venv/bin/tt-model push /home/hous/dev/laya/package/out/laya-typed-decisions-p150 --public
