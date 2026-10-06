@@ -73,6 +73,24 @@ review (PLAN.md, decisions of 2026 Oct 4); the exact commands are at the end of 
   p150x4 healthy in 20 s, 13.2 / 16.1 / 23.6 / 68.4 ms, 309 to 937 questions per second, parity smoke 97 of 100 and
   82 of 82.
 
+- Build 8 (2026 Oct 6 13:43 to 13:46 UTC, `package exit 0`, commit `5fc55e64e2`): demo page only, after the user's
+  review of the build 7 demo: a lede that says what Laya is and is for, with links to the authors' model cards, GitHub,
+  docs, blog post, the feed dataset and PyPI; a checkpoint band under the header that names the served checkpoint
+  (`ORIGINAL CHECKPOINT` for `convaiinnovations/laya`, `FINE-TUNED CHECKPOINT` for the sibling) with the published
+  typed-decisions accuracy of each, because the live feed draws from that dataset and the original checkpoint is near
+  chance on it; the server stamps `<title>` and `<body data-model>` from the engine's model id. Model and API paths
+  unchanged. Image `tt-model/laya-p150:f5b48d6ee19b`, code sha256 `2ea292bb7326...`. Not served: superseded by build 9
+  before deployment.
+- Build 9 (2026 Oct 6 13:48 to 13:50 UTC, `package exit 0`, commit `d315a10374`): build 8 plus the removal of the
+  act / escalate tile and its caveat from the answer cards (user request; the API still returns
+  `action.act_probability`). Image `tt-model/laya-p150:a335363e74e5`, digest
+  `sha256:a335363e74e50759a4d71a3de823f95216a6ddb964cccf986cb3ecdac544d450`, code sha256
+  `42ab6916a82d736434f7597df64491c4680335d48cf361e96f7194e4665c9206`, tt-metal `d315a10374` (`dirty: false`), 15 verify
+  assertions (one new: `id="variant"` in the page). Staged at `/home/hous/dev/laya/package/out/laya-p150/`. The
+  model, server and evaluation harness code are identical to build 7 apart from `demo/`, `server/demo.py`,
+  `tests/test_demo_page.py` and the two cards, so the build 7 evaluation evidence stands; verification of build 9 is
+  limited to the served smoke, the demo screenshots and a 60 s feed run on each port (section below).
+
 ## Verification from the served package (build 1, profile p150, chip 0, port 8710)
 
 Results `/home/hous/dev/laya/evals/results/package_p150_b1_20261006T002044Z/SUMMARY.md` (the only source the card and
@@ -200,6 +218,36 @@ after start; startup sanity check against the sibling reference ok, max abs dp 0
 | demo feed (`/home/hous/dev/laya/evidence/demo_feed_laya-typed-decisions-p150_b1.json`) | 241 cases, 1,205 decisions, 20.08 per second, agreement with gold 0.751, 0 errors |
 | demo page | `/home/hous/dev/laya/evidence/demo_laya-typed-decisions-p150_b1.png` |
 | p150x4 (`--device-id 0,1,2,3`, `package_laya-typed-decisions-p150_p150x4_b1_20261006T021310Z`) | healthy 20 s after start; parity smoke 100 of 100 argmax, 81 of 81 confident; E2 first 100 cases 0.728 (one workflow, partial); E5 13.2 / 14.6 / 23.7 / 68.5 ms for 1 / 5 / 10 / 50 questions, batched 310 to 936 questions per second |
+
+- Build 5 (2026 Oct 6 13:46 to 13:47 UTC, `package exit 0`, commit `5fc55e64e2`): the demo lede and checkpoint band
+  (see English build 8); the band reads `FINE-TUNED CHECKPOINT` from this bundle's model id. Image
+  `tt-model/laya-typed-decisions-p150:e27fa5720abf`, code sha256 `2ea292bb7326...`. Not served: superseded by build 6
+  before deployment.
+- Build 6 (2026 Oct 6 13:50 to 13:51 UTC, `package exit 0`, commit `d315a10374`): build 5 plus the removal of the
+  act / escalate tile (see English build 9). Image `tt-model/laya-typed-decisions-p150:2d0db36e9ec0`, digest
+  `sha256:2d0db36e9ec03b6bbd01d7056a1e52ae423055a5949200262044c1ee83895c6c`, code sha256
+  `42ab6916a82d736434f7597df64491c4680335d48cf361e96f7194e4665c9206` (identical to English build 9), tt-metal
+  `d315a10374` (`dirty: false`). Staged at `/home/hous/dev/laya/package/out/laya-typed-decisions-p150/`. Model, server
+  and harness code identical to build 4 apart from the demo page files and the card, so the build 4 evidence stands;
+  build 6 verification is the served smoke, the demo screenshot and a 60 s feed run (section below).
+
+## Verification of builds 9 and 6 from the served images (2026 Oct 6 13:52 to 13:55 UTC)
+
+Both containers started from the staged manifests with `tt-model serve --detach --profile p150`: English build 9 on
+port 8710, chip 0 (`tt-model-laya-p150-p150`, image `a335363e74e5`); sibling build 6 on port 8711, chip 1
+(`tt-model-laya-typed-decisions-p150-p150`, image `2d0db36e9ec0`). Both reported `ready` within 16 s (device programs
+cached from the earlier builds).
+
+| check | English build 9 (port 8710) | sibling build 6 (port 8711) |
+|---|---|---|
+| `GET /health` | `convaiinnovations/laya` at `7b928d82`, backend `tt` | `convaiinnovations/laya-typed-decisions` at `e929ae5c`, backend `tt` |
+| served page stamp | `<title>Laya (original) on p150</title>`, `data-model="convaiinnovations/laya"` | `<title>Laya typed-decisions (fine-tuned) on p150</title>`, `data-model="convaiinnovations/laya-typed-decisions"` |
+| `server-smoke.sh` | `SMOKE_DONE`, 0 failures (`/home/hous/dev/laya/logs/p5_smoke_b9b6_8710.log`) | `SMOKE_DONE`, 0 failures (`p5_smoke_b9b6_8711.log`) |
+| screenshot (`?autorun=decide,feed&rate=4&seconds=20`) | `/home/hous/dev/laya/evidence/demo_laya-p150_b9.png`: blue `ORIGINAL CHECKPOINT` band, lede with seven links, answer cards without the act tile, feed agreement 0.380 (114 of 300) | `/home/hous/dev/laya/evidence/demo_laya-typed-decisions-p150_b6.png`: green `FINE-TUNED CHECKPOINT` band |
+| 60 s feed (`feed_client.py`, 4 cases/s) | `/home/hous/dev/laya/evidence/demo_feed_laya-p150_b9.json`: 241 cases, 1,205 decisions, 20.07 per second, agreement 0.3817 (choice 0.304, noul 0.513, score 0.342), 0 errors, client p50 49.6 ms | `/home/hous/dev/laya/evidence/demo_feed_laya-typed-decisions-p150_b6.json`: 241 cases, 1,205 decisions, 20.07 per second, agreement 0.751 (choice 0.646, noul 0.922, score 0.701), 0 errors, client p50 49.5 ms |
+
+The feed agreement rates equal those recorded for builds 7 and 4 to four decimals (0.3817 and 0.751), as expected for
+unchanged model code.
 
 ## Publish (gated, not run)
 
