@@ -58,7 +58,7 @@ serve_profiles:
   - name: p150x4
     hardware: p150x4
     mesh_device: P150x4
-    description: "1x4 mesh, data parallel over rows, no fabric; measured from the packaged image (build 2): 13.2 / 16.1 / 22.8 / 68.6 ms for 1 / 5 / 10 / 50 questions and 308 to 937 questions per second batched; a single question is slower than one chip (13.2 versus 10.7 ms) by the mesh host overhead."
+    description: "1x4 mesh, data parallel over rows, no fabric; measured from the packaged image (build 3): 13.3 / 16.3 / 23.8 / 69.9 ms for 1 / 5 / 10 / 50 questions and 301 to 937 questions per second batched; a single question is slower than one chip (13.3 versus 10.8 ms) by the mesh host overhead."
 default_profile: p150
 
 verify:
@@ -84,18 +84,18 @@ card:
     with calibrated probabilities; it never generates text. This package serves the Jev-compatible /v1/systemone
     API of the authors' laya-serve on one Blackhole p150 chip, with a live demo at /demo/.
   performance: >
-    Measured from the packaged image served on one p150 (build 2, image tt-model/laya-p150:7e0b39f07e04, the same
-    server and engine code as this image; result files under
-    /home/hous/dev/laya/evals/results/package_p150_b2_20261006T003732Z, release notes in doc/release/RUN_NOTES.md).
-    Latency per call (client median, warm, authors' bench_latency protocol), p150 versus the authors' Tesla T4:
-    1 question 10.7 ms (T4 39.5), 5 questions 24.7 ms (84.5), 10 questions 42.7 ms (158.6), 50 questions 197.7 ms
-    (771); device forward 9.2 / 22.7 / 40.2 / 191.8 ms. Batched /v1/systemone/batch: 202 to 250 questions per second on
-    one p150 (T4 103 to 332); the p150x4 profile 308 to 937. Typed-decisions test set (400 cases, 2,000 decisions,
-    zero-shot): accuracy 0.359, soft accuracy 0.332, Brier 0.311, ECE 0.172, score MAE 0.689 (published 0.362 / 0.332 /
-    0.316 / 0.175 / 0.694; CPU fp32 on this host 0.3615 / 0.3315 / 0.3155 / 0.1747 / 0.6937). AG News 0.955 and DAIR
-    Emotion 0.593 accuracy (authors' CPU run 0.950 / 0.595; Jev 0.910 / 0.480). Parity against the CPU fp32 reference
-    on 488 decisions: 403 of 403 confident decisions (reference margin at least 0.10) agree, 476 of 488 argmax agree,
-    median max abs delta p 0.008, p95 0.031, max 0.12.
+    Measured from the packaged image served on one p150 (build 3, image tt-model/laya-p150:597e9bd0c76b, whose code
+    sha256 b458861e3783014b1d4268d4b3ee6833ae2947da57ec3406af60fc49b22b7b5e equals this image's: only the card changed
+    after it; result files under /home/hous/dev/laya/evals/results/package_p150_b3_20261006T004853Z, release notes in
+    doc/release/RUN_NOTES.md). Latency per call (client median, warm, authors' bench_latency protocol), p150 versus the
+    authors' Tesla T4: 1 question 10.8 ms (T4 39.5), 5 questions 24.6 ms (84.5), 10 questions 42.1 ms (158.6),
+    50 questions 197.4 ms (771); device forward 9.2 / 22.7 / 40.2 / 191.7 ms. Batched /v1/systemone/batch: 203 to 249
+    questions per second on one p150 (T4 103 to 332); the p150x4 profile 301 to 937. Typed-decisions test set (400
+    cases, 2,000 decisions, zero-shot): accuracy 0.359, soft accuracy 0.332, Brier 0.311, ECE 0.172, score MAE 0.689
+    (published 0.362 / 0.332 / 0.316 / 0.175 / 0.694; CPU fp32 on this host 0.3615 / 0.3315 / 0.3155 / 0.1747 /
+    0.6937). AG News 0.955 and DAIR Emotion 0.593 accuracy (authors' CPU run 0.950 / 0.595; Jev 0.910 / 0.480). Parity
+    against the CPU fp32 reference on 488 decisions: 403 of 403 confident decisions (reference margin at least 0.10)
+    agree, 476 of 488 argmax agree, median max abs delta p 0.008, p95 0.031, max 0.12.
   limitations: >
     English root checkpoint only (max_len 512, head_max_len 192). Raw calibration as shipped: the authors' ECE of
     0.081 is after domain temperature fitting with an unpublished protocol (their raw value is 0.466). The base
@@ -105,7 +105,7 @@ card:
     of the shipped 0.1006. Requests are padded to 128, 256 or 512 tokens x 1 to 64 rows (exact buckets at 5, 10 and 50 rows); longer
     sequences are refused with 422. 12 of 488 reference decisions flip against the CPU fp32 reference, all with a
     reference margin under 0.10 (none of the 403 confident decisions flips). One device process serializes
-    requests. p150x4 status: data parallel over rows, bit-identical to one chip at equal per-chip batch, served from the packaged image (build 2: healthy in 20 s, 68.6 ms for 50 questions; build 1: 97 of 100 parity decisions and 82 of 82 confident on the smoke subset). Not reproduced: MASSIVE, XNLI, 45 of 51 languages, post-temperature ECE.
+    requests. p150x4 status: data parallel over rows, bit-identical to one chip at equal per-chip batch, served from the packaged image (build 3: healthy in 20 s, 69.9 ms for 50 questions; build 1: 97 of 100 parity decisions and 82 of 82 confident on the smoke subset). Not reproduced: MASSIVE, XNLI, 45 of 51 languages, post-temperature ECE.
   risks: >
     bf8w_hifi3_erf numerics move probabilities by up to 0.12 (median 0.008) against the fp32 reference; gate on confidence, not act_probability. Long option texts are truncated to 48 tokens silently, as in
     the reference. The shipped temperatures are over-confident per the authors; refit on your own data.

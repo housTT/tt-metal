@@ -24,6 +24,10 @@ review (PLAN.md, decisions of 2026 Oct 4); the exact commands are at the end of 
   card with the packaged build 1 numbers. Image `tt-model/laya-p150:7e0b39f07e04`, digest
   `sha256:7e0b39f07e04a60d82dc42cf456c949904f9a7c89be5ddf3ba34ac25dabb2d16`, code sha256
   `5e1b584c98456fac5203ffc49eb7cafc41d7dbde0fe66f148656a2e5871be596`, `dirty: false`.
+- Build 3 (00:45 to 00:48 UTC, `package exit 0`, commit `4ec75e96f7`): the demo page's `?autorun=decide,feed` option
+  for the review screenshot and the card with the packaged build 2 numbers. Image `tt-model/laya-p150:597e9bd0c76b`,
+  digest `sha256:597e9bd0c76b7c2ae8ca3ac1b10b3616bcb3357c4e95f40f9a50b298d78f41d8`, code sha256
+  `b458861e3783014b1d4268d4b3ee6833ae2947da57ec3406af60fc49b22b7b5e`, `dirty: false`.
 
 ## Verification from the served package (build 1, profile p150, chip 0, port 8710)
 
@@ -51,6 +55,18 @@ Accuracy rows identical to build 1 (E1 476 of 488 and 403 of 403; E2 0.359 / 0.3
 per second, client p50 48.5 ms per five-question case, 0 errors. Demo page `/home/hous/dev/laya/evidence/demo_p150_b2.png`.
 p150x4 (`package_p150x4_b2_20261006T004210Z`): healthy 20 s after start; E5 13.2 / 16.1 / 22.8 / 68.6 ms, batched
 308 to 937 questions per second.
+
+## Verification from the served package (build 3, profile p150, chip 0, port 8710)
+
+Results `/home/hous/dev/laya/evals/results/package_p150_b3_20261006T004853Z/SUMMARY.md` (with `parity/decisions.jsonl`
+from this build on); healthy 20 s after start. Accuracy rows identical to builds 1 and 2 (E1 476 of 488 and 403 of 403,
+median max abs dp 0.0082, p95 0.031; E2 0.359 / 0.332 / 0.311 / 0.172 / 0.689; E3 0.955 / 0.593, 9.4 and 9.3 ms per
+case). E5 client p50 10.8 / 24.6 / 42.1 / 197.4 ms for 1 / 5 / 10 / 50 questions (server 9.9 / 23.7 / 41.3 / 195.4;
+device 9.2 / 22.7 / 40.2 / 191.7), batched 203 to 249 questions per second. Demo feed
+(`/home/hous/dev/laya/evidence/demo_feed_b3.json`): 241 cases, 1,205 decisions, 20.07 per second, client p50 48.6 ms per
+five-question case, 0 errors. Demo page with an answered preset and the live feed:
+`/home/hous/dev/laya/evidence/demo_p150_b3.png`. p150x4 (`package_p150x4_b3_20261006T005357Z`): healthy 20 s after
+start; E5 13.3 / 16.3 / 23.8 / 69.9 ms, batched 301 to 937 questions per second.
 
 ## Publish (gated, not run)
 
