@@ -627,17 +627,17 @@
     reader.readAsText(file);
   }
 
-  function autorun() {
+  async function autorun() {
     const qp = new URLSearchParams(location.search);
-    const mode = qp.get("autorun");
+    const modes = (qp.get("autorun") || "").split(",").map((s) => s.trim()).filter(Boolean);
     if (qp.get("rate")) $("rate").value = qp.get("rate");
     if (qp.get("seconds")) $("seconds").value = qp.get("seconds");
     if (qp.get("concurrency")) $("concurrency").value = qp.get("concurrency");
     if (qp.get("batch") === "1") $("batch").checked = true;
     if (qp.get("loop") === "1") $("loop").checked = true;
     if (qp.get("preset")) applyPreset(qp.get("preset"));
-    if (mode === "feed") startFeed();
-    else if (mode === "decide") decide();
+    if (modes.includes("decide")) await decide();
+    if (modes.includes("feed")) startFeed();
   }
 
   async function init() {
@@ -662,7 +662,7 @@
       $("feed-error").textContent = "feed failed to load: " + e.message;
       $("feed-error").hidden = false;
     }
-    autorun();
+    await autorun();
   }
 
   window.layaDemo = { app, statsJson: () => (app.run ? statsJson(app.run) : app.lastStats) };

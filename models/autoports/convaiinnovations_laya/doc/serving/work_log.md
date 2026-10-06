@@ -135,3 +135,14 @@ call (server header minus device) 1.0 / 3.0 / 4.8 / 19.4 ms, HTTP layer (client 
   are installed and auto-selected).
 - Ports used: 8732 and 8733 (in-process uvicorn inside the benchmark, closed at exit). Pid files removed.
 - 00:30: full CPU run after the changes (`logs/p2_tests_cpu_20261006T002425Z.log`): 54 passed, 3 warnings in 33.74s.
+
+## 2026 Oct 6, 00:33 to 00:37 UTC: combinable autorun for the review screenshot
+
+`/home/hous/dev/laya/evidence/demo_p150_b1.png` (taken with `?autorun=feed`) showed an empty Answers panel.
+`demo.js` now reads `autorun` as a comma list: `decide` selects `preset` (default: the first preset, already applied
+at load) and awaits Decide; `feed` then starts the feed, so `?autorun=decide,feed&rate=4&seconds=20` shows answer
+cards, the Last call tiles and the live feed in one screenshot. The footer documents the options (`id="page-options"`);
+`test_demo_page.py::test_page_documents_autorun_options` checks the page text and the two mode checks in `demo.js`.
+`/home/hous/dev/laya/bin/screenshot-demo.sh` defaults to `AUTORUN=decide,feed` and appends `&preset=$PRESET` when
+`PRESET` is set. `node --check` and `bash -n` pass; no em or en dash in the edited files. `test_demo_page.py`: 6 passed
+in 18.4 s (`/home/hous/dev/laya/logs/p2_tests_demo_20261006T003702Z.log`).

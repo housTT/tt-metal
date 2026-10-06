@@ -2,14 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-import json
 import os
 import re
 
-import pytest
-
-from models.autoports.convaiinnovations_laya.server.demo import DEMO_DIR, DEMO_FILES, load_feed, load_presets, validate_feed, validate_preset
-from models.autoports.convaiinnovations_laya.tests.test_server_cpu import client, cpu_engine, needs_weights, probs_of
+from models.autoports.convaiinnovations_laya.server.demo import (
+    DEMO_DIR,
+    DEMO_FILES,
+    load_feed,
+    load_presets,
+    validate_feed,
+    validate_preset,
+)
+from models.autoports.convaiinnovations_laya.tests.test_server_cpu import needs_weights, probs_of
 
 DASHES = re.compile("[\\u2013\\u2014]")
 
@@ -25,7 +29,9 @@ def test_demo_files_present_and_dash_free():
         assert not DASHES.search(text), "em or en dash in %s" % name
     with open(os.path.join(DEMO_DIR, "index.html"), encoding="utf-8") as fh:
         html = fh.read()
-    external = re.compile(r'(src|href)="https?://|url\(\s*["\']?https?://|@import\s+["\']?https?://|fetch\(\s*["\']https?://')
+    external = re.compile(
+        r'(src|href)="https?://|url\(\s*["\']?https?://|@import\s+["\']?https?://|fetch\(\s*["\']https?://'
+    )
     for name in DEMO_FILES:
         with open(os.path.join(DEMO_DIR, name), encoding="utf-8") as fh:
             assert not external.search(fh.read()), "external asset reference in %s" % name
@@ -65,6 +71,16 @@ def test_demo_routes(client):
     f = client.get("/demo/feed.json")
     assert f.status_code == 200 and 40 <= len(f.json()["cases"]) <= 100
     assert client.get("/demo/missing.txt").status_code == 404
+
+
+@needs_weights
+def test_page_documents_autorun_options(client):
+    html = client.get("/demo/").text
+    assert 'id="page-options"' in html
+    assert "?autorun=decide,feed&amp;preset=ticket&amp;rate=4&amp;seconds=20" in html
+    with open(os.path.join(DEMO_DIR, "demo.js"), encoding="utf-8") as fh:
+        js = fh.read()
+    assert 'modes.includes("decide")' in js and 'modes.includes("feed")' in js and 'qp.get("preset")' in js
 
 
 @needs_weights

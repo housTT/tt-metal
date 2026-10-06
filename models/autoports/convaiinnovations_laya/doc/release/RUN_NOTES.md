@@ -18,6 +18,12 @@ review (PLAN.md, decisions of 2026 Oct 4); the exact commands are at the end of 
   code sha256 `03e40358fe6a80376e0f640c6eb1cffe857bacb0e50929ffca32adb9309adcf1`, tt-metal `fed0080908`, `dirty: false`,
   first build with `runtime.packages`; the generated lock (`/home/hous/dev/laya/package/out/laya-p150/requirements.lock`)
   is committed as `requirements.lock` for build 2 onward. All verify lines passed (tt-model refuses the build otherwise).
+- Build 2 (00:34 to 00:37 UTC, `package exit 0`, commit `d650825fa8` before the history rewrite that removed the Tracy
+  binaries from the branch): the server host path trimmed by Track S (heads built once per request, memoized, batch
+  tokenization; wire output byte-identical), `runtime.lock: requirements.lock` (staged lock identical to the repo copy),
+  card with the packaged build 1 numbers. Image `tt-model/laya-p150:7e0b39f07e04`, digest
+  `sha256:7e0b39f07e04a60d82dc42cf456c949904f9a7c89be5ddf3ba34ac25dabb2d16`, code sha256
+  `5e1b584c98456fac5203ffc49eb7cafc41d7dbde0fe66f148656a2e5871be596`, `dirty: false`.
 
 ## Verification from the served package (build 1, profile p150, chip 0, port 8710)
 
@@ -34,6 +40,17 @@ REPORT.md quote). Server healthy 144 s after start (container log `/home/hous/de
 | demo feed (`/home/hous/dev/laya/evidence/demo_feed_b1.json`, 60 s at 4 cases per second) | 241 cases, 1,205 decisions, 20.07 decisions per second, 0 errors, agreement with gold 0.378 |
 | demo page | `/home/hous/dev/laya/evidence/demo_p150_b1.png` (health pill: tt ready, bf8w_hifi3_erf, 30 traces; live feed at 20 decisions per second, device p50 45 ms per five-question case) |
 | p150x4 profile (`--device-id 0,1,2,3`, port 8711, `package_p150x4_b1_20261006T003234Z`) | healthy 30 s after start; smoke batch 4x256 in 13.8 ms client; parity 20 calls: 97 of 100 argmax, 82 of 82 confident; E2 first 100 cases and E3 first 50 cases ran (AG News 0.960, Emotion 0.700 on those subsets); E5 client p50 13.1 / 16.2 / 25.1 / 82.1 ms for 1 / 5 / 10 / 50 questions (device 10.9 / 12.3 / 19.8 / 62.8), batched 309 to 748 questions per second. The first attempt passed one device id and tt-model refused it ("--device-id gave 1 chip(s) but profile 'p150x4' needs 4"). |
+
+## Verification from the served package (build 2, profile p150, chip 0, port 8710)
+
+Results `/home/hous/dev/laya/evals/results/package_p150_b2_20261006T003732Z/SUMMARY.md`; healthy 20 s after start.
+Accuracy rows identical to build 1 (E1 476 of 488 and 403 of 403; E2 0.359 / 0.332 / 0.311 / 0.172 / 0.689; E3 0.955 /
+0.593). Latency after the server host-path trim: client p50 10.7 / 24.7 / 42.7 / 197.7 ms for 1 / 5 / 10 / 50 questions
+(server 9.9 / 23.9 / 41.7 / 195.8; device 9.2 / 22.7 / 40.2 / 191.8), batched 202 to 250 questions per second; E3
+9.4 and 9.3 ms per case. Demo feed (`/home/hous/dev/laya/evidence/demo_feed_b2.json`): 241 cases, 1,205 decisions, 20.08
+per second, client p50 48.5 ms per five-question case, 0 errors. Demo page `/home/hous/dev/laya/evidence/demo_p150_b2.png`.
+p150x4 (`package_p150x4_b2_20261006T004210Z`): healthy 20 s after start; E5 13.2 / 16.1 / 22.8 / 68.6 ms, batched
+308 to 937 questions per second.
 
 ## Publish (gated, not run)
 

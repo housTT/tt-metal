@@ -252,8 +252,10 @@ Concurrency: one `asyncio.Lock` around every forward (systemone, batch, raw); th
   and red otherwise (grey without gold), device ms and batch of the request that carried the case.
 - Running stats: decisions/s, cases/s, counts, client and server p50/p95, device p50, agreement with gold, errors, in
   flight, batch shapes, wall time. Latency percentiles are per request (a batch request covers up to 8 cases).
-- `?autorun=feed&rate=4&seconds=20` starts the feed on load (also `concurrency`, `batch=1`, `loop=1`, `preset=<id>`,
-  `autorun=decide`). `window.layaDemo.statsJson()` returns the current stats object.
+- `autorun` is a comma list: `?autorun=decide,feed&preset=ticket&rate=4&seconds=20` selects the preset (default: the
+  first), awaits Decide, then starts the feed, so one screenshot shows answer cards, tiles and the feed; `decide` or
+  `feed` alone also work; other options `concurrency`, `batch=1`, `loop=1`. The footer documents them
+  (`id="page-options"`). `window.layaDemo.statsJson()` returns the current stats object.
 
 Agreement rule: choice: `choice == gold.label`; score: `argmax(probabilities) == gold.label` (the dataset's label is
 the level index as a string); noul: `(noul >= 0.5 ? "true" : "false") == gold.label.toLowerCase()`.
