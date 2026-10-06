@@ -47,6 +47,18 @@ review (PLAN.md, decisions of 2026 Oct 4); the exact commands are at the end of 
   single-row E1 792 of 800 and 777 of 779 (median 0.0012, max 0.273), E2 and E3 unchanged, E5 10.9 / 24.6 / 42.5 / 197.5
   ms, 203 to 250 questions per second, feed 20.07 decisions per second, p150x4 (`package_p150x4_b5_20261006T024623Z`)
   13.2 / 16.1 / 22.3 / 68.5 ms and 349 to 940 questions per second. The card quotes the second run.
+- Build 6, the English release candidate (2026 Oct 6 02:55 to 02:58 UTC, `package exit 0`, commit `990cea36ba`): card
+  only (the packaged build 5 run); code sha256 identical to build 5. Image `tt-model/laya-p150:5c5a30ea0bc8`, digest
+  `sha256:5c5a30ea0bc8ea8fd4775b1edc6390fe43bc17b25528be1fd7fe9f8922b77d5c`, code sha256
+  `7b36a18faed4998a61c5c6e355eb2bd62cdd9ca9f8ec408bf489b6c30def831b`, `dirty: false`. Staged bundle
+  `/home/hous/dev/laya/package/out/laya-p150/` (this build). Verification (`package_p150_b6_20261006T025805Z`,
+  `package_p150x4_b6_20261006T030242Z`): every accuracy row equals builds 2 to 5 (E1 wire and tensor 476 of 488 and 403
+  of 403; single-row E1 792 of 800 and 777 of 779; E2 0.359 / 0.332 / 0.311 / 0.172 / 0.689; E3 0.955 / 0.593); E5 10.7 /
+  24.8 / 42.5 / 197.5 ms, 201 to 249 questions per second (the one-minute load was 5.6 when the speed table started
+  because the orchestrator's no-device test run of 02:55 to 02:58 UTC overlapped it; the cells agree with the quiet build 5
+  run within 0.3 ms); feed 20.07 decisions per second, agreement 0.382, 0 errors; demo page
+  `/home/hous/dev/laya/evidence/demo_laya-p150_b6.png`; p150x4 healthy in 20 s, 11.1 / 16.1 / 23.7 / 68.9 ms, 308 to 936
+  questions per second.
 
 ## Verification from the served package (build 1, profile p150, chip 0, port 8710)
 
