@@ -55,3 +55,12 @@
   16), so among the measured policies only HiFi3 with bf16 activations (`bf8w_hifi3_erf`) keeps the probabilities
   placement invariant within 0.01; HiFi2 and bfp8 activations do not. Device work of stages 7 and 8 complete; devlock
   free; no server process left.
+- 00:39 to 00:45 Review R2 (P2): invariance measured for the two remaining faster A.7-passing policies on the final
+  buckets (`/home/hous/dev/laya/logs/p3_r2_invariance_20261006T003901Z.log`, load 1.7 to 2.5): `bf8w_hifi3` 0.0150
+  (B 2 / B 4 0.0128, mixed B 8 0.0088, B 64 0.0150), `bf8w_hifi3_head_bf16` 0.0154 (0.0129 / 0.0097 / 0.0154); same
+  argmax 16 of 16 for both; both fail the 0.01 gate, so no A11 served confirmation was run for them. `cmd_confirm` now
+  takes the runner-up as the next policy in sweep order (ascending latency sum among A.7-passing policies), accepts any
+  number of served runs (`--run NAME=DIR`), reads every `decision_agreement_<policy>.json` and writes a per-policy status
+  table in sweep order; `rule_selection` = `bf8w_hifi3_erf`, `decision_pending` false; the shipped policy is not changed
+  by the script (the orchestrator decides). README sentences corrected; `NOTE.md` written into the `bf8_act` results
+  directory; the context contract names the exact build 1 directory.

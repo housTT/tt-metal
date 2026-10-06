@@ -194,7 +194,7 @@ def confirmation_md(conf):
         for n in names:
             e = conf["runs"][n]["e2"][k]
             cells.append(f"{e['served']:.4f} (delta {e['delta']:+.4f}, {'pass' if e['pass'] else 'FAIL'})")
-        ref = conf["runs"][names[0]]["e2"][k]["cpu_fp32"]
+        ref = conf["runs"][names[0]]["e2"][k]["cpu_fp32"] if names else float("nan")
         lines.append(f"| E2 {k} | " + " | ".join(cells) + f" | within {CONFIRM_E2[k]} of CPU fp32 {ref:.4f} |")
     for path in ("tensor", "wire"):
         for k, label in (("confident_agree_rate", "confident agreement"), ("argmax_agree_rate", "argmax agreement")):
@@ -211,80 +211,184 @@ def confirmation_md(conf):
                 f"| E1 {path} path {label} | " + " | ".join(cells) + f" | >= {100 * CONFIRM_E1[k]:.0f} percent |"
             )
     lines.append(
-        "| confirmation | "
+        "| A11 confirmation | "
         + " | ".join("pass" if conf["runs"][n]["pass"] else "FAIL" for n in names)
         + " | all of the above |"
     )
-    inv = conf.get("candidate_stage6_invariance")
-    if inv:
-        g = inv["max_abs_dp_alone_vs_in_batch"]
-        lines.append(
-            f"| stage 6 alone versus in batch (candidate {conf['candidate']}) | max abs delta p {g['value']:.4f}, same argmax {inv['same_argmax']['value']} of {inv['same_argmax']['of']} ({'pass' if inv['pass'] else 'FAIL'}) | | <= 0.01 and the same argmax |"
+    cells = []
+    for n in names:
+        inv = (conf.get("policies", {}).get(n) or {}).get("invariance")
+        if inv:
+            g = inv["max_abs_dp_alone_vs_in_batch"]
+            cells.append(
+                f"max abs delta p {g['value']:.4f}, same argmax {inv['same_argmax']['value']} of {inv['same_argmax']['of']} ({'pass' if inv['pass'] else 'FAIL'})"
+            )
+        else:
+            cells.append("not measured")
+    lines.append("| stage 6 alone versus in batch (A12) | " + " | ".join(cells) + " | <= 0.01 and the same argmax |")
+    lines.append("")
+    lines.append("| policy (sweep order) | latency sum ms | thin A.7 margins | invariance max abs dp | A11 | status |")
+    lines.append("|---|---|---|---|---|---|")
+    for n, e in conf.get("policies", {}).items():
+        inv = e.get("invariance")
+        a11 = e.get("a11")
+        thin = ", ".join(k for k, v in e["thin_margins"].items() if v) or "none"
+        inv_txt = (
+            f"{inv['max_abs_dp_alone_vs_in_batch']['value']:.4f} ({'pass' if inv['pass'] else 'FAIL'})"
+            if inv
+            else "not measured"
         )
+        a11_txt = ("pass" if a11["pass"] else "FAIL") if a11 else ("not required" if not e["a11_needed"] else "not run")
+        lines.append(f"| {n} | {e['latency_sum_ms']:.1f} | {thin} | {inv_txt} | {a11_txt} | {e['status']} |")
     return "\n".join(lines) + "\n"
 
 
+def invariance_summary(path):
+    inv = json.load(open(path))
+    g = inv["gates"]
+    return {
+        "file": os.path.relpath(path, AUTOPORT),
+        "same_argmax": g["same_argmax"],
+        "max_abs_dp_alone_vs_in_batch": g["max_abs_dp_alone_vs_in_batch"],
+        "max_abs_dp_alone_vs": inv["summary"]["max_abs_dp_alone_vs"],
+        "median_abs_dp_alone_vs": inv["summary"]["median_abs_dp_alone_vs"],
+        "pcc_logits_alone_vs": inv["summary"]["pcc_logits_alone_vs"],
+        "buckets": inv.get("buckets"),
+        "pass": bool(inv.get("pass")),
+    }
+
+
+def sweep_order(rows):
+    """A.7-passing policies by ascending latency sum: the sweep order of the plan's rule."""
+    return [
+        r["policy"]
+        for r in sorted(
+            (r for r in rows if r.get("pass") and r.get("latency_sum_ms") is not None),
+            key=lambda r: r["latency_sum_ms"],
+        )
+    ]
+
+
+def policy_status(entry):
+    inv_ok = entry["invariance"]["pass"] if entry["invariance"] else None
+    a11_ok = entry["a11"]["pass"] if entry["a11"] else None
+    if inv_ok is False:
+        return "fails the stage 6 alone-versus-in-batch gate (A12)", False
+    if inv_ok is None:
+        return "invariance not measured", None
+    if entry["a11_needed"] and a11_ok is None:
+        return "thin A.7 margins; A11 served confirmation not run", None
+    if entry["a11_needed"] and a11_ok is False:
+        return "fails the A11 served confirmation", False
+    if entry["a11_needed"]:
+        return "passes A.7, the invariance gate and the A11 served confirmation", True
+    return "passes A.7 and the invariance gate (no thin margin, A11 not required)", True
+
+
 def cmd_confirm(a):
+    """Amendments A11 and A12 over the policies in sweep order; the shipped policy stays until the orchestrator decides."""
     out_dir = a.out_dir
     res = json.load(open(os.path.join(out_dir, "sweep_results.json")))
     by = {r["policy"]: r for r in res["rows"]}
-    cand = by[a.candidate]
-    thin = thin_margins(cand)
-    needed = any(v["thin"] for v in thin.values())
-    conf = {
-        "rule": "amendment A11: when the fastest passing policy clears any gate by less than 10 percent of the gate's width, it is confirmed on the full served workload against the runner-up: served E2 accuracy within 0.010 of the CPU fp32 row and soft accuracy, Brier, ECE and score MAE within 0.015; E1 confident agreement over the 488 items at least 98 percent and argmax agreement at least 95 percent",
-        "candidate": a.candidate,
-        "runner_up": a.runner_up,
-        "candidate_thin_margins": thin,
-        "confirmation_needed": bool(needed),
-        "runs": {},
-    }
-    for name, d in ((a.candidate, a.candidate_dir), (a.runner_up, a.runner_up_dir)):
-        if d and os.path.isdir(d):
-            conf["runs"][name] = confirmation(name, d, a.reference_dir)
-    cand_ok = conf["runs"].get(a.candidate, {}).get("pass")
-    inv_ok = None
-    if a.invariance and os.path.exists(a.invariance):
-        inv = json.load(open(a.invariance))
-        g = inv["gates"]
-        conf["candidate_stage6_invariance"] = {
-            "file": os.path.relpath(a.invariance, AUTOPORT),
-            "same_argmax": g["same_argmax"],
-            "max_abs_dp_alone_vs_in_batch": g["max_abs_dp_alone_vs_in_batch"],
-            "max_abs_dp_alone_vs": inv["summary"]["max_abs_dp_alone_vs"],
-            "pcc_logits_alone_vs": inv["summary"]["pcc_logits_alone_vs"],
-            "buckets": inv.get("buckets"),
-            "pass": bool(inv.get("pass")),
-        }
-        inv_ok = bool(inv.get("pass"))
-    if inv_ok is False:
-        selected = a.runner_up
-        why = (
-            f"fastest, passes the A.7 gates and the A11 served confirmation, fails the stage 6 alone-versus-in-batch gate "
-            f"(max abs delta p {conf['candidate_stage6_invariance']['max_abs_dp_alone_vs_in_batch']['value']:.4f} against 0.01); the runner-up ships"
-        )
-    elif not needed:
-        selected, why = a.candidate, "no gate margin under 10 percent of its width; the sweep selection stands"
-    elif cand_ok:
-        selected, why = a.candidate, "the candidate passes the served confirmation gates"
-    elif cand_ok is None:
-        selected, why = a.runner_up, "the candidate's confirmation run is missing; the runner-up ships"
+    order = sweep_order(res["rows"])
+    candidate = a.candidate or (order[0] if order else None)
+    if a.runner_up:
+        runner_up = a.runner_up
     else:
-        selected, why = a.runner_up, "fastest, fails confirmation; the runner-up ships"
-    conf["selected"] = selected
+        after = [p for p in order if p != candidate and by[p]["latency_sum_ms"] >= by[candidate]["latency_sum_ms"]]
+        runner_up = after[0] if after else None
+    runs = {}
+    for item in a.run or []:
+        name, d = item.split("=", 1)
+        runs[name] = d
+    if a.candidate_dir and candidate:
+        runs[candidate] = a.candidate_dir
+    if a.runner_up_dir and runner_up:
+        runs[runner_up] = a.runner_up_dir
+    invariance = {}
+    stage7 = {
+        "bf8w_hifi3_erf": os.path.join(AUTOPORT, "doc", "optimized_full_model", "decision_agreement_final_buckets.json")
+    }
+    for r in res["rows"]:
+        path = os.path.join(out_dir, f"decision_agreement_{r['policy']}.json")
+        if not os.path.exists(path):
+            path = stage7.get(r["policy"], path)
+        if os.path.exists(path):
+            invariance[r["policy"]] = invariance_summary(path)
+    if a.invariance and os.path.exists(a.invariance) and candidate:
+        invariance[candidate] = invariance_summary(a.invariance)
+    policies = {}
+    for name in order:
+        row = by[name]
+        thin = thin_margins(row)
+        entry = {
+            "sweep_rank": order.index(name) + 1,
+            "latency_sum_ms": row["latency_sum_ms"],
+            "a7_pass": True,
+            "thin_margins": {k: v["thin"] for k, v in thin.items()},
+            "a11_needed": bool(any(v["thin"] for v in thin.values())),
+            "invariance": invariance.get(name),
+            "a11": confirmation(name, runs[name], a.reference_dir)
+            if name in runs and os.path.isdir(runs[name])
+            else None,
+        }
+        entry["status"], entry["passes_all"] = policy_status(entry)
+        policies[name] = entry
+    rule_selection = next((n for n in order if policies[n]["passes_all"] is True), None)
+    undecided = [
+        n
+        for n in order
+        if policies[n]["passes_all"] is None
+        and (rule_selection is None or by[n]["latency_sum_ms"] < by[rule_selection]["latency_sum_ms"])
+    ]
+    shipped = res.get("shipped_policy", "bf8w_hifi3_erf")
+    conf = {
+        "rule": (
+            "amendment A11: when the fastest passing policy clears any gate by less than 10 percent of the gate's width, it is "
+            "confirmed on the full served workload (served E2 accuracy within 0.010 of the CPU fp32 row and soft accuracy, Brier, "
+            "ECE and score MAE within 0.015; E1 confident agreement over the 488 items at least 98 percent and argmax agreement at "
+            "least 95 percent); amendment A12: the stage 6 alone-versus-in-batch gate (same argmax, max abs delta p <= 0.01) is part "
+            "of the sweep gate; the runner-up is the next policy in sweep order"
+        ),
+        "sweep_order": order,
+        "candidate": candidate,
+        "runner_up": runner_up,
+        "candidate_thin_margins": thin_margins(by[candidate]) if candidate else None,
+        "confirmation_needed": bool(candidate and any(v["thin"] for v in thin_margins(by[candidate]).values())),
+        "policies": policies,
+        "runs": {n: policies[n]["a11"] for n in policies if policies[n]["a11"]},
+        "candidate_stage6_invariance": invariance.get(candidate),
+        "rule_selection": rule_selection,
+        "undecided_faster_policies": undecided,
+        "shipped_policy": shipped,
+        "decision_pending": bool(rule_selection != shipped or undecided),
+    }
+    if rule_selection is None:
+        why = "no policy passes A.7, the invariance gate and (where needed) the A11 confirmation"
+    elif rule_selection == shipped:
+        why = f"the plan's rule with the A11 and A12 gates selects the shipped policy {shipped}"
+    else:
+        why = f"the plan's rule with the A11 and A12 gates selects {rule_selection}; the shipped policy stays {shipped} until the orchestrator decides (review R2)"
+    if undecided:
+        why += "; undecided faster policies: " + ", ".join(undecided)
     conf["reason"] = why
+    conf["selected"] = shipped
     res["confirmation"] = conf
-    res["selected_after_confirmation"] = selected
+    res["selected_after_confirmation"] = shipped
+    res["rule_selection_after_confirmation"] = rule_selection
     with open(os.path.join(out_dir, "sweep_results.json"), "w") as f:
         json.dump(res, f, indent=1)
+    write_csv(res["rows"], os.path.join(out_dir, "sweep_results.csv"), policies)
     sel_path = os.path.join(out_dir, "selected_precision_config.json")
     sel = json.load(open(sel_path)) if os.path.exists(sel_path) else {}
-    chosen = by[selected]
+    chosen = by[shipped]
     sel.update(
         {
-            "selected_policy": selected,
-            "sweep_fastest_passing": a.candidate,
-            "default_changed": selected != "bf8w_hifi3_erf",
+            "selected_policy": shipped,
+            "rule_selection": rule_selection,
+            "decision_pending": conf["decision_pending"],
+            "sweep_fastest_passing": order[0] if order else None,
+            "default_changed": False,
             "reason": res["selection_reason"] + "; " + why,
             "policy": chosen.get("policy_describe"),
             "gates": {
@@ -303,7 +407,7 @@ def cmd_confirm(a):
             "latency_sum_ms": chosen.get("latency_sum_ms"),
             "cells": chosen.get("cells"),
             "env": {
-                "LAYA_PRECISION": selected,
+                "LAYA_PRECISION": shipped,
                 "LAYA_SEQ_BUCKETS": ",".join(str(x) for x in res["seq_buckets"]),
                 "LAYA_ROW_BUCKETS": ",".join(str(x) for x in res["row_buckets"]),
             },
@@ -316,8 +420,93 @@ def cmd_confirm(a):
         f.write(confirmation_md(conf))
     print(
         "CONFIRM_SELECTED",
-        json.dumps({"selected": selected, "reason": why, "needed": needed, "candidate_pass": cand_ok}),
+        json.dumps(
+            {
+                "shipped": shipped,
+                "rule_selection": rule_selection,
+                "undecided": undecided,
+                "reason": why,
+                "status": {n: policies[n]["status"] for n in order},
+            }
+        ),
     )
+
+
+def write_csv(rows, path, policies=None):
+    cols = [
+        "policy",
+        "a7_pass",
+        "confident_agree",
+        "confident_n",
+        "confident_agree_rate",
+        "plain_argmax_agree_rate",
+        "act_argmax_agree_rate",
+        "median_max_abs_dp",
+        "p95_max_abs_dp",
+        "max_abs_dp",
+        "scorer_logit_pcc",
+        "hidden_encoder_pcc",
+        "hidden_head_pcc",
+        "nan_rows",
+        "lat_1_ms",
+        "lat_5_ms",
+        "lat_10_ms",
+        "lat_50_ms",
+        "latency_sum_ms",
+        "thin_margins",
+        "invariance_max_abs_dp",
+        "invariance_pass",
+        "a11_pass",
+        "a11_e2_accuracy",
+        "a11_e1_confident_rate",
+        "a11_e1_argmax_rate",
+        "status",
+        "loadavg_fidelity",
+        "loadavg_latency_cells",
+    ]
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(cols)
+        for r in rows:
+            cells = r.get("cells") or {}
+            pol = (policies or {}).get(r["policy"], {})
+            inv = pol.get("invariance") or {}
+            a11 = pol.get("a11") or {}
+            w.writerow(
+                [
+                    r["policy"],
+                    r.get("pass"),
+                    r.get("confident_agree"),
+                    r.get("confident_n"),
+                    r.get("confident_agree_rate"),
+                    r.get("plain_argmax_agree_rate"),
+                    r.get("act_argmax_agree_rate"),
+                    r.get("median_max_abs_dp"),
+                    r.get("p95_max_abs_dp"),
+                    r.get("max_abs_dp"),
+                    r.get("scorer_logit_pcc"),
+                    r.get("hidden_encoder_pcc"),
+                    r.get("hidden_head_pcc"),
+                    r.get("nan_rows"),
+                ]
+                + [cells.get(n, {}).get("end_to_end_ms_p50") for n in CELLS]
+                + [
+                    r.get("latency_sum_ms"),
+                    ";".join(k for k, v in (r.get("thin_margins") or {}).items() if v.get("thin")),
+                    (inv.get("max_abs_dp_alone_vs_in_batch") or {}).get("value"),
+                    inv.get("pass"),
+                    a11.get("pass"),
+                    ((a11.get("e2") or {}).get("accuracy") or {}).get("served"),
+                    ((a11.get("e1") or {}).get("tensor") or {}).get("confident_agree_rate"),
+                    ((a11.get("e1") or {}).get("tensor") or {}).get("argmax_agree_rate"),
+                    pol.get("status"),
+                    r.get("loadavg"),
+                    [
+                        cells.get(n, {}).get("loadavg", [None])[0] if cells.get(n, {}).get("loadavg") else None
+                        for n in CELLS
+                    ],
+                ]
+            )
 
 
 def select(rows):
@@ -384,8 +573,11 @@ def main(argv=None):
     ap.add_argument("--out-dir", default=DOC_DIR)
     ap.add_argument("--candidate", default=None)
     ap.add_argument("--candidate-dir", default=None)
-    ap.add_argument("--runner-up", default="bf8w_hifi3_erf")
+    ap.add_argument("--runner-up", default=None, help="default: the next policy in sweep order after the candidate")
     ap.add_argument("--runner-up-dir", default=None)
+    ap.add_argument(
+        "--run", action="append", default=None, help="NAME=served results dir of an A11 confirmation run; repeatable"
+    )
     ap.add_argument(
         "--reference-dir", default="/home/hous/dev/laya/evals/results/cpu_reference_cpu_b0_20261005T210448Z"
     )
@@ -489,65 +681,12 @@ def main(argv=None):
         "selection_rule": f"fastest passing policy by the sum of p50 over the cells {CELLS}; ties within {TIE_PCT:g} percent go to the higher confident agreement",
         "selected": selected["policy"] if selected else None,
         "selection_reason": reason,
+        "shipped_policy": "bf8w_hifi3_erf",
         "rows": rows,
     }
     with open(os.path.join(a.out_dir, "sweep_results.json"), "w") as f:
         json.dump(result, f, indent=1)
-    cols = [
-        "policy",
-        "pass",
-        "confident_agree",
-        "confident_n",
-        "confident_agree_rate",
-        "plain_argmax_agree_rate",
-        "act_argmax_agree_rate",
-        "median_max_abs_dp",
-        "p95_max_abs_dp",
-        "max_abs_dp",
-        "scorer_logit_pcc",
-        "hidden_encoder_pcc",
-        "hidden_head_pcc",
-        "nan_rows",
-        "lat_1_ms",
-        "lat_5_ms",
-        "lat_10_ms",
-        "lat_50_ms",
-        "latency_sum_ms",
-        "loadavg_fidelity",
-        "loadavg_latency_cells",
-    ]
-    with open(os.path.join(a.out_dir, "sweep_results.csv"), "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(cols)
-        for r in rows:
-            cells = r.get("cells") or {}
-            w.writerow(
-                [
-                    r["policy"],
-                    r.get("pass"),
-                    r.get("confident_agree"),
-                    r.get("confident_n"),
-                    r.get("confident_agree_rate"),
-                    r.get("plain_argmax_agree_rate"),
-                    r.get("act_argmax_agree_rate"),
-                    r.get("median_max_abs_dp"),
-                    r.get("p95_max_abs_dp"),
-                    r.get("max_abs_dp"),
-                    r.get("scorer_logit_pcc"),
-                    r.get("hidden_encoder_pcc"),
-                    r.get("hidden_head_pcc"),
-                    r.get("nan_rows"),
-                ]
-                + [cells.get(n, {}).get("end_to_end_ms_p50") for n in CELLS]
-                + [
-                    r.get("latency_sum_ms"),
-                    r.get("loadavg"),
-                    [
-                        cells.get(n, {}).get("loadavg", [None])[0] if cells.get(n, {}).get("loadavg") else None
-                        for n in CELLS
-                    ],
-                ]
-            )
+    write_csv(rows, os.path.join(a.out_dir, "sweep_results.csv"))
     if selected:
         from models.autoports.convaiinnovations_laya.tt import model_config as mc
 

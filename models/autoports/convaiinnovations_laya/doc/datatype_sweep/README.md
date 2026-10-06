@@ -13,9 +13,11 @@ the Appendix A.7 gates (228.5 ms over the four cells, 14 percent under the shipp
 amendment A11 served confirmation (full E1 and E2 against the runner-up), but it fails the stage 6 alone-versus-in-batch
 gate: the same question moves by up to 0.038 in probability between buckets (gate 0.01; the shipped policy 0.009).
 The shipped policy `bf8w_hifi3_erf` therefore stays the default (`DEFAULT_POLICY_NAME` unchanged); `bf8_act` is recorded
-as "fastest, passes A.7 and A11, fails the stage 6 invariance gate". The next fastest clean policy, `bf8w_hifi2_erf`
-(246.6 ms, every A.7 gate with a wide margin), fails the same invariance gate (0.029). Among the measured policies only
-HiFi3 with bf16 activations keeps the decision probabilities placement invariant within 0.01.
+as "fastest, passes A.7 and A11, fails the stage 6 invariance gate". Every other A.7-passing policy that is faster
+than the shipped one was then measured on the invariance gate and fails it: `bf8w_hifi3` 0.0150, `bf8w_hifi3_head_bf16`
+0.0154, `bf8w_hifi2_erf` 0.0289 (all with the same argmax in 16 of 16). Of the six A.7-passing policies, the two with
+the erf GELU and HiFi3 or HiFi4 (`bf8w_hifi3_erf` 0.0090, and `bf16_hifi4`, slower, not measured on this gate) are the
+only ones not shown to fail it; the shipped `bf8w_hifi3_erf` is the fastest policy that passes every measured gate.
 
 ## Files
 
@@ -26,8 +28,8 @@ HiFi3 with bf16 activations keeps the decision probabilities placement invariant
 | `latency_<policy>.json` | the four published cells per policy (`tests/bench_latency.py --mode fresh`, the four cell buckets captured, 3 warm, p50 of 20) |
 | `sweep_results.json`, `sweep_results.csv` | the table below plus the thin margins, the selection and the confirmation block |
 | `selected_precision_config.json` | the shipped policy, the rule applied, the gates, the latency cells, the `env` block for the manifest, the `confirmation` block |
-| `confirmation.md` | the A11 confirmation table |
-| `decision_agreement_bf8_act.json`, `decision_agreement_bf8w_hifi2_erf.json` | the stage 6 alone-versus-in-batch test for the candidate and the next fastest clean policy |
+| `confirmation.md` | the A11 confirmation table and the per-policy status in sweep order (written by `datatype_sweep.py --only confirm`, which takes the served runs as `--run NAME=DIR`, reads every `decision_agreement_<policy>.json` and takes the runner-up as the next policy in sweep order) |
+| `decision_agreement_{bf8_act,bf8w_hifi3,bf8w_hifi3_head_bf16,bf8w_hifi2_erf}.json` | the stage 6 alone-versus-in-batch test (16 questions, five placements, final buckets) for every A.7-passing policy faster than the shipped one (review R2) |
 | `pareto_latency_vs_confident_agreement.png`, `pareto_latency_vs_median_dp.png` | the Pareto plots (star = the sweep's fastest passing policy, cross = fails a gate) |
 | `sweep_subprocess.log` | the subprocess output of every run |
 | `work_log.md` | timeline and decisions |
@@ -81,6 +83,25 @@ NaN rows: 0 for every policy. Readings:
 Selection by the plan's rule: `bf8_act` (228.5 ms; no other passing policy within 1 percent). Its thin margins
 triggered the A11 confirmation.
 
+Stage 6 alone-versus-in-batch gate on the final buckets (amendment A12; 16 questions alone, in B 2, B 4, a mixed B 8
+batch and the B 64 bucket; gate: the same argmax and max abs dp <= 0.01; the alone calls run at 1x256 or 1x512, the
+batches at 2x256, 2x512, 4x512, 8x512 and 64x512):
+
+| policy | sweep order | latency sum | max abs dp alone against B 2 / B 4 / mixed B 8 / B 64 | medians | PCC of the marker logits | same argmax | gate | load |
+|---|---|---|---|---|---|---|---|---|
+| `bf8_act` | 1 | 228.5 | 0.0335 / 0.0335 / 0.0199 / 0.0381 | 0.0052 / 0.0063 / 0.0077 / 0.0056 | 0.9990 / 0.9989 / 0.9990 / 0.9986 | 16 of 16 | FAIL (0.0381) | 2.5 |
+| `bf8w_hifi2_erf` | 2 | 246.6 | 0.0282 / 0.0282 / 0.0289 / 0.0216 | | 0.9992 / 0.9990 / 0.9994 / 0.9989 | 16 of 16 | FAIL (0.0289) | 2.6 |
+| `bf8w_hifi3` | 3 | 248.1 | 0.0128 / 0.0128 / 0.0088 / 0.0150 | 0.0044 / 0.0045 / 0.0031 / 0.0030 | 0.9996 / 0.9996 / 0.9998 / 0.9997 | 16 of 16 | FAIL (0.0150) | 1.7 to 2.5 |
+| `bf8w_hifi3_head_bf16` | 4 | 249.2 | 0.0129 / 0.0129 / 0.0097 / 0.0154 | 0.0044 / 0.0049 / 0.0035 / 0.0030 | 0.9996 / 0.9996 / 0.9998 / 0.9997 | 16 of 16 | FAIL (0.0154) | 2.2 to 2.5 |
+| `bf8w_hifi3_erf` (shipped) | 5 | 266.4 | 0.0059 / 0.0059 / 0.0089 / 0.0090 | 0.0039 / 0.0039 / 0.0039 / 0.0025 | 0.9998 / 0.9998 / 0.9997 / 0.9996 | 16 of 16 | pass (0.0090) | 0.6 to 2.1 |
+| `bf16_hifi4` | 6 | 294.9 | not measured (slower than the shipped policy) | | | | | |
+
+The tanh GELU policies (`bf8w_hifi3`, `bf8w_hifi3_head_bf16`) miss the gate by 1.5 times on the B 2, B 4 and B 64
+placements; HiFi2 and bfp8 activations miss it by 2.9 and 3.8 times. Files `decision_agreement_<policy>.json`, logs
+`/home/hous/dev/laya/logs/p3_s8_invariance_cand_20261006T000345Z.log`, `p3_s8_invariance_hifi2_erf_20261006T000808Z.log`,
+`p3_r2_invariance_20261006T003901Z.log`. Because no faster policy passes the invariance gate, no further A11 served
+confirmation was needed (A11 confirms a candidate that passes the other gates).
+
 ## Amendment A11 confirmation (served host TT backend, final buckets; `confirmation.md`)
 
 Candidate `bf8_act` served with the full suite (`/home/hous/dev/laya/evals/results/host_tt_p150_b1_20261006T000056Z`,
@@ -110,23 +131,28 @@ confident over 2,000 (shipped: 0.9775 and 1.000); E3 AG News 0.953 and Emotion 0
 Decision: `bf8_act` passes the A11 gates and would have shipped under A11 alone, but it fails the stage 6 invariance
 gate by a factor of 3.8. A served decision that changes by 0.038 depending on how many other questions share the call
 is not acceptable for a calibrated decision model, and the stage 7 task requires the stage 6 gate scripts to pass on the
-shipped configuration. The runner-up `bf8w_hifi3_erf` ships; `tt/model_config.py: DEFAULT_POLICY_NAME` is unchanged.
-`bf8w_hifi2_erf`, the fastest policy with no thin margin (7.4 percent under the shipped policy), fails the same gate
-(0.0289; `decision_agreement_bf8w_hifi2_erf.json`), so no faster policy is available without a change to the invariance
-behaviour itself (the deltas come from different matmul blockings per bucket amplified by lower-precision
-accumulation or bfp8 activation quantization).
+shipped configuration. With the invariance gate part of the sweep gate (amendment A12), the plan's rule ("fastest
+passing") selects `bf8w_hifi3_erf`: the four A.7-passing policies that are faster (`bf8_act`, `bf8w_hifi2_erf`,
+`bf8w_hifi3`, `bf8w_hifi3_head_bf16`) were each measured on the invariance gate on the final buckets and each fails it
+(0.0381, 0.0289, 0.0150, 0.0154 against 0.01). `tt/model_config.py: DEFAULT_POLICY_NAME` is unchanged
+(`bf8w_hifi3_erf`); `selected_precision_config.json` records `rule_selection` = `bf8w_hifi3_erf` and
+`decision_pending` false. The placement deltas come from different matmul blockings per bucket; the erf GELU with
+HiFi3 keeps them under 0.01, the tanh GELU, HiFi2 and bfp8 activations do not.
 
-`selected_precision_config.json`: `selected_policy` `bf8w_hifi3_erf`, `sweep_fastest_passing` `bf8_act`,
-`default_changed` false, `env` {`LAYA_PRECISION` bf8w_hifi3_erf, `LAYA_SEQ_BUCKETS` 128,256,512, `LAYA_ROW_BUCKETS`
-1,2,4,5,8,10,16,32,50,64}, the `confirmation` block above. Named profile candidates: `bf8w_hifi3_erf` (shipped),
-`bf16_hifi4` (reference quality, 11 percent slower, no thin margin), `bf8w_hifi2_erf` and `bf8_act` (faster, fail the
-invariance gate; a manifest profile could expose them for workloads that always send one question per call, where the
-placement does not vary).
+`selected_precision_config.json`: `selected_policy` `bf8w_hifi3_erf`, `rule_selection` `bf8w_hifi3_erf`,
+`sweep_fastest_passing` `bf8_act`, `default_changed` false, `env` {`LAYA_PRECISION` bf8w_hifi3_erf, `LAYA_SEQ_BUCKETS`
+128,256,512, `LAYA_ROW_BUCKETS` 1,2,4,5,8,10,16,32,50,64}, the `confirmation` block (A11 runs, per-policy status in
+sweep order, runner-up = the next policy in sweep order). Named profile candidates: `bf8w_hifi3_erf` (shipped) and
+`bf16_hifi4` (reference quality, 11 percent slower, no thin margin, invariance not measured). The faster policies are
+not offered as profiles: they fail the invariance gate by 1.5 to 3.8 times, and a profile for them would need its own
+gate first (review R2).
 
 ## What proved wrong or incomplete in the plan
 
-- The Appendix A.7 gate list omits the stage 6 alone-versus-in-batch gate; the two fastest candidates pass A.7 (and
-  one passes the A11 served confirmation) while failing it. The invariance test belongs in the sweep gate.
+- The Appendix A.7 gate list omits the stage 6 alone-versus-in-batch gate; four A.7-passing policies faster than the
+  shipped one fail it (one of them after passing the A11 served confirmation). The invariance test belongs in the sweep
+  gate (amendment A12); the first version of this README claimed "no faster policy is available" before two of the four
+  had been measured (review R2), which is corrected above.
 - `bf8_act` did not "break the head" as upstream saw for the MLM head: with the fp32 scorer output it passes every
   accuracy gate; its problem is placement dependence, which single-shape benchmarks never show.
 - `bf16_hifi4` cannot run the block-sharded GeGLU plan (L1 clash with bf16 weights); the plan now declines for bf16
@@ -139,8 +165,8 @@ placement does not vary).
 ```
 source /home/hous/dev/laya/bin/ttenv.sh; cd $TT_METAL_HOME; A=models/autoports/convaiinnovations_laya; DL=/home/hous/dev/laya/bin/devlock
 TT_METAL_VISIBLE_DEVICES=0 $DL python $A/tests/datatype_sweep.py --row-buckets 1,2,4,5,8,10,16,32,50,64 --seq-buckets 128,256,512 --hidden-cases 40 --threads 6 --skip-existing
-TT_METAL_VISIBLE_DEVICES=0 $DL python $A/tests/decision_agreement.py --policy bf8_act --seq-buckets 128,256,512 --row-buckets 1,2,4,5,8,10,16,32,50,64 --out $A/doc/datatype_sweep/decision_agreement_bf8_act.json
-python $A/tests/datatype_sweep.py --only confirm --candidate bf8_act --candidate-dir <served run of bf8_act> --runner-up bf8w_hifi3_erf --runner-up-dir <served run of bf8w_hifi3_erf> --invariance $A/doc/datatype_sweep/decision_agreement_bf8_act.json --row-buckets 1,2,4,5,8,10,16,32,50,64 --seq-buckets 128,256,512
+for P in bf8_act bf8w_hifi2_erf bf8w_hifi3 bf8w_hifi3_head_bf16; do TT_METAL_VISIBLE_DEVICES=0 $DL python $A/tests/decision_agreement.py --policy $P --seq-buckets 128,256,512 --row-buckets 1,2,4,5,8,10,16,32,50,64 --out $A/doc/datatype_sweep/decision_agreement_$P.json; done
+python $A/tests/datatype_sweep.py --only confirm --run bf8_act=/home/hous/dev/laya/evals/results/host_tt_p150_b1_20261006T000056Z --run bf8w_hifi3_erf=/home/hous/dev/laya/evals/results/host_tt_p150_b1_20261006T000400Z --row-buckets 1,2,4,5,8,10,16,32,50,64 --seq-buckets 128,256,512
 ```
 
 The served runs: `LAYA_PRECISION=<policy> LAYA_SEQ_BUCKETS=128,256,512 LAYA_ROW_BUCKETS=1,2,4,5,8,10,16,32,50,64

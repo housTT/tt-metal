@@ -4,7 +4,7 @@
  "default_changed": false,
  "current_default_policy_name": "bf8w_hifi3_erf",
  "rule": "fastest passing policy by the sum of p50 over the cells ('1', '5', '10', '50'); ties within 1 percent go to the higher confident agreement",
- "reason": "fastest passing policy by the sum of p50 over the cells 1, 5, 10, 50: bf8_act at 228.5 ms; policies within 1 percent: ['bf8_act']; the tie goes to the higher confident agreement: bf8_act; fastest, passes the A.7 gates and the A11 served confirmation, fails the stage 6 alone-versus-in-batch gate (max abs delta p 0.0381 against 0.01); the runner-up ships",
+ "reason": "fastest passing policy by the sum of p50 over the cells 1, 5, 10, 50: bf8_act at 228.5 ms; policies within 1 percent: ['bf8_act']; the tie goes to the higher confident agreement: bf8_act; the plan's rule with the A11 and A12 gates selects the shipped policy bf8w_hifi3_erf",
  "policy": {
   "name": "bf8w_hifi3_erf",
   "linear_dtype": "DataType.BFLOAT8_B",
@@ -96,11 +96,21 @@
  "named_profile_candidates": {
   "bf8w_hifi3_erf": "the stage 3 to 7 shipped policy, kept as a named profile candidate"
  },
+ "rule_selection": "bf8w_hifi3_erf",
+ "decision_pending": false,
  "sweep_fastest_passing": "bf8_act",
  "confirmation": {
-  "rule": "amendment A11: when the fastest passing policy clears any gate by less than 10 percent of the gate's width, it is confirmed on the full served workload against the runner-up: served E2 accuracy within 0.010 of the CPU fp32 row and soft accuracy, Brier, ECE and score MAE within 0.015; E1 confident agreement over the 488 items at least 98 percent and argmax agreement at least 95 percent",
+  "rule": "amendment A11: when the fastest passing policy clears any gate by less than 10 percent of the gate's width, it is confirmed on the full served workload (served E2 accuracy within 0.010 of the CPU fp32 row and soft accuracy, Brier, ECE and score MAE within 0.015; E1 confident agreement over the 488 items at least 98 percent and argmax agreement at least 95 percent); amendment A12: the stage 6 alone-versus-in-batch gate (same argmax, max abs delta p <= 0.01) is part of the sweep gate; the runner-up is the next policy in sweep order",
+  "sweep_order": [
+   "bf8_act",
+   "bf8w_hifi2_erf",
+   "bf8w_hifi3",
+   "bf8w_hifi3_head_bf16",
+   "bf8w_hifi3_erf",
+   "bf16_hifi4"
+  ],
   "candidate": "bf8_act",
-  "runner_up": "bf8w_hifi3_erf",
+  "runner_up": "bf8w_hifi2_erf",
   "candidate_thin_margins": {
    "confident_agree_rate": {
     "value": 0.9865771812080537,
@@ -139,6 +149,565 @@
    }
   },
   "confirmation_needed": true,
+  "policies": {
+   "bf8_act": {
+    "sweep_rank": 1,
+    "latency_sum_ms": 228.50136246415786,
+    "a7_pass": true,
+    "thin_margins": {
+     "confident_agree_rate": false,
+     "median_max_abs_dp": true,
+     "scorer_logit_pcc": true,
+     "hidden_encoder_pcc": true,
+     "hidden_head_pcc": false
+    },
+    "a11_needed": true,
+    "invariance": {
+     "file": "doc/datatype_sweep/decision_agreement_bf8_act.json",
+     "same_argmax": {
+      "value": 16,
+      "of": 16,
+      "pass": true
+     },
+     "max_abs_dp_alone_vs_in_batch": {
+      "value": 0.03811424970626831,
+      "threshold": 0.01,
+      "pass": false
+     },
+     "max_abs_dp_alone_vs": {
+      "b2": 0.03345412015914917,
+      "b4": 0.03345412015914917,
+      "mixed_b8": 0.019921332597732544,
+      "b64": 0.03811424970626831
+     },
+     "median_abs_dp_alone_vs": {
+      "b2": 0.005217917263507843,
+      "b4": 0.006270177662372589,
+      "mixed_b8": 0.007735639810562134,
+      "b64": 0.0056488364934921265
+     },
+     "pcc_logits_alone_vs": {
+      "b2": 0.9989941528145738,
+      "b4": 0.9988934760073918,
+      "mixed_b8": 0.999026092264335,
+      "b64": 0.9985856969803291
+     },
+     "buckets": {
+      "alone": [
+       1,
+       512
+      ],
+      "b2": [
+       2,
+       512
+      ],
+      "b4": [
+       4,
+       512
+      ],
+      "mixed_b8": [
+       8,
+       512
+      ],
+      "b64": [
+       64,
+       512
+      ]
+     },
+     "pass": false
+    },
+    "a11": {
+     "policy": "bf8_act",
+     "results_dir": "/home/hous/dev/laya/evals/results/host_tt_p150_b1_20261006T000056Z",
+     "reference_dir": "/home/hous/dev/laya/evals/results/cpu_reference_cpu_b0_20261005T210448Z",
+     "e2": {
+      "accuracy": {
+       "served": 0.3605,
+       "cpu_fp32": 0.3615,
+       "delta": -0.0010000000000000009,
+       "tolerance": 0.01,
+       "pass": true
+      },
+      "soft_accuracy": {
+       "served": 0.3312,
+       "cpu_fp32": 0.3315,
+       "delta": -0.00030000000000002247,
+       "tolerance": 0.015,
+       "pass": true
+      },
+      "brier_vs_soft": {
+       "served": 0.3133,
+       "cpu_fp32": 0.3155,
+       "delta": -0.0021999999999999797,
+       "tolerance": 0.015,
+       "pass": true
+      },
+      "ece": {
+       "served": 0.173,
+       "cpu_fp32": 0.1747,
+       "delta": -0.001700000000000007,
+       "tolerance": 0.015,
+       "pass": true
+      },
+      "score_mae": {
+       "served": 0.6903,
+       "cpu_fp32": 0.6937,
+       "delta": -0.0033999999999999586,
+       "tolerance": 0.015,
+       "pass": true
+      }
+     },
+     "e2_cases": 400,
+     "e2_complete": true,
+     "e2_latency_client_p50_ms": 43.285,
+     "e2_batch_histogram": {
+      "5x256": 110,
+      "5x512": 290
+     },
+     "e1": {
+      "tensor": {
+       "n": 488,
+       "confident_agree": 401,
+       "confident_n": 403,
+       "confident_agree_rate": 0.99504,
+       "argmax_agree": 475,
+       "argmax_agree_rate": 0.97336,
+       "median_max_abs_dp": 0.01672,
+       "max_abs_dp": 0.158572,
+       "pcc_scorer_logits": 0.983685,
+       "pass": true
+      },
+      "wire": {
+       "n": 488,
+       "confident_agree": 401,
+       "confident_n": 403,
+       "confident_agree_rate": 0.99504,
+       "argmax_agree": 475,
+       "argmax_agree_rate": 0.97336,
+       "median_max_abs_dp": 0.016732,
+       "max_abs_dp": 0.158594,
+       "pcc_scorer_logits": null,
+       "pass": true
+      }
+     },
+     "e1_batch_histogram": {
+      "4x256": 10,
+      "4x512": 2,
+      "5x128": 24,
+      "5x256": 26,
+      "5x512": 38
+     },
+     "gates": {
+      "e2": {
+       "accuracy": 0.01,
+       "soft_accuracy": 0.015,
+       "brier_vs_soft": 0.015,
+       "ece": 0.015,
+       "score_mae": 0.015
+      },
+      "e1": {
+       "confident_agree_rate": 0.98,
+       "argmax_agree_rate": 0.95
+      }
+     },
+     "pass": true
+    },
+    "status": "fails the stage 6 alone-versus-in-batch gate (A12)",
+    "passes_all": false
+   },
+   "bf8w_hifi2_erf": {
+    "sweep_rank": 2,
+    "latency_sum_ms": 246.64526800916065,
+    "a7_pass": true,
+    "thin_margins": {
+     "confident_agree_rate": false,
+     "median_max_abs_dp": false,
+     "scorer_logit_pcc": false,
+     "hidden_encoder_pcc": false,
+     "hidden_head_pcc": false
+    },
+    "a11_needed": false,
+    "invariance": {
+     "file": "doc/datatype_sweep/decision_agreement_bf8w_hifi2_erf.json",
+     "same_argmax": {
+      "value": 16,
+      "of": 16,
+      "pass": true
+     },
+     "max_abs_dp_alone_vs_in_batch": {
+      "value": 0.028858453035354614,
+      "threshold": 0.01,
+      "pass": false
+     },
+     "max_abs_dp_alone_vs": {
+      "b2": 0.028218835592269897,
+      "b4": 0.028218835592269897,
+      "mixed_b8": 0.028858453035354614,
+      "b64": 0.021598994731903076
+     },
+     "median_abs_dp_alone_vs": {
+      "b2": 0.003689400851726532,
+      "b4": 0.007700145244598389,
+      "mixed_b8": 0.004653990268707275,
+      "b64": 0.005823582410812378
+     },
+     "pcc_logits_alone_vs": {
+      "b2": 0.9991694507197294,
+      "b4": 0.9989642147478606,
+      "mixed_b8": 0.9993759871477897,
+      "b64": 0.9989012617227131
+     },
+     "buckets": {
+      "alone": [
+       1,
+       512
+      ],
+      "b2": [
+       2,
+       512
+      ],
+      "b4": [
+       4,
+       512
+      ],
+      "mixed_b8": [
+       8,
+       512
+      ],
+      "b64": [
+       64,
+       512
+      ]
+     },
+     "pass": false
+    },
+    "a11": null,
+    "status": "fails the stage 6 alone-versus-in-batch gate (A12)",
+    "passes_all": false
+   },
+   "bf8w_hifi3": {
+    "sweep_rank": 3,
+    "latency_sum_ms": 248.12697748711798,
+    "a7_pass": true,
+    "thin_margins": {
+     "confident_agree_rate": false,
+     "median_max_abs_dp": false,
+     "scorer_logit_pcc": true,
+     "hidden_encoder_pcc": true,
+     "hidden_head_pcc": false
+    },
+    "a11_needed": true,
+    "invariance": {
+     "file": "doc/datatype_sweep/decision_agreement_bf8w_hifi3.json",
+     "same_argmax": {
+      "value": 16,
+      "of": 16,
+      "pass": true
+     },
+     "max_abs_dp_alone_vs_in_batch": {
+      "value": 0.015038847923278809,
+      "threshold": 0.01,
+      "pass": false
+     },
+     "max_abs_dp_alone_vs": {
+      "b2": 0.012805968523025513,
+      "b4": 0.012805968523025513,
+      "mixed_b8": 0.008763015270233154,
+      "b64": 0.015038847923278809
+     },
+     "median_abs_dp_alone_vs": {
+      "b2": 0.004362434148788452,
+      "b4": 0.004507586359977722,
+      "mixed_b8": 0.003077596426010132,
+      "b64": 0.0030449330806732178
+     },
+     "pcc_logits_alone_vs": {
+      "b2": 0.9996083498187831,
+      "b4": 0.9995642649241251,
+      "mixed_b8": 0.9998010179605701,
+      "b64": 0.9997095347650395
+     },
+     "buckets": {
+      "alone": [
+       1,
+       512
+      ],
+      "b2": [
+       2,
+       512
+      ],
+      "b4": [
+       4,
+       512
+      ],
+      "mixed_b8": [
+       8,
+       512
+      ],
+      "b64": [
+       64,
+       512
+      ]
+     },
+     "pass": false
+    },
+    "a11": null,
+    "status": "fails the stage 6 alone-versus-in-batch gate (A12)",
+    "passes_all": false
+   },
+   "bf8w_hifi3_head_bf16": {
+    "sweep_rank": 4,
+    "latency_sum_ms": 249.24222051049583,
+    "a7_pass": true,
+    "thin_margins": {
+     "confident_agree_rate": false,
+     "median_max_abs_dp": false,
+     "scorer_logit_pcc": true,
+     "hidden_encoder_pcc": true,
+     "hidden_head_pcc": false
+    },
+    "a11_needed": true,
+    "invariance": {
+     "file": "doc/datatype_sweep/decision_agreement_bf8w_hifi3_head_bf16.json",
+     "same_argmax": {
+      "value": 16,
+      "of": 16,
+      "pass": true
+     },
+     "max_abs_dp_alone_vs_in_batch": {
+      "value": 0.015424877405166626,
+      "threshold": 0.01,
+      "pass": false
+     },
+     "max_abs_dp_alone_vs": {
+      "b2": 0.012877285480499268,
+      "b4": 0.012877285480499268,
+      "mixed_b8": 0.00972476601600647,
+      "b64": 0.015424877405166626
+     },
+     "median_abs_dp_alone_vs": {
+      "b2": 0.004354730248451233,
+      "b4": 0.004911437630653381,
+      "mixed_b8": 0.003486737608909607,
+      "b64": 0.0029855743050575256
+     },
+     "pcc_logits_alone_vs": {
+      "b2": 0.9995917677801843,
+      "b4": 0.9995466418272972,
+      "mixed_b8": 0.9997910175697909,
+      "b64": 0.9997089265582247
+     },
+     "buckets": {
+      "alone": [
+       1,
+       512
+      ],
+      "b2": [
+       2,
+       512
+      ],
+      "b4": [
+       4,
+       512
+      ],
+      "mixed_b8": [
+       8,
+       512
+      ],
+      "b64": [
+       64,
+       512
+      ]
+     },
+     "pass": false
+    },
+    "a11": null,
+    "status": "fails the stage 6 alone-versus-in-batch gate (A12)",
+    "passes_all": false
+   },
+   "bf8w_hifi3_erf": {
+    "sweep_rank": 5,
+    "latency_sum_ms": 266.3608710136032,
+    "a7_pass": true,
+    "thin_margins": {
+     "confident_agree_rate": false,
+     "median_max_abs_dp": false,
+     "scorer_logit_pcc": false,
+     "hidden_encoder_pcc": false,
+     "hidden_head_pcc": false
+    },
+    "a11_needed": false,
+    "invariance": {
+     "file": "doc/optimized_full_model/decision_agreement_final_buckets.json",
+     "same_argmax": {
+      "value": 16,
+      "of": 16,
+      "pass": true
+     },
+     "max_abs_dp_alone_vs_in_batch": {
+      "value": 0.008973866701126099,
+      "threshold": 0.01,
+      "pass": true
+     },
+     "max_abs_dp_alone_vs": {
+      "b2": 0.005865305662155151,
+      "b4": 0.005865305662155151,
+      "mixed_b8": 0.008904457092285156,
+      "b64": 0.008973866701126099
+     },
+     "median_abs_dp_alone_vs": {
+      "b2": 0.003911867737770081,
+      "b4": 0.003930635750293732,
+      "mixed_b8": 0.0038896873593330383,
+      "b64": 0.0024734288454055786
+     },
+     "pcc_logits_alone_vs": {
+      "b2": 0.9997935187139178,
+      "b4": 0.9997574240714024,
+      "mixed_b8": 0.9997446647996081,
+      "b64": 0.9996065834832816
+     },
+     "buckets": {
+      "alone": [
+       1,
+       512
+      ],
+      "b2": [
+       2,
+       512
+      ],
+      "b4": [
+       4,
+       512
+      ],
+      "mixed_b8": [
+       8,
+       512
+      ],
+      "b64": [
+       64,
+       512
+      ]
+     },
+     "pass": true
+    },
+    "a11": {
+     "policy": "bf8w_hifi3_erf",
+     "results_dir": "/home/hous/dev/laya/evals/results/host_tt_p150_b1_20261006T000400Z",
+     "reference_dir": "/home/hous/dev/laya/evals/results/cpu_reference_cpu_b0_20261005T210448Z",
+     "e2": {
+      "accuracy": {
+       "served": 0.359,
+       "cpu_fp32": 0.3615,
+       "delta": -0.0025000000000000022,
+       "tolerance": 0.01,
+       "pass": true
+      },
+      "soft_accuracy": {
+       "served": 0.3315,
+       "cpu_fp32": 0.3315,
+       "delta": 0.0,
+       "tolerance": 0.015,
+       "pass": true
+      },
+      "brier_vs_soft": {
+       "served": 0.3109,
+       "cpu_fp32": 0.3155,
+       "delta": -0.004599999999999993,
+       "tolerance": 0.015,
+       "pass": true
+      },
+      "ece": {
+       "served": 0.1716,
+       "cpu_fp32": 0.1747,
+       "delta": -0.0030999999999999917,
+       "tolerance": 0.015,
+       "pass": true
+      },
+      "score_mae": {
+       "served": 0.6892,
+       "cpu_fp32": 0.6937,
+       "delta": -0.0044999999999999485,
+       "tolerance": 0.015,
+       "pass": true
+      }
+     },
+     "e2_cases": 400,
+     "e2_complete": true,
+     "e2_latency_client_p50_ms": 49.478,
+     "e2_batch_histogram": {
+      "5x256": 110,
+      "5x512": 290
+     },
+     "e1": {
+      "tensor": {
+       "n": 488,
+       "confident_agree": 403,
+       "confident_n": 403,
+       "confident_agree_rate": 1.0,
+       "argmax_agree": 476,
+       "argmax_agree_rate": 0.97541,
+       "median_max_abs_dp": 0.00814,
+       "max_abs_dp": 0.122451,
+       "pcc_scorer_logits": 0.993698,
+       "pass": true
+      },
+      "wire": {
+       "n": 488,
+       "confident_agree": 403,
+       "confident_n": 403,
+       "confident_agree_rate": 1.0,
+       "argmax_agree": 476,
+       "argmax_agree_rate": 0.97541,
+       "median_max_abs_dp": 0.008151,
+       "max_abs_dp": 0.122451,
+       "pcc_scorer_logits": null,
+       "pass": true
+      }
+     },
+     "e1_batch_histogram": {
+      "4x256": 10,
+      "4x512": 2,
+      "5x128": 24,
+      "5x256": 26,
+      "5x512": 38
+     },
+     "gates": {
+      "e2": {
+       "accuracy": 0.01,
+       "soft_accuracy": 0.015,
+       "brier_vs_soft": 0.015,
+       "ece": 0.015,
+       "score_mae": 0.015
+      },
+      "e1": {
+       "confident_agree_rate": 0.98,
+       "argmax_agree_rate": 0.95
+      }
+     },
+     "pass": true
+    },
+    "status": "passes A.7 and the invariance gate (no thin margin, A11 not required)",
+    "passes_all": true
+   },
+   "bf16_hifi4": {
+    "sweep_rank": 6,
+    "latency_sum_ms": 294.85331500472967,
+    "a7_pass": true,
+    "thin_margins": {
+     "confident_agree_rate": false,
+     "median_max_abs_dp": false,
+     "scorer_logit_pcc": false,
+     "hidden_encoder_pcc": false,
+     "hidden_head_pcc": false
+    },
+    "a11_needed": false,
+    "invariance": null,
+    "a11": null,
+    "status": "invariance not measured",
+    "passes_all": null
+   }
+  },
   "runs": {
    "bf8_act": {
     "policy": "bf8_act",
@@ -351,6 +920,12 @@
     "mixed_b8": 0.019921332597732544,
     "b64": 0.03811424970626831
    },
+   "median_abs_dp_alone_vs": {
+    "b2": 0.005217917263507843,
+    "b4": 0.006270177662372589,
+    "mixed_b8": 0.007735639810562134,
+    "b64": 0.0056488364934921265
+   },
    "pcc_logits_alone_vs": {
     "b2": 0.9989941528145738,
     "b4": 0.9988934760073918,
@@ -381,7 +956,11 @@
    },
    "pass": false
   },
-  "selected": "bf8w_hifi3_erf",
-  "reason": "fastest, passes the A.7 gates and the A11 served confirmation, fails the stage 6 alone-versus-in-batch gate (max abs delta p 0.0381 against 0.01); the runner-up ships"
+  "rule_selection": "bf8w_hifi3_erf",
+  "undecided_faster_policies": [],
+  "shipped_policy": "bf8w_hifi3_erf",
+  "decision_pending": false,
+  "reason": "the plan's rule with the A11 and A12 gates selects the shipped policy bf8w_hifi3_erf",
+  "selected": "bf8w_hifi3_erf"
  }
 }

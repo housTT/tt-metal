@@ -279,7 +279,7 @@ Reported, not gated: plain argmax agreement 195 of 200 (97.5 percent), act argma
 
 Alone versus in batch (`tests/decision_agreement.py` with the final buckets, `decision_agreement_final_buckets.json`,
 load 0.6 to 2.1): 16 of 16 the same argmax in all five placements; max abs delta p alone against B 2 / B 4 / mixed B 8 /
-B 64 = 0.0087 / 0.0087 / 0.0089 / 0.0090 (gate 0.01): pass. The alone calls ran at 1x256 (5 rows) and 1x512 (11),
+B 64 = 0.00587 / 0.00587 / 0.00890 / 0.00897 (gate 0.01): pass. The alone calls ran at 1x256 (5 rows) and 1x512 (11),
 B 2 at 2x256 (1) and 2x512 (7), B 4 at 4x512, mixed B 8 at 8x512, B 64 at 64x512. On the stage 6 protocol (512 only,
 `decision_agreement_final_port_seq512.json`) the final port reproduces stage 6's value to the last digit (0.009276; 16
 of 16), so the final configuration equals the stage 6 numerics at the 512 buckets.

@@ -9,5 +9,14 @@
 | E1 tensor path argmax agreement | 97.34 percent (475 of 488) | 97.54 percent (476 of 488) | >= 95 percent |
 | E1 wire path confident agreement | 99.50 percent (401 of 403) | 100.00 percent (403 of 403) | >= 98 percent |
 | E1 wire path argmax agreement | 97.34 percent (475 of 488) | 97.54 percent (476 of 488) | >= 95 percent |
-| confirmation | pass | pass | all of the above |
-| stage 6 alone versus in batch (candidate bf8_act) | max abs delta p 0.0381, same argmax 16 of 16 (FAIL) | | <= 0.01 and the same argmax |
+| A11 confirmation | pass | pass | all of the above |
+| stage 6 alone versus in batch (A12) | max abs delta p 0.0381, same argmax 16 of 16 (FAIL) | max abs delta p 0.0090, same argmax 16 of 16 (pass) | <= 0.01 and the same argmax |
+
+| policy (sweep order) | latency sum ms | thin A.7 margins | invariance max abs dp | A11 | status |
+|---|---|---|---|---|---|
+| bf8_act | 228.5 | median_max_abs_dp, scorer_logit_pcc, hidden_encoder_pcc | 0.0381 (FAIL) | pass | fails the stage 6 alone-versus-in-batch gate (A12) |
+| bf8w_hifi2_erf | 246.6 | none | 0.0289 (FAIL) | not required | fails the stage 6 alone-versus-in-batch gate (A12) |
+| bf8w_hifi3 | 248.1 | scorer_logit_pcc, hidden_encoder_pcc | 0.0150 (FAIL) | not run | fails the stage 6 alone-versus-in-batch gate (A12) |
+| bf8w_hifi3_head_bf16 | 249.2 | scorer_logit_pcc, hidden_encoder_pcc | 0.0154 (FAIL) | not run | fails the stage 6 alone-versus-in-batch gate (A12) |
+| bf8w_hifi3_erf | 266.4 | none | 0.0090 (pass) | pass | passes A.7 and the invariance gate (no thin margin, A11 not required) |
+| bf16_hifi4 | 294.9 | none | not measured | not required | invariance not measured |
