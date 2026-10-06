@@ -18,6 +18,8 @@
  },
  "seq_buckets": {
   "laya": [
+   128,
+   256,
    512
   ],
   "laya-typed-decisions": [
@@ -26,13 +28,40 @@
   ]
  },
  "row_buckets": {
+  "128": [
+   1,
+   2,
+   4,
+   5,
+   8,
+   10,
+   16,
+   32,
+   50,
+   64
+  ],
+  "256": [
+   1,
+   2,
+   4,
+   5,
+   8,
+   10,
+   16,
+   32,
+   50,
+   64
+  ],
   "512": [
    1,
    2,
    4,
+   5,
    8,
+   10,
    16,
    32,
+   50,
    64
   ],
   "1024": [
@@ -43,11 +72,6 @@
    16
   ]
  },
- "exact_row_buckets_optional": [
-  5,
-  10,
-  50
- ],
  "bucket_env": {
   "seq": "LAYA_SEQ_BUCKETS",
   "rows": "LAYA_ROW_BUCKETS"
@@ -89,7 +113,7 @@
  },
  "decode_contract": "not applicable (no autoregressive decode)",
  "capacity_evidence": "doc/probe/README.md and /home/hous/dev/laya/reference/parity_corpus_index.json (CPU fp32 corpus at 512); device bucket evidence is added by stages 6 and 7",
- "status": "stage 6 (full model): device engine with the server contract passes the 200-decision gates with bf8w_hifi3_erf; stage 4 data-parallel 1x4 passes; buckets 1 to 64 x 512 captured by the server at startup; seq buckets 256 and 128 are a stage 7 decision from the served token-length histogram",
+ "status": "stages 7 and 8 done: deployment set 30 buckets (seq 128, 256, 512 x rows 1, 2, 4, 5, 8, 10, 16, 32, 50, 64), tracked replay over all buckets passes, stage 6 gates pass on the final configuration; shipped policy bf8w_hifi3_erf confirmed by the stage 8 sweep and the A11 served confirmation; host_tt build 1 served results under /home/hous/dev/laya/evals/results/host_tt_p150_b1_*",
  "device_engine": {
   "module": "tt/engine.py LayaEngine.from_env()",
   "env": [
@@ -114,6 +138,54 @@
  "device_bucket_evidence": {
   "measured_on_device": "stage 3 (one chip) buckets 1, 2, 4, 8, 16, 32, 64 x 512 traced; stage 4 (1x4 mesh) per-device buckets 8 and 16 (32 and 64 rows per call); stage 6 gate run at bucket 8x512, B 2 and B 4 end-to-end rows and the alone/B 2/B 4/B 8/B 64 invariance",
   "precision_policy_passing_stage_6": "bf8w_hifi3_erf (bfp8 matmul weights, bf16 activations, HiFi3, erf GELU fused, fp32 scorer output); gates in doc/full_model/README.md",
-  "throughput_1x4": "453.6 rows per second at 16 rows per chip (3.74x one chip at 64 rows)"
+  "throughput_1x4": "453.6 rows per second at 16 rows per chip (3.74x one chip at 64 rows)",
+  "stage_7": {
+   "measured_on_device": "all 30 buckets traced (doc/optimized_full_model/bench_all_buckets_final.json); tracked replay over all 30 in one process (replay_trace_check_all_buckets.json); latency ladder deployment and fresh process (latency_table.json); B 64 throughput at seq 128, 256, 512 (latency_throughput.json); reconciliation at 1x256, 5x256, 50x256, 64x256, 64x512 (reconcile_*.json)",
+   "published_cells_in_process_ms": {
+    "1": 9.43,
+    "5": 22.92,
+    "10": 40.68,
+    "50": 192.95
+   },
+   "gates_on_final_configuration": "fidelity 149 of 149 confident, median max abs dp 0.01104, scorer PCC 0.9965, hidden PCC 0.9957 / 0.9996; invariance 16 of 16, max abs dp 0.0090",
+   "plan_changes": "GeGLU interleaved config on an 11x10 grid where the tile rows divide by 10 (and 11x4 at 128 rows); the block-sharded plan yields to it at 1280 rows and declines for bf16 weights; 128 added to the SDPA table"
+  }
+ },
+ "exact_row_buckets": [
+  5,
+  10,
+  50
+ ],
+ "bucket_selection_rule": "the smallest seq bucket that fits the longest row of the call, then the smallest row bucket that fits the rows (tt/model_config.py select_bucket, server/engine.py Buckets)",
+ "bucket_env_defaults": {
+  "LAYA_SEQ_BUCKETS": "128,256,512",
+  "LAYA_ROW_BUCKETS": "1,2,4,5,8,10,16,32,50,64",
+  "LAYA_TRACE_REGION_SIZE": "536870912"
+ },
+ "trace_memory": {
+  "per_bucket_bytes": "3.6 to 5.2 MiB (follows the op count, not the batch)",
+  "deployment_set_total_bytes": 148373504,
+  "trace_region_bytes": 536870912,
+  "source": "doc/optimized_full_model/perf_summary.json"
+ },
+ "warmup": {
+  "two_phase": "phase 1 builds every bucket and runs it once eagerly, phase 2 captures one trace per bucket; all traces captured before the server reports ready",
+  "deployment_set_seconds": {
+   "phase1": 3.48,
+   "phase2": 0.53,
+   "engine_load_total": 7.0
+  },
+  "source": "doc/optimized_full_model/latency_deployment.json"
+ },
+ "precision_policy": {
+  "shipped": "bf8w_hifi3_erf",
+  "default_policy_name": "bf8w_hifi3_erf",
+  "stage_8_sweep": "9 policies on the final buckets (doc/datatype_sweep/sweep_results.json): 7 pass the A.7 gates; bf8_act is the fastest passing (228.5 ms over the four published cells) and passes the amendment A11 served confirmation, but fails the stage 6 alone-versus-in-batch gate (max abs delta p 0.038 against 0.01), so the shipped policy stays bf8w_hifi3_erf (266.4 ms); bf8w_hifi2_erf passes every A.7 gate with no thin margin at 246.6 ms and is recorded as the fastest clean alternative",
+  "named_profile_candidates": {
+   "bf8w_hifi3_erf": "shipped (stage 6 and 7 validated)",
+   "bf8w_hifi2_erf": "fastest policy with no thin gate margin (invariance measured in doc/datatype_sweep/decision_agreement_bf8w_hifi2_erf.json)",
+   "bf8_act": "fastest; fails the stage 6 invariance gate",
+   "bf16_hifi4": "reference quality, slowest"
+  }
  }
 }

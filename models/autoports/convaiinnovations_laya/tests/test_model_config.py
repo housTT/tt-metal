@@ -43,7 +43,17 @@ def test_policy_table_matches_the_plan():
         "bf8w_hifi4",
         "bf16w_hifi3",
         "bf8w_hifi3_erf",
+        "bf8w_hifi2_erf",
+        "bf8w_lofi_mlp_erf",
     }
+    assert (
+        mc.POLICIES["bf8w_hifi2_erf"].fidelity == ttnn.MathFidelity.HiFi2
+        and not mc.POLICIES["bf8w_hifi2_erf"].gelu_approx
+    )
+    assert (
+        mc.POLICIES["bf8w_lofi_mlp_erf"].mlp_math_fidelity == ttnn.MathFidelity.LoFi
+        and not mc.POLICIES["bf8w_lofi_mlp_erf"].gelu_approx
+    )
     assert mc.POLICIES["bf8w_hifi3_fp32res"].residual_fp32 and not mc.DEFAULT_POLICY.residual_fp32
     p = mc.DEFAULT_POLICY
     assert p.name == "bf8w_hifi3_erf"
@@ -90,23 +100,52 @@ def test_tensor_count_is_170():
     assert mc.expected_tensor_count(_Config) == 170
 
 
-def test_shipped_port_defaults_match_the_stage_3_decision():
+def test_shipped_port_defaults_match_the_stage_3_and_7_decisions():
     d = mc.DEFAULT_PORT
     assert d.qkv_mode == "minimal_11x10" and d.down_grid == "minimal_11x10" and d.wo_minimal_min_rows == 4096
-    assert d.interleaved_pad == 2816 and d.mlp_grid == (11, 8) and d.geglu_plan == "sharded" and d.intermediate_pad == 2816
+    assert (
+        d.interleaved_pad == 2816 and d.mlp_grid == (11, 8) and d.geglu_plan == "sharded" and d.intermediate_pad == 2816
+    )
+    assert d.mlp_grid_y_choices == (10, 8, 5, 4, 2, 1) and d.shard_yields_to_grid_rows == 10
+    s3 = mc.STAGE3_PORT
+    assert (
+        s3.geglu_plan == "sharded"
+        and s3.mlp_grid_y_choices is None
+        and s3.shard_yields_to_grid_rows == 0
+        and s3.sdpa_grid == "8x8"
+    )
+    assert mc.bucket_plan(P150, _Config, 2, 512, port=s3).mlp_shard is not None
+    assert mc.bucket_plan(P150, _Config, 5, 256, port=s3).mlp_shard is not None
+    assert mc.bucket_plan(P150, _Config, 5, 256).mlp_shard is None
+    assert mc.bucket_plan(P150, _Config, 10, 128).mlp_shard is None
+    assert (
+        mc.bucket_plan(P150, _Config, 2, 512).mlp_shard is not None
+        and mc.bucket_plan(P150, _Config, 4, 512).mlp_shard is not None
+    )
+    assert (
+        mc.bucket_plan(P150, _Config, 4, 256).mlp_shard is not None
+        and mc.bucket_plan(P150, _Config, 16, 128).mlp_shard is not None
+    )
     assert d.sdpa_grid == "8x8" and d.rotary_shard_max_bytes_per_core == 0 and d.l1_attention_max_rows == 4096
     assert mc.sdpa_program_config(P150, 512, 4096).q_chunk_size == 128
     assert mc.sdpa_program_config(P150, 512, 8192).q_chunk_size == 256
     assert mc.sdpa_program_config(P150, 512, 2048).q_chunk_size == 256
-    assert mc.attention_interleaved(4096) == ttnn.L1_MEMORY_CONFIG and mc.attention_interleaved(8192) == ttnn.DRAM_MEMORY_CONFIG
+    assert (
+        mc.attention_interleaved(4096) == ttnn.L1_MEMORY_CONFIG
+        and mc.attention_interleaved(8192) == ttnn.DRAM_MEMORY_CONFIG
+    )
     p1 = mc.bucket_plan(P150, _Config, 1, 512)
     assert p1.qkv_minimal and not p1.wo_minimal and p1.minimal_config is not None and p1.mlp_width == 2816
     p2 = mc.bucket_plan(P150, _Config, 2, 512)
-    assert p2.mlp_shard is not None and not p2.wo_minimal
+    assert p2.mlp_shard is not None and not p2.wo_minimal and p2.mlp_width == 2816
+    assert mc.bucket_plan(P150, _Config, 2, 512, port=mc.DEFAULT_PORT.with_(geglu_plan="interleaved")).mlp_shard is None
     p8 = mc.bucket_plan(P150, _Config, 8, 512)
     assert p8.qkv_minimal and p8.wo_minimal and p8.mlp_shard is None and p8.mlp_width == 2816
     assert p8.attention_memory == ttnn.L1_MEMORY_CONFIG and p8.sdpa_program_config.q_chunk_size == 128
-    assert (p8.sdpa_program_config.compute_with_storage_grid_size.x, p8.sdpa_program_config.compute_with_storage_grid_size.y) == (8, 8)
+    assert (
+        p8.sdpa_program_config.compute_with_storage_grid_size.x,
+        p8.sdpa_program_config.compute_with_storage_grid_size.y,
+    ) == (8, 8)
     assert mc.rotary_shard_config((8, 16, 512, 64)) is None
     s1 = mc.STAGE1_PORT
     assert s1.qkv_mode == "mcast_8x8" and s1.down_grid == "8x8" and s1.interleaved_pad == 0 and s1.sdpa_grid == "full"
@@ -180,18 +219,33 @@ def test_geglu_shard_plan_geometry(pad, per_core_n, subblock_w, down_in0):
     assert plan.act_matmul.fused_activation is not None
     assert plan.gate_matmul.fused_activation is None and plan.down_matmul.fused_activation is None
     assert "params=[0]" in repr(plan.act_matmul.fused_activation)
-    assert "params=[1]" in repr(mc.mlp_shard_plan(P150, 4, 512, HIDDEN, INTER, policy=mc.POLICIES["bf8w_hifi3"], port=port).act_matmul.fused_activation)
+    assert "params=[1]" in repr(
+        mc.mlp_shard_plan(
+            P150, 4, 512, HIDDEN, INTER, policy=mc.POLICIES["bf8w_hifi3"], port=port
+        ).act_matmul.fused_activation
+    )
     assert plan.norm is not None and plan.norm.block_w == 4
 
 
 def test_geglu_shard_plan_thresholds():
-    assert mc.mlp_shard_plan(P150, 1, 512, HIDDEN, INTER) is None
-    assert mc.mlp_shard_plan(P150, 2, 512, HIDDEN, INTER) is not None
-    assert mc.mlp_shard_plan(P150, 4, 512, HIDDEN, INTER) is not None
-    assert mc.mlp_shard_plan(P150, 8, 512, HIDDEN, INTER) is None
-    assert mc.mlp_shard_plan(P150, 8, 512, HIDDEN, INTER, port=mc.DEFAULT_PORT.with_(shard_max_rows=4096)) is not None
-    assert mc.mlp_shard_plan(P150, 4, 512, HIDDEN, INTER, port=mc.DEFAULT_PORT.with_(geglu_plan="interleaved")) is None
-    assert mc.mlp_shard_plan(_Device(4, 8), 4, 512, HIDDEN, INTER) is None
+    sh = mc.DEFAULT_PORT
+    assert mc.mlp_shard_plan(P150, 1, 512, HIDDEN, INTER, port=sh) is None
+    assert mc.mlp_shard_plan(P150, 2, 512, HIDDEN, INTER, port=sh) is not None
+    assert mc.mlp_shard_plan(P150, 4, 512, HIDDEN, INTER, port=sh) is not None
+    assert mc.mlp_shard_plan(P150, 5, 256, HIDDEN, INTER, port=sh) is None
+    assert mc.mlp_shard_plan(P150, 5, 256, HIDDEN, INTER, port=sh.with_(shard_yields_to_grid_rows=0)) is not None
+    assert mc.mlp_shard_plan(P150, 5, 256, HIDDEN, INTER, port=sh.with_(interleaved_pad=0)) is not None
+    assert mc.mlp_shard_plan(N300, 5, 256, HIDDEN, INTER, port=sh) is not None
+    assert mc.mlp_shard_plan(P150, 8, 512, HIDDEN, INTER, port=sh) is None
+    assert mc.mlp_shard_plan(P150, 8, 512, HIDDEN, INTER, port=sh.with_(shard_max_rows=4096)) is not None
+    assert mc.mlp_shard_plan(P150, 4, 512, HIDDEN, INTER, port=sh.with_(geglu_plan="interleaved")) is None
+    assert mc.mlp_shard_plan(P150, 4, 512, HIDDEN, INTER, policy=mc.POLICIES["bf16_hifi4"], port=sh) is None
+    assert mc.mlp_shard_plan(P150, 4, 512, HIDDEN, INTER, policy=mc.POLICIES["bf16w_hifi3"], port=sh) is None
+    assert mc.bucket_plan(P150, _Config, 2, 512, policy=mc.POLICIES["bf16_hifi4"]).mlp_shard is None
+    assert (
+        mc.mlp_shard_plan(P150, 4, 512, HIDDEN, INTER, policy=mc.POLICIES["bf8w_hifi3_head_bf16"], port=sh) is not None
+    )
+    assert mc.mlp_shard_plan(_Device(4, 8), 4, 512, HIDDEN, INTER, port=sh) is None
 
 
 def test_interleaved_up_projection_config_needs_a_padded_width():
@@ -202,25 +256,54 @@ def test_interleaved_up_projection_config_needs_a_padded_width():
     assert mc.mlp_up_projection_program_config(P150, 8, 512, HIDDEN, 2816, False, port=g8).fused_activation is None
     shipped = mc.mlp_up_projection_program_config(P150, 8, 512, HIDDEN, 2816, True)
     assert shipped.per_core_N == 8 and shipped.out_subblock_w == 4 and shipped.compute_with_storage_grid_size.x == 11
-    wide = mc.mlp_up_projection_program_config(P150, 64, 512, HIDDEN, 2816, True, port=mc.DEFAULT_PORT.with_(mlp_grid=(11, 8)))
-    assert wide is not None and wide.per_core_N == 8 and wide.per_core_M == 128 and wide.out_block_h == 8 and wide.out_subblock_w == 4
-    assert mc.mlp_up_projection_program_config(P150, 1, 512, HIDDEN, 3072, True, port=mc.DEFAULT_PORT.with_(mlp_grid=(11, 8))) is None
+    wide = mc.mlp_up_projection_program_config(
+        P150, 64, 512, HIDDEN, 2816, True, port=mc.DEFAULT_PORT.with_(mlp_grid=(11, 8))
+    )
+    assert (
+        wide is not None
+        and wide.per_core_N == 8
+        and wide.per_core_M == 128
+        and wide.out_block_h == 8
+        and wide.out_subblock_w == 4
+    )
+    assert (
+        mc.mlp_up_projection_program_config(
+            P150, 1, 512, HIDDEN, 3072, True, port=mc.DEFAULT_PORT.with_(mlp_grid=(11, 8))
+        )
+        is None
+    )
     down = mc.down_projection_program_config(P150, 64, 512, 2816, HIDDEN)
     assert down.per_core_N == 4 and down.in0_block_w == 8 and down.per_core_M == 128 and down.out_block_h == 8
-    plan = mc.bucket_plan(P150, _Config, 64, 512, port=mc.DEFAULT_PORT.with_(interleaved_pad=2816, wo_program_config=True))
+    plan = mc.bucket_plan(
+        P150, _Config, 64, 512, port=mc.DEFAULT_PORT.with_(interleaved_pad=2816, wo_program_config=True)
+    )
     assert plan.mlp_width == 2816 and plan.wo_program_config is not None and plan.mlp_down_program_config is not None
     assert mc.bucket_plan(P150, _Config, 64, 512).wo_program_config is None
     assert mc.bucket_plan(P150, _Config, 64, 512, port=mc.STAGE1_PORT).mlp_width == INTER
 
 
-@pytest.mark.parametrize("seq_len,rows,chunk", [(512, 512, 128), (512, 1024, 256), (1024, 1024, 256), (256, 256, 128)])
+@pytest.mark.parametrize(
+    "seq_len,rows,chunk",
+    [
+        (512, 512, 128),
+        (512, 1024, 256),
+        (1024, 1024, 256),
+        (256, 256, 128),
+        (128, 128, 128),
+        (128, 8192, 128),
+        (256, 1280, 256),
+    ],
+)
 def test_sdpa_chunk_table(seq_len, rows, chunk):
     cfg = mc.sdpa_program_config(P150, seq_len, rows, mc.STAGE1_PORT)
     assert cfg.q_chunk_size == chunk and cfg.k_chunk_size == chunk
     g = cfg.compute_with_storage_grid_size
     assert (g.x, g.y) == (11, 10)
     shipped = mc.sdpa_program_config(P150, seq_len, rows)
-    assert (shipped.compute_with_storage_grid_size.x, shipped.compute_with_storage_grid_size.y) == (8, 8) and shipped.q_chunk_size == chunk
+    assert (shipped.compute_with_storage_grid_size.x, shipped.compute_with_storage_grid_size.y) == (
+        8,
+        8,
+    ) and shipped.q_chunk_size == chunk
     assert mc.sdpa_program_config(P150, 300, 300) is None
     small = mc.sdpa_program_config(P150, seq_len, rows, mc.DEFAULT_PORT.with_(sdpa_grid="8x8", sdpa_q_chunk=64))
     assert (small.compute_with_storage_grid_size.x, small.q_chunk_size) == (8, 64)
@@ -244,19 +327,104 @@ def test_rotary_shard_bounds():
 
 
 def test_bucket_selection():
+    assert mc.ROW_BUCKETS == (1, 2, 4, 5, 8, 10, 16, 32, 50, 64) and mc.SEQ_BUCKETS == (128, 256, 512)
     assert mc.pick_bucket(1, mc.ROW_BUCKETS) == 1
-    assert mc.pick_bucket(5, mc.ROW_BUCKETS) == 8
-    assert mc.pick_bucket(5, (1, 2, 4, 5, 8, 10, 50, 64)) == 5
-    assert mc.pick_bucket(50, mc.ROW_BUCKETS) == 64
+    assert mc.pick_bucket(5, mc.ROW_BUCKETS_POW2) == 8
+    assert mc.pick_bucket(5, mc.ROW_BUCKETS) == 5
+    assert mc.pick_bucket(6, mc.ROW_BUCKETS) == 8
+    assert mc.pick_bucket(10, mc.ROW_BUCKETS) == 10
+    assert mc.pick_bucket(50, mc.ROW_BUCKETS) == 50
+    assert mc.pick_bucket(50, mc.ROW_BUCKETS_POW2) == 64
     assert mc.pick_bucket(64, mc.ROW_BUCKETS) == 64
     assert mc.pick_bucket(300, mc.SEQ_BUCKETS) == 512
+    assert mc.pick_bucket(205, mc.SEQ_BUCKETS) == 256
+    assert mc.pick_bucket(103, mc.SEQ_BUCKETS) == 128
     assert mc.pick_bucket(513, mc.SEQ_BUCKETS_SIBLING) == 1024
+    assert mc.select_bucket(5, 205) == (5, 256)
+    assert mc.select_bucket(50, 205) == (50, 256)
+    assert mc.select_bucket(1, 103) == (1, 128)
+    assert mc.select_bucket(10, 199) == (10, 256)
+    assert mc.select_bucket(5, 512) == (5, 512)
+    assert mc.select_bucket(3, 129) == (4, 256)
+    assert (
+        len(mc.deployment_buckets()) == 30
+        and mc.deployment_buckets()[0] == (1, 128)
+        and mc.deployment_buckets()[-1] == (64, 512)
+    )
+    assert mc.parse_buckets("all") == mc.deployment_buckets()
+    assert mc.parse_buckets("1x256, 5x256") == [(1, 256), (5, 256)]
     with pytest.raises(ValueError):
         mc.pick_bucket(65, mc.ROW_BUCKETS)
     with pytest.raises(ValueError):
         mc.pick_bucket(0, mc.ROW_BUCKETS)
     with pytest.raises(ValueError):
         mc.pick_bucket(1025, mc.SEQ_BUCKETS_SIBLING)
+
+
+@pytest.mark.parametrize("batch", mc.ROW_BUCKETS)
+@pytest.mark.parametrize("seq_len", mc.SEQ_BUCKETS)
+def test_every_deployment_bucket_has_a_plan(batch, seq_len):
+    plan = mc.bucket_plan(P150, _Config, batch, seq_len)
+    rows = batch * seq_len
+    assert plan.rows == rows
+    assert plan.sdpa_program_config is not None
+    cfg = plan.sdpa_program_config
+    assert seq_len % cfg.q_chunk_size == 0 and seq_len % cfg.k_chunk_size == 0
+    assert (cfg.compute_with_storage_grid_size.x, cfg.compute_with_storage_grid_size.y) == (8, 8)
+    assert plan.qkv_minimal and plan.minimal_config is not None
+    assert plan.wo_minimal == (rows >= 4096)
+    assert (plan.attention_memory == ttnn.L1_MEMORY_CONFIG) == (rows <= 4096)
+    assert plan.mlp_width == 2816
+    tiles = rows // 32
+    sharded = plan.mlp_shard
+    assert (sharded is not None) == (rows % 256 == 0 and 768 <= rows <= 2048 and tiles % 10 != 0)
+    if sharded is not None:
+        assert sharded.act_matmul.per_core_M == tiles // 8
+    up = mc.mlp_up_projection_program_config(P150, batch, seq_len, HIDDEN, 2816, True)
+    assert up is not None
+    assert up.compute_with_storage_grid_size.y == (10 if tiles % 10 == 0 else 8 if tiles % 8 == 0 else 4)
+    if rows == 4096:
+        assert cfg.q_chunk_size == 128
+    if rows < 768:
+        assert cfg.q_chunk_size == min(128, seq_len)
+    d = mc.describe_plan(plan)
+    assert d["rows"] == rows
+
+
+def test_interleaved_geglu_config_coverage_over_the_deployment_set():
+    grids = {}
+    for b, s in mc.deployment_buckets():
+        plan = mc.bucket_plan(P150, _Config, b, s)
+        if plan.mlp_shard is None:
+            cfg = mc.mlp_up_projection_program_config(P150, b, s, HIDDEN, 2816, True)
+            assert cfg is not None, (b, s)
+            g = cfg.compute_with_storage_grid_size
+            grids[(b, s)] = (g.x, g.y)
+            assert cfg.per_core_M * g.y == b * s // 32 and cfg.per_core_N * g.x == 88
+    assert grids[(5, 128)] == (11, 10) and grids[(1, 128)] == (11, 4)
+    assert grids[(10, 256)] == (11, 10) and grids[(5, 512)] == (11, 10) and grids[(50, 128)] == (11, 10)
+    assert grids[(50, 256)] == (11, 10) and grids[(50, 512)] == (11, 10)
+    assert (
+        grids[(64, 512)] == (11, 8)
+        and grids[(16, 256)] == (11, 8)
+        and grids[(1, 256)] == (11, 8)
+        and grids[(2, 128)] == (11, 8)
+    )
+    old = mc.DEFAULT_PORT.with_(mlp_grid_y_choices=None)
+    assert mc.mlp_up_projection_program_config(P150, 5, 128, HIDDEN, 2816, True, port=old) is None
+    assert (
+        mc.mlp_up_projection_program_config(
+            P150, 5, 128, HIDDEN, 2816, True, port=mc.DEFAULT_PORT.with_(mlp_grid=(11, 10), mlp_grid_y_choices=None)
+        ).compute_with_storage_grid_size.y
+        == 10
+    )
+    assert (
+        mc.mlp_grid_rows(20, 10) == 10
+        and mc.mlp_grid_rows(128, 10) == 8
+        and mc.mlp_grid_rows(4, 10) == 4
+        and mc.mlp_grid_rows(3, 10) == 1
+    )
+    assert mc.mlp_grid_rows(20, 8) == 5
 
 
 def test_bucket_plan_summary_is_serialisable():
@@ -269,4 +437,7 @@ def test_bucket_plan_summary_is_serialisable():
     assert plan2.mlp_shard is not None and plan2.mlp_width == 2816
     plan64 = mc.bucket_plan(P150, _Config, 64, 512)
     assert mc.describe_plan(plan64)["attention_memory"] == "DRAM"
-    assert mc.bucket_plan(P150, _Config, 8, 512, port=mc.DEFAULT_PORT.with_(qkv_mode="minimal_11x10")).minimal_config is not None
+    assert (
+        mc.bucket_plan(P150, _Config, 8, 512, port=mc.DEFAULT_PORT.with_(qkv_mode="minimal_11x10")).minimal_config
+        is not None
+    )

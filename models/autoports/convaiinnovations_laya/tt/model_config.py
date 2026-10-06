@@ -17,8 +17,11 @@ MASK_NEG = -1e30
 TILE = 32
 DEST_TILES_FULL_SYNC = 16
 
-ROW_BUCKETS = (1, 2, 4, 8, 16, 32, 64)
-SEQ_BUCKETS = (512,)
+ROW_BUCKETS = (1, 2, 4, 5, 8, 10, 16, 32, 50, 64)
+ROW_BUCKETS_POW2 = (1, 2, 4, 8, 16, 32, 64)
+EXACT_ROW_BUCKETS = (5, 10, 50)
+SEQ_BUCKETS = (128, 256, 512)
+SEQ_BUCKETS_STAGE6 = (512,)
 SEQ_BUCKETS_SIBLING = (512, 1024)
 ROW_BUCKETS_AT_1024 = (1, 2, 4, 8, 16)
 
@@ -134,8 +137,14 @@ POLICIES = {
     "bf8w_hifi4": PrecisionPolicy("bf8w_hifi4", fidelity=ttnn.MathFidelity.HiFi4),
     "bf8w_hifi3_erf": PrecisionPolicy("bf8w_hifi3_erf", gelu_approx=False),
     "bf16w_hifi3": PrecisionPolicy("bf16w_hifi3", linear_dtype=ttnn.bfloat16),
+    "bf8w_hifi2_erf": PrecisionPolicy("bf8w_hifi2_erf", fidelity=ttnn.MathFidelity.HiFi2, gelu_approx=False),
+    "bf8w_lofi_mlp_erf": PrecisionPolicy("bf8w_lofi_mlp_erf", mlp_fidelity=ttnn.MathFidelity.LoFi, gelu_approx=False),
     "bf16_hifi4_fp32res": PrecisionPolicy(
-        "bf16_hifi4_fp32res", linear_dtype=ttnn.bfloat16, fidelity=ttnn.MathFidelity.HiFi4, gelu_approx=False, residual_dtype=ttnn.float32
+        "bf16_hifi4_fp32res",
+        linear_dtype=ttnn.bfloat16,
+        fidelity=ttnn.MathFidelity.HiFi4,
+        gelu_approx=False,
+        residual_dtype=ttnn.float32,
     ),
 }
 DEFAULT_POLICY_NAME = "bf8w_hifi3_erf"
@@ -158,9 +167,11 @@ class PortConfig:
     wo_minimal_min_rows: int = 4096
     qkv_mode: str = "minimal_11x10"
     geglu_plan: str = "sharded"
+    shard_yields_to_grid_rows: int = 10
     intermediate_pad: int = 2816
     interleaved_pad: int = 2816
     mlp_grid: Tuple[int, int] = (11, 8)
+    mlp_grid_y_choices: Optional[Tuple[int, ...]] = (10, 8, 5, 4, 2, 1)
     wo_program_config: bool = False
     gelu_separate: bool = False
     shard_grid: Tuple[int, int] = (8, 8)
@@ -211,6 +222,28 @@ def pick_bucket(n: int, buckets: Sequence[int]) -> int:
     raise ValueError(f"size {n} exceeds the largest bucket {max(buckets)}")
 
 
+def select_bucket(n_rows: int, longest_row: int, row_buckets=ROW_BUCKETS, seq_buckets=SEQ_BUCKETS) -> Tuple[int, int]:
+    """The smallest seq bucket that fits the longest row of the call, then the smallest row bucket that fits the rows."""
+    return pick_bucket(n_rows, row_buckets), pick_bucket(longest_row, seq_buckets)
+
+
+def deployment_buckets(row_buckets=ROW_BUCKETS, seq_buckets=SEQ_BUCKETS) -> list:
+    return [(b, s) for s in sorted(seq_buckets) for b in sorted(row_buckets)]
+
+
+def parse_buckets(text: str) -> list:
+    """'all' -> the deployment set; else '1x256,5x256' -> [(1, 256), (5, 256)]."""
+    if text is None or text.strip().lower() in ("", "all"):
+        return deployment_buckets()
+    out = []
+    for item in text.replace(";", ",").split(","):
+        item = item.strip().lower()
+        if item:
+            b, s = item.split("x")
+            out.append((int(b), int(s)))
+    return out
+
+
 def grid_size(device):
     g = device.compute_with_storage_grid_size()
     return int(g.x), int(g.y)
@@ -232,11 +265,22 @@ def down_projection_core_grid(device, port: PortConfig = DEFAULT_PORT):
 STAGE1_PORT = PortConfig(
     down_grid="8x8",
     qkv_mode="mcast_8x8",
+    shard_yields_to_grid_rows=0,
     interleaved_pad=0,
     mlp_grid=(8, 8),
+    mlp_grid_y_choices=None,
     l1_attention_max_rows=2048,
     rotary_shard_max_bytes_per_core=512 * 1024,
     sdpa_grid="full",
+)
+STAGE3_PORT = STAGE1_PORT.with_(
+    down_grid="minimal_11x10",
+    qkv_mode="minimal_11x10",
+    interleaved_pad=2816,
+    mlp_grid=(11, 8),
+    l1_attention_max_rows=4096,
+    rotary_shard_max_bytes_per_core=0,
+    sdpa_grid="8x8",
 )
 
 
@@ -301,7 +345,7 @@ def qkv_matmul_program_config(device, batch_size, seq_len, hidden_size, policy=D
     )
 
 
-SDPA_MEASURED_SEQ_LENS = (256, 512, 768, 1024)
+SDPA_MEASURED_SEQ_LENS = (128, 256, 512, 768, 1024)
 
 
 def sdpa_program_config(device, seq_len, rows, port: PortConfig = DEFAULT_PORT):
@@ -379,7 +423,7 @@ def _sharded_matmul(m_t, in_width, out_width, grid, fused_activation, dest_tiles
 def mlp_shard_plan(
     device, batch_size, seq_len, hidden_size, intermediate_size, policy=DEFAULT_POLICY, port=DEFAULT_PORT
 ):
-    if port.geglu_plan != "sharded":
+    if port.geglu_plan != "sharded" or policy.linear_dtype == ttnn.bfloat16:
         return None
     gx, gy = port.shard_grid
     dx, dy = grid_size(device)
@@ -395,6 +439,9 @@ def mlp_shard_plan(
     if (m_t * d_t) / (gx * gy) < port.shard_min_tiles_per_core:
         return None
     if rows > port.shard_max_rows:
+        return None
+    y = port.shard_yields_to_grid_rows
+    if y and dy >= y and m_t % y == 0 and port.interleaved_pad > 0:
         return None
 
     def block(w):
@@ -419,7 +466,9 @@ def mlp_shard_plan(
     return MlpShardPlan(
         hidden_memory=block(hidden_size),
         intermediate_memory=block(width),
-        act_matmul=_sharded_matmul(m_t, hidden_size, width, (gx, gy), policy.gelu_activation(not port.gelu_separate), dest),
+        act_matmul=_sharded_matmul(
+            m_t, hidden_size, width, (gx, gy), policy.gelu_activation(not port.gelu_separate), dest
+        ),
         gate_matmul=_sharded_matmul(m_t, hidden_size, width, (gx, gy), None, dest),
         down_matmul=_sharded_matmul(m_t, width, hidden_size, (gx, gy), None, dest),
         norm=norm,
@@ -427,18 +476,28 @@ def mlp_shard_plan(
     )
 
 
+def mlp_grid_rows(m_tiles: int, device_rows: int, port: PortConfig = DEFAULT_PORT) -> Optional[int]:
+    """Grid rows for the interleaved GeGLU config: the first of `mlp_grid_y_choices` that fits the device and divides the tile rows."""
+    if port.mlp_grid_y_choices is None:
+        gy = port.mlp_grid[1]
+        return gy if (gy <= device_rows and m_tiles % gy == 0) else None
+    for gy in port.mlp_grid_y_choices:
+        if gy <= device_rows and m_tiles % gy == 0:
+            return gy
+    return None
+
+
 def mlp_up_projection_program_config(
     device, batch_size, seq_len, hidden_size, width, fuse_gelu, policy=DEFAULT_POLICY, port=DEFAULT_PORT
 ):
-    gx, gy = port.mlp_grid
+    gx = port.mlp_grid[0]
     dx, dy = grid_size(device)
-    if dx < gx or dy < gy:
-        return None
     rows = batch_size * seq_len
-    if rows % TILE or width % TILE or hidden_size % TILE:
+    if dx < gx or rows % TILE or width % TILE or hidden_size % TILE:
         return None
     m_tiles, n_tiles, k_tiles = rows // TILE, width // TILE, hidden_size // TILE
-    if m_tiles % gy or n_tiles % gx:
+    gy = mlp_grid_rows(m_tiles, dy, port)
+    if gy is None or n_tiles % gx:
         return None
     per_core_m, per_core_n = m_tiles // gy, n_tiles // gx
     return ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
@@ -455,7 +514,9 @@ def mlp_up_projection_program_config(
     )
 
 
-def down_projection_program_config(device, batch_size, seq_len, in_width, out_width, policy=DEFAULT_POLICY, port=DEFAULT_PORT):
+def down_projection_program_config(
+    device, batch_size, seq_len, in_width, out_width, policy=DEFAULT_POLICY, port=DEFAULT_PORT
+):
     gx, gy = 8, 8
     dx, dy = grid_size(device)
     if dx < gx or dy < gy:
@@ -510,15 +571,21 @@ def bucket_plan(device, config, batch_size, seq_len, policy=DEFAULT_POLICY, port
         down_core_grid=down_projection_core_grid(device, port),
         qkv_program_config=qkv_matmul_program_config(device, batch_size, seq_len, config.hidden_size, policy, port),
         minimal_config=minimal_matmul_config(device, port)
-        if (port.qkv_mode == "minimal_11x10" or (port.down_grid == "minimal_11x10" and rows >= port.wo_minimal_min_rows))
+        if (
+            port.qkv_mode == "minimal_11x10" or (port.down_grid == "minimal_11x10" and rows >= port.wo_minimal_min_rows)
+        )
         else None,
         sdpa_program_config=sdpa_program_config(device, seq_len, rows, port),
         mlp_shard=shard,
         mlp_width=width,
-        wo_program_config=down_projection_program_config(device, batch_size, seq_len, config.hidden_size, config.hidden_size, policy, port)
+        wo_program_config=down_projection_program_config(
+            device, batch_size, seq_len, config.hidden_size, config.hidden_size, policy, port
+        )
         if port.wo_program_config
         else None,
-        mlp_down_program_config=down_projection_program_config(device, batch_size, seq_len, width, config.hidden_size, policy, port)
+        mlp_down_program_config=down_projection_program_config(
+            device, batch_size, seq_len, width, config.hidden_size, policy, port
+        )
         if (port.wo_program_config and shard is None)
         else None,
         qkv_minimal=port.qkv_mode == "minimal_11x10",

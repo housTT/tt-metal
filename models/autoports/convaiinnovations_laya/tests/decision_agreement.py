@@ -53,6 +53,10 @@ def main(argv=None):
     ap.add_argument("--threads", type=int, default=6)
     ap.add_argument("--seed", type=int, default=13)
     ap.add_argument("--trace-region", type=int, default=512 * 1024 * 1024)
+    ap.add_argument("--seq-buckets", default=None, help="comma list; default: 512 only (the stage 6 protocol)")
+    ap.add_argument(
+        "--row-buckets", default=None, help="comma list; default: the buckets the placements need from ROW_BUCKETS"
+    )
     a = ap.parse_args(argv)
     torch.set_num_threads(a.threads)
 
@@ -62,6 +66,7 @@ def main(argv=None):
     policy = mc.policy_from_name(a.policy)
     os.makedirs(DOC_DIR, exist_ok=True)
     out = a.out or os.path.join(DOC_DIR, "decision_agreement.json")
+    seq_buckets = tuple(sorted(int(x) for x in a.seq_buckets.split(","))) if a.seq_buckets else (SEQ,)
     data = load_corpus()
     mesh = parse_mesh_shape(a.mesh)
     num_devices = mesh[0] * mesh[1]
@@ -71,16 +76,21 @@ def main(argv=None):
     rng = np.random.RandomState(a.seed)
     filler = [int(x) for x in rng.choice(others, 64 - N_QUESTIONS, replace=False)]
     mixed_order = [int(x) for x in rng.permutation(qrows)]
-    per_device_buckets = tuple(sorted({mc.pick_bucket(-(-n // num_devices), mc.ROW_BUCKETS) for n in (1, 2, 4, 8, 64)}))
+    if a.row_buckets:
+        per_device_buckets = tuple(sorted(int(x) for x in a.row_buckets.split(",")))
+    else:
+        per_device_buckets = tuple(
+            sorted({mc.pick_bucket(-(-n // num_devices), mc.ROW_BUCKETS) for n in (1, 2, 4, 8, 64)})
+        )
     t0 = time.perf_counter()
     engine = LayaEngine(
         mesh_shape=mesh,
         policy=policy,
         row_buckets=per_device_buckets,
-        seq_buckets=(SEQ,),
+        seq_buckets=seq_buckets,
         trace=True,
         trace_region_size=a.trace_region,
-        warmup_shapes=[(b, SEQ) for b in per_device_buckets],
+        warmup_shapes=[(b, s) for s in seq_buckets for b in per_device_buckets],
         threads=a.threads,
     )
     report = {
@@ -100,8 +110,15 @@ def main(argv=None):
     probs = {p: {} for p in PLACEMENTS}
     logits = {p: {} for p in PLACEMENTS}
     buckets = {}
+    bucket_hist = {}
+
+    def note(bk):
+        key = f"{bk[0]}x{bk[1]}"
+        bucket_hist[key] = bucket_hist.get(key, 0) + 1
+
     for r in qrows:
         lg, _, bk = run_rows(engine, data, [r])
+        note(bk)
         probs["alone"][r] = probs_for(data, r, lg[0])
         logits["alone"][r] = lg[0, : int(data["k"][r])]
         buckets["alone"] = list(bk)
@@ -109,6 +126,7 @@ def main(argv=None):
         for start in range(0, N_QUESTIONS, size):
             rows = mixed_order[start : start + size]
             lg, _, bk = run_rows(engine, data, rows)
+            note(bk)
             for i, r in enumerate(rows):
                 probs[name][r] = probs_for(data, r, lg[i])
                 logits[name][r] = lg[i, : int(data["k"][r])]
@@ -118,8 +136,12 @@ def main(argv=None):
     for i, r in enumerate(rows64[:N_QUESTIONS]):
         probs["b64"][r] = probs_for(data, r, lg[i])
         logits["b64"][r] = lg[i, : int(data["k"][r])]
+    note(bk)
     buckets["b64"] = list(bk)
     report["buckets"] = buckets
+    report["bucket_histogram"] = dict(sorted(bucket_hist.items()))
+    report["seq_buckets"] = list(seq_buckets)
+    report["row_buckets"] = list(per_device_buckets)
     report["b64_real_rows"] = len(rows64)
     worst_dp = 0.0
     all_same = True

@@ -9,7 +9,6 @@ import time
 from datetime import datetime, timezone
 
 import numpy as np
-import torch
 
 os.environ.setdefault("TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES", "0")
 
@@ -25,7 +24,7 @@ def p50(xs):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--buckets", default="1x512,8x512,64x512")
+    ap.add_argument("--buckets", default="1x512,8x512,64x512", help="'all' = the deployment set of tt/model_config.py")
     ap.add_argument("--variants", default='{"default": {}}', help="JSON {name: PortConfig overrides}")
     ap.add_argument("--policy", default=None)
     ap.add_argument("--warm", type=int, default=3)
@@ -45,7 +44,7 @@ def main():
     from models.autoports.convaiinnovations_laya.tt.runner import LayaTraceRunner
     from models.autoports.convaiinnovations_laya.tt.weights import load_state_dict
 
-    buckets = [tuple(int(v) for v in s.split("x")) for s in a.buckets.split(",")]
+    buckets = mc.parse_buckets(a.buckets)
     variants = json.loads(a.variants)
     policy = mc.policy_from_name(a.policy)
     config = LI.load_config()
@@ -95,6 +94,7 @@ def main():
                     runner = LayaTraceRunner(model, buckets)
                     runner.warmup()
                     entry["warmup_seconds"] = runner.warmup_seconds
+                    entry["runner"] = runner.describe()
                     for b, s in buckets:
                         x = inputs[(b, s)]
                         cell = entry["buckets"][f"{b}x{s}"]
@@ -108,7 +108,9 @@ def main():
                         cell["traced_ms_min"] = float(min(times)) * 1000.0
                         cell["traced_ms_p95"] = float(np.percentile(np.array(times) * 1000.0, 95))
                         cell["rows_per_s"] = b / (cell["traced_ms_p50"] / 1000.0)
-                        cell["traced_vs_eager_max_abs_logits"] = float((out["logits"] - cell["eager_out"]["logits"]).abs().max())
+                        cell["traced_vs_eager_max_abs_logits"] = float(
+                            (out["logits"] - cell["eager_out"]["logits"]).abs().max()
+                        )
                         cell["loadavg"] = loadavg()
                         mk = x["marker_mask"]
                         cell["marker_logits"] = HR.gather_markers(out["logits"], x["marker_pos"], mk)[mk].tolist()[:8]
@@ -131,7 +133,14 @@ def main():
                         pass
                 ttnn.synchronize_device(device)
             report["variants"][name] = entry
-            print("VARIANT", name, json.dumps({k: {kk: vv for kk, vv in v.items() if kk not in ("plan",)} for k, v in entry["buckets"].items()}), entry["error"])
+            print(
+                "VARIANT",
+                name,
+                json.dumps(
+                    {k: {kk: vv for kk, vv in v.items() if kk not in ("plan",)} for k, v in entry["buckets"].items()}
+                ),
+                entry["error"],
+            )
     finally:
         ttnn.close_device(device)
     report["loadavg_end"] = loadavg()

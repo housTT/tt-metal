@@ -167,6 +167,7 @@ class LayaEngine:
         self.mesh_shape = tuple(mesh_shape)
         self.lock = threading.Lock()
         self.last_device_ms = 0.0
+        self.last_host_tail_ms = 0.0
         self.last_bucket: Optional[Tuple[int, int]] = None
         self.calls = 0
         self._close_device = close_device
@@ -302,7 +303,9 @@ class LayaEngine:
             self.last_device_ms = float(out["device_ms"])
             self.last_bucket = tuple(out["bucket"])
             self.calls += 1
+        t0 = time.perf_counter()
         logits, act = host_tail(out["logits"], out["cls"], marker_pos, marker_mask, self.act_head)
+        self.last_host_tail_ms = (time.perf_counter() - t0) * 1000.0
         return logits, act
 
     __call__ = forward
@@ -319,7 +322,9 @@ class LayaEngine:
             self.last_device_ms = float(out["device_ms"])
             self.last_bucket = tuple(out["bucket"])
             self.calls += 1
+        t0 = time.perf_counter()
         logits, act = host_tail(out["logits"], out["cls"], marker_pos, marker_mask, self.act_head)
+        self.last_host_tail_ms = (time.perf_counter() - t0) * 1000.0
         return {
             "logits": logits,
             "act_logits": act,
@@ -327,6 +332,7 @@ class LayaEngine:
             "cls": out["cls"],
             "bucket": tuple(out["bucket"]),
             "device_ms": out["device_ms"],
+            "host_tail_ms": self.last_host_tail_ms,
         }
 
     def shapes(self) -> Dict[str, Any]:
@@ -354,6 +360,8 @@ class LayaEngine:
             "weight_load_seconds": round(self.model.weight_load_seconds, 2),
             "warmup_seconds": {k: round(float(v), 2) for k, v in self.warmup_seconds.items()},
             "load_seconds": round(self.load_seconds, 2),
+            "trace_bytes": self.runner.describe().get("trace_bytes", {}) if self.runner is not None else {},
+            "trace_bytes_total": self.runner.trace_bytes_total() if self.runner is not None else 0,
             "model_dir": self.model_dir,
             "calls": self.calls,
         }

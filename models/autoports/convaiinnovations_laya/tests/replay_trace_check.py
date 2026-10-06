@@ -18,16 +18,27 @@ def p50(xs):
     return float(np.percentile(np.array(xs) * 1000.0, 50))
 
 
+def loadavg():
+    with open("/proc/loadavg") as f:
+        return [float(x) for x in f.read().split()[:3]]
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--buckets", default="1x512,8x512")
+    ap.add_argument(
+        "--buckets", default="1x512,8x512", help="'all' = the deployment set of tt/model_config.py (30 buckets)"
+    )
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--repeats", type=int, default=10)
+    ap.add_argument(
+        "--eager-repeats", type=int, default=None, help="eager calls on input A per bucket (default: --repeats)"
+    )
     ap.add_argument("--policy", default=None)
     ap.add_argument("--port", default="{}")
     ap.add_argument("--trace-region", type=int, default=512 * 1024 * 1024)
     ap.add_argument("--out", required=True)
     a = ap.parse_args()
+    eager_repeats = a.repeats if a.eager_repeats is None else a.eager_repeats
     os.makedirs(os.path.dirname(a.out), exist_ok=True)
 
     import ttnn
@@ -38,9 +49,9 @@ def main():
     from models.autoports.convaiinnovations_laya.tt.runner import LayaTraceRunner
     from models.autoports.convaiinnovations_laya.tt.weights import load_state_dict, split_state_dict
 
-    buckets = [tuple(int(v) for v in s.split("x")) for s in a.buckets.split(",")]
+    buckets = mc.parse_buckets(a.buckets)
     policy = mc.policy_from_name(a.policy)
-    port = mc.DEFAULT_PORT.with_(**json.loads(a.port))
+    port = mc.DEFAULT_PORT.with_(**{k: (tuple(v) if isinstance(v, list) else v) for k, v in json.loads(a.port).items()})
     config = LI.load_config()
     sd = load_state_dict()
     parts = split_state_dict(sd)
@@ -53,6 +64,9 @@ def main():
         "trace_region_size": a.trace_region,
         "rounds": a.rounds,
         "repeats": a.repeats,
+        "eager_repeats": eager_repeats,
+        "bucket_order": [f"{b}x{s}" for b, s in buckets],
+        "loadavg_start": loadavg(),
         "buckets": [],
         "unsafe_allocation_error": None,
     }
@@ -77,7 +91,7 @@ def main():
             times = []
             for key in ("A", "B"):
                 x = inputs[(b, s, key)]
-                for i in range(a.repeats if key == "A" else 1):
+                for i in range(eager_repeats if key == "A" else 1):
                     t0 = time.perf_counter()
                     out = model.forward(x["input_ids"], x["attention_mask"], x["qtype"], bucket=(b, s))
                     times.append(time.perf_counter() - t0)
@@ -86,6 +100,9 @@ def main():
         runner = LayaTraceRunner(model, buckets)
         runner.warmup()
         report["warmup_seconds"] = runner.warmup_seconds
+        report["trace_bytes"] = {f"{k[0]}x{k[1]}": v for k, v in runner.trace_bytes.items()}
+        report["trace_bytes_total"] = runner.trace_bytes_total()
+        report["loadavg_after_warmup"] = loadavg()
         first = {}
         traced_times = {k: [] for k in buckets}
         identical = {k: True for k in buckets}
@@ -103,7 +120,10 @@ def main():
                     if fk not in first:
                         first[fk] = out
                     else:
-                        if not (torch.equal(out["logits"], first[fk]["logits"]) and torch.equal(out["cls"], first[fk]["cls"])):
+                        if not (
+                            torch.equal(out["logits"], first[fk]["logits"])
+                            and torch.equal(out["cls"], first[fk]["cls"])
+                        ):
                             identical[(b, s)] = False
         for b, s in buckets:
             x = inputs[(b, s, "A")]
@@ -115,10 +135,10 @@ def main():
             mk = x["marker_mask"]
             m_tr = HR.gather_markers(tr_a["logits"], x["marker_pos"], mk)[mk]
             m_eg = HR.gather_markers(eg_a["logits"], x["marker_pos"], mk)[mk]
-            la, lb = tr_a["logits"][:, :512], tr_b["logits"][:, :512]
+            la, lb = tr_a["logits"][:, :s], tr_b["logits"][:, :s]
             n = min(la.shape[1], lb.shape[1])
             a_vs_b = float((la[:, :n] - lb[:, :n]).abs().max())
-            et = eager[(b, s, "times")][1:]
+            et = eager[(b, s, "times")][1:] or eager[(b, s, "times")]
             tt = traced_times[(b, s)][1:]
             report["buckets"].append(
                 {
@@ -143,6 +163,7 @@ def main():
             )
         report["runner"] = runner.describe()
         report["model"] = model.describe()
+        report["loadavg_end"] = loadavg()
     except RuntimeError as exc:
         report["unsafe_allocation_error"] = str(exc)[:4000]
         raise
@@ -153,12 +174,20 @@ def main():
             model.close()
         ttnn.close_device(device)
         report["pass"] = report["unsafe_allocation_error"] is None and all(
-            v["repeated_replay_identical"] and v["updated_input_changes_output"] and v["traced_vs_eager_bit_identical"] and not v["nan"]
+            v["repeated_replay_identical"]
+            and v["updated_input_changes_output"]
+            and v["traced_vs_eager_bit_identical"]
+            and not v["nan"]
             for v in report["buckets"]
         )
         with open(a.out, "w") as f:
             json.dump(report, f, indent=1)
-        print("REPLAY_RESULT", json.dumps({"pass": report["pass"], "error": report["unsafe_allocation_error"], "buckets": report["buckets"]}))
+        print(
+            "REPLAY_RESULT",
+            json.dumps(
+                {"pass": report["pass"], "error": report["unsafe_allocation_error"], "buckets": report["buckets"]}
+            ),
+        )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,751 @@
+{
+ "timestamp": "2026-10-05T23:57:26.287426+00:00",
+ "host": "qb2-120-p11t01",
+ "mode": "fresh",
+ "mesh": "1x1",
+ "policy": {
+  "name": "bf8w_hifi2_erf",
+  "linear_dtype": "DataType.BFLOAT8_B",
+  "act_dtype": "DataType.BFLOAT16",
+  "fidelity": "MathFidelity.HiFi2",
+  "mlp_fidelity": "MathFidelity.HiFi2",
+  "gelu": "erf",
+  "head_policy": "same",
+  "head_linear_dtype": "DataType.BFLOAT8_B",
+  "head_fidelity": "MathFidelity.HiFi2",
+  "scorer_fp32_out": true,
+  "scorer_gelu": "erf",
+  "fp32_dest_acc_en": true,
+  "packer_l1_acc": true,
+  "dst_full_sync_en": false,
+  "dest_tiles": 4,
+  "residual_dtype": "DataType.BFLOAT16"
+ },
+ "port": {
+  "down_grid": "minimal_11x10",
+  "wo_minimal_min_rows": 4096,
+  "qkv_mode": "minimal_11x10",
+  "geglu_plan": "sharded",
+  "shard_yields_to_grid_rows": 10,
+  "intermediate_pad": 2816,
+  "interleaved_pad": 2816,
+  "mlp_grid": [
+   11,
+   8
+  ],
+  "mlp_grid_y_choices": [
+   10,
+   8,
+   5,
+   4,
+   2,
+   1
+  ],
+  "wo_program_config": false,
+  "gelu_separate": false,
+  "shard_grid": [
+   8,
+   8
+  ],
+  "shard_min_tiles_per_core": 12,
+  "shard_max_rows": 2048,
+  "shard_mlp_norm": true,
+  "resident_residual": true,
+  "l1_attention_max_rows": 4096,
+  "l1_chain_small_chunk_rows": 4096,
+  "rotary_shard_min_rows": 24576,
+  "rotary_shard_max_bytes_per_core": 0,
+  "sdpa_grid": "8x8",
+  "sdpa_q_chunk": null,
+  "sdpa_k_chunk": null,
+  "sdpa_large_chunk_rows": 768,
+  "qkv_out_block_h_max": 8,
+  "minimal_block": [
+   8,
+   8,
+   8
+  ],
+  "minimal_grid": [
+   11,
+   10
+  ]
+ },
+ "row_buckets": [
+  1,
+  2,
+  4,
+  5,
+  8,
+  10,
+  16,
+  32,
+  50,
+  64
+ ],
+ "seq_buckets": [
+  128,
+  256,
+  512
+ ],
+ "warm_shapes": [
+  [
+   1,
+   256
+  ],
+  [
+   5,
+   256
+  ],
+  [
+   10,
+   256
+  ],
+  [
+   50,
+   256
+  ]
+ ],
+ "protocol": {
+  "inputs": "bench_latency.STATE_EN with qs(n) (alternating Q_CHOICE 3-way and Q_NOUL), tokenized by the server path at 512 / 192",
+  "timing": "3 warm calls, p50 of 20 calls of LayaEngine.forward_detailed plus the temperature softmax; blocking split p50 of 10",
+  "throughput_inputs": "STATE_EN rows (194 to 205 tokens) at seq 256; the short state {'m': 'refund me'} (about 40 tokens) at seq 128; typed-decisions rows with one row filled to 512 tokens at seq 512"
+ },
+ "loadavg_start": [
+  3.29,
+  3.04,
+  2.5
+ ],
+ "cells": {
+  "1": {
+   "label": "1 questions",
+   "rows": 1,
+   "row_lengths": [
+    194
+   ],
+   "longest_row": 194,
+   "bucket": [
+    1,
+    256
+   ],
+   "padded_tokens": 256,
+   "end_to_end_ms": {
+    "n": 20,
+    "p50": 9.319254008005373,
+    "p95": 9.432362463849131,
+    "min": 9.237422986188903,
+    "max": 9.516085003269836,
+    "mean": 9.328255098080263
+   },
+   "device_ms": {
+    "n": 20,
+    "p50": 9.057104514795355,
+    "p95": 9.107126944581978,
+    "min": 9.032911999383941,
+    "max": 9.141078975517303,
+    "mean": 9.065941502922215
+   },
+   "host_tail_ms": {
+    "n": 20,
+    "p50": 0.1322825119132176,
+    "p95": 0.16674317448632797,
+    "min": 0.1043090014718473,
+    "max": 0.2235759748145938,
+    "mean": 0.13428064848994836
+   },
+   "decode_ms": {
+    "n": 20,
+    "p50": 0.006578004104085267,
+    "p95": 0.00818159751361236,
+    "min": 0.005169975338503718,
+    "max": 0.008876988431438804,
+    "mean": 0.0065680971601977944
+   },
+   "ms_per_row_p50": 9.319254008005373,
+   "rows_per_s_p50": 107.30472623033836,
+   "tokens_per_s_p50": 20817.11688868564,
+   "padded_tokens_per_s_p50": 27470.00991496662,
+   "blocking_split": {
+    "write_ms_p50": 0.020899984519928694,
+    "replay_ms_p50": 8.938537503127009,
+    "readback_ms_p50": 0.08690101094543934,
+    "blocking_total_ms_p50": 9.048322011949494,
+    "reps": 10
+   },
+   "probs_first_row": [
+    0.8752,
+    0.0483,
+    0.0764
+   ],
+   "loadavg": [
+    3.29,
+    3.04,
+    2.5
+   ],
+   "warm": 3,
+   "reps": 20
+  },
+  "5": {
+   "label": "5 questions",
+   "rows": 5,
+   "row_lengths": [
+    194,
+    205,
+    194,
+    205,
+    194
+   ],
+   "longest_row": 205,
+   "bucket": [
+    5,
+    256
+   ],
+   "padded_tokens": 1280,
+   "end_to_end_ms": {
+    "n": 20,
+    "p50": 21.251512502203695,
+    "p95": 21.449771311017685,
+    "min": 21.147444000234827,
+    "max": 21.512419974897057,
+    "mean": 21.27300849679159
+   },
+   "device_ms": {
+    "n": 20,
+    "p50": 20.934046508045867,
+    "p95": 21.01435177901294,
+    "min": 20.862119999947026,
+    "max": 21.02200497756712,
+    "mean": 20.93847520154668
+   },
+   "host_tail_ms": {
+    "n": 20,
+    "p50": 0.14106399612501264,
+    "p95": 0.2143123041605577,
+    "min": 0.11711299885064363,
+    "max": 0.22733298828825355,
+    "mean": 0.15384699654532596
+   },
+   "decode_ms": {
+    "n": 20,
+    "p50": 0.007073496817611158,
+    "p95": 0.010261635179631414,
+    "min": 0.0062019971664994955,
+    "max": 0.012003001756966114,
+    "mean": 0.00764819560572505
+   },
+   "ms_per_row_p50": 4.250302500440739,
+   "rows_per_s_p50": 235.27737140975356,
+   "tokens_per_s_p50": 46679.030487695105,
+   "padded_tokens_per_s_p50": 60231.00708089691,
+   "blocking_split": {
+    "write_ms_p50": 0.03323800046928227,
+    "replay_ms_p50": 20.6830975075718,
+    "readback_ms_p50": 0.19977598276454955,
+    "blocking_total_ms_p50": 20.902882490190677,
+    "reps": 10
+   },
+   "probs_first_row": [
+    0.8726,
+    0.0495,
+    0.0779
+   ],
+   "loadavg": [
+    3.19,
+    3.02,
+    2.5
+   ],
+   "warm": 3,
+   "reps": 20
+  },
+  "10": {
+   "label": "10 questions",
+   "rows": 10,
+   "row_lengths": [
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205
+   ],
+   "longest_row": 205,
+   "bucket": [
+    10,
+    256
+   ],
+   "padded_tokens": 2560,
+   "end_to_end_ms": {
+    "n": 20,
+    "p50": 37.19407750759274,
+    "p95": 37.29648050793912,
+    "min": 37.109857017640024,
+    "max": 37.37619501771405,
+    "mean": 37.1998386530322
+   },
+   "device_ms": {
+    "n": 20,
+    "p50": 36.84322799381334,
+    "p95": 36.92771699425066,
+    "min": 36.74325702013448,
+    "max": 36.962334997951984,
+    "mean": 36.83696814841824
+   },
+   "host_tail_ms": {
+    "n": 20,
+    "p50": 0.14684000052511692,
+    "p95": 0.1726549424347468,
+    "min": 0.1283650053665042,
+    "max": 0.1971260062418878,
+    "mean": 0.15093090041773394
+   },
+   "decode_ms": {
+    "n": 20,
+    "p50": 0.0075995048973709345,
+    "p95": 0.009521505853626877,
+    "min": 0.006771995685994625,
+    "max": 0.009758980013430119,
+    "mean": 0.007771953823976219
+   },
+   "ms_per_row_p50": 3.7194077507592738,
+   "rows_per_s_p50": 268.86000863870373,
+   "tokens_per_s_p50": 53637.571723421395,
+   "padded_tokens_per_s_p50": 68828.16221150816,
+   "blocking_split": {
+    "write_ms_p50": 0.048282003263011575,
+    "replay_ms_p50": 36.47089749574661,
+    "readback_ms_p50": 0.3352845087647438,
+    "blocking_total_ms_p50": 36.83803349849768,
+    "reps": 10
+   },
+   "probs_first_row": [
+    0.8726,
+    0.0495,
+    0.0779
+   ],
+   "loadavg": [
+    3.19,
+    3.02,
+    2.5
+   ],
+   "warm": 3,
+   "reps": 20
+  },
+  "50": {
+   "label": "50 questions",
+   "rows": 50,
+   "row_lengths": [
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205,
+    194,
+    205
+   ],
+   "longest_row": 205,
+   "bucket": [
+    50,
+    256
+   ],
+   "padded_tokens": 12800,
+   "end_to_end_ms": {
+    "n": 20,
+    "p50": 178.88042399135884,
+    "p95": 179.45640935358824,
+    "min": 178.40058699948713,
+    "max": 179.4860369991511,
+    "mean": 178.97574679809622
+   },
+   "device_ms": {
+    "n": 20,
+    "p50": 177.73055550060235,
+    "p95": 178.1651687415433,
+    "min": 177.3588899814058,
+    "max": 178.28832200029865,
+    "mean": 177.76757620013086
+   },
+   "host_tail_ms": {
+    "n": 20,
+    "p50": 0.4341884923633188,
+    "p95": 0.5089930637041107,
+    "min": 0.3351990017108619,
+    "max": 0.514371000463143,
+    "mean": 0.42912810313282534
+   },
+   "decode_ms": {
+    "n": 20,
+    "p50": 0.018540988094173372,
+    "p95": 0.024712609592825174,
+    "min": 0.012553995475172997,
+    "max": 0.02557900734245777,
+    "mean": 0.01917110348585993
+   },
+   "ms_per_row_p50": 3.577608479827177,
+   "rows_per_s_p50": 279.51633210806426,
+   "tokens_per_s_p50": 55763.508255558816,
+   "padded_tokens_per_s_p50": 71556.18101966445,
+   "blocking_split": {
+    "write_ms_p50": 0.1600050163688138,
+    "replay_ms_p50": 176.08137599017937,
+    "readback_ms_p50": 1.4078410167712718,
+    "blocking_total_ms_p50": 177.78926499886438,
+    "reps": 10
+   },
+   "probs_first_row": [
+    0.8802,
+    0.047,
+    0.0728
+   ],
+   "loadavg": [
+    3.01,
+    2.99,
+    2.49
+   ],
+   "warm": 3,
+   "reps": 20
+  }
+ },
+ "throughput": {},
+ "engine_load_seconds": 3.33,
+ "engine": {
+  "backend": "tt",
+  "device": "blackhole x1 ids [0]",
+  "arch": "Arch.BLACKHOLE",
+  "mesh_shape": "1x1",
+  "num_devices": 1,
+  "precision": "bf8w_hifi2_erf",
+  "policy": {
+   "name": "bf8w_hifi2_erf",
+   "linear_dtype": "DataType.BFLOAT8_B",
+   "act_dtype": "DataType.BFLOAT16",
+   "fidelity": "MathFidelity.HiFi2",
+   "mlp_fidelity": "MathFidelity.HiFi2",
+   "gelu": "erf",
+   "head_policy": "same",
+   "head_linear_dtype": "DataType.BFLOAT8_B",
+   "head_fidelity": "MathFidelity.HiFi2",
+   "scorer_fp32_out": true,
+   "scorer_gelu": "erf",
+   "fp32_dest_acc_en": true,
+   "packer_l1_acc": true,
+   "dst_full_sync_en": false,
+   "dest_tiles": 4,
+   "residual_dtype": "DataType.BFLOAT16"
+  },
+  "port": {
+   "down_grid": "minimal_11x10",
+   "wo_minimal_min_rows": 4096,
+   "qkv_mode": "minimal_11x10",
+   "geglu_plan": "sharded",
+   "shard_yields_to_grid_rows": 10,
+   "intermediate_pad": 2816,
+   "interleaved_pad": 2816,
+   "mlp_grid": [
+    11,
+    8
+   ],
+   "mlp_grid_y_choices": [
+    10,
+    8,
+    5,
+    4,
+    2,
+    1
+   ],
+   "wo_program_config": false,
+   "gelu_separate": false,
+   "shard_grid": [
+    8,
+    8
+   ],
+   "shard_min_tiles_per_core": 12,
+   "shard_max_rows": 2048,
+   "shard_mlp_norm": true,
+   "resident_residual": true,
+   "l1_attention_max_rows": 4096,
+   "l1_chain_small_chunk_rows": 4096,
+   "rotary_shard_min_rows": 24576,
+   "rotary_shard_max_bytes_per_core": 0,
+   "sdpa_grid": "8x8",
+   "sdpa_q_chunk": null,
+   "sdpa_k_chunk": null,
+   "sdpa_large_chunk_rows": 768,
+   "qkv_out_block_h_max": 8,
+   "minimal_block": [
+    8,
+    8,
+    8
+   ],
+   "minimal_grid": [
+    11,
+    10
+   ]
+  },
+  "seq_buckets": [
+   128,
+   256,
+   512
+  ],
+  "row_buckets": [
+   1,
+   2,
+   4,
+   5,
+   8,
+   10,
+   16,
+   32,
+   50,
+   64
+  ],
+  "row_buckets_per_device": [
+   1,
+   2,
+   4,
+   5,
+   8,
+   10,
+   16,
+   32,
+   50,
+   64
+  ],
+  "max_rows": 64,
+  "warm_shapes": [
+   [
+    1,
+    256
+   ],
+   [
+    5,
+    256
+   ],
+   [
+    10,
+    256
+   ],
+   [
+    50,
+    256
+   ]
+  ],
+  "trace": true,
+  "trace_region_size": 536870912,
+  "l1_small_size": 79104,
+  "pad_rows_keep_one_token": false,
+  "max_len": 512,
+  "head_max_len": 192,
+  "weight_load_seconds": 1.64,
+  "warmup_seconds": {
+   "phase1": 0.35,
+   "phase2": 0.06
+  },
+  "load_seconds": 3.33,
+  "trace_bytes": {
+   "1x256": 4259840,
+   "5x256": 4587520,
+   "10x256": 4784128,
+   "50x256": 5505024
+  },
+  "trace_bytes_total": 19136512,
+  "model_dir": "/home/hous/dev/laya/state/laya_models/laya",
+  "calls": 0
+ },
+ "runner": {
+  "buckets": [
+   [
+    1,
+    256
+   ],
+   [
+    5,
+    256
+   ],
+   [
+    10,
+    256
+   ],
+   [
+    50,
+    256
+   ]
+  ],
+  "captured": [
+   [
+    1,
+    256
+   ],
+   [
+    5,
+    256
+   ],
+   [
+    10,
+    256
+   ],
+   [
+    50,
+    256
+   ]
+  ],
+  "warmup_seconds": {
+   "phase1": 0.352,
+   "phase2": 0.062
+  },
+  "build_seconds": {
+   "1x256": 0.002,
+   "5x256": 0.002,
+   "10x256": 0.003,
+   "50x256": 0.017
+  },
+  "eager_seconds": {
+   "1x256": 0.057,
+   "5x256": 0.034,
+   "10x256": 0.049,
+   "50x256": 0.187
+  },
+  "capture_seconds": {
+   "1x256": 0.015,
+   "5x256": 0.014,
+   "10x256": 0.015,
+   "50x256": 0.017
+  },
+  "trace_bytes": {
+   "1x256": 4259840,
+   "5x256": 4587520,
+   "10x256": 4784128,
+   "50x256": 5505024
+  },
+  "trace_bytes_total": 19136512,
+  "trace_bytes_allocated_now": 19136512,
+  "trace_region_bytes": 536870912,
+  "calls": 0,
+  "num_devices": 1
+ },
+ "warmup_seconds": {
+  "phase1": 0.3523916419944726,
+  "phase2": 0.061528019985416904
+ },
+ "loadavg_after_warmup": [
+  3.29,
+  3.04,
+  2.5
+ ],
+ "buckets_described": {
+  "1x256": {
+   "batch_size": 1,
+   "seq_len": 256,
+   "rows": 256,
+   "attention_memory": "L1",
+   "down_core_grid": "ttnn.CoreGrid(x=8, y=8)",
+   "qkv_program_config": null,
+   "minimal_config": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=11-10)",
+   "sdpa_program_config": "SDPAProgramConfig(compute_with_storage_grid_size=8-8, sub_core_grids=std::nullopt, q_chunk_size=128, k_chunk_size=128, exp_approx_mode=false, max_cores_per_head_batch=16)",
+   "mlp_sharded": false,
+   "mlp_width": 2816,
+   "wo_program_config": null,
+   "mlp_down_program_config": null,
+   "qkv_minimal": true,
+   "wo_minimal": false
+  },
+  "5x256": {
+   "batch_size": 5,
+   "seq_len": 256,
+   "rows": 1280,
+   "attention_memory": "L1",
+   "down_core_grid": "ttnn.CoreGrid(x=8, y=8)",
+   "qkv_program_config": null,
+   "minimal_config": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=11-10)",
+   "sdpa_program_config": "SDPAProgramConfig(compute_with_storage_grid_size=8-8, sub_core_grids=std::nullopt, q_chunk_size=256, k_chunk_size=256, exp_approx_mode=false, max_cores_per_head_batch=16)",
+   "mlp_sharded": false,
+   "mlp_width": 2816,
+   "wo_program_config": null,
+   "mlp_down_program_config": null,
+   "qkv_minimal": true,
+   "wo_minimal": false
+  },
+  "10x256": {
+   "batch_size": 10,
+   "seq_len": 256,
+   "rows": 2560,
+   "attention_memory": "L1",
+   "down_core_grid": "ttnn.CoreGrid(x=8, y=8)",
+   "qkv_program_config": null,
+   "minimal_config": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=11-10)",
+   "sdpa_program_config": "SDPAProgramConfig(compute_with_storage_grid_size=8-8, sub_core_grids=std::nullopt, q_chunk_size=256, k_chunk_size=256, exp_approx_mode=false, max_cores_per_head_batch=16)",
+   "mlp_sharded": false,
+   "mlp_width": 2816,
+   "wo_program_config": null,
+   "mlp_down_program_config": null,
+   "qkv_minimal": true,
+   "wo_minimal": false
+  },
+  "50x256": {
+   "batch_size": 50,
+   "seq_len": 256,
+   "rows": 12800,
+   "attention_memory": "DRAM",
+   "down_core_grid": "ttnn.CoreGrid(x=8, y=8)",
+   "qkv_program_config": null,
+   "minimal_config": "MinimalMatmulConfig(M_block_size=8,K_block_size=8,N_block_size=8,subblock_h=1,subblock_w=1,compute_with_storage_grid_size=11-10)",
+   "sdpa_program_config": "SDPAProgramConfig(compute_with_storage_grid_size=8-8, sub_core_grids=std::nullopt, q_chunk_size=256, k_chunk_size=256, exp_approx_mode=false, max_cores_per_head_batch=16)",
+   "mlp_sharded": false,
+   "mlp_width": 2816,
+   "wo_program_config": null,
+   "mlp_down_program_config": null,
+   "qkv_minimal": true,
+   "wo_minimal": true
+  }
+ },
+ "loadavg_end": [
+  3.01,
+  2.99,
+  2.49
+ ]
+}

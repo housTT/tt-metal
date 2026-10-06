@@ -105,3 +105,12 @@ the tracked runs (`TT_METAL_TRACE_ALLOC_TRACKING=1`, 30 replays in stage 2 and 3
 with `unsafe_allocation_error` null and bit-identical repeated replays, so those allocations are the per-bucket output
 buffers that are marked corruptible and never reused across buckets; the stage 7 all-bucket tracked run is the gate
 that covers all seven captures in one process.
+
+## Note appended by stage 7 (2026 Oct 5, Track T3): head-layer ReLU is a separate device op
+
+The stage 7 full-forward device profiles (`../optimized_full_model/tracy/forward_b64s256/perf_report.csv` and
+`forward_b64s512`) show two `UnaryDeviceOperation` calls per forward right after the two head-layer `linear1` matmuls
+(690 us each at 64x256, 345 us at 64x512), so the ReLU passed as `activation=` on the biased `ttnn.linear` of
+`tt/laya_head.py: TtnnHeadLayer` runs as its own op on ttnn's automatic matmul path; it is not fused as the table above
+states. The GeGLU erf GELU (explicit program config) and the scorer GELU are fused (no further unary ops in the pass).
+Cost: 0.5 percent of the 64x256 forward; recorded as an open item in `../optimized_full_model/README.md`.

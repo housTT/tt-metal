@@ -304,3 +304,15 @@ interleaved), 0.99845 (4x512), 0.99784 (8x512), 0.99939 (1x1024); end to end mar
 No host fallback runs in a measured pass: every op in the profiles is a device op; the only host work per call is the
 three input copies and the two readbacks.
 
+
+## Note appended by stage 7 (2026 Oct 5, Track T3): bucket plans changed
+
+Stage 7 (`../optimized_full_model/README.md`) added seq buckets 128 and 256 and exact row buckets 5, 10 and 50, and
+re-ran the A/B pairs this README deferred. Two shipped choices changed in `tt/model_config.py: DEFAULT_PORT`:
+the interleaved GeGLU program config now takes an 11x10 grid wherever the tile-row count divides by 10
+(`mlp_grid_y_choices = (10, 8, 5, 4, 2, 1)`; minus 4 to 5 percent at 2560, 6400, 12800 and 25600 rows, minus 31 percent
+at 640 rows where the 11x8 config did not apply), and the GeGLU plan is interleaved at every bucket
+(`geglu_plan = "interleaved"`): under the erf policy the block-sharded plan is a dead heat at 1024 and 2048 rows
+(within 1.5 percent) and loses 3 percent at 1280 rows. The clean Wo threshold pair at 2x512 and 4x512 is within 1 percent
+either way, so `wo_minimal_min_rows = 4096` stays. The stage 3 port is kept as `STAGE3_PORT` for reruns of this README's
+numbers. Details and the full A/B table: `../optimized_full_model/README.md`.

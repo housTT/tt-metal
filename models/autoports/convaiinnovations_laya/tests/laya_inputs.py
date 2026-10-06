@@ -4,7 +4,7 @@
 import json
 import os
 from functools import lru_cache
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 import torch
 
@@ -101,17 +101,26 @@ def collate(items: List[dict], seq_len: int) -> Dict[str, torch.Tensor]:
     }
 
 
-def build_inputs(batch_size: int = 1, seq_len: int = MAX_LEN, offset: int = 0, fill: bool = False):
-    """Real typed-decisions sequences, padded to `seq_len`. With `fill` the last row is extended with state text so the batch has one unpadded row."""
-    items = question_items(batch_size, offset=offset)
+def build_inputs(batch_size: int = 1, seq_len: int = MAX_LEN, offset: int = 0, fill: bool = False, max_len=None):
+    """Real typed-decisions sequences, padded to `seq_len`. With `fill` the last row is extended with state text so the batch has one unpadded row.
+
+    `max_len` (default: the smaller of 512 and `seq_len`) is the sequence budget given to the vendored builder, so rows fit short seq buckets.
+    """
+    if max_len is None:
+        max_len = min(MAX_LEN, seq_len)
+    head = HEAD_MAX_LEN if max_len >= MAX_LEN else min(HEAD_MAX_LEN, max_len // 2)
+    items = question_items(batch_size, max_len=max_len, head_max_len=head, offset=offset)
     if fill:
         tok = load_tokenizer()
-        filler = " ".join(json.loads(c["state"]).get("task", "") if c["state"].startswith("{") else c["state"] for c in load_cases()[:40])
+        filler = " ".join(
+            json.loads(c["state"]).get("task", "") if c["state"].startswith("{") else c["state"]
+            for c in load_cases()[:40]
+        )
         extra = tok(filler, add_special_tokens=False)["input_ids"]
         ids = items[-1]["ids"]
         room = seq_len - len(ids)
         if room > 0:
-            items[-1]["ids"] = ids[:-1] + extra[: room] + [ids[-1]]
+            items[-1]["ids"] = ids[:-1] + extra[:room] + [ids[-1]]
     return collate(items, seq_len)
 
 

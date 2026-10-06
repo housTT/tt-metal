@@ -260,6 +260,14 @@ def main(argv=None):
     ap.add_argument("--threads", type=int, default=6)
     ap.add_argument("--no-trace", action="store_true")
     ap.add_argument("--trace-region", type=int, default=512 * 1024 * 1024)
+    ap.add_argument("--seq-buckets", default=None, help="comma list; default: 512 only (the stage 6 protocol)")
+    ap.add_argument(
+        "--row-buckets", default=None, help="comma list; default: the buckets the call sizes need from ROW_BUCKETS"
+    )
+    ap.add_argument("--label", default=None, help="suffix of the output file name")
+    ap.add_argument(
+        "--hidden-cache", default=None, help="torch file caching the CPU fp32 hidden states of the hidden-state cases"
+    )
     a = ap.parse_args(argv)
     torch.set_num_threads(a.threads)
     os.environ.setdefault("LAYA_CPU_THREADS", str(a.threads))
@@ -271,6 +279,8 @@ def main(argv=None):
     policy = mc.policy_from_name(a.policy)
     os.makedirs(DOC_DIR, exist_ok=True)
     suffix = f"_b{a.chunk}" if a.chunk else ""
+    if a.label:
+        suffix += f"_{a.label}"
     out = a.out or os.path.join(DOC_DIR, f"fidelity_{policy.name}_{a.mesh}{suffix}.json")
     data = load_corpus()
     calls = data["calls"] if a.items == "all" else [c for c in data["calls"] if int(data["source"][c[0]]) == 0]
@@ -295,33 +305,43 @@ def main(argv=None):
     t0 = time.perf_counter()
     num_devices = mesh[0] * mesh[1]
     per_device = sorted({-(-s // num_devices) for s in sizes})
-    row_buckets = tuple(sorted({mc.pick_bucket(p, mc.ROW_BUCKETS) for p in per_device}))
+    if a.row_buckets:
+        row_buckets = tuple(sorted(int(x) for x in a.row_buckets.split(",")))
+    else:
+        row_buckets = tuple(sorted({mc.pick_bucket(p, mc.ROW_BUCKETS) for p in per_device}))
+    seq_buckets = tuple(sorted(int(x) for x in a.seq_buckets.split(","))) if a.seq_buckets else (SEQ,)
+    report["row_buckets"] = list(row_buckets)
+    report["seq_buckets"] = list(seq_buckets)
     engine = LayaEngine(
         mesh_shape=mesh,
         policy=policy,
         row_buckets=row_buckets,
-        seq_buckets=(SEQ,),
+        seq_buckets=seq_buckets,
         trace=not a.no_trace,
         trace_region_size=a.trace_region,
-        warmup_shapes=[(b, SEQ) for b in row_buckets],
+        warmup_shapes=[(b, s) for s in seq_buckets for b in row_buckets],
         threads=a.threads,
     )
     report["engine"] = engine.shapes()
     report["engine_load_seconds"] = round(time.perf_counter() - t0, 1)
     records = []
     device_ms = []
+    bucket_hist = {}
     for rows in calls:
         t = call_tensors(data, rows)
         res = engine.forward_detailed(
             t["input_ids"], t["attention_mask"], t["marker_pos"], t["marker_mask"], t["qtype"]
         )
         device_ms.append(res["device_ms"])
+        bk = f"{res['bucket'][0]}x{res['bucket'][1]}"
+        bucket_hist[bk] = bucket_hist.get(bk, 0) + 1
         lg = res["logits"].numpy()
         act = res["act_logits"].numpy()
         for i, r in enumerate(rows):
             records.append(item_metrics(data, r, lg[i], act[i]))
     report["device_ms_per_call_p50"] = float(np.median(device_ms))
     report["device_ms_per_call_max"] = float(np.max(device_ms))
+    report["bucket_histogram"] = dict(sorted(bucket_hist.items()))
     report["loadavg_after_device_pass"] = loadavg()
     gate_records = [x for x in records if x["source"] == 0]
     report["gate_subset"] = aggregate(gate_records, data, "gate subset (200 typed-decisions decisions)")
@@ -330,13 +350,21 @@ def main(argv=None):
         report["parity_fast"] = aggregate([x for x in records if x["source"] == 1], data, "parity_fast (288 items)")
     hidden = None
     if a.hidden_cases > 0:
-        reference = LayaReference(threads=a.threads)
-        report["reference_load_seconds"] = round(reference.load_seconds, 1)
+        reference = None
         cache = {}
+        if a.hidden_cache and os.path.exists(a.hidden_cache):
+            cache = torch.load(a.hidden_cache)
+            report["hidden_cache_loaded"] = a.hidden_cache
         gate_calls = [c for c in calls if int(data["source"][c[0]]) == 0][: a.hidden_cases]
         per_call = []
         pooled = {"enc_ref": [], "enc_dev": [], "head_ref": [], "head_dev": []}
+        cache_dirty = False
         for rows in gate_calls:
+            if tuple(rows) not in cache:
+                cache_dirty = True
+                if reference is None:
+                    reference = LayaReference(threads=a.threads)
+                    report["reference_load_seconds"] = round(reference.load_seconds, 1)
             h = hidden_check(engine, reference, data, rows, cache)
             p = h.pop("pooled")
             for k in pooled:
@@ -346,6 +374,10 @@ def main(argv=None):
                 "HIDDEN",
                 json.dumps({k: v for k, v in h.items() if k not in ("encoder_pcc_per_row", "head_pcc_per_row")}),
             )
+        if a.hidden_cache and cache_dirty:
+            os.makedirs(os.path.dirname(a.hidden_cache), exist_ok=True)
+            torch.save(cache, a.hidden_cache)
+            report["hidden_cache_written"] = a.hidden_cache
         hidden = {
             "cases": len(per_call),
             "encoder_pcc_pooled": pcc(torch.cat(pooled["enc_ref"]), torch.cat(pooled["enc_dev"])),
