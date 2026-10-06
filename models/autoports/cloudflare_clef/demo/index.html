@@ -1,0 +1,937 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clef demo</title>
+<style>
+:root {
+  --bg: #f7f7f5;
+  --fg: #1a1a1a;
+  --muted: #6b6b66;
+  --border: #d9d9d4;
+  --card: #ffffff;
+  --input: #ffffff;
+  --accent: #1f5fbf;
+  --accent-fg: #ffffff;
+  --track: #e6e6e1;
+  --bar: #1a1a1a;
+  --bar-dim: #a3a39d;
+  --ok: #1e7f4f;
+  --bad: #b3261e;
+  --warn: #8a5a00;
+  --mark: #1f5fbf;
+  --code-bg: #f0f0ec;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131416;
+    --fg: #ececea;
+    --muted: #9a9a94;
+    --border: #2e3034;
+    --card: #1b1d20;
+    --input: #121315;
+    --accent: #6ea0ea;
+    --accent-fg: #0f1115;
+    --track: #2a2c30;
+    --bar: #ececea;
+    --bar-dim: #6a6a66;
+    --ok: #5fc78f;
+    --bad: #f28b82;
+    --warn: #e0b35a;
+    --mark: #6ea0ea;
+    --code-bg: #0f1012;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131416;
+  --fg: #ececea;
+  --muted: #9a9a94;
+  --border: #2e3034;
+  --card: #1b1d20;
+  --input: #121315;
+  --accent: #6ea0ea;
+  --accent-fg: #0f1115;
+  --track: #2a2c30;
+  --bar: #ececea;
+  --bar-dim: #6a6a66;
+  --ok: #5fc78f;
+  --bad: #f28b82;
+  --warn: #e0b35a;
+  --mark: #6ea0ea;
+  --code-bg: #0f1012;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  padding: 0 16px 48px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+code, pre, textarea, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+h1 { font-size: 20px; margin: 20px 0 2px; letter-spacing: -0.01em; }
+h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 18px 0 6px; font-weight: 600; }
+p { margin: 0 0 8px; }
+.sub { color: var(--muted); margin-bottom: 12px; }
+.server-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: end; }
+.server-row label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); flex: 1 1 260px; }
+.server-row label.narrow { flex: 0 1 300px; }
+input[type="url"], input[type="password"], textarea {
+  width: 100%;
+  background: var(--input);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+textarea { resize: vertical; line-height: 1.4; }
+#state { min-height: 140px; }
+#questions { min-height: 260px; }
+button {
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; }
+button.active { border-color: var(--fg); font-weight: 600; }
+.status { margin-top: 8px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.status.ok::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; }
+.status.bad::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); margin-right: 6px; }
+.grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 0 28px; }
+@media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.cases { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.cases button { font-size: 12px; padding: 3px 8px; }
+.blurb { color: var(--muted); font-size: 12px; margin-top: 6px; min-height: 1.4em; }
+.chk { font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; margin-left: 10px; }
+.row-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 4px 10px; }
+.err { color: var(--bad); font-size: 12px; margin-top: 4px; min-height: 1.2em; overflow-wrap: anywhere; white-space: pre-wrap; }
+.run-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.hint { color: var(--muted); font-size: 12px; }
+.thumbs { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin-top: 4px; }
+.thumb { position: relative; border: 1px solid var(--border); border-radius: 6px; background: var(--card); padding: 4px; max-width: 180px; }
+.thumb img { display: block; max-height: 110px; max-width: 170px; border-radius: 3px; }
+.thumb .cap { font-size: 11px; color: var(--muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thumb .rm { position: absolute; top: 2px; right: 2px; padding: 0 6px; font-size: 12px; line-height: 18px; }
+.file-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 6px; }
+.file-row input { font-size: 12px; max-width: 100%; }
+.tabs { display: flex; gap: 6px; margin: 18px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+.tab[hidden] { display: none; }
+.metrics { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.metrics b { color: var(--fg); font-weight: 600; }
+.metrics .wide { flex-basis: 100%; }
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 11rem) minmax(0, 1fr);
+  gap: 6px 18px;
+}
+@media (max-width: 560px) { .card { grid-template-columns: minmax(0, 1fr); } }
+.card .qid { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.card .instr { font-size: 13px; margin: 2px 0 4px; overflow-wrap: anywhere; }
+.card .headline { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.card .detail { font-size: 12px; color: var(--muted); }
+.card .verdict { font-size: 12px; font-weight: 600; }
+.ok { color: var(--ok); }
+.bad { color: var(--bad); }
+.warn { color: var(--warn); }
+.lanes { display: flex; flex-direction: column; justify-content: center; gap: 3px; min-width: 0; }
+.lane { display: grid; grid-template-columns: minmax(0, 8rem) minmax(0, 1fr) 3.4rem; align-items: center; gap: 0 10px; font-size: 12px; line-height: 18px; color: var(--muted); }
+.lane.top { color: var(--fg); }
+.lane .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lane .track { position: relative; height: 5px; border-radius: 3px; background: var(--track); }
+.lane .fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 3px; background: var(--bar-dim); }
+.lane.top .fill { background: var(--bar); }
+.lane .half { position: absolute; top: -3px; bottom: -3px; left: 50%; width: 1px; background: var(--border); }
+.lane .value { text-align: right; }
+.scale { display: grid; grid-template-columns: minmax(0, 8rem) minmax(0, 1fr) 3.4rem; gap: 0 10px; font-size: 11px; color: var(--muted); align-items: center; margin-top: 2px; }
+.scale .axis { position: relative; height: 10px; border-top: 1px solid var(--border); }
+.scale .tick { position: absolute; top: -5px; width: 2px; height: 10px; background: var(--mark); transform: translateX(-1px); }
+.replay-row { display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; align-items: baseline; }
+.replay-row .id { flex: 1 1 200px; overflow-wrap: anywhere; }
+.replay-row .lat { width: 5.5rem; text-align: right; color: var(--muted); }
+.replay-row .tok { width: 5rem; text-align: right; color: var(--muted); }
+.replay-row .qs { flex-basis: 100%; color: var(--muted); overflow-wrap: anywhere; }
+.replay-row .res { width: 2.8rem; font-weight: 600; }
+.snippet { margin-bottom: 14px; }
+.snippet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; font-size: 12px; color: var(--muted); }
+pre {
+  margin: 0;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 420px;
+  overflow: auto;
+}
+footer { margin-top: 28px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 10px; }
+.empty { color: var(--muted); font-size: 13px; padding: 10px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Cloudflare/clef on Tenstorrent</h1>
+  <p class="sub">One request, several decisions at once: choice, yes/no (noul) and score questions over one state, text or image, answered by the Clef joint schema head served from two Blackhole chips (TP=2).</p>
+  <div class="server-row">
+    <label>Server URL<input id="server" type="url" value="http://127.0.0.1:8008" spellcheck="false"></label>
+    <label class="narrow">API key (only if the server sets CLEF_API_KEY)<input id="apikey" type="password" autocomplete="off"></label>
+    <button id="refresh" type="button">Check server</button>
+  </div>
+  <div id="status" class="status">checking the server</div>
+</header>
+
+<main class="grid">
+  <section>
+    <h2>Presets</h2>
+    <div id="presets" class="presets"></div>
+    <div id="cases" class="cases"></div>
+    <div id="blurb" class="blurb"></div>
+
+    <div class="row-head"><h2>State</h2><label class="chk"><input id="statejson" type="checkbox"> parse as JSON</label></div>
+    <textarea id="state" spellcheck="false"></textarea>
+    <div id="state-error" class="err"></div>
+
+    <div class="row-head"><h2>Images</h2><span class="hint">sent as base64 in <code>images</code>, in this order</span></div>
+    <div id="thumbs" class="thumbs"></div>
+    <div class="file-row">
+      <input id="file" type="file" accept="image/*" multiple>
+      <button id="clear-images" type="button">Remove all</button>
+    </div>
+    <div id="img-error" class="err"></div>
+
+    <div class="row-head"><h2>Questions</h2><span class="hint">JSON object: id to {type, instructions, criteria}</span></div>
+    <textarea id="questions" spellcheck="false"></textarea>
+    <div id="q-error" class="err"></div>
+
+    <div class="run-row">
+      <button id="run" class="primary" type="button">Run</button>
+      <span class="hint">Ctrl+Enter in either editor also runs</span>
+    </div>
+    <div id="run-error" class="err"></div>
+  </section>
+
+  <section>
+    <div class="tabs" role="tablist">
+      <button type="button" data-tab="answers" class="active">Answers</button>
+      <button type="button" data-tab="replay">Replay</button>
+      <button type="button" data-tab="snippets">Snippets</button>
+    </div>
+
+    <div id="tab-answers" class="tab">
+      <div id="metrics" class="metrics"></div>
+      <div id="answers"><div class="empty">Pick a preset and press Run.</div></div>
+    </div>
+
+    <div id="tab-replay" class="tab" hidden>
+      <p class="hint">Sends the bundled labelled records one after another (one TP group answers one request at a time) and compares the top answer with the label. Accuracy is over questions; a record passes when every question is right. 8 ARC-Challenge, 8 BANKING77 (77-option schema), 8 New Yorker cartoons with images.</p>
+      <div class="run-row">
+        <button id="replay-run" class="primary" type="button">Run replay</button>
+        <button id="replay-stop" type="button" disabled>Stop</button>
+        <span id="replay-count" class="hint"></span>
+      </div>
+      <div id="replay-stats" class="metrics"></div>
+      <div id="replay-rows"></div>
+    </div>
+
+    <div id="tab-snippets" class="tab" hidden>
+      <p class="hint">The current request, ready to paste. Edit the state, images or questions and the snippets follow. Image bytes are read from the listed files at run time, so run these from the demo directory.</p>
+      <div class="snippet"><div class="snippet-head"><span>curl</span><button type="button" class="copy" data-for="snip-curl">Copy</button></div><pre id="snip-curl"></pre></div>
+      <div class="snippet"><div class="snippet-head"><span>Python, requests</span><button type="button" class="copy" data-for="snip-requests">Copy</button></div><pre id="snip-requests"></pre></div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Static page, no build step. It calls <code>POST /v1/systemone</code>, <code>GET /v1/models</code> and <code>GET /health</code> on the server above from the browser. Presets come from <code>presets.json</code>, shared with <code>quickstart.py</code>. Layout and bar rendering after the kev-9b demo and the kev playground (Apache-2.0). Cartoons from jmhessel/newyorker_caption_contest (CC BY 4.0).
+</footer>
+
+<script id="clef-core">
+"use strict";
+const CLEF = (() => {
+  const TYPES = new Set(["noul", "choice", "score"]);
+
+  function buildRequest(state, questions, model, images) {
+    const req = { model: model, state: state, questions: questions };
+    if (images && images.length) req.images = images.slice();
+    return req;
+  }
+
+  function parseState(text, asJson) {
+    if (!asJson) return text;
+    return JSON.parse(text);
+  }
+
+  function parseQuestions(text) {
+    let q;
+    try {
+      q = JSON.parse(text);
+    } catch (e) {
+      throw new Error("questions: " + e.message);
+    }
+    if (q === null || typeof q !== "object" || Array.isArray(q)) throw new Error("questions must be a JSON object keyed by question id");
+    const ids = Object.keys(q);
+    if (!ids.length) throw new Error("at least one question is required");
+    for (const id of ids) {
+      const item = q[id];
+      if (item === null || typeof item !== "object" || Array.isArray(item)) throw new Error(id + ": must be an object");
+      if (!TYPES.has(item.type)) throw new Error(id + ": type must be noul, choice, or score");
+      if (item.type === "choice" && (item.criteria === null || typeof item.criteria !== "object" || Array.isArray(item.criteria) || !Object.keys(item.criteria).length)) throw new Error(id + ": choice criteria must be a non-empty mapping of option id to description");
+      if (item.type === "score" && (!Array.isArray(item.criteria) || !item.criteria.length)) throw new Error(id + ": score criteria must be a non-empty list of ordered option descriptions");
+      if (item.type === "noul" && item.criteria !== undefined && item.criteria !== null && (typeof item.criteria !== "object" || Array.isArray(item.criteria))) throw new Error(id + ": noul criteria must be a mapping with optional true and false descriptions");
+    }
+    return q;
+  }
+
+  function predicted(answer) {
+    if (answer.type === "choice") return answer.choice;
+    if (answer.type === "noul") return answer.noul >= 0.5;
+    const probs = answer.probabilities;
+    let best = null;
+    for (const k of Object.keys(probs)) if (best === null || probs[k] > probs[best]) best = k;
+    return Number(best);
+  }
+
+  function same(pred, label) {
+    if (typeof pred === "boolean" || typeof label === "boolean") return Boolean(pred) === Boolean(label);
+    return String(pred) === String(label);
+  }
+
+  function formatLabel(v) {
+    if (typeof v === "boolean") return v ? "true" : "false";
+    return String(v);
+  }
+
+  function pyString(s) {
+    return JSON.stringify(s);
+  }
+
+  function pyLiteral(v, pad) {
+    pad = pad || "";
+    const inner = pad + "    ";
+    if (v === null || v === undefined) return "None";
+    if (v === true) return "True";
+    if (v === false) return "False";
+    if (typeof v === "number") return String(v);
+    if (typeof v === "string") return pyString(v);
+    if (Array.isArray(v)) {
+      if (!v.length) return "[]";
+      return "[\n" + v.map((x) => inner + pyLiteral(x, inner)).join(",\n") + ",\n" + pad + "]";
+    }
+    const keys = Object.keys(v);
+    if (!keys.length) return "{}";
+    return "{\n" + keys.map((k) => inner + pyString(k) + ": " + pyLiteral(v[k], inner)).join(",\n") + ",\n" + pad + "}";
+  }
+
+  function withoutImages(req) {
+    const copy = {};
+    for (const k of Object.keys(req)) if (k !== "images") copy[k] = req[k];
+    return copy;
+  }
+
+  function shellEscapeHeredoc(text) {
+    return text.replace(/\\/g, "\\\\").replace(/\$/g, "\\$").replace(/`/g, "\\`");
+  }
+
+  function snippetCurl(server, apiKey, req, imagePaths) {
+    const base = server.replace(/\/$/, "");
+    const lines = [];
+    const paths = imagePaths || [];
+    paths.forEach((p, i) => lines.push("IMG" + i + "=$(base64 -w0 " + JSON.stringify(p) + ")"));
+    lines.push("curl -s " + base + "/v1/systemone \\");
+    lines.push("  -H 'content-type: application/json' \\");
+    if (apiKey) lines.push("  -H 'authorization: Bearer " + apiKey.replace(/'/g, "'\\''") + "' \\");
+    if (!paths.length) {
+      lines.push("  -d @- <<'CLEF_JSON'");
+      lines.push(JSON.stringify(withoutImages(req), null, 2));
+    } else {
+      const body = withoutImages(req);
+      body.images = paths.map((_, i) => "__CLEF_IMG" + i + "__");
+      let text = shellEscapeHeredoc(JSON.stringify(body, null, 2));
+      paths.forEach((_, i) => { text = text.replace('"__CLEF_IMG' + i + '__"', '"$IMG' + i + '"'); });
+      lines.push("  -d @- <<CLEF_JSON");
+      lines.push(text);
+    }
+    lines.push("CLEF_JSON");
+    return lines.join("\n");
+  }
+
+  function snippetRequests(server, apiKey, req, imagePaths) {
+    const headers = apiKey ? "{\"authorization\": \"Bearer " + apiKey.replace(/"/g, '\\"') + "\"}" : "{}";
+    const paths = imagePaths || [];
+    const out = ["import json", "import requests"];
+    if (paths.length) out.splice(0, 0, "import base64");
+    out.push("", "SERVER = " + pyString(server.replace(/\/$/, "")), "HEADERS = " + headers);
+    out.push("request = " + pyLiteral(withoutImages(req)));
+    if (paths.length) {
+      out.push("IMAGE_PATHS = " + pyLiteral(paths));
+      out.push("request[\"images\"] = [base64.b64encode(open(p, \"rb\").read()).decode() for p in IMAGE_PATHS]");
+    }
+    out.push(
+      "",
+      "r = requests.post(f\"{SERVER}/v1/systemone\", json=request, headers=HEADERS, timeout=600)",
+      "r.raise_for_status()",
+      "print(json.dumps(r.json(), indent=2))"
+    );
+    return out.join("\n");
+  }
+
+  function detailText(payload) {
+    if (payload === null || payload === undefined) return "";
+    const d = payload.detail !== undefined ? payload.detail : payload;
+    if (Array.isArray(d)) return d.map((e) => (e.loc || []).join(".") + ": " + (e.msg || "")).join("; ");
+    return typeof d === "string" ? d : JSON.stringify(d);
+  }
+
+  function explainError(status, payload, server, apiKey) {
+    if (status === 0) {
+      let msg = "Cannot reach " + server + ". Start the server first (README.md section 1: the devrun uvicorn command, or CLEF_FAKE_ENGINE=1 for a CPU stand-in) or fix the URL.";
+      if (apiKey) msg += " A server started with CLEF_API_KEY may refuse the browser's CORS preflight; use quickstart.py --api-key against such a server.";
+      return msg;
+    }
+    if (status === 401) return "401: " + detailText(payload) + " Enter the key in the API key field.";
+    if (status === 422) return "422: " + detailText(payload);
+    return "HTTP " + status + ": " + detailText(payload);
+  }
+
+  function mean(xs) {
+    return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+  }
+
+  function median(xs) {
+    if (!xs.length) return 0;
+    const s = xs.slice().sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
+
+  function fmt(x, digits) {
+    return Number(x).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  }
+
+  return { buildRequest, parseState, parseQuestions, predicted, same, formatLabel, pyLiteral, snippetCurl, snippetRequests, detailText, explainError, mean, median, fmt };
+})();
+if (typeof module !== "undefined") module.exports = CLEF;
+</script>
+
+<script>
+"use strict";
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const serverInput = $("server");
+  const apiKeyInput = $("apikey");
+  const stateInput = $("state");
+  const stateJson = $("statejson");
+  const questionsInput = $("questions");
+  const runButton = $("run");
+  const status = $("status");
+  const fileInput = $("file");
+
+  let data = { presets: [], replay: [], model: "clef" };
+  let currentLabels = null;
+  let currentPreset = null;
+  let images = [];
+  let imageLoadSeq = 0;
+  let replayStop = false;
+  let running = false;
+  const assetCache = new Map();
+
+  function el(tag, attrs, children) {
+    const node = document.createElement(tag);
+    if (attrs) for (const k of Object.keys(attrs)) {
+      if (k === "class") node.className = attrs[k];
+      else if (k === "text") node.textContent = attrs[k];
+      else if (k === "style") node.style.cssText = attrs[k];
+      else node.setAttribute(k, attrs[k]);
+    }
+    if (children) for (const c of children) if (c !== null && c !== undefined) node.appendChild(typeof c === "string" ? document.createTextNode(c) : c);
+    return node;
+  }
+
+  function serverUrl() {
+    return serverInput.value.trim().replace(/\/$/, "") || "http://127.0.0.1:8008";
+  }
+
+  function modelName() {
+    return data.model || "clef";
+  }
+
+  function headers(json) {
+    const h = {};
+    if (json) h["content-type"] = "application/json";
+    const key = apiKeyInput.value.trim();
+    if (key) h["authorization"] = "Bearer " + key;
+    return h;
+  }
+
+  async function fetchJson(path, init) {
+    let r;
+    try {
+      r = await fetch(serverUrl() + path, init);
+    } catch (e) {
+      return { status: 0, payload: { detail: String(e) } };
+    }
+    const text = await r.text();
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch (e) {
+      payload = { detail: text };
+    }
+    return { status: r.status, payload: payload };
+  }
+
+  function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).replace(/^data:[^,]*,/, ""));
+      reader.onerror = () => reject(reader.error || new Error("read failed"));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function loadAsset(path) {
+    if (assetCache.has(path)) return assetCache.get(path);
+    const r = await fetch(path, { cache: "force-cache" });
+    if (!r.ok) throw new Error(path + ": HTTP " + r.status);
+    const blob = await r.blob();
+    const b64 = await blobToBase64(blob);
+    const item = { name: path, path: path, b64: b64, mime: blob.type || "image/png", bytes: blob.size };
+    assetCache.set(path, item);
+    return item;
+  }
+
+  function applyHash() {
+    const m = /[#&]server=([^&]+)/.exec(location.hash);
+    if (m) serverInput.value = decodeURIComponent(m[1]);
+  }
+
+  async function refreshStatus() {
+    status.className = "status";
+    status.textContent = "checking " + serverUrl();
+    const health = await fetchJson("/health");
+    if (health.status !== 200) {
+      status.className = "status bad";
+      status.textContent = CLEF.explainError(health.status, health.payload, serverUrl(), "");
+      return null;
+    }
+    const models = await fetchJson("/v1/models", { headers: headers(false) });
+    if (models.status !== 200) {
+      status.className = "status bad";
+      status.textContent = "health ok (" + health.payload.workers + " worker(s)), /v1/models: " + CLEF.explainError(models.status, models.payload, serverUrl(), apiKeyInput.value.trim());
+      return null;
+    }
+    const card = models.payload.models[0];
+    const cache = card.prefix_cache || {};
+    const media = (card.workers || []).every((w) => w.media) ? "images on" : "images off";
+    status.className = "status ok";
+    status.textContent = card.name + ", backend " + card.backend + ", device " + card.device + ", mesh " + card.mesh_shape + ", " + (card.workers || []).length + " worker(s), " + media + ", prefix cache " + cache.cached_states + "/" + cache.size + " states (hits " + cache.hits + ", misses " + cache.misses + "), queued " + health.payload.queued + ", max state " + CLEF.fmt(card.max_state_tokens, 0) + " tokens, " + (card.traced ? "traced" : "eager");
+    return card;
+  }
+
+  function currentRequest() {
+    const state = CLEF.parseState(stateInput.value, stateJson.checked);
+    const questions = CLEF.parseQuestions(questionsInput.value);
+    return CLEF.buildRequest(state, questions, modelName(), images.map((i) => i.b64));
+  }
+
+  function validate() {
+    let ok = true;
+    try {
+      CLEF.parseState(stateInput.value, stateJson.checked);
+      $("state-error").textContent = "";
+    } catch (e) {
+      $("state-error").textContent = "state: " + e.message;
+      ok = false;
+    }
+    try {
+      CLEF.parseQuestions(questionsInput.value);
+      $("q-error").textContent = "";
+    } catch (e) {
+      $("q-error").textContent = e.message;
+      ok = false;
+    }
+    runButton.disabled = !ok || running;
+    if (ok) renderSnippets();
+    return ok;
+  }
+
+  function renderSnippets() {
+    let req;
+    try {
+      req = currentRequest();
+    } catch (e) {
+      return;
+    }
+    const key = apiKeyInput.value.trim();
+    const paths = images.map((i) => i.path || i.name);
+    $("snip-curl").textContent = CLEF.snippetCurl(serverUrl(), key, req, paths);
+    $("snip-requests").textContent = CLEF.snippetRequests(serverUrl(), key, req, paths);
+  }
+
+  function renderThumbs() {
+    const box = $("thumbs");
+    box.textContent = "";
+    images.forEach((img, i) => {
+      const node = el("div", { class: "thumb" }, [
+        el("img", { src: "data:" + img.mime + ";base64," + img.b64, alt: img.name }),
+        el("div", { class: "cap", title: img.name, text: img.name + " (" + CLEF.fmt(img.bytes / 1024, 0) + " KiB)" }),
+      ]);
+      const rm = el("button", { type: "button", class: "rm", title: "remove", text: "x" });
+      rm.addEventListener("click", () => { images.splice(i, 1); currentLabels = null; renderThumbs(); renderSnippets(); });
+      node.appendChild(rm);
+      box.appendChild(node);
+    });
+    if (!images.length) box.appendChild(el("span", { class: "hint", text: "no image attached (text-only request)" }));
+  }
+
+  async function setPresetImages(paths) {
+    const seq = ++imageLoadSeq;
+    images = [];
+    renderThumbs();
+    $("img-error").textContent = "";
+    if (!paths || !paths.length) { renderSnippets(); return; }
+    runButton.disabled = true;
+    try {
+      const loaded = [];
+      for (const p of paths) loaded.push(await loadAsset(p));
+      if (seq !== imageLoadSeq) return;
+      images = loaded;
+    } catch (e) {
+      if (seq !== imageLoadSeq) return;
+      $("img-error").textContent = "Could not load a bundled image: " + e.message + ". Serve this directory with run.sh.";
+    }
+    renderThumbs();
+    validate();
+  }
+
+  async function attachFiles(files) {
+    $("img-error").textContent = "";
+    for (const f of files) {
+      if (!f.type.startsWith("image/")) { $("img-error").textContent = f.name + ": not an image"; continue; }
+      try {
+        const b64 = await blobToBase64(f);
+        images.push({ name: f.name, path: f.name, b64: b64, mime: f.type, bytes: f.size });
+      } catch (e) {
+        $("img-error").textContent = f.name + ": " + e.message;
+      }
+    }
+    currentLabels = null;
+    renderThumbs();
+    validate();
+  }
+
+  function loadCase(preset, c) {
+    const isString = typeof c.state === "string";
+    stateJson.checked = !isString;
+    stateInput.value = isString ? c.state : JSON.stringify(c.state, null, 2);
+    questionsInput.value = JSON.stringify(c.questions, null, 2);
+    currentLabels = c.labels && Object.keys(c.labels).length ? c.labels : null;
+    currentPreset = preset;
+    $("blurb").textContent = preset.what_it_shows + " Source: " + c.source + ".";
+    $("run-error").textContent = "";
+    validate();
+    setPresetImages(c.images || []);
+  }
+
+  function renderPresets() {
+    const box = $("presets");
+    box.textContent = "";
+    data.presets.forEach((p, i) => {
+      const b = el("button", { type: "button", text: p.title });
+      b.addEventListener("click", () => selectPreset(i, 0));
+      box.appendChild(b);
+    });
+  }
+
+  function selectPreset(i, j) {
+    const p = data.presets[i];
+    Array.from($("presets").children).forEach((b, k) => b.classList.toggle("active", k === i));
+    const cases = $("cases");
+    cases.textContent = "";
+    if (p.cases.length > 1) {
+      p.cases.forEach((c, k) => {
+        const b = el("button", { type: "button", text: c.name, class: k === j ? "active" : "" });
+        b.addEventListener("click", () => selectPreset(i, k));
+        cases.appendChild(b);
+      });
+    }
+    loadCase(p, p.cases[j]);
+  }
+
+  function lane(label, p, top, mono, halfMark) {
+    const track = el("span", { class: "track" }, [el("span", { class: "fill", style: "width:" + Math.round(Math.max(0, Math.min(1, p)) * 100) + "%" })]);
+    if (halfMark) track.appendChild(el("span", { class: "half", title: "0.5" }));
+    return el("div", { class: "lane" + (top ? " top" : "") }, [
+      el("span", { class: "label" + (mono ? " mono" : ""), title: label, text: label }),
+      track,
+      el("span", { class: "value", text: CLEF.fmt(p, 4) }),
+    ]);
+  }
+
+  function answerCard(id, q, a, label) {
+    const instr = q && q.instructions !== undefined ? (typeof q.instructions === "string" ? q.instructions : JSON.stringify(q.instructions)) : "";
+    let headline, detail;
+    const lanes = el("div", { class: "lanes" });
+    if (a.type === "noul") {
+      headline = a.noul >= 0.5 ? "true" : "false";
+      detail = "p(true) " + CLEF.fmt(a.noul, 4);
+      lanes.appendChild(lane("p(true)", a.noul, true, false, true));
+    } else if (a.type === "choice") {
+      headline = a.choice;
+      detail = "confidence " + CLEF.fmt(a.confidence, 4);
+      Object.entries(a.probabilities).sort((x, y) => y[1] - x[1]).forEach(([k, p]) => lanes.appendChild(lane(k, p, k === a.choice, true, false)));
+    } else {
+      const keys = Object.keys(a.probabilities).sort((x, y) => Number(x) - Number(y));
+      const top = String(CLEF.predicted(a));
+      headline = CLEF.fmt(a.score, 2) + " of " + (keys.length - 1);
+      detail = "confidence " + CLEF.fmt(a.confidence, 4);
+      keys.forEach((k) => lanes.appendChild(lane(k + "  " + (a.legend ? a.legend[k] : ""), a.probabilities[k], k === top, false, false)));
+      const pos = keys.length > 1 ? (a.score / (keys.length - 1)) * 100 : 0;
+      lanes.appendChild(el("div", { class: "scale" }, [
+        el("span", { text: "expected value" }),
+        el("span", { class: "axis" }, [el("span", { class: "tick", style: "left:" + pos + "%", title: "score " + CLEF.fmt(a.score, 2) })]),
+        el("span", { class: "value", text: CLEF.fmt(a.score, 2) }),
+      ]));
+    }
+    const left = el("div", {}, [
+      el("div", { class: "qid" }, [el("span", { class: "mono", text: id }), " " + a.type]),
+      instr ? el("div", { class: "instr", text: instr }) : null,
+      el("div", {}, [el("span", { class: "headline" + (a.type === "choice" ? " mono" : ""), text: headline }), " ", el("span", { class: "detail", text: detail })]),
+    ]);
+    if (label !== undefined && label !== null) {
+      const hit = CLEF.same(CLEF.predicted(a), label);
+      left.appendChild(el("div", { class: "verdict " + (hit ? "ok" : "bad"), text: (hit ? "matches label " : "label ") + CLEF.formatLabel(label) }));
+    }
+    return el("section", { class: "card" }, [left, lanes]);
+  }
+
+  function renderAnswers(req, res, wallMs, hitDelta) {
+    const box = $("answers");
+    box.textContent = "";
+    for (const id of Object.keys(req.questions)) {
+      const a = res.answers[id];
+      if (!a) continue;
+      box.appendChild(answerCard(id, req.questions[id], a, currentLabels ? currentLabels[id] : null));
+    }
+    const u = res.usage || {};
+    const m = $("metrics");
+    m.textContent = "";
+    const item = (k, v) => el("span", {}, [k + " ", el("b", { text: v })]);
+    m.appendChild(item("server latency_ms", CLEF.fmt(res.latency_ms, 1)));
+    m.appendChild(item("client wall", CLEF.fmt(wallMs, 0) + " ms"));
+    m.appendChild(item("usage.input_tokens", CLEF.fmt(u.input_tokens, 0)));
+    if (req.images) m.appendChild(item("images", String(req.images.length)));
+    if (u.state_tokens !== undefined) m.appendChild(item("state_tokens", CLEF.fmt(u.state_tokens, 0) + " (used " + CLEF.fmt(u.state_tokens_used, 0) + ")"));
+    if (res.truncated) m.appendChild(el("span", { class: "warn", text: "state truncated by the server" }));
+    if (hitDelta !== null) m.appendChild(item("prefix cache", hitDelta > 0 ? "hit" : "miss"));
+    const longPreset = currentPreset && currentPreset.cases.length > 1 && currentPreset.cases.every((c) => c.state === currentPreset.cases[0].state);
+    const hint = longPreset
+      ? "Run again, or switch to the other case of this preset and run: the same state is still in the worker's prefix cache, so the state prefill is skipped and latency_ms drops to the schema continuation plus the head."
+      : "Run again with the same state: a state of 128 tokens or more stays in the prefix cache and the second run skips its prefill.";
+    m.appendChild(el("span", { class: "wide", text: hint }));
+  }
+
+  async function run() {
+    if (running || !validate()) return;
+    let req;
+    try {
+      req = currentRequest();
+    } catch (e) {
+      return;
+    }
+    running = true;
+    runButton.disabled = true;
+    runButton.textContent = "Running";
+    $("run-error").textContent = "";
+    showTab("answers");
+    const before = await fetchJson("/v1/models", { headers: headers(false) });
+    const hitsBefore = before.status === 200 ? before.payload.models[0].prefix_cache.hits : null;
+    const t0 = performance.now();
+    const r = await fetchJson("/v1/systemone", { method: "POST", headers: headers(true), body: JSON.stringify(req) });
+    const wall = performance.now() - t0;
+    if (r.status !== 200) {
+      $("run-error").textContent = CLEF.explainError(r.status, r.payload, serverUrl(), apiKeyInput.value.trim());
+    } else {
+      const after = await fetchJson("/v1/models", { headers: headers(false) });
+      const hitsAfter = after.status === 200 ? after.payload.models[0].prefix_cache.hits : null;
+      const delta = hitsBefore !== null && hitsAfter !== null ? hitsAfter - hitsBefore : null;
+      renderAnswers(req, r.payload, wall, delta);
+    }
+    running = false;
+    runButton.textContent = "Run";
+    runButton.disabled = false;
+    refreshStatus();
+  }
+
+  function replayRow(rec, result) {
+    const row = el("div", { class: "replay-row" });
+    row.appendChild(el("span", { class: "res " + (result.ok ? "ok" : "bad"), text: result.ok ? "PASS" : "FAIL" }));
+    row.appendChild(el("span", { class: "id" }, [el("span", { class: "mono", text: rec.name }), " ", el("span", { class: "hint", text: rec.suite })]));
+    row.appendChild(el("span", { class: "tok", text: result.tokens === null ? "" : CLEF.fmt(result.tokens, 0) + " tok" }));
+    row.appendChild(el("span", { class: "lat", text: result.latency === null ? "" : CLEF.fmt(result.latency, 1) + " ms" }));
+    row.appendChild(el("span", { class: "qs" }, [result.text]));
+    return row;
+  }
+
+  async function runReplay() {
+    if (running) return;
+    running = true;
+    replayStop = false;
+    runButton.disabled = true;
+    $("replay-run").disabled = true;
+    $("replay-stop").disabled = false;
+    const rows = $("replay-rows");
+    const stats = $("replay-stats");
+    rows.textContent = "";
+    stats.textContent = "";
+    let total = 0, correct = 0, passed = 0, failures = 0;
+    const latencies = [];
+    const t0 = performance.now();
+    const item = (k, v) => el("span", {}, [k + " ", el("b", { text: v })]);
+    const renderStats = (done) => {
+      stats.textContent = "";
+      stats.appendChild(item("accuracy", total ? CLEF.fmt(correct / total, 3) + " (" + correct + "/" + total + " questions)" : "0/0"));
+      stats.appendChild(item("records passed", passed + "/" + done));
+      stats.appendChild(item("request failures", String(failures)));
+      stats.appendChild(item("latency_ms mean", CLEF.fmt(CLEF.mean(latencies), 1)));
+      stats.appendChild(item("p50", CLEF.fmt(CLEF.median(latencies), 1)));
+      stats.appendChild(item("elapsed", CLEF.fmt((performance.now() - t0) / 1000, 1) + " s"));
+    };
+    for (let i = 0; i < data.replay.length; i++) {
+      if (replayStop) break;
+      const rec = data.replay[i];
+      $("replay-count").textContent = (i + 1) + " of " + data.replay.length;
+      let r;
+      try {
+        const imgs = [];
+        for (const p of rec.images || []) imgs.push((await loadAsset(p)).b64);
+        const req = CLEF.buildRequest(rec.state, rec.questions, modelName(), imgs);
+        r = await fetchJson("/v1/systemone", { method: "POST", headers: headers(true), body: JSON.stringify(req) });
+      } catch (e) {
+        r = { status: -1, payload: { detail: "bundled image: " + e.message } };
+      }
+      let result;
+      if (r.status !== 200) {
+        failures += 1;
+        total += Object.keys(rec.labels).length;
+        result = { ok: false, latency: null, tokens: null, text: CLEF.explainError(r.status, r.payload, serverUrl(), apiKeyInput.value.trim()) };
+      } else {
+        latencies.push(r.payload.latency_ms);
+        const parts = [];
+        let ok = true;
+        for (const qid of Object.keys(rec.labels)) {
+          const pred = CLEF.predicted(r.payload.answers[qid]);
+          const hit = CLEF.same(pred, rec.labels[qid]);
+          ok = ok && hit;
+          total += 1;
+          correct += hit ? 1 : 0;
+          parts.push(qid + ": " + CLEF.formatLabel(pred) + (hit ? "" : " (label " + CLEF.formatLabel(rec.labels[qid]) + ")"));
+        }
+        passed += ok ? 1 : 0;
+        result = { ok: ok, latency: r.payload.latency_ms, tokens: (r.payload.usage || {}).input_tokens, text: parts.join("; ") };
+      }
+      rows.appendChild(replayRow(rec, result));
+      renderStats(i + 1);
+      if (r.status === 0) break;
+    }
+    running = false;
+    runButton.disabled = false;
+    $("replay-run").disabled = false;
+    $("replay-stop").disabled = true;
+    refreshStatus();
+  }
+
+  function showTab(name) {
+    document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+    document.querySelectorAll(".tab").forEach((t) => { t.hidden = t.id !== "tab-" + name; });
+  }
+
+  async function copyText(button) {
+    const pre = $(button.dataset.for);
+    const text = pre.textContent;
+    const done = (label) => {
+      const old = button.textContent;
+      button.textContent = label;
+      setTimeout(() => { button.textContent = old; }, 1500);
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      try {
+        await navigator.clipboard.writeText(text);
+        done("Copied");
+        return;
+      } catch (e) {}
+    }
+    const range = document.createRange();
+    range.selectNodeContents(pre);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    let ok = false;
+    try {
+      ok = document.execCommand("copy");
+    } catch (e) {}
+    done(ok ? "Copied" : "Selected, press Ctrl+C");
+  }
+
+  async function loadPresets() {
+    let r;
+    try {
+      r = await fetch("presets.json", { cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      data = await r.json();
+    } catch (e) {
+      $("blurb").textContent = "Could not load presets.json (" + e.message + "). Serve this directory with run.sh instead of opening the file directly.";
+      renderThumbs();
+      return;
+    }
+    renderPresets();
+    if (data.presets.length) selectPreset(0, 0);
+  }
+
+  applyHash();
+  window.addEventListener("hashchange", () => { applyHash(); refreshStatus(); renderSnippets(); });
+  serverInput.addEventListener("change", () => { refreshStatus(); renderSnippets(); });
+  apiKeyInput.addEventListener("input", renderSnippets);
+  $("refresh").addEventListener("click", refreshStatus);
+  stateInput.addEventListener("input", () => { currentLabels = null; validate(); });
+  stateJson.addEventListener("change", validate);
+  questionsInput.addEventListener("input", () => { currentLabels = null; validate(); });
+  fileInput.addEventListener("change", () => { attachFiles(Array.from(fileInput.files || [])); fileInput.value = ""; });
+  $("clear-images").addEventListener("click", () => { images = []; currentLabels = null; renderThumbs(); renderSnippets(); });
+  runButton.addEventListener("click", run);
+  [stateInput, questionsInput].forEach((t) => t.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      run();
+    }
+  }));
+  document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+  document.querySelectorAll(".copy").forEach((b) => b.addEventListener("click", () => copyText(b)));
+  $("replay-run").addEventListener("click", runReplay);
+  $("replay-stop").addEventListener("click", () => { replayStop = true; });
+  loadPresets().then(refreshStatus);
+})();
+</script>
+</body>
+</html>

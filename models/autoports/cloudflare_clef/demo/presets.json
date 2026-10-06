@@ -1,0 +1,1413 @@
+{
+ "generated_by": "build_presets.py",
+ "model": "clef",
+ "sources": {
+  "reference_records": "/home/hous/dev/clef/reports/reference",
+  "evals": "/home/hous/dev/clef/evals",
+  "kev_bench": "/home/hous/dev/kev/kev/scripts/serving_bench.py at 952ce9d"
+ },
+ "presets": [
+  {
+   "title": "Support ticket triage",
+   "what_it_shows": "The blog post's curl example: a yes/no urgency check, a team choice and a four-level severity score on one short ticket, answered jointly in one pass.",
+   "cases": [
+    {
+     "name": "blog_support_triage",
+     "source": "blog.cloudflare.com/clef-decision-models curl example",
+     "state": "Checkout has been failing for every customer for the last hour.",
+     "questions": {
+      "urgent": {
+       "type": "noul",
+       "instructions": "Is this support request urgent?"
+      },
+      "team": {
+       "type": "choice",
+       "instructions": "Which team should handle this request?",
+       "criteria": {
+        "billing": "Payments, invoices, and refunds",
+        "technical": "Outages, errors, and configuration",
+        "sales": "Plans and upgrades"
+       }
+      },
+      "severity": {
+       "type": "score",
+       "instructions": "How severe is the customer impact?",
+       "criteria": [
+        "No impact",
+        "Minor",
+        "Major",
+        "Critical"
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "title": "Invoice JSON state",
+   "what_it_shows": "The HF README Usage example. The state is a JSON object, not text. Clef encodes choice options in sorted order (draft, overdue, paid) and the server returns them in request order.",
+   "cases": [
+    {
+     "name": "readme_invoice",
+     "source": "huggingface.co/Cloudflare/clef README, Usage example",
+     "state": {
+      "invoice": {
+       "vendor": "Acme",
+       "total": 1250.0,
+       "currency": "USD",
+       "status": "overdue"
+      }
+     },
+     "questions": {
+      "status": {
+       "type": "choice",
+       "instructions": "What is the invoice status?",
+       "criteria": {
+        "paid": "Invoice is paid.",
+        "overdue": "Invoice is past due.",
+        "draft": "Not sent."
+       }
+      },
+      "large": {
+       "type": "noul",
+       "instructions": "Is the total above 1000 USD?"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "title": "Checkout outage",
+   "what_it_shows": "The HF README SystemOne API example: department choice, urgency score with its legend and expected value, and an outage yes/no.",
+   "cases": [
+    {
+     "name": "readme_checkout",
+     "source": "huggingface.co/Cloudflare/clef README, Jev / SystemOne API example",
+     "state": "Our checkout started returning errors and orders are blocked.",
+     "questions": {
+      "department": {
+       "type": "choice",
+       "instructions": "Which team should handle the message?",
+       "criteria": {
+        "billing": "Payments or invoices",
+        "technical": "Bugs or outages"
+       }
+      },
+      "urgency": {
+       "type": "score",
+       "criteria": [
+        "Can wait",
+        "This week",
+        "Today"
+       ]
+      },
+      "outage": {
+       "type": "noul",
+       "instructions": "Is a service down?"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "title": "Long document, repeated state",
+   "what_it_shows": "A state of more than 2,000 tokens. The first run prefills it; a second run with the same state hits the prefix cache and skips the prefill. Case 2 asks a different question set on the same state and also hits the cache.",
+   "cases": [
+    {
+     "name": "5 questions",
+     "source": "kev 952ce9d scripts/serving_bench.py PARAGRAPH x30 with FIVE",
+     "state": "I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. ",
+     "questions": {
+      "department": {
+       "type": "choice",
+       "instructions": "Which team should handle this?",
+       "criteria": {
+        "returns": "Exchanges, refunds, wrong or damaged items",
+        "shipping": "Delivery status, delays, lost packages",
+        "billing": "Charges, invoices, payment problems"
+       }
+      },
+      "return_reason": {
+       "type": "choice",
+       "instructions": "If the customer wants to return something, why?",
+       "criteria": {
+        "wrong_size": "The item doesn't fit",
+        "wrong_item": "A different product was delivered",
+        "damaged": "The item arrived broken or faulty",
+        "changed_mind": "The item is fine, the customer no longer wants it",
+        "other": "A return reason that fits none of the above"
+       }
+      },
+      "requested_resolution": {
+       "type": "choice",
+       "instructions": "What does the customer want to happen?",
+       "criteria": {
+        "exchange": "Swap the item for a different one",
+        "refund": "Money back",
+        "replacement": "The same item sent again",
+        "information": "Just an answer, no action needed"
+       }
+      },
+      "escalate": {
+       "type": "noul",
+       "instructions": "Does this message require urgent human attention?"
+      },
+      "frustration": {
+       "type": "score",
+       "instructions": "How frustrated is the customer?",
+       "criteria": [
+        "Calm",
+        "Frustrated",
+        "Very angry"
+       ]
+      }
+     }
+    },
+    {
+     "name": "second question set",
+     "source": "kev 952ce9d scripts/serving_bench.py PARAGRAPH x30 with tone, escalate, frustration (tone descriptions added here)",
+     "state": "I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. I ordered a pair of running shoes on the first of the month and paid with my credit card. The confirmation email said delivery in three to five business days, but the tracking page did not update for over a week, and when the package finally arrived the box was crushed on one side. The shoes inside were a size ten instead of the size nine I ordered. ",
+     "questions": {
+      "tone": {
+       "type": "choice",
+       "instructions": "What is the customer's tone?",
+       "criteria": {
+        "calm": "No sign of irritation",
+        "frustrated": "Annoyed but still civil",
+        "angry": "Hostile, threatening or shouting"
+       }
+      },
+      "escalate": {
+       "type": "noul",
+       "instructions": "Does this message require urgent human attention?"
+      },
+      "frustration": {
+       "type": "score",
+       "instructions": "How frustrated is the customer?",
+       "criteria": [
+        "Calm",
+        "Frustrated",
+        "Very angry"
+       ]
+      }
+     }
+    }
+   ]
+  },
+  {
+   "title": "New Yorker cartoon",
+   "what_it_shows": "An image request: the cartoon goes in as base64 and the model picks the caption written for it out of five. The gold caption is shown next to the model's choice.",
+   "cases": [
+    {
+     "name": "contest 42 (2a7ddcfe)",
+     "source": "jmhessel/newyorker_caption_contest matching validation, row 497, contest 42",
+     "state": "A New Yorker cartoon. Pick the caption that was written for it.",
+     "questions": {
+      "caption": {
+       "type": "choice",
+       "instructions": "Which caption was written for this cartoon?",
+       "criteria": {
+        "A": "I have a plan to monetize your diet.",
+        "B": "We've been hacked!",
+        "C": "I've gotta go, the exterminator is here.",
+        "D": "I can't talk, I'm expecting a call from the governor . . . wait, I could save how much?",
+        "E": "They didn't specify which one, but your insurance will only cover half."
+       }
+      }
+     },
+     "images": [
+      "assets/2a7ddcfe4724ee1403a6291d21347162.png"
+     ],
+     "labels": {
+      "caption": "D"
+     }
+    },
+    {
+     "name": "contest 616 (6c1478b4)",
+     "source": "jmhessel/newyorker_caption_contest matching validation, row 430, contest 616",
+     "state": "A New Yorker cartoon. Pick the caption that was written for it.",
+     "questions": {
+      "caption": {
+       "type": "choice",
+       "instructions": "Which caption was written for this cartoon?",
+       "criteria": {
+        "A": "Yes, I know it's unusual to see a woman in this field.",
+        "B": "I've advised my client not to talk.",
+        "C": "It comes with its own remote.",
+        "D": "'Of course it's shark-infested, it's Wall Street.'",
+        "E": "Believe me, I've tested a lot worse things when I was in pharmaceuticals."
+       }
+      }
+     },
+     "images": [
+      "assets/6c1478b40fa4ab7f72933d7e3fe58d0a.png"
+     ],
+     "labels": {
+      "caption": "B"
+     }
+    }
+   ]
+  },
+  {
+   "title": "Receipt image",
+   "what_it_shows": "A synthetic receipt PNG drawn with Pillow (no third-party asset). Two yes/no questions about what is printed and a vendor choice show image reading.",
+   "cases": [
+    {
+     "name": "northwind receipt",
+     "source": "synthetic PNG drawn by build_presets.py with Pillow, 520x760, DejaVu Sans Mono",
+     "state": "A photo of a printed store receipt.",
+     "images": [
+      "assets/receipt_northwind.png"
+     ],
+     "questions": {
+      "legible": {
+       "type": "noul",
+       "instructions": "Is the text on the receipt legible?"
+      },
+      "total_over_100": {
+       "type": "noul",
+       "instructions": "Is the receipt total above 100 dollars?"
+      },
+      "vendor": {
+       "type": "choice",
+       "instructions": "Which store issued this receipt?",
+       "criteria": {
+        "northwind": "Northwind Hardware",
+        "acme": "Acme Supply",
+        "globex": "Globex Market",
+        "initech": "Initech Office Store"
+       }
+      }
+     },
+     "labels": {
+      "legible": true,
+      "total_over_100": true,
+      "vendor": "northwind"
+     }
+    }
+   ]
+  }
+ ],
+ "replay": [
+  {
+   "suite": "ARC-Challenge",
+   "name": "Mercury_402539",
+   "source": "arc_challenge_test_sample100.jsonl row 466 (allenai/ai2_arc ARC-Challenge test)",
+   "state": "During an experiment, a class heated a balloon that had an initial circumference of 25 cm. The circumference increased to 27 cm. Which is the best conclusion that can be drawn?",
+   "questions": {
+    "answer": {
+     "type": "choice",
+     "instructions": "Which answer is correct?",
+     "criteria": {
+      "A": "The molecules inside the balloon lost energy to the outside.",
+      "B": "The molecules inside the balloon gained energy from the heat.",
+      "C": "The energy of the molecules inside the balloon remained the same.",
+      "D": "The molecules inside the balloon were escaping outside."
+     }
+    }
+   },
+   "labels": {
+    "answer": "B"
+   }
+  },
+  {
+   "suite": "ARC-Challenge",
+   "name": "Mercury_7230388",
+   "source": "arc_challenge_test_sample100.jsonl row 752 (allenai/ai2_arc ARC-Challenge test)",
+   "state": "The types of organisms on Earth changed as a result of increased levels of atmospheric oxygen. Which process contributed to this buildup of oxygen in Earth's atmosphere?",
+   "questions": {
+    "answer": {
+     "type": "choice",
+     "instructions": "Which answer is correct?",
+     "criteria": {
+      "A": "metabolic production of methane",
+      "B": "production of nitrates from inorganic nitrogen",
+      "C": "aerobic breakdown of sugars to release energy",
+      "D": "transformation of light energy into chemical bond energy"
+     }
+    }
+   },
+   "labels": {
+    "answer": "D"
+   }
+  },
+  {
+   "suite": "ARC-Challenge",
+   "name": "Mercury_417143",
+   "source": "arc_challenge_test_sample100.jsonl row 527 (allenai/ai2_arc ARC-Challenge test)",
+   "state": "Felipe made a visual model of an estuary ecosystem on a poster. He colored the ocean water blue and the river water yellow. Which would be the best color for him to use to visually represent the estuary?",
+   "questions": {
+    "answer": {
+     "type": "choice",
+     "instructions": "Which answer is correct?",
+     "criteria": {
+      "A": "yellow",
+      "B": "blue",
+      "C": "orange",
+      "D": "green"
+     }
+    }
+   },
+   "labels": {
+    "answer": "D"
+   }
+  },
+  {
+   "suite": "ARC-Challenge",
+   "name": "MCAS_2004_9_10-v1",
+   "source": "arc_challenge_test_sample100.jsonl row 714 (allenai/ai2_arc ARC-Challenge test)",
+   "state": "When estimating amounts of building supplies, it is better to allow for some waste and error rather than to cause delays by not ordering sufficient supplies. An engineer is estimating the number of bundles of shingles needed for a roof area of approximately 2000 sq. ft. In roofing, a square is 100 sq. ft., and each bundle covers one-third of a square. Which of the following is closest to the number of bundles that the engineer should order?",
+   "questions": {
+    "answer": {
+     "type": "choice",
+     "instructions": "Which answer is correct?",
+     "criteria": {
+      "A": "23",
+      "B": "43",
+      "C": "63",
+      "D": "83 331"
+     }
+    }
+   },
+   "labels": {
+    "answer": "C"
+   }
+  },
+  {
+   "suite": "ARC-Challenge",
+   "name": "Mercury_409295",
+   "source": "arc_challenge_test_sample100.jsonl row 351 (allenai/ai2_arc ARC-Challenge test)",
+   "state": "Robert is thinking about buying a new refrigerator. His old refrigerator runs at about 43% efficiency. Which most likely accounts for the remaining 57% of the energy?",
+   "questions": {
+    "answer": {
+     "type": "choice",
+     "instructions": "Which answer is correct?",
+     "criteria": {
+      "A": "It is used up by the light in the refrigerator.",
+      "B": "It is released to the surroundings as heat.",
+      "C": "It is converted into mechanical energy.",
+      "D": "It stored as a form of potential energy."
+     }
+    }
+   },
+   "labels": {
+    "answer": "B"
+   }
+  },
+  {
+   "suite": "ARC-Challenge",
+   "name": "Mercury_7011130",
+   "source": "arc_challenge_test_sample100.jsonl row 143 (allenai/ai2_arc ARC-Challenge test)",
+   "state": "Two chemicals react in a beaker that has water droplets on the outside of the bottom of the beaker. The water droplets freeze. Which statement best describes the reaction?",
+   "questions": {
+    "answer": {
+     "type": "choice",
+     "instructions": "Which answer is correct?",
+     "criteria": {
+      "A": "Endothermic because energy is absorbed.",
+      "B": "Endothermic because energy is released.",
+      "C": "Exothermic because energy is absorbed.",
+      "D": "Exothermic because energy is released."
+     }
+    }
+   },
+   "labels": {
+    "answer": "A"
+   }
+  },
+  {
+   "suite": "ARC-Challenge",
+   "name": "Mercury_7106628",
+   "source": "arc_challenge_test_sample100.jsonl row 784 (allenai/ai2_arc ARC-Challenge test)",
+   "state": "Which factor will most likely increase the survival chances of an organism living in an environment that is undergoing rapid changes?",
+   "questions": {
+    "answer": {
+     "type": "choice",
+     "instructions": "Which answer is correct?",
+     "criteria": {
+      "A": "encountering strong competition",
+      "B": "having a long life span",
+      "C": "producing identical offspring",
+      "D": "having a diverse gene pool"
+     }
+    }
+   },
+   "labels": {
+    "answer": "D"
+   }
+  },
+  {
+   "suite": "ARC-Challenge",
+   "name": "Mercury_7075023",
+   "source": "arc_challenge_test_sample100.jsonl row 719 (allenai/ai2_arc ARC-Challenge test)",
+   "state": "Which statement is an opinion?",
+   "questions": {
+    "answer": {
+     "type": "choice",
+     "instructions": "Which answer is correct?",
+     "criteria": {
+      "A": "Some multicellular organisms are plants.",
+      "B": "Most organisms are multicellular.",
+      "C": "Some multicellular organisms are poisonous.",
+      "D": "Most multicellular organisms are dangerous."
+     }
+    }
+   },
+   "labels": {
+    "answer": "D"
+   }
+  },
+  {
+   "suite": "BANKING77",
+   "name": "banking77/test/496",
+   "source": "banking77_test_sample100.jsonl row 496 (PolyAI/banking77 test)",
+   "state": "Can I open a bank account for my newborn baby?",
+   "questions": {
+    "intent": {
+     "type": "choice",
+     "instructions": "Which banking intent does the customer have?",
+     "criteria": {
+      "activate_my_card": "activate my card",
+      "age_limit": "age limit",
+      "apple_pay_or_google_pay": "apple pay or google pay",
+      "atm_support": "atm support",
+      "automatic_top_up": "automatic top up",
+      "balance_not_updated_after_bank_transfer": "balance not updated after bank transfer",
+      "balance_not_updated_after_cheque_or_cash_deposit": "balance not updated after cheque or cash deposit",
+      "beneficiary_not_allowed": "beneficiary not allowed",
+      "cancel_transfer": "cancel transfer",
+      "card_about_to_expire": "card about to expire",
+      "card_acceptance": "card acceptance",
+      "card_arrival": "card arrival",
+      "card_delivery_estimate": "card delivery estimate",
+      "card_linking": "card linking",
+      "card_not_working": "card not working",
+      "card_payment_fee_charged": "card payment fee charged",
+      "card_payment_not_recognised": "card payment not recognised",
+      "card_payment_wrong_exchange_rate": "card payment wrong exchange rate",
+      "card_swallowed": "card swallowed",
+      "cash_withdrawal_charge": "cash withdrawal charge",
+      "cash_withdrawal_not_recognised": "cash withdrawal not recognised",
+      "change_pin": "change pin",
+      "compromised_card": "compromised card",
+      "contactless_not_working": "contactless not working",
+      "country_support": "country support",
+      "declined_card_payment": "declined card payment",
+      "declined_cash_withdrawal": "declined cash withdrawal",
+      "declined_transfer": "declined transfer",
+      "direct_debit_payment_not_recognised": "direct debit payment not recognised",
+      "disposable_card_limits": "disposable card limits",
+      "edit_personal_details": "edit personal details",
+      "exchange_charge": "exchange charge",
+      "exchange_rate": "exchange rate",
+      "exchange_via_app": "exchange via app",
+      "extra_charge_on_statement": "extra charge on statement",
+      "failed_transfer": "failed transfer",
+      "fiat_currency_support": "fiat currency support",
+      "get_disposable_virtual_card": "get disposable virtual card",
+      "get_physical_card": "get physical card",
+      "getting_spare_card": "getting spare card",
+      "getting_virtual_card": "getting virtual card",
+      "lost_or_stolen_card": "lost or stolen card",
+      "lost_or_stolen_phone": "lost or stolen phone",
+      "order_physical_card": "order physical card",
+      "passcode_forgotten": "passcode forgotten",
+      "pending_card_payment": "pending card payment",
+      "pending_cash_withdrawal": "pending cash withdrawal",
+      "pending_top_up": "pending top up",
+      "pending_transfer": "pending transfer",
+      "pin_blocked": "pin blocked",
+      "receiving_money": "receiving money",
+      "Refund_not_showing_up": "Refund not showing up",
+      "request_refund": "request refund",
+      "reverted_card_payment?": "reverted card payment?",
+      "supported_cards_and_currencies": "supported cards and currencies",
+      "terminate_account": "terminate account",
+      "top_up_by_bank_transfer_charge": "top up by bank transfer charge",
+      "top_up_by_card_charge": "top up by card charge",
+      "top_up_by_cash_or_cheque": "top up by cash or cheque",
+      "top_up_failed": "top up failed",
+      "top_up_limits": "top up limits",
+      "top_up_reverted": "top up reverted",
+      "topping_up_by_card": "topping up by card",
+      "transaction_charged_twice": "transaction charged twice",
+      "transfer_fee_charged": "transfer fee charged",
+      "transfer_into_account": "transfer into account",
+      "transfer_not_received_by_recipient": "transfer not received by recipient",
+      "transfer_timing": "transfer timing",
+      "unable_to_verify_identity": "unable to verify identity",
+      "verify_my_identity": "verify my identity",
+      "verify_source_of_funds": "verify source of funds",
+      "verify_top_up": "verify top up",
+      "virtual_card_not_working": "virtual card not working",
+      "visa_or_mastercard": "visa or mastercard",
+      "why_verify_identity": "why verify identity",
+      "wrong_amount_of_cash_received": "wrong amount of cash received",
+      "wrong_exchange_rate_for_cash_withdrawal": "wrong exchange rate for cash withdrawal"
+     }
+    }
+   },
+   "labels": {
+    "intent": "age_limit"
+   }
+  },
+  {
+   "suite": "BANKING77",
+   "name": "banking77/test/2141",
+   "source": "banking77_test_sample100.jsonl row 2141 (PolyAI/banking77 test)",
+   "state": "I am travelling for two more weeks but really need to change my PIN asap. What do I do?",
+   "questions": {
+    "intent": {
+     "type": "choice",
+     "instructions": "Which banking intent does the customer have?",
+     "criteria": {
+      "activate_my_card": "activate my card",
+      "age_limit": "age limit",
+      "apple_pay_or_google_pay": "apple pay or google pay",
+      "atm_support": "atm support",
+      "automatic_top_up": "automatic top up",
+      "balance_not_updated_after_bank_transfer": "balance not updated after bank transfer",
+      "balance_not_updated_after_cheque_or_cash_deposit": "balance not updated after cheque or cash deposit",
+      "beneficiary_not_allowed": "beneficiary not allowed",
+      "cancel_transfer": "cancel transfer",
+      "card_about_to_expire": "card about to expire",
+      "card_acceptance": "card acceptance",
+      "card_arrival": "card arrival",
+      "card_delivery_estimate": "card delivery estimate",
+      "card_linking": "card linking",
+      "card_not_working": "card not working",
+      "card_payment_fee_charged": "card payment fee charged",
+      "card_payment_not_recognised": "card payment not recognised",
+      "card_payment_wrong_exchange_rate": "card payment wrong exchange rate",
+      "card_swallowed": "card swallowed",
+      "cash_withdrawal_charge": "cash withdrawal charge",
+      "cash_withdrawal_not_recognised": "cash withdrawal not recognised",
+      "change_pin": "change pin",
+      "compromised_card": "compromised card",
+      "contactless_not_working": "contactless not working",
+      "country_support": "country support",
+      "declined_card_payment": "declined card payment",
+      "declined_cash_withdrawal": "declined cash withdrawal",
+      "declined_transfer": "declined transfer",
+      "direct_debit_payment_not_recognised": "direct debit payment not recognised",
+      "disposable_card_limits": "disposable card limits",
+      "edit_personal_details": "edit personal details",
+      "exchange_charge": "exchange charge",
+      "exchange_rate": "exchange rate",
+      "exchange_via_app": "exchange via app",
+      "extra_charge_on_statement": "extra charge on statement",
+      "failed_transfer": "failed transfer",
+      "fiat_currency_support": "fiat currency support",
+      "get_disposable_virtual_card": "get disposable virtual card",
+      "get_physical_card": "get physical card",
+      "getting_spare_card": "getting spare card",
+      "getting_virtual_card": "getting virtual card",
+      "lost_or_stolen_card": "lost or stolen card",
+      "lost_or_stolen_phone": "lost or stolen phone",
+      "order_physical_card": "order physical card",
+      "passcode_forgotten": "passcode forgotten",
+      "pending_card_payment": "pending card payment",
+      "pending_cash_withdrawal": "pending cash withdrawal",
+      "pending_top_up": "pending top up",
+      "pending_transfer": "pending transfer",
+      "pin_blocked": "pin blocked",
+      "receiving_money": "receiving money",
+      "Refund_not_showing_up": "Refund not showing up",
+      "request_refund": "request refund",
+      "reverted_card_payment?": "reverted card payment?",
+      "supported_cards_and_currencies": "supported cards and currencies",
+      "terminate_account": "terminate account",
+      "top_up_by_bank_transfer_charge": "top up by bank transfer charge",
+      "top_up_by_card_charge": "top up by card charge",
+      "top_up_by_cash_or_cheque": "top up by cash or cheque",
+      "top_up_failed": "top up failed",
+      "top_up_limits": "top up limits",
+      "top_up_reverted": "top up reverted",
+      "topping_up_by_card": "topping up by card",
+      "transaction_charged_twice": "transaction charged twice",
+      "transfer_fee_charged": "transfer fee charged",
+      "transfer_into_account": "transfer into account",
+      "transfer_not_received_by_recipient": "transfer not received by recipient",
+      "transfer_timing": "transfer timing",
+      "unable_to_verify_identity": "unable to verify identity",
+      "verify_my_identity": "verify my identity",
+      "verify_source_of_funds": "verify source of funds",
+      "verify_top_up": "verify top up",
+      "virtual_card_not_working": "virtual card not working",
+      "visa_or_mastercard": "visa or mastercard",
+      "why_verify_identity": "why verify identity",
+      "wrong_amount_of_cash_received": "wrong amount of cash received",
+      "wrong_exchange_rate_for_cash_withdrawal": "wrong exchange rate for cash withdrawal"
+     }
+    }
+   },
+   "labels": {
+    "intent": "change_pin"
+   }
+  },
+  {
+   "suite": "BANKING77",
+   "name": "banking77/test/1455",
+   "source": "banking77_test_sample100.jsonl row 1455 (PolyAI/banking77 test)",
+   "state": "How many miles away is the ATM?",
+   "questions": {
+    "intent": {
+     "type": "choice",
+     "instructions": "Which banking intent does the customer have?",
+     "criteria": {
+      "activate_my_card": "activate my card",
+      "age_limit": "age limit",
+      "apple_pay_or_google_pay": "apple pay or google pay",
+      "atm_support": "atm support",
+      "automatic_top_up": "automatic top up",
+      "balance_not_updated_after_bank_transfer": "balance not updated after bank transfer",
+      "balance_not_updated_after_cheque_or_cash_deposit": "balance not updated after cheque or cash deposit",
+      "beneficiary_not_allowed": "beneficiary not allowed",
+      "cancel_transfer": "cancel transfer",
+      "card_about_to_expire": "card about to expire",
+      "card_acceptance": "card acceptance",
+      "card_arrival": "card arrival",
+      "card_delivery_estimate": "card delivery estimate",
+      "card_linking": "card linking",
+      "card_not_working": "card not working",
+      "card_payment_fee_charged": "card payment fee charged",
+      "card_payment_not_recognised": "card payment not recognised",
+      "card_payment_wrong_exchange_rate": "card payment wrong exchange rate",
+      "card_swallowed": "card swallowed",
+      "cash_withdrawal_charge": "cash withdrawal charge",
+      "cash_withdrawal_not_recognised": "cash withdrawal not recognised",
+      "change_pin": "change pin",
+      "compromised_card": "compromised card",
+      "contactless_not_working": "contactless not working",
+      "country_support": "country support",
+      "declined_card_payment": "declined card payment",
+      "declined_cash_withdrawal": "declined cash withdrawal",
+      "declined_transfer": "declined transfer",
+      "direct_debit_payment_not_recognised": "direct debit payment not recognised",
+      "disposable_card_limits": "disposable card limits",
+      "edit_personal_details": "edit personal details",
+      "exchange_charge": "exchange charge",
+      "exchange_rate": "exchange rate",
+      "exchange_via_app": "exchange via app",
+      "extra_charge_on_statement": "extra charge on statement",
+      "failed_transfer": "failed transfer",
+      "fiat_currency_support": "fiat currency support",
+      "get_disposable_virtual_card": "get disposable virtual card",
+      "get_physical_card": "get physical card",
+      "getting_spare_card": "getting spare card",
+      "getting_virtual_card": "getting virtual card",
+      "lost_or_stolen_card": "lost or stolen card",
+      "lost_or_stolen_phone": "lost or stolen phone",
+      "order_physical_card": "order physical card",
+      "passcode_forgotten": "passcode forgotten",
+      "pending_card_payment": "pending card payment",
+      "pending_cash_withdrawal": "pending cash withdrawal",
+      "pending_top_up": "pending top up",
+      "pending_transfer": "pending transfer",
+      "pin_blocked": "pin blocked",
+      "receiving_money": "receiving money",
+      "Refund_not_showing_up": "Refund not showing up",
+      "request_refund": "request refund",
+      "reverted_card_payment?": "reverted card payment?",
+      "supported_cards_and_currencies": "supported cards and currencies",
+      "terminate_account": "terminate account",
+      "top_up_by_bank_transfer_charge": "top up by bank transfer charge",
+      "top_up_by_card_charge": "top up by card charge",
+      "top_up_by_cash_or_cheque": "top up by cash or cheque",
+      "top_up_failed": "top up failed",
+      "top_up_limits": "top up limits",
+      "top_up_reverted": "top up reverted",
+      "topping_up_by_card": "topping up by card",
+      "transaction_charged_twice": "transaction charged twice",
+      "transfer_fee_charged": "transfer fee charged",
+      "transfer_into_account": "transfer into account",
+      "transfer_not_received_by_recipient": "transfer not received by recipient",
+      "transfer_timing": "transfer timing",
+      "unable_to_verify_identity": "unable to verify identity",
+      "verify_my_identity": "verify my identity",
+      "verify_source_of_funds": "verify source of funds",
+      "verify_top_up": "verify top up",
+      "virtual_card_not_working": "virtual card not working",
+      "visa_or_mastercard": "visa or mastercard",
+      "why_verify_identity": "why verify identity",
+      "wrong_amount_of_cash_received": "wrong amount of cash received",
+      "wrong_exchange_rate_for_cash_withdrawal": "wrong exchange rate for cash withdrawal"
+     }
+    }
+   },
+   "labels": {
+    "intent": "atm_support"
+   }
+  },
+  {
+   "suite": "BANKING77",
+   "name": "banking77/test/558",
+   "source": "banking77_test_sample100.jsonl row 558 (PolyAI/banking77 test)",
+   "state": "My PIN is not working and I need assistance.",
+   "questions": {
+    "intent": {
+     "type": "choice",
+     "instructions": "Which banking intent does the customer have?",
+     "criteria": {
+      "activate_my_card": "activate my card",
+      "age_limit": "age limit",
+      "apple_pay_or_google_pay": "apple pay or google pay",
+      "atm_support": "atm support",
+      "automatic_top_up": "automatic top up",
+      "balance_not_updated_after_bank_transfer": "balance not updated after bank transfer",
+      "balance_not_updated_after_cheque_or_cash_deposit": "balance not updated after cheque or cash deposit",
+      "beneficiary_not_allowed": "beneficiary not allowed",
+      "cancel_transfer": "cancel transfer",
+      "card_about_to_expire": "card about to expire",
+      "card_acceptance": "card acceptance",
+      "card_arrival": "card arrival",
+      "card_delivery_estimate": "card delivery estimate",
+      "card_linking": "card linking",
+      "card_not_working": "card not working",
+      "card_payment_fee_charged": "card payment fee charged",
+      "card_payment_not_recognised": "card payment not recognised",
+      "card_payment_wrong_exchange_rate": "card payment wrong exchange rate",
+      "card_swallowed": "card swallowed",
+      "cash_withdrawal_charge": "cash withdrawal charge",
+      "cash_withdrawal_not_recognised": "cash withdrawal not recognised",
+      "change_pin": "change pin",
+      "compromised_card": "compromised card",
+      "contactless_not_working": "contactless not working",
+      "country_support": "country support",
+      "declined_card_payment": "declined card payment",
+      "declined_cash_withdrawal": "declined cash withdrawal",
+      "declined_transfer": "declined transfer",
+      "direct_debit_payment_not_recognised": "direct debit payment not recognised",
+      "disposable_card_limits": "disposable card limits",
+      "edit_personal_details": "edit personal details",
+      "exchange_charge": "exchange charge",
+      "exchange_rate": "exchange rate",
+      "exchange_via_app": "exchange via app",
+      "extra_charge_on_statement": "extra charge on statement",
+      "failed_transfer": "failed transfer",
+      "fiat_currency_support": "fiat currency support",
+      "get_disposable_virtual_card": "get disposable virtual card",
+      "get_physical_card": "get physical card",
+      "getting_spare_card": "getting spare card",
+      "getting_virtual_card": "getting virtual card",
+      "lost_or_stolen_card": "lost or stolen card",
+      "lost_or_stolen_phone": "lost or stolen phone",
+      "order_physical_card": "order physical card",
+      "passcode_forgotten": "passcode forgotten",
+      "pending_card_payment": "pending card payment",
+      "pending_cash_withdrawal": "pending cash withdrawal",
+      "pending_top_up": "pending top up",
+      "pending_transfer": "pending transfer",
+      "pin_blocked": "pin blocked",
+      "receiving_money": "receiving money",
+      "Refund_not_showing_up": "Refund not showing up",
+      "request_refund": "request refund",
+      "reverted_card_payment?": "reverted card payment?",
+      "supported_cards_and_currencies": "supported cards and currencies",
+      "terminate_account": "terminate account",
+      "top_up_by_bank_transfer_charge": "top up by bank transfer charge",
+      "top_up_by_card_charge": "top up by card charge",
+      "top_up_by_cash_or_cheque": "top up by cash or cheque",
+      "top_up_failed": "top up failed",
+      "top_up_limits": "top up limits",
+      "top_up_reverted": "top up reverted",
+      "topping_up_by_card": "topping up by card",
+      "transaction_charged_twice": "transaction charged twice",
+      "transfer_fee_charged": "transfer fee charged",
+      "transfer_into_account": "transfer into account",
+      "transfer_not_received_by_recipient": "transfer not received by recipient",
+      "transfer_timing": "transfer timing",
+      "unable_to_verify_identity": "unable to verify identity",
+      "verify_my_identity": "verify my identity",
+      "verify_source_of_funds": "verify source of funds",
+      "verify_top_up": "verify top up",
+      "virtual_card_not_working": "virtual card not working",
+      "visa_or_mastercard": "visa or mastercard",
+      "why_verify_identity": "why verify identity",
+      "wrong_amount_of_cash_received": "wrong amount of cash received",
+      "wrong_exchange_rate_for_cash_withdrawal": "wrong exchange rate for cash withdrawal"
+     }
+    }
+   },
+   "labels": {
+    "intent": "pin_blocked"
+   }
+  },
+  {
+   "suite": "BANKING77",
+   "name": "banking77/test/24",
+   "source": "banking77_test_sample100.jsonl row 24 (PolyAI/banking77 test)",
+   "state": "My card has not arrived yet, where is it?",
+   "questions": {
+    "intent": {
+     "type": "choice",
+     "instructions": "Which banking intent does the customer have?",
+     "criteria": {
+      "activate_my_card": "activate my card",
+      "age_limit": "age limit",
+      "apple_pay_or_google_pay": "apple pay or google pay",
+      "atm_support": "atm support",
+      "automatic_top_up": "automatic top up",
+      "balance_not_updated_after_bank_transfer": "balance not updated after bank transfer",
+      "balance_not_updated_after_cheque_or_cash_deposit": "balance not updated after cheque or cash deposit",
+      "beneficiary_not_allowed": "beneficiary not allowed",
+      "cancel_transfer": "cancel transfer",
+      "card_about_to_expire": "card about to expire",
+      "card_acceptance": "card acceptance",
+      "card_arrival": "card arrival",
+      "card_delivery_estimate": "card delivery estimate",
+      "card_linking": "card linking",
+      "card_not_working": "card not working",
+      "card_payment_fee_charged": "card payment fee charged",
+      "card_payment_not_recognised": "card payment not recognised",
+      "card_payment_wrong_exchange_rate": "card payment wrong exchange rate",
+      "card_swallowed": "card swallowed",
+      "cash_withdrawal_charge": "cash withdrawal charge",
+      "cash_withdrawal_not_recognised": "cash withdrawal not recognised",
+      "change_pin": "change pin",
+      "compromised_card": "compromised card",
+      "contactless_not_working": "contactless not working",
+      "country_support": "country support",
+      "declined_card_payment": "declined card payment",
+      "declined_cash_withdrawal": "declined cash withdrawal",
+      "declined_transfer": "declined transfer",
+      "direct_debit_payment_not_recognised": "direct debit payment not recognised",
+      "disposable_card_limits": "disposable card limits",
+      "edit_personal_details": "edit personal details",
+      "exchange_charge": "exchange charge",
+      "exchange_rate": "exchange rate",
+      "exchange_via_app": "exchange via app",
+      "extra_charge_on_statement": "extra charge on statement",
+      "failed_transfer": "failed transfer",
+      "fiat_currency_support": "fiat currency support",
+      "get_disposable_virtual_card": "get disposable virtual card",
+      "get_physical_card": "get physical card",
+      "getting_spare_card": "getting spare card",
+      "getting_virtual_card": "getting virtual card",
+      "lost_or_stolen_card": "lost or stolen card",
+      "lost_or_stolen_phone": "lost or stolen phone",
+      "order_physical_card": "order physical card",
+      "passcode_forgotten": "passcode forgotten",
+      "pending_card_payment": "pending card payment",
+      "pending_cash_withdrawal": "pending cash withdrawal",
+      "pending_top_up": "pending top up",
+      "pending_transfer": "pending transfer",
+      "pin_blocked": "pin blocked",
+      "receiving_money": "receiving money",
+      "Refund_not_showing_up": "Refund not showing up",
+      "request_refund": "request refund",
+      "reverted_card_payment?": "reverted card payment?",
+      "supported_cards_and_currencies": "supported cards and currencies",
+      "terminate_account": "terminate account",
+      "top_up_by_bank_transfer_charge": "top up by bank transfer charge",
+      "top_up_by_card_charge": "top up by card charge",
+      "top_up_by_cash_or_cheque": "top up by cash or cheque",
+      "top_up_failed": "top up failed",
+      "top_up_limits": "top up limits",
+      "top_up_reverted": "top up reverted",
+      "topping_up_by_card": "topping up by card",
+      "transaction_charged_twice": "transaction charged twice",
+      "transfer_fee_charged": "transfer fee charged",
+      "transfer_into_account": "transfer into account",
+      "transfer_not_received_by_recipient": "transfer not received by recipient",
+      "transfer_timing": "transfer timing",
+      "unable_to_verify_identity": "unable to verify identity",
+      "verify_my_identity": "verify my identity",
+      "verify_source_of_funds": "verify source of funds",
+      "verify_top_up": "verify top up",
+      "virtual_card_not_working": "virtual card not working",
+      "visa_or_mastercard": "visa or mastercard",
+      "why_verify_identity": "why verify identity",
+      "wrong_amount_of_cash_received": "wrong amount of cash received",
+      "wrong_exchange_rate_for_cash_withdrawal": "wrong exchange rate for cash withdrawal"
+     }
+    }
+   },
+   "labels": {
+    "intent": "card_arrival"
+   }
+  },
+  {
+   "suite": "BANKING77",
+   "name": "banking77/test/42",
+   "source": "banking77_test_sample100.jsonl row 42 (PolyAI/banking77 test)",
+   "state": "Where do I link the new card?",
+   "questions": {
+    "intent": {
+     "type": "choice",
+     "instructions": "Which banking intent does the customer have?",
+     "criteria": {
+      "activate_my_card": "activate my card",
+      "age_limit": "age limit",
+      "apple_pay_or_google_pay": "apple pay or google pay",
+      "atm_support": "atm support",
+      "automatic_top_up": "automatic top up",
+      "balance_not_updated_after_bank_transfer": "balance not updated after bank transfer",
+      "balance_not_updated_after_cheque_or_cash_deposit": "balance not updated after cheque or cash deposit",
+      "beneficiary_not_allowed": "beneficiary not allowed",
+      "cancel_transfer": "cancel transfer",
+      "card_about_to_expire": "card about to expire",
+      "card_acceptance": "card acceptance",
+      "card_arrival": "card arrival",
+      "card_delivery_estimate": "card delivery estimate",
+      "card_linking": "card linking",
+      "card_not_working": "card not working",
+      "card_payment_fee_charged": "card payment fee charged",
+      "card_payment_not_recognised": "card payment not recognised",
+      "card_payment_wrong_exchange_rate": "card payment wrong exchange rate",
+      "card_swallowed": "card swallowed",
+      "cash_withdrawal_charge": "cash withdrawal charge",
+      "cash_withdrawal_not_recognised": "cash withdrawal not recognised",
+      "change_pin": "change pin",
+      "compromised_card": "compromised card",
+      "contactless_not_working": "contactless not working",
+      "country_support": "country support",
+      "declined_card_payment": "declined card payment",
+      "declined_cash_withdrawal": "declined cash withdrawal",
+      "declined_transfer": "declined transfer",
+      "direct_debit_payment_not_recognised": "direct debit payment not recognised",
+      "disposable_card_limits": "disposable card limits",
+      "edit_personal_details": "edit personal details",
+      "exchange_charge": "exchange charge",
+      "exchange_rate": "exchange rate",
+      "exchange_via_app": "exchange via app",
+      "extra_charge_on_statement": "extra charge on statement",
+      "failed_transfer": "failed transfer",
+      "fiat_currency_support": "fiat currency support",
+      "get_disposable_virtual_card": "get disposable virtual card",
+      "get_physical_card": "get physical card",
+      "getting_spare_card": "getting spare card",
+      "getting_virtual_card": "getting virtual card",
+      "lost_or_stolen_card": "lost or stolen card",
+      "lost_or_stolen_phone": "lost or stolen phone",
+      "order_physical_card": "order physical card",
+      "passcode_forgotten": "passcode forgotten",
+      "pending_card_payment": "pending card payment",
+      "pending_cash_withdrawal": "pending cash withdrawal",
+      "pending_top_up": "pending top up",
+      "pending_transfer": "pending transfer",
+      "pin_blocked": "pin blocked",
+      "receiving_money": "receiving money",
+      "Refund_not_showing_up": "Refund not showing up",
+      "request_refund": "request refund",
+      "reverted_card_payment?": "reverted card payment?",
+      "supported_cards_and_currencies": "supported cards and currencies",
+      "terminate_account": "terminate account",
+      "top_up_by_bank_transfer_charge": "top up by bank transfer charge",
+      "top_up_by_card_charge": "top up by card charge",
+      "top_up_by_cash_or_cheque": "top up by cash or cheque",
+      "top_up_failed": "top up failed",
+      "top_up_limits": "top up limits",
+      "top_up_reverted": "top up reverted",
+      "topping_up_by_card": "topping up by card",
+      "transaction_charged_twice": "transaction charged twice",
+      "transfer_fee_charged": "transfer fee charged",
+      "transfer_into_account": "transfer into account",
+      "transfer_not_received_by_recipient": "transfer not received by recipient",
+      "transfer_timing": "transfer timing",
+      "unable_to_verify_identity": "unable to verify identity",
+      "verify_my_identity": "verify my identity",
+      "verify_source_of_funds": "verify source of funds",
+      "verify_top_up": "verify top up",
+      "virtual_card_not_working": "virtual card not working",
+      "visa_or_mastercard": "visa or mastercard",
+      "why_verify_identity": "why verify identity",
+      "wrong_amount_of_cash_received": "wrong amount of cash received",
+      "wrong_exchange_rate_for_cash_withdrawal": "wrong exchange rate for cash withdrawal"
+     }
+    }
+   },
+   "labels": {
+    "intent": "card_linking"
+   }
+  },
+  {
+   "suite": "BANKING77",
+   "name": "banking77/test/112",
+   "source": "banking77_test_sample100.jsonl row 112 (PolyAI/banking77 test)",
+   "state": "I'm trying to figure out the current exchange rate.",
+   "questions": {
+    "intent": {
+     "type": "choice",
+     "instructions": "Which banking intent does the customer have?",
+     "criteria": {
+      "activate_my_card": "activate my card",
+      "age_limit": "age limit",
+      "apple_pay_or_google_pay": "apple pay or google pay",
+      "atm_support": "atm support",
+      "automatic_top_up": "automatic top up",
+      "balance_not_updated_after_bank_transfer": "balance not updated after bank transfer",
+      "balance_not_updated_after_cheque_or_cash_deposit": "balance not updated after cheque or cash deposit",
+      "beneficiary_not_allowed": "beneficiary not allowed",
+      "cancel_transfer": "cancel transfer",
+      "card_about_to_expire": "card about to expire",
+      "card_acceptance": "card acceptance",
+      "card_arrival": "card arrival",
+      "card_delivery_estimate": "card delivery estimate",
+      "card_linking": "card linking",
+      "card_not_working": "card not working",
+      "card_payment_fee_charged": "card payment fee charged",
+      "card_payment_not_recognised": "card payment not recognised",
+      "card_payment_wrong_exchange_rate": "card payment wrong exchange rate",
+      "card_swallowed": "card swallowed",
+      "cash_withdrawal_charge": "cash withdrawal charge",
+      "cash_withdrawal_not_recognised": "cash withdrawal not recognised",
+      "change_pin": "change pin",
+      "compromised_card": "compromised card",
+      "contactless_not_working": "contactless not working",
+      "country_support": "country support",
+      "declined_card_payment": "declined card payment",
+      "declined_cash_withdrawal": "declined cash withdrawal",
+      "declined_transfer": "declined transfer",
+      "direct_debit_payment_not_recognised": "direct debit payment not recognised",
+      "disposable_card_limits": "disposable card limits",
+      "edit_personal_details": "edit personal details",
+      "exchange_charge": "exchange charge",
+      "exchange_rate": "exchange rate",
+      "exchange_via_app": "exchange via app",
+      "extra_charge_on_statement": "extra charge on statement",
+      "failed_transfer": "failed transfer",
+      "fiat_currency_support": "fiat currency support",
+      "get_disposable_virtual_card": "get disposable virtual card",
+      "get_physical_card": "get physical card",
+      "getting_spare_card": "getting spare card",
+      "getting_virtual_card": "getting virtual card",
+      "lost_or_stolen_card": "lost or stolen card",
+      "lost_or_stolen_phone": "lost or stolen phone",
+      "order_physical_card": "order physical card",
+      "passcode_forgotten": "passcode forgotten",
+      "pending_card_payment": "pending card payment",
+      "pending_cash_withdrawal": "pending cash withdrawal",
+      "pending_top_up": "pending top up",
+      "pending_transfer": "pending transfer",
+      "pin_blocked": "pin blocked",
+      "receiving_money": "receiving money",
+      "Refund_not_showing_up": "Refund not showing up",
+      "request_refund": "request refund",
+      "reverted_card_payment?": "reverted card payment?",
+      "supported_cards_and_currencies": "supported cards and currencies",
+      "terminate_account": "terminate account",
+      "top_up_by_bank_transfer_charge": "top up by bank transfer charge",
+      "top_up_by_card_charge": "top up by card charge",
+      "top_up_by_cash_or_cheque": "top up by cash or cheque",
+      "top_up_failed": "top up failed",
+      "top_up_limits": "top up limits",
+      "top_up_reverted": "top up reverted",
+      "topping_up_by_card": "topping up by card",
+      "transaction_charged_twice": "transaction charged twice",
+      "transfer_fee_charged": "transfer fee charged",
+      "transfer_into_account": "transfer into account",
+      "transfer_not_received_by_recipient": "transfer not received by recipient",
+      "transfer_timing": "transfer timing",
+      "unable_to_verify_identity": "unable to verify identity",
+      "verify_my_identity": "verify my identity",
+      "verify_source_of_funds": "verify source of funds",
+      "verify_top_up": "verify top up",
+      "virtual_card_not_working": "virtual card not working",
+      "visa_or_mastercard": "visa or mastercard",
+      "why_verify_identity": "why verify identity",
+      "wrong_amount_of_cash_received": "wrong amount of cash received",
+      "wrong_exchange_rate_for_cash_withdrawal": "wrong exchange rate for cash withdrawal"
+     }
+    }
+   },
+   "labels": {
+    "intent": "exchange_rate"
+   }
+  },
+  {
+   "suite": "BANKING77",
+   "name": "banking77/test/2658",
+   "source": "banking77_test_sample100.jsonl row 2658 (PolyAI/banking77 test)",
+   "state": "I need to know why my credit card was declined for top up? What is the deal here and why did it not go through?",
+   "questions": {
+    "intent": {
+     "type": "choice",
+     "instructions": "Which banking intent does the customer have?",
+     "criteria": {
+      "activate_my_card": "activate my card",
+      "age_limit": "age limit",
+      "apple_pay_or_google_pay": "apple pay or google pay",
+      "atm_support": "atm support",
+      "automatic_top_up": "automatic top up",
+      "balance_not_updated_after_bank_transfer": "balance not updated after bank transfer",
+      "balance_not_updated_after_cheque_or_cash_deposit": "balance not updated after cheque or cash deposit",
+      "beneficiary_not_allowed": "beneficiary not allowed",
+      "cancel_transfer": "cancel transfer",
+      "card_about_to_expire": "card about to expire",
+      "card_acceptance": "card acceptance",
+      "card_arrival": "card arrival",
+      "card_delivery_estimate": "card delivery estimate",
+      "card_linking": "card linking",
+      "card_not_working": "card not working",
+      "card_payment_fee_charged": "card payment fee charged",
+      "card_payment_not_recognised": "card payment not recognised",
+      "card_payment_wrong_exchange_rate": "card payment wrong exchange rate",
+      "card_swallowed": "card swallowed",
+      "cash_withdrawal_charge": "cash withdrawal charge",
+      "cash_withdrawal_not_recognised": "cash withdrawal not recognised",
+      "change_pin": "change pin",
+      "compromised_card": "compromised card",
+      "contactless_not_working": "contactless not working",
+      "country_support": "country support",
+      "declined_card_payment": "declined card payment",
+      "declined_cash_withdrawal": "declined cash withdrawal",
+      "declined_transfer": "declined transfer",
+      "direct_debit_payment_not_recognised": "direct debit payment not recognised",
+      "disposable_card_limits": "disposable card limits",
+      "edit_personal_details": "edit personal details",
+      "exchange_charge": "exchange charge",
+      "exchange_rate": "exchange rate",
+      "exchange_via_app": "exchange via app",
+      "extra_charge_on_statement": "extra charge on statement",
+      "failed_transfer": "failed transfer",
+      "fiat_currency_support": "fiat currency support",
+      "get_disposable_virtual_card": "get disposable virtual card",
+      "get_physical_card": "get physical card",
+      "getting_spare_card": "getting spare card",
+      "getting_virtual_card": "getting virtual card",
+      "lost_or_stolen_card": "lost or stolen card",
+      "lost_or_stolen_phone": "lost or stolen phone",
+      "order_physical_card": "order physical card",
+      "passcode_forgotten": "passcode forgotten",
+      "pending_card_payment": "pending card payment",
+      "pending_cash_withdrawal": "pending cash withdrawal",
+      "pending_top_up": "pending top up",
+      "pending_transfer": "pending transfer",
+      "pin_blocked": "pin blocked",
+      "receiving_money": "receiving money",
+      "Refund_not_showing_up": "Refund not showing up",
+      "request_refund": "request refund",
+      "reverted_card_payment?": "reverted card payment?",
+      "supported_cards_and_currencies": "supported cards and currencies",
+      "terminate_account": "terminate account",
+      "top_up_by_bank_transfer_charge": "top up by bank transfer charge",
+      "top_up_by_card_charge": "top up by card charge",
+      "top_up_by_cash_or_cheque": "top up by cash or cheque",
+      "top_up_failed": "top up failed",
+      "top_up_limits": "top up limits",
+      "top_up_reverted": "top up reverted",
+      "topping_up_by_card": "topping up by card",
+      "transaction_charged_twice": "transaction charged twice",
+      "transfer_fee_charged": "transfer fee charged",
+      "transfer_into_account": "transfer into account",
+      "transfer_not_received_by_recipient": "transfer not received by recipient",
+      "transfer_timing": "transfer timing",
+      "unable_to_verify_identity": "unable to verify identity",
+      "verify_my_identity": "verify my identity",
+      "verify_source_of_funds": "verify source of funds",
+      "verify_top_up": "verify top up",
+      "virtual_card_not_working": "virtual card not working",
+      "visa_or_mastercard": "visa or mastercard",
+      "why_verify_identity": "why verify identity",
+      "wrong_amount_of_cash_received": "wrong amount of cash received",
+      "wrong_exchange_rate_for_cash_withdrawal": "wrong exchange rate for cash withdrawal"
+     }
+    }
+   },
+   "labels": {
+    "intent": "top_up_failed"
+   }
+  },
+  {
+   "suite": "New Yorker",
+   "name": "6f3e6ee68854948a969de8ca3d645bc2",
+   "source": "newyorker_matching_test_sample100.jsonl row 427 (jmhessel/newyorker_caption_contest matching test)",
+   "state": "A New Yorker cartoon. Pick the caption that was written for it.",
+   "questions": {
+    "caption": {
+     "type": "choice",
+     "instructions": "Which caption was written for this cartoon?",
+     "criteria": {
+      "A": "If he wakes up, you can give him a Martini.",
+      "B": "You will obey my every whim. Oh, wait—you already do.",
+      "C": "His videos bought this house. He deserves a little respect.",
+      "D": "If you didn't want crusts, you should have said so.",
+      "E": "Would you believe a kid came up with this?"
+     }
+    }
+   },
+   "images": [
+    "assets/6f3e6ee68854948a969de8ca3d645bc2.png"
+   ],
+   "labels": {
+    "caption": "A"
+   }
+  },
+  {
+   "suite": "New Yorker",
+   "name": "96481e210856e3046fe4a7188e2fb177",
+   "source": "newyorker_matching_test_sample100.jsonl row 141 (jmhessel/newyorker_caption_contest matching test)",
+   "state": "A New Yorker cartoon. Pick the caption that was written for it.",
+   "questions": {
+    "caption": {
+     "type": "choice",
+     "instructions": "Which caption was written for this cartoon?",
+     "criteria": {
+      "A": "Someone came to school with humans. Now we've all got them.",
+      "B": "Please watch your small step.",
+      "C": "It's the worst case of projectile dysfunction I've ever seen.",
+      "D": "He sounds so much better live than on the baby monitor.",
+      "E": "Watch out for the knuckleball."
+     }
+    }
+   },
+   "images": [
+    "assets/96481e210856e3046fe4a7188e2fb177.png"
+   ],
+   "labels": {
+    "caption": "B"
+   }
+  },
+  {
+   "suite": "New Yorker",
+   "name": "deb0ad8d7ac9150dd40369a45665b790",
+   "source": "newyorker_matching_test_sample100.jsonl row 182 (jmhessel/newyorker_caption_contest matching test)",
+   "state": "A New Yorker cartoon. Pick the caption that was written for it.",
+   "questions": {
+    "caption": {
+     "type": "choice",
+     "instructions": "Which caption was written for this cartoon?",
+     "criteria": {
+      "A": "I guess it really did kill you to call.",
+      "B": "He offered us a franchise, but I think it's a pyramid scheme.",
+      "C": "I liked it better when the voices were inside my head.",
+      "D": "Let’s flip this house.",
+      "E": "It's like you're not even trying to shovel on beat."
+     }
+    }
+   },
+   "images": [
+    "assets/deb0ad8d7ac9150dd40369a45665b790.png"
+   ],
+   "labels": {
+    "caption": "C"
+   }
+  },
+  {
+   "suite": "New Yorker",
+   "name": "bae325573ece89a8df3472d895e7e94d",
+   "source": "newyorker_matching_test_sample100.jsonl row 488 (jmhessel/newyorker_caption_contest matching test)",
+   "state": "A New Yorker cartoon. Pick the caption that was written for it.",
+   "questions": {
+    "caption": {
+     "type": "choice",
+     "instructions": "Which caption was written for this cartoon?",
+     "criteria": {
+      "A": "So Major Tom... Do you know how fast you were going?",
+      "B": "Please, a sandwich, a piece of fruit, anything.",
+      "C": "How do you respond to allegations that you're bipolar?",
+      "D": "If you didn't want crusts, you should have said so.",
+      "E": "What a delightful coincidence. I'm also recently single."
+     }
+    }
+   },
+   "images": [
+    "assets/bae325573ece89a8df3472d895e7e94d.png"
+   ],
+   "labels": {
+    "caption": "A"
+   }
+  },
+  {
+   "suite": "New Yorker",
+   "name": "2d63a4a50ce504adf85f02336c40a8e7",
+   "source": "newyorker_matching_test_sample100.jsonl row 256 (jmhessel/newyorker_caption_contest matching test)",
+   "state": "A New Yorker cartoon. Pick the caption that was written for it.",
+   "questions": {
+    "caption": {
+     "type": "choice",
+     "instructions": "Which caption was written for this cartoon?",
+     "criteria": {
+      "A": "If he wakes up, you can give him a Martini.",
+      "B": "Well, five acres of popcorn back there says you were.",
+      "C": "Sure, she's cute, but she'll never have a dancer's body.",
+      "D": "Two? Close enough—give 'em hell!",
+      "E": "They lied, I'm from Brooklyn."
+     }
+    }
+   },
+   "images": [
+    "assets/2d63a4a50ce504adf85f02336c40a8e7.png"
+   ],
+   "labels": {
+    "caption": "E"
+   }
+  },
+  {
+   "suite": "New Yorker",
+   "name": "e08f4e32fc6c6b8da7774b5a5cbe82f1",
+   "source": "newyorker_matching_test_sample100.jsonl row 490 (jmhessel/newyorker_caption_contest matching test)",
+   "state": "A New Yorker cartoon. Pick the caption that was written for it.",
+   "questions": {
+    "caption": {
+     "type": "choice",
+     "instructions": "Which caption was written for this cartoon?",
+     "criteria": {
+      "A": "Good, Human Resources is here.",
+      "B": "Son, one day all this will be yours. Except her.",
+      "C": "My son, we all have reservations.",
+      "D": "Watch out for banana peels on the way down.",
+      "E": "Sure, drawing it is the easy part, it's the caption that's tough."
+     }
+    }
+   },
+   "images": [
+    "assets/e08f4e32fc6c6b8da7774b5a5cbe82f1.png"
+   ],
+   "labels": {
+    "caption": "A"
+   }
+  },
+  {
+   "suite": "New Yorker",
+   "name": "54645216d99d9cf68abd301c4314f0bf",
+   "source": "newyorker_matching_test_sample100.jsonl row 60 (jmhessel/newyorker_caption_contest matching test)",
+   "state": "A New Yorker cartoon. Pick the caption that was written for it.",
+   "questions": {
+    "caption": {
+     "type": "choice",
+     "instructions": "Which caption was written for this cartoon?",
+     "criteria": {
+      "A": "Remember when you said, 'WE spent a tough ten hours in labor?\" Well, now WE'RE shoveling the snow.",
+      "B": "No one wears their cone like that anymore Dad",
+      "C": "You should see the couch they have at the urologist's office.",
+      "D": "Let me know when the paint is dry.",
+      "E": "I do not see a lifesaver."
+     }
+    }
+   },
+   "images": [
+    "assets/54645216d99d9cf68abd301c4314f0bf.png"
+   ],
+   "labels": {
+    "caption": "C"
+   }
+  },
+  {
+   "suite": "New Yorker",
+   "name": "0e1585cf9645557e64e72662cd437023",
+   "source": "newyorker_matching_test_sample100.jsonl row 50 (jmhessel/newyorker_caption_contest matching test)",
+   "state": "A New Yorker cartoon. Pick the caption that was written for it.",
+   "questions": {
+    "caption": {
+     "type": "choice",
+     "instructions": "Which caption was written for this cartoon?",
+     "criteria": {
+      "A": "It's just not funny if she looks so sexy.",
+      "B": "Just go. I'll only end up hurting you.",
+      "C": "You know we could've had eggs for life, right?",
+      "D": "The first rule of s'mores club is you do not talk about s'mores club.",
+      "E": "You should see him on Valentine's Day."
+     }
+    }
+   },
+   "images": [
+    "assets/0e1585cf9645557e64e72662cd437023.png"
+   ],
+   "labels": {
+    "caption": "B"
+   }
+  }
+ ]
+}
