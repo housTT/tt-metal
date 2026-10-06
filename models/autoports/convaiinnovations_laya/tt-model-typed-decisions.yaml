@@ -61,7 +61,7 @@ serve_profiles:
   - name: p150x4
     hardware: p150x4
     mesh_device: P150x4
-    description: "1x4 mesh, data parallel over rows, no fabric; measured from the packaged image (build 1): 13.2 / 14.6 / 23.7 / 68.5 ms for 1 / 5 / 10 / 50 questions and 310 to 936 questions per second batched; parity smoke 100 of 100 decisions; a single question is slower than one chip (13.2 versus 10.8 ms) by the mesh host overhead."
+    description: "1x4 mesh, data parallel over rows, no fabric; measured from the packaged image (build 2): 12.7 / 16.1 / 23.8 / 68.5 ms for 1 / 5 / 10 / 50 questions and 309 to 936 questions per second batched; parity smoke 100 of 100 decisions; a single question is slower than one chip (12.7 versus 10.8 ms) by the mesh host overhead."
 default_profile: p150
 
 verify:
@@ -88,17 +88,17 @@ card:
     never generates text. This package serves the Jev-compatible /v1/systemone API of the authors' laya-serve on one
     Blackhole p150 chip, with a live demo at /demo/.
   performance: >
-    Measured from the packaged image served on one p150 (build 1, image tt-model/laya-typed-decisions-p150:566a0febd4b4,
-    whose code sha256 e4ef6027ed9dcd4d305b5a1bd03218dd18e5d89066c1a239b0c613bd6092b957 equals this image's: only the
+    Measured from the packaged image served on one p150 (build 2, image tt-model/laya-typed-decisions-p150:a4c8f7eecc1b,
+    whose code sha256 7b36a18faed4998a61c5c6e355eb2bd62cdd9ca9f8ec408bf489b6c30def831b equals this image's: only the
     card changed after it; result files under
-    /home/hous/dev/laya/evals/results/package_laya-typed-decisions-p150_p150_b1_20261006T020850Z, release notes in
+    /home/hous/dev/laya/evals/results/package_laya-typed-decisions-p150_p150_b2_20261006T022244Z, release notes in
     doc/release/RUN_NOTES.md). Typed-decisions test set (400 cases, 2,000 decisions, max_len 1024 / head_max_len 256):
     accuracy 0.764, soft accuracy 0.469, Brier 0.062, ECE 0.214, score MAE 0.244 (published 0.766 / 0.471 / 0.062 /
     0.213 / 0.242; CPU fp32 on this host 0.766 / 0.471 / 0.061 / 0.213 / 0.242). Latency per call (client median, warm,
     authors' bench_latency protocol), p150 versus the authors' Tesla T4 for the English checkpoint: 1 question 10.8 ms
-    (T4 39.5), 5 questions 24.6 ms (84.5), 10 questions 42.9 ms (158.6), 50 questions 197.7 ms (771); device forward
-    9.2 / 22.7 / 40.3 / 191.8 ms. Batched /v1/systemone/batch: 202 to 249 questions per second on one p150 (T4 103 to
-    332); the p150x4 profile 310 to 936. Long states that reach the 1024-token bucket (750-token rows, host-served):
+    (T4 39.5), 5 questions 24.5 ms (84.5), 10 questions 42.9 ms (158.6), 50 questions 197.6 ms (771); device forward
+    9.2 / 22.7 / 40.3 / 191.9 ms. Batched /v1/systemone/batch: 203 to 249 questions per second on one p150 (T4 103 to
+    332); the p150x4 profile 309 to 936. Long states that reach the 1024-token bucket (750-token rows, host-served):
     23.9 / 99.0 / 183.2 / 305.6 ms for 1 / 5 / 10 / 16 questions. AG News 0.953 and DAIR Emotion 0.595 accuracy at the
     1024 / 256 budget (the authors publish these suites for the English checkpoint only: 0.950 / 0.595). Parity against
     this checkpoint's CPU fp32 reference on 488 decisions: 383 of 383 confident decisions agree, 485 of 488 argmax agree,
@@ -115,11 +115,10 @@ card:
     0.031); 3 of 488 parity decisions flip, all within margin 0.01 (none of the 383 confident decisions flips). The
     English bundle's served DAIR Emotion run showed single-row deviations against the fp32 reference of up to 0.27 with
     two confident flips (review R3); the corresponding rate is not measured for this checkpoint. One device process
-    serializes requests. p150x4 status: declared from the English bundle's measurement, not yet validated with this
-    checkpoint. Not reproduced: MASSIVE, XNLI, 45 of 51 languages, post-temperature ECE.
+    serializes requests. p150x4 status: served from the packaged sibling image (build 2: healthy in 20 s, 68.5 ms for 50 questions, parity smoke 100 of 100 and 81 of 81 confident). Not reproduced: MASSIVE, XNLI, 45 of 51 languages, post-temperature ECE.
   risks: >
     bf8w_hifi3_erf numerics move probabilities by up to 0.040 (parity corpus, median 0.0039) and 0.031
-    (typed-decisions) against the fp32 reference in the packaged run (build 1); the single-row Emotion deviation seen on the
+    (typed-decisions) against the fp32 reference in the packaged run (build 2); the single-row Emotion deviation seen on the
     English bundle is not measured for this checkpoint; gate on confidence, not act_probability. Long option texts are
     truncated to 48 tokens silently, as in the reference. The shipped temperatures are over-confident per the authors;
     refit on your own data.
