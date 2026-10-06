@@ -15,6 +15,24 @@
     last: null,
     run: null,
     lastStats: null,
+    variantModel: null,
+  };
+
+  const VARIANTS = {
+    "convaiinnovations/laya": {
+      cls: "original",
+      tag: "ORIGINAL CHECKPOINT",
+      sub: "original checkpoint on one Tenstorrent chip",
+      title: "Laya (original) on p150",
+      text: "<b>This demo serves the original Laya checkpoint</b> (convaiinnovations/laya): the general English model, zero-shot. It was not trained on the live feed's dataset, where the authors report 0.362 accuracy, so most feed cells come out red. The fine-tuned sibling, convaiinnovations/laya-typed-decisions, reports 0.766 on the same test set.",
+    },
+    "convaiinnovations/laya-typed-decisions": {
+      cls: "finetuned",
+      tag: "FINE-TUNED CHECKPOINT",
+      sub: "fine-tuned checkpoint on one Tenstorrent chip",
+      title: "Laya typed-decisions (fine-tuned) on p150",
+      text: "<b>This demo serves the fine-tuned checkpoint</b> (convaiinnovations/laya-typed-decisions): the authors' fine-tune of Laya on the LocalLLaMA/typed-decisions train split, 1024-token context. The live feed draws from that dataset's test split, where this checkpoint reports 0.766 accuracy against 0.362 for the original.",
+    },
   };
 
   function esc(s) {
@@ -71,6 +89,21 @@
     };
   }
 
+  function applyVariant(model) {
+    const v = VARIANTS[model] || {
+      cls: "unknown",
+      tag: "CHECKPOINT",
+      sub: "calibrated typed decisions on one Tenstorrent chip",
+      title: model ? "Laya on p150: " + model : "Laya on p150",
+      text: model ? "<b>This demo serves</b> " + esc(model) + "." : "<b>Identifying the served checkpoint from /v1/health.</b>",
+    };
+    $("variant").className = "variant variant-" + v.cls;
+    $("variant-tag").textContent = v.tag;
+    $("variant-text").innerHTML = v.text;
+    $("brand-sub").textContent = v.sub;
+    document.title = v.title;
+  }
+
   async function pollHealth() {
     const pill = $("health");
     try {
@@ -96,6 +129,10 @@
       $("health-detail").textContent = parts.join(" | ");
       $("cpu-banner").hidden = h.backend !== "cpu";
       if (h.model) $("foot-model").textContent = h.model + (h.revision ? " at " + String(h.revision).slice(0, 12) : "");
+      if (h.model && app.variantModel !== h.model) {
+        app.variantModel = h.model;
+        applyVariant(h.model);
+      }
     } catch (e) {
       app.online = false;
       pill.className = "pill pill-bad";
@@ -648,6 +685,8 @@
     $("copy-stats").addEventListener("click", copyStats);
     $("feed-file").addEventListener("change", (e) => e.target.files[0] && loadJsonl(e.target.files[0]));
     renderTiles();
+    app.variantModel = document.body.dataset.model || null;
+    applyVariant(app.variantModel || "");
     await pollHealth();
     setInterval(pollHealth, 5000);
     try {

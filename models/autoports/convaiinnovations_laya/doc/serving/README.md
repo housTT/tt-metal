@@ -230,6 +230,14 @@ Concurrency: one `asyncio.Lock` around every forward (systemone, batch, raw); th
 
 ## Demo page (`/demo/`)
 
+- Checkpoint band under the header, filled from `GET /v1/health` `model` (and pre-stamped by the server as
+  `<body data-model=...>` and the `<title>`): `ORIGINAL CHECKPOINT` in blue for `convaiinnovations/laya`,
+  `FINE-TUNED CHECKPOINT` in green for `convaiinnovations/laya-typed-decisions`, a neutral `CHECKPOINT` line for any
+  other model id. The band states what the checkpoint was trained on and the published typed-decisions accuracy
+  (0.362 against 0.766), because the live feed draws from that dataset and the original checkpoint is near chance on it.
+- Lede card: what Laya is (421M-parameter ModernBERT-large encoder with a decision head, never generates text), what
+  it is for, and links to the Hugging Face model cards, GitHub, the docs site, the author's blog post, the feed dataset
+  and PyPI. Links open in a new tab; no external asset is loaded.
 - Header: name, a health pill polling `GET /v1/health` every 5 s (`<backend> ready`, then precision, mesh, seq and
   row buckets, trace count), a yellow banner when `backend == "cpu"`, a red banner when the server is unreachable.
 - Presets (`demo/presets.json`): support ticket triage (STATE_EN, Q_CHOICE, Q_NOUL plus a tone score), email spam and
@@ -339,7 +347,9 @@ LAYA_CPU_THREADS=4 python -m pytest models/autoports/convaiinnovations_laya/test
   `min_confidence` float, 0.0 and map; eight 422 bodies; four 413 bodies; five 400 bodies; empty questions; `/v1/forward`
   against the wire path (probabilities within 2e-3) and a bad qtype; raw forward absent without the flag; bearer auth;
   the module-level `app`.
-- `test_demo_page.py`: demo files present and free of em and en dashes, no external URLs in the HTML; presets and feed
+- `test_demo_page.py`: demo files present and free of em and en dashes, no external asset references (anchors to the
+  authors' pages are allowed), the lede links and the checkpoint band present, `demo_html(model)` stamps the title and
+  `data-model`; presets and feed
   validate (5 presets, 60 cases, 4 workflows, 5 questions each); `/demo` 307, `/demo/` 200 with stamped asset URLs
   and `no-cache`, static files, `presets.json`, `feed.json`, a 404; every preset decides with probabilities summing to
   1 within 1e-3 and gold keys matching; a feed case decides with gold labels inside the answer keys.

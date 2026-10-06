@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from html import escape
 from typing import Any, Dict, List
 
 from fastapi import FastAPI
@@ -17,17 +18,27 @@ PRESETS_FILE = os.path.join(DEMO_DIR, "presets.json")
 FEED_FILE = os.path.join(DEMO_DIR, "feed_cases.json")
 NO_CACHE = {"Cache-Control": "no-cache"}
 QTYPES = ("choice", "score", "noul")
+DEFAULT_TITLE = "Laya on p150"
+TITLES = {
+    "convaiinnovations/laya": "Laya (original) on p150",
+    "convaiinnovations/laya-typed-decisions": "Laya typed-decisions (fine-tuned) on p150",
+}
 
 
 def demo_stamp() -> str:
     return format(int(max(os.path.getmtime(os.path.join(DEMO_DIR, f)) for f in DEMO_FILES)), "x")
 
 
-def demo_html() -> str:
+def demo_html(model: str = "") -> str:
     with open(os.path.join(DEMO_DIR, "index.html"), encoding="utf-8") as fh:
         html = fh.read()
     v = demo_stamp()
-    return html.replace('href="demo.css"', f'href="demo.css?v={v}"').replace('src="demo.js"', f'src="demo.js?v={v}"')
+    html = html.replace('href="demo.css"', f'href="demo.css?v={v}"').replace('src="demo.js"', f'src="demo.js?v={v}"')
+    if model:
+        title = TITLES.get(model, DEFAULT_TITLE + ": " + model)
+        html = html.replace(f"<title>{DEFAULT_TITLE}</title>", f"<title>{escape(title)}</title>", 1)
+        html = html.replace("<body>", f'<body data-model="{escape(model, quote=True)}">', 1)
+    return html
 
 
 def load_json(path: str) -> Any:
@@ -63,7 +74,9 @@ def validate_feed(feed: Dict[str, Any]) -> None:
             raise ValueError("feed attribution lacks %r" % key)
     cases = feed["cases"]
     if not isinstance(cases, list) or not 40 <= len(cases) <= 100:
-        raise ValueError("feed must carry 40 to 100 cases, got %s" % (len(cases) if isinstance(cases, list) else type(cases)))
+        raise ValueError(
+            "feed must carry 40 to 100 cases, got %s" % (len(cases) if isinstance(cases, list) else type(cases))
+        )
     seen = set()
     for case in cases:
         for key in ("id", "workflow", "state", "questions", "gold"):
@@ -95,7 +108,9 @@ def register_demo(app: FastAPI) -> None:
 
     @app.get("/demo/", include_in_schema=False)
     def demo_page():
-        return HTMLResponse(demo_html(), headers=NO_CACHE)
+        eng = getattr(app.state, "engine", None)
+        model = getattr(eng, "hf_model", None) or os.environ.get("HF_MODEL") or ""
+        return HTMLResponse(demo_html(model), headers=NO_CACHE)
 
     @app.get("/demo/presets.json", include_in_schema=False)
     def demo_presets():

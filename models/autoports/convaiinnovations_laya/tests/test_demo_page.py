@@ -9,6 +9,7 @@ import re
 from models.autoports.convaiinnovations_laya.server.demo import (
     DEMO_DIR,
     DEMO_FILES,
+    demo_html,
     load_feed,
     load_presets,
     validate_feed,
@@ -31,12 +32,56 @@ def test_demo_files_present_and_dash_free():
     with open(os.path.join(DEMO_DIR, "index.html"), encoding="utf-8") as fh:
         html = fh.read()
     external = re.compile(
-        r'(src|href)="https?://|url\(\s*["\']?https?://|@import\s+["\']?https?://|fetch\(\s*["\']https?://'
+        r'src="https?://|<link[^>]*href="https?://|url\(\s*["\']?https?://|@import\s+["\']?https?://|fetch\(\s*["\']https?://'
     )
     for name in DEMO_FILES:
         with open(os.path.join(DEMO_DIR, name), encoding="utf-8") as fh:
             assert not external.search(fh.read()), "external asset reference in %s" % name
     assert 'src="demo.js"' in html and 'href="demo.css"' in html
+
+
+def test_lede_links_and_variant_band():
+    with open(os.path.join(DEMO_DIR, "index.html"), encoding="utf-8") as fh:
+        html = fh.read()
+    with open(os.path.join(DEMO_DIR, "demo.js"), encoding="utf-8") as fh:
+        js = fh.read()
+    for marker in (
+        'id="variant"',
+        'id="variant-tag"',
+        'id="variant-text"',
+        'id="brand-sub"',
+        'class="lede"',
+        'id="lede-links"',
+    ):
+        assert marker in html, marker
+    for href in (
+        "https://huggingface.co/convaiinnovations/laya",
+        "https://huggingface.co/convaiinnovations/laya-typed-decisions",
+        "https://github.com/NandhaKishorM/laya",
+        "https://nandhakishorm.github.io/laya/",
+        "https://dev.to/",
+        "https://huggingface.co/datasets/LocalLLaMA/typed-decisions",
+    ):
+        assert 'href="%s' % href in html, href
+    anchors = re.findall(r'<a [^>]*href="https?://[^"]*"[^>]*>', html)
+    assert len(anchors) >= 6
+    assert all('target="_blank"' in a and 'rel="noopener"' in a for a in anchors)
+    for model in ("convaiinnovations/laya", "convaiinnovations/laya-typed-decisions"):
+        assert '"%s": {' % model in js, model
+    assert "document.title = v.title" in js and "applyVariant(h.model)" in js and "document.body.dataset.model" in js
+
+
+def test_demo_html_stamps_served_model():
+    plain = demo_html("")
+    assert "<title>Laya on p150</title>" in plain and "<body>" in plain
+    original = demo_html("convaiinnovations/laya")
+    assert "<title>Laya (original) on p150</title>" in original
+    assert '<body data-model="convaiinnovations/laya">' in original
+    tuned = demo_html("convaiinnovations/laya-typed-decisions")
+    assert "<title>Laya typed-decisions (fine-tuned) on p150</title>" in tuned
+    assert '<body data-model="convaiinnovations/laya-typed-decisions">' in tuned
+    other = demo_html('acme/x"y')
+    assert "<title>Laya on p150: acme/x&quot;y</title>" in other and 'data-model="acme/x&quot;y"' in other
 
 
 def test_presets_and_feed_validate():
@@ -110,6 +155,8 @@ def test_page_documents_autorun_options(client):
     assert '$("foot-model").textContent = h.model' in js and "h.revision" in js
     health = client.get("/v1/health").json()
     assert health["model"] and "revision" in health
+    assert 'data-model="%s"' % health["model"] in html
+    assert "<title>Laya on p150</title>" not in html
 
 
 @needs_weights

@@ -69,7 +69,7 @@ verify:
   - "import models.autoports.convaiinnovations_laya.server.decode as d; assert d.decode_answers"
   - "import models.autoports.convaiinnovations_laya.server.engine as g; assert g.Engine.from_env and g.CpuBackend"
   - "import models.autoports.convaiinnovations_laya.reference.laya_reference as r; assert r.LayaReference"
-  - "from pathlib import Path; assert Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/demo/index.html').is_file()"
+  - "from pathlib import Path; assert Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/demo/index.html').is_file(); assert 'id=\"variant\"' in Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/demo/index.html').read_text()"
   - "from pathlib import Path; import json; f = json.loads(Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/demo/feed_cases.json').read_text()); assert 40 <= len(f['cases']) <= 100 and f['attribution']['revision']"
   - "from pathlib import Path; import json; assert len(json.loads(Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/demo/presets.json').read_text())) >= 5"
   - "from pathlib import Path; import json; assert json.loads(Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/server/sanity_reference.json').read_text())['answers']['routing']['choice']"
@@ -84,10 +84,11 @@ card:
     with calibrated probabilities; it never generates text. This package serves the Jev-compatible /v1/systemone
     API of the authors' laya-serve on one Blackhole p150 chip, with a live demo at /demo/.
   performance: >
-    Measured from the packaged image served on one p150 (build 5, image tt-model/laya-p150:dd4da8467626, whose code
-    sha256 7b36a18faed4998a61c5c6e355eb2bd62cdd9ca9f8ec408bf489b6c30def831b equals this image's: only the card changed
-    after it; result files under /home/hous/dev/laya/evals/results/package_p150_b5_20261006T024919Z, release notes in
-    doc/release/RUN_NOTES.md). Latency per call (client median, warm, authors' bench_latency protocol), p150 versus the
+    Measured from the packaged image served on one p150 (build 5, image tt-model/laya-p150:dd4da8467626, code sha256
+    7b36a18faed4998a61c5c6e355eb2bd62cdd9ca9f8ec408bf489b6c30def831b; builds 6 and 7 carried the same code and build 7
+    reproduced every cell within 0.7 ms; this build changes only the demo page files (demo/, server/demo.py and their
+    tests), not the model or the API path; result files under /home/hous/dev/laya/evals/results/package_p150_b5_20261006T024919Z,
+    release notes in doc/release/RUN_NOTES.md). Latency per call (client median, warm, authors' bench_latency protocol), p150 versus the
     authors' Tesla T4: 1 question 10.9 ms (T4 39.5), 5 questions 24.6 ms (84.5), 10 questions 42.5 ms (158.6),
     50 questions 197.5 ms (771); device forward 9.2 / 22.7 / 40.3 / 191.6 ms. Batched /v1/systemone/batch: 203 to 250
     questions per second on one p150 (T4 103 to 332); the p150x4 profile 349 to 940. Typed-decisions test set (400

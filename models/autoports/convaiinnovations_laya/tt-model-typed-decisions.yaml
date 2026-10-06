@@ -72,7 +72,7 @@ verify:
   - "import models.autoports.convaiinnovations_laya.server.decode as d; assert d.decode_answers"
   - "import models.autoports.convaiinnovations_laya.server.engine as g; assert g.Engine.from_env and g.CpuBackend"
   - "import models.autoports.convaiinnovations_laya.reference.laya_reference as r; assert r.LayaReference"
-  - "from pathlib import Path; assert Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/demo/index.html').is_file()"
+  - "from pathlib import Path; assert Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/demo/index.html').is_file(); assert 'id=\"variant\"' in Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/demo/index.html').read_text()"
   - "from pathlib import Path; import json; f = json.loads(Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/demo/feed_cases.json').read_text()); assert 40 <= len(f['cases']) <= 100 and f['attribution']['revision']"
   - "from pathlib import Path; import json; assert len(json.loads(Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/demo/presets.json').read_text())) >= 5"
   - "from pathlib import Path; import json; r = json.loads(Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/server/sanity_reference_typed_decisions.json').read_text()); assert r['answers']['routing']['choice'] == 'billing' and abs(r['answers']['routing']['probabilities']['billing'] - 0.6115) < 1e-6"
@@ -89,8 +89,9 @@ card:
     Blackhole p150 chip, with a live demo at /demo/.
   performance: >
     Measured from the packaged image served on one p150 (build 2, image tt-model/laya-typed-decisions-p150:a4c8f7eecc1b,
-    whose code sha256 7b36a18faed4998a61c5c6e355eb2bd62cdd9ca9f8ec408bf489b6c30def831b equals this image's: only the
-    card changed after it; result files under
+    code sha256 7b36a18faed4998a61c5c6e355eb2bd62cdd9ca9f8ec408bf489b6c30def831b; builds 3 and 4 carried the same code;
+    this build changes only the demo page files (demo/, server/demo.py and their tests), not the model or the API path;
+    result files under
     /home/hous/dev/laya/evals/results/package_laya-typed-decisions-p150_p150_b2_20261006T022244Z, release notes in
     doc/release/RUN_NOTES.md). Typed-decisions test set (400 cases, 2,000 decisions, max_len 1024 / head_max_len 256):
     accuracy 0.764, soft accuracy 0.469, Brier 0.062, ECE 0.214, score MAE 0.244 (published 0.766 / 0.471 / 0.062 /

@@ -12,7 +12,7 @@
 <header class="topbar">
   <div class="brand">
     <span class="brand-name">Laya</span>
-    <span class="brand-sub">calibrated typed decisions on one Tenstorrent chip</span>
+    <span id="brand-sub" class="brand-sub">calibrated typed decisions on one Tenstorrent chip</span>
   </div>
   <div class="topbar-right">
     <span id="health" class="pill pill-wait" title="GET /v1/health every 5 s">
@@ -21,13 +21,27 @@
     <span id="health-detail" class="health-detail"></span>
   </div>
 </header>
+<div id="variant" class="variant variant-unknown" role="note">
+  <span id="variant-tag" class="variant-tag">CHECKPOINT</span>
+  <span id="variant-text"><b>Identifying the served checkpoint from /v1/health.</b></span>
+</div>
 <div id="cpu-banner" class="banner" hidden>This server runs the fp32 CPU reference backend, not the Tenstorrent chip. Answers are the model's; latencies are not representative.</div>
 <div id="offline-banner" class="banner banner-warn" hidden>The server is not reachable. The page retries every 5 s.</div>
 
 <main class="page">
   <section class="card intro">
-    <h1>One forward pass, typed answers, calibrated probabilities</h1>
-    <p>Laya is a ModernBERT-large encoder with an option-scoring head (421M parameters). It never generates text. You give it a state (text or JSON) and typed questions: <b>choice</b> (pick one of several labels), <b>score</b> (an ordinal level), <b>noul</b> (true or false). Every question comes back with a probability over its options, a confidence, and the model's own escalation signal. This page talks only to the public API of the server that serves it: <code>POST /v1/systemone</code>, <code>POST /v1/systemone/batch</code> and <code>GET /v1/health</code>.</p>
+    <h1>Laya: one forward pass, typed answers, calibrated probabilities</h1>
+    <p class="lede">Laya is a 421M-parameter decision model published by convaiinnovations: a ModernBERT-large encoder with a decision head. It is not a language model and never generates text. You give it a state (an email, a ticket, a log, JSON) and typed questions: <b>choice</b> (pick one label), <b>score</b> (an ordinal level), <b>noul</b> (true or false). One forward pass returns a calibrated probability for every option, in about 11 ms per single-question call on this chip.</p>
+    <p>It is made for the small decisions inside agents and workflows: routing, triage, escalation gates, moderation and scoring, where a calibrated number is worth more than a generated paragraph. The authors ship it zero-shot and report that fine-tuning on your own decisions is where accuracy jumps. This page talks only to the public API of the server that serves it: <code>POST /v1/systemone</code>, <code>POST /v1/systemone/batch</code> and <code>GET /v1/health</code>.</p>
+    <ul class="links" id="lede-links">
+      <li><a href="https://huggingface.co/convaiinnovations/laya" target="_blank" rel="noopener">Model card on Hugging Face</a></li>
+      <li><a href="https://huggingface.co/convaiinnovations/laya-typed-decisions" target="_blank" rel="noopener">Fine-tuned checkpoint</a></li>
+      <li><a href="https://github.com/NandhaKishorM/laya" target="_blank" rel="noopener">GitHub</a></li>
+      <li><a href="https://nandhakishorm.github.io/laya/" target="_blank" rel="noopener">Docs</a></li>
+      <li><a href="https://dev.to/nandakishor_m_6cc0adfde9f/i-built-non-autoregressive-decision-models-a-year-ago-then-a-frontier-lab-called-it-a-18me" target="_blank" rel="noopener">Blog post by the author</a></li>
+      <li><a href="https://huggingface.co/datasets/LocalLLaMA/typed-decisions" target="_blank" rel="noopener">Live feed dataset</a></li>
+      <li><a href="https://pypi.org/project/laya/" target="_blank" rel="noopener">pip laya</a></li>
+    </ul>
   </section>
 
   <section class="grid-2">
