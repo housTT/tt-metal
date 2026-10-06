@@ -2,7 +2,7 @@
 
 Date: 2026 Oct 05 (times in this file are Eastern Time, ET; the host clock is UTC). Code: tt-metal branch `hous/clef-bringup`, autoport `/home/hous/dev/clef/tt-metal/models/autoports/cloudflare_clef/`.
 
-This directory is a stand-alone demo of the Clef server (`/home/hous/dev/clef/tt-metal/models/autoports/cloudflare_clef/tt/server.py`). It has a web page and a command-line interface (CLI) that send the same requests to `POST /v1/systemone` and draw the answers. Nothing here is mounted by the server or shipped in the package. The page is plain HTML, CSS and JavaScript with no build step and no network dependency besides the Clef server. The CLI uses only the Python standard library. The preset builder needs Pillow.
+This directory is a stand-alone demo of the Clef server (`/home/hous/dev/clef/tt-metal/models/autoports/cloudflare_clef/tt/server.py`). It has a web page and a command-line interface (CLI) that send the same requests to `POST /v1/systemone` and draw the answers. Nothing here is mounted by the server or shipped in the package. The page is plain HTML, CSS and JavaScript with no build step. Its only network dependencies are the Clef server and the IBM Plex fonts from Google Fonts; without internet access the page falls back to system fonts and works the same. The CLI uses only the Python standard library. The preset builder needs Pillow.
 
 Acronyms: API (application programming interface), ARC (AI2 Reasoning Challenge), CLI (command-line interface), CORS (cross-origin resource sharing), HF (Hugging Face), JSON (JavaScript Object Notation), LRU (least recently used), PNG (Portable Network Graphics), SSH (secure shell), TP (tensor parallel), URL (uniform resource locator).
 
