@@ -276,3 +276,16 @@ The build 2 package numbers and Track S's trimmed host path (commit `9727209227`
 - The pre-rewrite tag `laya-pre-rewrite-20261006T0044` keeps the 159 MB of Tracy blobs reachable locally; it must not be pushed.
 - The E1 per-decision outputs exist only for runs from build 2 onward; the host-served build 1 of record stays aggregate-only.
 - The rest of the first-pass residual risk stands, except that the selection risk is closed: every faster A.7-passing policy fails the invariance gate.
+
+## Re-check 3 (2026 Oct 6)
+
+Re-check of the new P2 of round 2 against branch `hous/laya` at commit `c80e37bdd3f8946f0936df8d551142f6bd10cc9e` ("laya autoport: track the cited evidence CSV and log files (root .gitignore excluded them), ignore raw Tracy folders"). Read-only; no file modified except this report.
+
+Verdict: clean-pass
+
+- Correction to the round 2 section: the cited evidence set is 42 files, not 43 (`sweep_results.csv`, `sweep_subprocess.log`, `watcher_layer_run.log`, plus `perf_report.csv`, `perf_report_stacked.csv` and `perf_report.console.log` in each of the 13 Tracy directories; 3 + 13 x 3 = 42). The commit statistics confirm it: 44 files changed, 11,534 insertions, 0 deletions, that is the 42 evidence files plus `/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/convaiinnovations_laya/.gitignore` and this review file.
+- `/home/hous/dev/ornith-1.5-9b/tt-metal/models/autoports/convaiinnovations_laya/.gitignore` at `c80e37bdd3` reads `*.tracy`, `.logs/`, `reports/`, `!doc/**/*.csv`, `!doc/**/*.log`.
+- `git ls-tree -r --name-only c80e37bdd3` on the autoport `doc/` matches all 42 cited files (13 `perf_report.csv`, 13 `perf_report_stacked.csv`, 13 `perf_report.console.log`, `doc/datatype_sweep/sweep_results.csv`, `doc/datatype_sweep/sweep_subprocess.log`, `doc/functional_decoder/watcher_layer_run.log`). No `.tracy` file and no path under `.logs/` or `reports/` is tracked. The largest tracked files under the autoport are `doc/full_model/fidelity_bf8w_hifi3_erf_1x1.json` (548,619 bytes), `doc/functional_decoder/watcher_layer_run.log` (320,564 bytes) and two `perf_report_stacked.png` files (about 305 KB); nothing over 1 MB.
+- `git status --short --ignored` under the autoport `doc/` lists only the `.logs/` and `reports/` folders of the 13 Tracy directories (26 entries) and `__pycache__`; zero other ignored entries. The `.tracy` contents of those folders are the 26 copies verified in round 2 under `/home/hous/dev/laya/evidence/tracy/`.
+- Working tree at the time of this re-check: the Track T4 edits to `common.py`, `reference/corpus.py` and `tt/` remain uncommitted and one new untracked file `tests/bench_served_long.py` has appeared; both are outside this verdict and were not touched.
+- The round 2 P2 is closed. No Required Work remains from review R2. The Hard-Check Gaps and residual risks recorded in the first pass and in round 2 stand as recorded (E1 per-decision outputs only from build 2 onward; the pre-rewrite tag must not be pushed; pooled hidden PCC; host-tail equality by inspection; latency statistics without samples; dtype consumption verified for the shipped policy only; no bfp4 candidate).
