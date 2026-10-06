@@ -28,6 +28,12 @@ review (PLAN.md, decisions of 2026 Oct 4); the exact commands are at the end of 
   for the review screenshot and the card with the packaged build 2 numbers. Image `tt-model/laya-p150:597e9bd0c76b`,
   digest `sha256:597e9bd0c76b7c2ae8ca3ac1b10b3616bcb3357c4e95f40f9a50b298d78f41d8`, code sha256
   `b458861e3783014b1d4268d4b3ee6833ae2947da57ec3406af60fc49b22b7b5e`, `dirty: false`.
+- Build 4, the release candidate (00:56 to 00:59 UTC, `package exit 0`, commit `ba429fe433`): card only (the packaged
+  build 3 numbers); code sha256 identical to build 3. Image `tt-model/laya-p150:cd1a51a2d8cb`, digest
+  `sha256:cd1a51a2d8cb502c6dac4adeffec9e20f69cd8d2923edcd61c367a9ff1302ffe`, code sha256
+  `b458861e3783014b1d4268d4b3ee6833ae2947da57ec3406af60fc49b22b7b5e`, tt-metal `ba429fe433` (`dirty: false`). Staged
+  bundle: `/home/hous/dev/laya/package/out/laya-p150/` (`tt_kernel_manifest.json`, `README.md`, `requirements.lock`,
+  `code/`, `image/`).
 
 ## Verification from the served package (build 1, profile p150, chip 0, port 8710)
 
@@ -67,6 +73,24 @@ device 9.2 / 22.7 / 40.2 / 191.7), batched 203 to 249 questions per second. Demo
 five-question case, 0 errors. Demo page with an answered preset and the live feed:
 `/home/hous/dev/laya/evidence/demo_p150_b3.png`. p150x4 (`package_p150x4_b3_20261006T005357Z`): healthy 20 s after
 start; E5 13.3 / 16.3 / 23.8 / 69.9 ms, batched 301 to 937 questions per second.
+
+## Verification from the served package (build 4, the release candidate, profile p150, chip 0, port 8710)
+
+Results `/home/hous/dev/laya/evals/results/package_p150_b4_20261006T010016Z/SUMMARY.md`; healthy 20 s after start.
+
+| check | result |
+|---|---|
+| E1 parity vs CPU fp32 (488 decisions, wire path; `parity/decisions.jsonl` stored) | 476 of 488 argmax, 403 of 403 confident, median max abs dp 0.0082, p95 0.031, max 0.1225, probability PCC 0.9991, 0 NaN |
+| E2 typed-decisions (400 cases, 2,000 decisions) | 0.359 / 0.332 / 0.311 / 0.172 / 0.689 (published 0.362 / 0.332 / 0.316 / 0.175 / 0.694; CPU fp32 0.3615 / 0.3315 / 0.3155 / 0.1747 / 0.6937) |
+| E3 AG News / DAIR Emotion (400 each) | 0.955 (ECE 0.035, 9.4 ms per case) / 0.593 (ECE 0.308, 9.4 ms) |
+| E5 client p50 for 1 / 5 / 10 / 50 questions | 10.8 / 24.4 / 42.8 / 197.2 ms (server 9.9 / 23.6 / 41.8 / 195.4; device 9.2 / 22.7 / 40.3 / 191.5; T4 39.5 / 84.5 / 158.6 / 771) |
+| E5 batched throughput | 202 to 250 questions per second (T4 103 to 332) |
+| demo feed (`/home/hous/dev/laya/evidence/demo_feed_b4.json`) | 241 cases, 1,205 decisions, 20.07 per second, client p50 48.2 ms per five-question case, 0 errors |
+| demo page | `/home/hous/dev/laya/evidence/demo_p150_b4.png` (answered preset, tiles, live feed) |
+| p150x4 (`--device-id 0,1,2,3`, `package_p150x4_b4_20261006T010523Z`) | healthy 20 s after start; E5 13.1 / 16.1 / 23.6 / 68.7 ms, batched 351 to 939 questions per second |
+
+The card quotes the build 3 run; build 4 reproduces it within 0.7 ms on every latency cell and exactly on every
+accuracy row.
 
 ## Publish (gated, not run)
 
