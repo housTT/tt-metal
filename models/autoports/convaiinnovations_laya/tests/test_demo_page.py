@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+import json
 import os
 import re
 
@@ -53,6 +54,30 @@ def test_presets_and_feed_validate():
     workflows = {c["workflow"] for c in feed["cases"]}
     assert len(workflows) == 4
     assert all(len(c["questions"]) == 5 for c in feed["cases"])
+
+
+def test_feed_has_no_integral_floats():
+    feed = load_feed()
+    found = []
+
+    def walk(x, path):
+        if isinstance(x, float):
+            if x.is_integer():
+                found.append(path)
+        elif isinstance(x, dict):
+            for k, v in x.items():
+                walk(v, path + "." + str(k))
+        elif isinstance(x, list):
+            for i, v in enumerate(x):
+                walk(v, "%s[%d]" % (path, i))
+
+    for case in feed["cases"]:
+        walk(case["state"], case["id"] + ".state")
+        walk(case["questions"], case["id"] + ".questions")
+        walk(case["gold"], case["id"] + ".gold")
+    assert not found, found[:5]
+    assert "normalization" in feed["attribution"]
+    assert json.dumps(feed["cases"][0]["state"]) == json.dumps(json.loads(json.dumps(feed["cases"][0]["state"])))
 
 
 @needs_weights

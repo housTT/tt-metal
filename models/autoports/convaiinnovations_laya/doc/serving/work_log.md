@@ -146,3 +146,47 @@ cards, the Last call tiles and the live feed in one screenshot. The footer docum
 `/home/hous/dev/laya/bin/screenshot-demo.sh` defaults to `AUTORUN=decide,feed` and appends `&preset=$PRESET` when
 `PRESET` is set. `node --check` and `bash -n` pass; no em or en dash in the edited files. `test_demo_page.py`: 6 passed
 in 18.4 s (`/home/hous/dev/laya/logs/p2_tests_demo_20261006T003702Z.log`).
+
+## 2026 Oct 6, 00:45 to 00:55 UTC: review R3 items (feed serialization, live health shapes)
+
+- `demo/feed_cases.json` regenerated from the parquet (same 60 ids, same order) with integral floats written as
+  integers in state, questions and gold (38 in states, 64 in gold before; 0 after); `attribution.normalization`
+  records the rule; no integer-like dict keys exist in states or questions (JS would reorder them). The page's
+  `JSON.stringify` and Python's `json.dumps` now send the same text. `evals/demo/feed_client.py` loads `/demo/feed.json`
+  and posts the parsed states unchanged, so the default path needs no edit; its `--parquet-only` and `--cases` paths
+  need the same `int(x) if x.is_integer()` walk (Track E's file, described in README.md).
+- `Engine.live_shapes()` calls `backend.shapes()` on every `/v1/health`; `info()` takes `shapes`, `mesh_shape`,
+  `precision` and `warm_shapes` from it, falling back to the startup snapshot only when the call raises. Field names
+  unchanged.
+- Tests added: `test_server_cpu.py::test_health_shapes_are_live` (a counting `shapes()` advances between two health
+  calls), `test_demo_page.py::test_feed_has_no_integral_floats`.
+- 00:55: three suites after the R3 items (`logs/p2_tests_cpu_20261006T013522Z.log`): .
+- 01:35 to 01:45: the first run of the three suites after the R3 items showed four "fixture 'client' not found" errors
+  and a `NameError: json`: the repository's pre-commit hook (at the orchestrator's commit `4ec75e96f7`) had rewritten
+  `test_demo_page.py` and removed the fixture imports as unused. Fixtures `cpu_engine` and `client` moved to
+  `tests/conftest.py` (session scope, one model load). That exposed a real server defect: an app built with
+  `create_app(engine=...)` closed the injected engine on shutdown, so the auxiliary apps of `test_api_key` and
+  `test_raw_forward_disabled_without_flag` left the shared CPU backend with `model = None` (two 500s in the demo
+  tests; before, importlib import mode had given the demo module its own fixture copy and a second model load, which
+  hid it). `server/app.py` now closes only an engine the lifespan loaded itself (`app.state.owns_engine`).
+- 01:46: three suites after the fixes (`p2_tests_cpu_20261006T013914Z.log`): 57 passed, 3 warnings in 31.48s.
+
+## 2026 Oct 6, 02:00 to 02:15 UTC: sibling checkpoint (Track T4 values)
+
+- `server/app.py`: the startup sanity reference is `LAYA_SANITY_REFERENCE` (path) or `create_app(sanity_reference=...)`,
+  default `server/sanity_reference.json`; the health `sanity` block carries `reference_file` and `reference_model`, the
+  log line names the file. `server/sanity_reference_typed_decisions.json` copied from `doc/release_typed_decisions/`
+  (sha256 5948c4b3...). Test `test_server_cpu.py::test_sanity_reference_selectable`: with the env the English CPU engine
+  reports the sibling file, the same argmax (billing) and max |dp| above 0.2 (0.8899 against 0.6115); the explicit
+  argument selects it too; without either, the default file and max |dp| under 1e-3.
+- `tt-model-typed-decisions.yaml`: every placeholder filled from T4's table (precision, four seq buckets, 1024 rows,
+  16384 batch tokens, 512 MiB trace region, sanity reference path, 37-trace p150 description, p150x4 declared from the
+  English measurement), card performance / limitations / risks from T4's README labelled as host-served build 1, with
+  the English card's structure; the R3 Emotion single-row deviation is stated as not measured for this checkpoint; a
+  verify line checks the shipped sibling sanity file (billing 0.6115). Offline validation (tt-model 0.1.0 library):
+  semantics ok, sources ok under the worktree and the main checkout, `serve_argv` unchanged, 14 verify lines; no
+  `PLACEHOLDER` or dash left. `doc/context_contract.json`: sibling seq buckets 128/256/512/1024, rows at 1024
+  1/2/4/5/8/10/16, `LAYA_ROW_BUCKETS_<seq>` recorded under `bucket_env`, sibling evidence paths.
+- For Track E (passed on by the orchestrator): `feed_client.py` `--parquet-only` and `--cases` paths should apply the
+  integral-float normalization before posting.
+- 02:16: three suites after the sibling items (`p2_tests_cpu_20261006T015557Z.log`): 58 passed, 3 warnings in 33.58s.

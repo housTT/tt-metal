@@ -14,7 +14,27 @@
   "model_revision": "e929ae5cf69bc34259cd2f95c9e91145b818b1f0",
   "max_len": 1024,
   "head_max_len": 256,
-  "temperature_by_options": "identical to the root checkpoint; per-type temperature differs"
+  "temperature_by_options": "identical to the root checkpoint; per-type temperature differs",
+  "seq_buckets": [
+   128,
+   256,
+   512,
+   1024
+  ],
+  "row_buckets_1024": [
+   1,
+   2,
+   4,
+   5,
+   8,
+   10,
+   16
+  ],
+  "max_batch_tokens": 16384,
+  "trace_count": 37,
+  "trace_bytes_mib": "176.8 to 177.3",
+  "sanity_reference": "server/sanity_reference_typed_decisions.json (LAYA_SANITY_REFERENCE)",
+  "evidence": "doc/release_typed_decisions/README.md; served build 1 /home/hous/dev/laya/evals/results/host_tt_td-p150_b1_20261006T012706Z"
  },
  "seq_buckets": {
   "laya": [
@@ -23,6 +43,8 @@
    512
   ],
   "laya-typed-decisions": [
+   128,
+   256,
    512,
    1024
   ]
@@ -68,13 +90,16 @@
    1,
    2,
    4,
+   5,
    8,
+   10,
    16
   ]
  },
  "bucket_env": {
   "seq": "LAYA_SEQ_BUCKETS",
-  "rows": "LAYA_ROW_BUCKETS"
+  "rows": "LAYA_ROW_BUCKETS",
+  "rows_by_seq": "LAYA_ROW_BUCKETS_<seq> (LAYA_ROW_BUCKETS_1024 for the sibling's 1024-token bucket)"
  },
  "limiting_reason": "rl_agent_config.json max_len 512 is the sequence budget of the shipped checkpoint; the vendored build_sequence truncates the state to fit it",
  "input_truncation": "vendor/rl_common.py build_sequence: options capped at 48 tokens each, the option block squeezed to leave at least 16 head tokens, the question text capped to the head budget (at least 8 tokens), the state truncated on the right to max_len - len(head) - 1 tokens, closing [SEP] kept",

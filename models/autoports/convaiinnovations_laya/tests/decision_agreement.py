@@ -14,12 +14,16 @@ import torch
 os.environ.setdefault("TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES", "0")
 
 from models.autoports.convaiinnovations_laya.tests.run_fidelity import (
+    CORPUS,
     DOC_DIR,
+    INDEX,
     SEQ,
     call_tensors,
+    index_for,
     load_corpus,
     loadavg,
     pcc,
+    row_buckets_by_seq_arg,
     scaled_probs,
 )
 
@@ -57,8 +61,28 @@ def main(argv=None):
     ap.add_argument(
         "--row-buckets", default=None, help="comma list; default: the buckets the placements need from ROW_BUCKETS"
     )
+    ap.add_argument("--corpus", default=CORPUS, help="reference corpus npz (default: the English corpus)")
+    ap.add_argument("--index", default=None, help="corpus index JSON (default: derived from --corpus)")
+    ap.add_argument(
+        "--model-dir", default=None, help="checkpoint directory (default: LAYA_MODEL_DIR or the English checkpoint)"
+    )
+    ap.add_argument(
+        "--row-buckets-by-seq", default=None, help='JSON of per-seq row lists, e.g. {"1024": "1,2,4,5,8,10,16"}'
+    )
+    ap.add_argument(
+        "--largest-rows",
+        type=int,
+        default=64,
+        help="rows of the largest placement (64: the 16 questions plus 48 filler rows; 16: the 16 questions alone in one call)",
+    )
     a = ap.parse_args(argv)
     torch.set_num_threads(a.threads)
+    if a.model_dir:
+        os.environ["LAYA_MODEL_DIR"] = a.model_dir
+    index_path = a.index or (INDEX if a.corpus == CORPUS else index_for(a.corpus))
+    by_seq = row_buckets_by_seq_arg(a.row_buckets_by_seq)
+    largest = f"b{a.largest_rows}"
+    placements = PLACEMENTS[:-1] + (largest,)
 
     from models.autoports.convaiinnovations_laya.tt import model_config as mc
     from models.autoports.convaiinnovations_laya.tt.engine import LayaEngine, parse_mesh_shape
@@ -67,48 +91,55 @@ def main(argv=None):
     os.makedirs(DOC_DIR, exist_ok=True)
     out = a.out or os.path.join(DOC_DIR, "decision_agreement.json")
     seq_buckets = tuple(sorted(int(x) for x in a.seq_buckets.split(","))) if a.seq_buckets else (SEQ,)
-    data = load_corpus()
+    data = load_corpus(a.corpus, index_path)
     mesh = parse_mesh_shape(a.mesh)
     num_devices = mesh[0] * mesh[1]
     qrows = pick_questions(data)
     gate_rows = [r for r in range(len(data["items"])) if int(data["source"][r]) == 0]
     others = [r for r in gate_rows if r not in qrows]
     rng = np.random.RandomState(a.seed)
-    filler = [int(x) for x in rng.choice(others, 64 - N_QUESTIONS, replace=False)]
+    filler = [int(x) for x in rng.choice(others, a.largest_rows - N_QUESTIONS, replace=False)]
     mixed_order = [int(x) for x in rng.permutation(qrows)]
     if a.row_buckets:
         per_device_buckets = tuple(sorted(int(x) for x in a.row_buckets.split(",")))
     else:
         per_device_buckets = tuple(
-            sorted({mc.pick_bucket(-(-n // num_devices), mc.ROW_BUCKETS) for n in (1, 2, 4, 8, 64)})
+            sorted({mc.pick_bucket(-(-n // num_devices), mc.ROW_BUCKETS) for n in (1, 2, 4, 8, a.largest_rows)})
         )
     t0 = time.perf_counter()
     engine = LayaEngine(
+        model_dir=a.model_dir,
         mesh_shape=mesh,
         policy=policy,
         row_buckets=per_device_buckets,
         seq_buckets=seq_buckets,
         trace=True,
         trace_region_size=a.trace_region,
-        warmup_shapes=[(b, s) for s in seq_buckets for b in per_device_buckets],
+        warmup_shapes=[(b, s) for s in seq_buckets for b in mc.rows_for_seq(s, per_device_buckets, by_seq)],
         threads=a.threads,
+        row_buckets_by_seq=by_seq,
     )
     report = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "host": socket.gethostname(),
         "policy": policy.describe(),
         "mesh": a.mesh,
+        "corpus": a.corpus,
+        "index": index_path,
+        "model_dir": a.model_dir or os.environ.get("LAYA_MODEL_DIR"),
         "engine": engine.shapes(),
         "engine_load_seconds": round(time.perf_counter() - t0, 1),
         "question_rows": qrows,
         "mixed_b8_order": mixed_order,
-        "b64_filler_rows": filler,
+        "largest_rows": a.largest_rows,
+        "largest_placement": largest,
+        f"{largest}_filler_rows": filler,
         "loadavg_start": loadavg(),
         "questions": [],
         "gates": {},
     }
-    probs = {p: {} for p in PLACEMENTS}
-    logits = {p: {} for p in PLACEMENTS}
+    probs = {p: {} for p in placements}
+    logits = {p: {} for p in placements}
     buckets = {}
     bucket_hist = {}
 
@@ -134,15 +165,15 @@ def main(argv=None):
     rows64 = list(qrows) + filler
     lg, _, bk = run_rows(engine, data, rows64)
     for i, r in enumerate(rows64[:N_QUESTIONS]):
-        probs["b64"][r] = probs_for(data, r, lg[i])
-        logits["b64"][r] = lg[i, : int(data["k"][r])]
+        probs[largest][r] = probs_for(data, r, lg[i])
+        logits[largest][r] = lg[i, : int(data["k"][r])]
     note(bk)
-    buckets["b64"] = list(bk)
+    buckets[largest] = list(bk)
     report["buckets"] = buckets
     report["bucket_histogram"] = dict(sorted(bucket_hist.items()))
     report["seq_buckets"] = list(seq_buckets)
     report["row_buckets"] = list(per_device_buckets)
-    report["b64_real_rows"] = len(rows64)
+    report[f"{largest}_real_rows"] = len(rows64)
     worst_dp = 0.0
     all_same = True
     for r in qrows:
@@ -159,47 +190,49 @@ def main(argv=None):
             "ref_argmax": int(p_ref.argmax()),
         }
         argmaxes = {}
-        for p in PLACEMENTS:
+        for p in placements:
             q[f"{p}_probs"] = probs[p][r].tolist()
             q[f"{p}_logits"] = [float(v) for v in logits[p][r]]
             q[f"{p}_vs_cpu_max_abs_dp"] = float(np.abs(probs[p][r] - p_ref).max())
             argmaxes[p] = int(probs[p][r].argmax())
         q["argmax"] = argmaxes
         q["same_argmax_across_placements"] = bool(len(set(argmaxes.values())) == 1)
-        for p in PLACEMENTS[1:]:
+        for p in placements[1:]:
             q[f"alone_vs_{p}_max_abs_dp"] = float(np.abs(probs["alone"][r] - probs[p][r]).max())
             q[f"alone_vs_{p}_max_abs_dlogit"] = float(np.abs(logits["alone"][r] - logits[p][r]).max())
             worst_dp = max(worst_dp, q[f"alone_vs_{p}_max_abs_dp"])
-        q["mixed_b8_vs_b64_max_abs_dp"] = float(np.abs(probs["mixed_b8"][r] - probs["b64"][r]).max())
+        q[f"mixed_b8_vs_{largest}_max_abs_dp"] = float(np.abs(probs["mixed_b8"][r] - probs[largest][r]).max())
         q["max_abs_dp_any_pair"] = float(
-            max(np.abs(probs[x][r] - probs[y][r]).max() for x in PLACEMENTS for y in PLACEMENTS)
+            max(np.abs(probs[x][r] - probs[y][r]).max() for x in placements for y in placements)
         )
         all_same = all_same and q["same_argmax_across_placements"]
         report["questions"].append(q)
     report["summary"] = {
         "questions": N_QUESTIONS,
-        "placements": list(PLACEMENTS),
+        "placements": list(placements),
         "same_argmax_all_placements": int(sum(q["same_argmax_across_placements"] for q in report["questions"])),
         "max_abs_dp_alone_vs": {
-            p: float(max(q[f"alone_vs_{p}_max_abs_dp"] for q in report["questions"])) for p in PLACEMENTS[1:]
+            p: float(max(q[f"alone_vs_{p}_max_abs_dp"] for q in report["questions"])) for p in placements[1:]
         },
         "median_abs_dp_alone_vs": {
-            p: float(np.median([q[f"alone_vs_{p}_max_abs_dp"] for q in report["questions"]])) for p in PLACEMENTS[1:]
+            p: float(np.median([q[f"alone_vs_{p}_max_abs_dp"] for q in report["questions"]])) for p in placements[1:]
         },
         "max_abs_dlogit_alone_vs": {
-            p: float(max(q[f"alone_vs_{p}_max_abs_dlogit"] for q in report["questions"])) for p in PLACEMENTS[1:]
+            p: float(max(q[f"alone_vs_{p}_max_abs_dlogit"] for q in report["questions"])) for p in placements[1:]
         },
         "pcc_logits_alone_vs": {
             p: pcc(np.concatenate([logits["alone"][r] for r in qrows]), np.concatenate([logits[p][r] for r in qrows]))
-            for p in PLACEMENTS[1:]
+            for p in placements[1:]
         },
-        "max_abs_dp_mixed_b8_vs_b64": float(max(q["mixed_b8_vs_b64_max_abs_dp"] for q in report["questions"])),
+        f"max_abs_dp_mixed_b8_vs_{largest}": float(
+            max(q[f"mixed_b8_vs_{largest}_max_abs_dp"] for q in report["questions"])
+        ),
         "max_abs_dp_any_pair": float(max(q["max_abs_dp_any_pair"] for q in report["questions"])),
         "vs_cpu_max_abs_dp": {
-            p: float(max(q[f"{p}_vs_cpu_max_abs_dp"] for q in report["questions"])) for p in PLACEMENTS
+            p: float(max(q[f"{p}_vs_cpu_max_abs_dp"] for q in report["questions"])) for p in placements
         },
         "vs_cpu_argmax_agree": {
-            p: int(sum(q["argmax"][p] == q["ref_argmax"] for q in report["questions"])) for p in PLACEMENTS
+            p: int(sum(q["argmax"][p] == q["ref_argmax"] for q in report["questions"])) for p in placements
         },
     }
     report["gates"] = {

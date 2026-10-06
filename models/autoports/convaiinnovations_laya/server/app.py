@@ -55,7 +55,12 @@ if not log.handlers:
     log.propagate = False
 
 
-def sanity_check(engine: Engine) -> Dict[str, Any]:
+def sanity_reference_path(explicit: Optional[str] = None) -> str:
+    return explicit or os.environ.get("LAYA_SANITY_REFERENCE") or SANITY_FILE
+
+
+def sanity_check(engine: Engine, path: Optional[str] = None) -> Dict[str, Any]:
+    path = sanity_reference_path(path)
     results, meta = engine.predict_batch([STATE_EN], SANITY_QUESTIONS)
     answer = results[0]["answers"]["routing"]
     out: Dict[str, Any] = {
@@ -65,15 +70,15 @@ def sanity_check(engine: Engine) -> Dict[str, Any]:
         "probabilities": answer["probabilities"],
         "device_ms": round(meta["device_ms"], 2),
         "batches": meta["batches"],
-        "reference_file": SANITY_FILE,
+        "reference_file": path,
         "reference_choice": None,
         "max_abs_dp": None,
         "ok": None,
     }
-    if not os.path.isfile(SANITY_FILE):
-        log.warning("sanity reference %s missing; startup check recorded without comparison", SANITY_FILE)
+    if not os.path.isfile(path):
+        log.warning("sanity reference %s missing; startup check recorded without comparison", path)
         return out
-    with open(SANITY_FILE, encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         ref = json.load(fh)
     ref_answer = ref["answers"]["routing"]
     out["reference_choice"] = ref_answer["choice"]
@@ -81,13 +86,20 @@ def sanity_check(engine: Engine) -> Dict[str, Any]:
     dps = [abs(answer["probabilities"][k] - ref_answer["probabilities"].get(k, 0.0)) for k in answer["probabilities"]]
     out["max_abs_dp"] = round(max(dps), 4) if dps else None
     out["ok"] = answer["choice"] == ref_answer["choice"]
+    out["reference_model"] = ref.get("produced_by", {}).get("model") or ref.get("produced_by", {}).get("model_dir")
     if out["ok"]:
-        log.info("sanity check ok: STATE_EN routing -> %s (max |dp| %.4f vs stored CPU value)", answer["choice"], out["max_abs_dp"])
+        log.info(
+            "sanity check ok: STATE_EN routing -> %s (max |dp| %.4f vs stored CPU value in %s)",
+            answer["choice"],
+            out["max_abs_dp"],
+            os.path.basename(path),
+        )
     else:
         log.warning(
-            "sanity check argmax mismatch: served %s, stored CPU value %s (max |dp| %.4f)",
+            "sanity check argmax mismatch: served %s, stored CPU value %s in %s (max |dp| %.4f)",
             answer["choice"],
             ref_answer["choice"],
+            os.path.basename(path),
             out["max_abs_dp"],
         )
     return out
@@ -100,6 +112,7 @@ def create_app(
     raw_forward: Optional[bool] = None,
     load: bool = True,
     sanity: Optional[bool] = None,
+    sanity_reference: Optional[str] = None,
 ) -> FastAPI:
     api_key = api_key if api_key is not None else (os.environ.get("LAYA_API_KEY") or None)
     demo = demo if demo is not None else not env_flag("LAYA_NO_DEMO")
@@ -114,13 +127,14 @@ def create_app(
         if app.state.engine is None and load:
             t0 = time.perf_counter()
             app.state.engine = Engine.from_env()
+            app.state.owns_engine = True
             log.info("laya model loaded in %.1f s from %s", time.perf_counter() - t0, app.state.engine.model_dir)
         eng = app.state.engine
         if eng is not None:
             info = eng.info()
             if sanity:
                 try:
-                    app.state.sanity = sanity_check(eng)
+                    app.state.sanity = sanity_check(eng, sanity_reference)
                 except Exception as e:
                     log.warning("sanity check failed to run: %s", e)
                     app.state.sanity = {"ok": None, "error": str(e)}
@@ -136,7 +150,7 @@ def create_app(
                 demo,
             )
         yield
-        if app.state.engine is not None:
+        if app.state.engine is not None and app.state.owns_engine:
             try:
                 app.state.engine.close()
             except Exception as e:
@@ -145,6 +159,7 @@ def create_app(
 
     app = FastAPI(title="Laya System One API", version="0.1.0", lifespan=lifespan)
     app.state.engine = engine
+    app.state.owns_engine = False
     app.state.sanity = None
     app.state.api_key = api_key
     app.state.raw_forward = raw_forward
@@ -189,7 +204,9 @@ def create_app(
     def refuse_body_keys(body: Dict[str, Any]) -> None:
         given = sorted(k for k in BODY_REFUSALS if k in body and body[k] is not None)
         if given:
-            raise HTTPException(422, "%s run inside the server process and cannot be sent to this endpoint" % ", ".join(given))
+            raise HTTPException(
+                422, "%s run inside the server process and cannot be sent to this endpoint" % ", ".join(given)
+            )
 
     def min_confidence_of(body: Dict[str, Any]):
         if body.get("min_confidence") is None:
@@ -261,14 +278,21 @@ def create_app(
         eng = app.state.engine
         if eng is None:
             return JSONResponse({"status": "loading", "ready": False}, status_code=503)
-        return {"status": "ok", "ready": True, "backend": eng.backend_kind, "model": eng.hf_model, "revision": eng.revision}
+        return {
+            "status": "ok",
+            "ready": True,
+            "backend": eng.backend_kind,
+            "model": eng.hf_model,
+            "revision": eng.revision,
+        }
 
     @app.get("/v1/health")
     def v1_health(authorization: Optional[str] = Header(default=None)):
         eng = app.state.engine
         if eng is None:
             return JSONResponse(
-                {"status": "loading", "ready": False, "backend": os.environ.get("LAYA_BACKEND") or "tt"}, status_code=503
+                {"status": "loading", "ready": False, "backend": os.environ.get("LAYA_BACKEND") or "tt"},
+                status_code=503,
             )
         out = {"status": "ok", "ready": True, "uptime_s": round(time.time() - app.state.started, 1)}
         out.update(eng.info())
@@ -318,7 +342,12 @@ def create_app(
         max_len, head_max_len = budget_of(eng, body)
         min_confidence = min_confidence_of(body)
         (results, meta), infer_ms = await run_locked(
-            eng.predict_batch, [state], questions, max_len=max_len, head_max_len=head_max_len, min_confidence=min_confidence
+            eng.predict_batch,
+            [state],
+            questions,
+            max_len=max_len,
+            head_max_len=head_max_len,
+            min_confidence=min_confidence,
         )
         return respond(results[0], infer_ms, meta)
 
@@ -341,7 +370,12 @@ def create_app(
         check_int_param(body, "batch_size")
         check_bool_param(body, "sort_by_length")
         (results, meta), infer_ms = await run_locked(
-            eng.predict_batch, states, questions, max_len=max_len, head_max_len=head_max_len, min_confidence=min_confidence
+            eng.predict_batch,
+            states,
+            questions,
+            max_len=max_len,
+            head_max_len=head_max_len,
+            min_confidence=min_confidence,
         )
         payload = {"results": results, "total_usage": aggregate_usage(results)}
         return respond(payload, infer_ms, meta)
@@ -370,7 +404,9 @@ app = create_app()
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(prog="python -m models.autoports.convaiinnovations_laya.server")
     ap.add_argument("--host", default=os.environ.get("LAYA_HOST", "0.0.0.0"))
-    ap.add_argument("--port", type=int, default=int(os.environ.get("PORT") or os.environ.get("LAYA_PORT") or DEFAULT_PORT))
+    ap.add_argument(
+        "--port", type=int, default=int(os.environ.get("PORT") or os.environ.get("LAYA_PORT") or DEFAULT_PORT)
+    )
     ap.add_argument("--backend", choices=("tt", "cpu"), default=None)
     ap.add_argument("--log-level", default=os.environ.get("LAYA_LOG_LEVEL", "info"))
     args = ap.parse_args(argv)
@@ -378,5 +414,7 @@ def main(argv=None) -> None:
         os.environ["LAYA_BACKEND"] = args.backend
     import uvicorn
 
-    log.info("laya server starting backend=%s host=%s port=%d", os.environ.get("LAYA_BACKEND", "tt"), args.host, args.port)
+    log.info(
+        "laya server starting backend=%s host=%s port=%d", os.environ.get("LAYA_BACKEND", "tt"), args.host, args.port
+    )
     uvicorn.run(create_app(), host=args.host, port=args.port, log_level=args.log_level, lifespan="on")

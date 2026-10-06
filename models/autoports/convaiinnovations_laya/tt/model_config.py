@@ -22,8 +22,9 @@ ROW_BUCKETS_POW2 = (1, 2, 4, 8, 16, 32, 64)
 EXACT_ROW_BUCKETS = (5, 10, 50)
 SEQ_BUCKETS = (128, 256, 512)
 SEQ_BUCKETS_STAGE6 = (512,)
-SEQ_BUCKETS_SIBLING = (512, 1024)
-ROW_BUCKETS_AT_1024 = (1, 2, 4, 8, 16)
+SEQ_BUCKETS_SIBLING = (128, 256, 512, 1024)
+ROW_BUCKETS_AT_1024 = (1, 2, 4, 5, 8, 10, 16)
+ROW_BUCKETS_BY_SEQ_SIBLING = {1024: ROW_BUCKETS_AT_1024}
 
 
 @dataclass(frozen=True)
@@ -184,6 +185,7 @@ class PortConfig:
     rotary_shard_min_rows: int = 24576
     rotary_shard_max_bytes_per_core: int = 0
     sdpa_grid: str = "8x8"
+    sdpa_full_grid_buckets: Tuple[Tuple[int, int], ...] = ((5, 1024), (10, 1024))
     sdpa_q_chunk: Optional[int] = None
     sdpa_k_chunk: Optional[int] = None
     sdpa_large_chunk_rows: int = 768
@@ -195,7 +197,10 @@ class PortConfig:
         return replace(self, **kw)
 
     def describe(self) -> dict:
-        return {k: (list(v) if isinstance(v, tuple) else v) for k, v in self.__dict__.items()}
+        return {
+            k: ([list(x) if isinstance(x, (tuple, list)) else x for x in v] if isinstance(v, tuple) else v)
+            for k, v in self.__dict__.items()
+        }
 
 
 DEFAULT_PORT = PortConfig()
@@ -222,19 +227,38 @@ def pick_bucket(n: int, buckets: Sequence[int]) -> int:
     raise ValueError(f"size {n} exceeds the largest bucket {max(buckets)}")
 
 
-def select_bucket(n_rows: int, longest_row: int, row_buckets=ROW_BUCKETS, seq_buckets=SEQ_BUCKETS) -> Tuple[int, int]:
+def rows_for_seq(seq_len: int, row_buckets=ROW_BUCKETS, row_buckets_by_seq=None) -> Tuple[int, ...]:
+    """The row buckets captured at one seq bucket: the per-seq list when one is given for it, else the common list."""
+    if row_buckets_by_seq and int(seq_len) in row_buckets_by_seq:
+        return tuple(sorted(int(b) for b in row_buckets_by_seq[int(seq_len)]))
+    return tuple(sorted(int(b) for b in row_buckets))
+
+
+def select_bucket(
+    n_rows: int, longest_row: int, row_buckets=ROW_BUCKETS, seq_buckets=SEQ_BUCKETS, row_buckets_by_seq=None
+) -> Tuple[int, int]:
     """The smallest seq bucket that fits the longest row of the call, then the smallest row bucket that fits the rows."""
-    return pick_bucket(n_rows, row_buckets), pick_bucket(longest_row, seq_buckets)
+    seq = pick_bucket(longest_row, seq_buckets)
+    return pick_bucket(n_rows, rows_for_seq(seq, row_buckets, row_buckets_by_seq)), seq
 
 
-def deployment_buckets(row_buckets=ROW_BUCKETS, seq_buckets=SEQ_BUCKETS) -> list:
-    return [(b, s) for s in sorted(seq_buckets) for b in sorted(row_buckets)]
+def deployment_buckets(row_buckets=ROW_BUCKETS, seq_buckets=SEQ_BUCKETS, row_buckets_by_seq=None) -> list:
+    return [(b, s) for s in sorted(seq_buckets) for b in rows_for_seq(s, row_buckets, row_buckets_by_seq)]
+
+
+def sibling_deployment_buckets() -> list:
+    """The laya-typed-decisions set: the English buckets at 128, 256 and 512 plus ROW_BUCKETS_AT_1024 at 1024 (37 traces)."""
+    return deployment_buckets(ROW_BUCKETS, SEQ_BUCKETS_SIBLING, ROW_BUCKETS_BY_SEQ_SIBLING)
 
 
 def parse_buckets(text: str) -> list:
-    """'all' -> the deployment set; else '1x256,5x256' -> [(1, 256), (5, 256)]."""
+    """'all' -> the deployment set; 'sibling' -> the laya-typed-decisions set; 'sibling1024' -> its 1024 buckets; else '1x256,5x256' -> [(1, 256), (5, 256)]."""
     if text is None or text.strip().lower() in ("", "all"):
         return deployment_buckets()
+    if text.strip().lower() == "sibling":
+        return sibling_deployment_buckets()
+    if text.strip().lower() == "sibling1024":
+        return [(b, 1024) for b in ROW_BUCKETS_AT_1024]
     out = []
     for item in text.replace(";", ",").split(","):
         item = item.strip().lower()
@@ -357,7 +381,8 @@ def sdpa_program_config(device, seq_len, rows, port: PortConfig = DEFAULT_PORT):
     q_chunk = port.sdpa_q_chunk or min(chunk, seq_len)
     k_chunk = port.sdpa_k_chunk or min(chunk, seq_len)
     gx, gy = grid_size(device)
-    if port.sdpa_grid == "8x8":
+    full_grid_buckets = {(int(b), int(s)) for b, s in port.sdpa_full_grid_buckets}
+    if port.sdpa_grid == "8x8" and (rows // seq_len, seq_len) not in full_grid_buckets:
         gx, gy = min(gx, 8), min(gy, 8)
     grid = ttnn.CoreCoord(gx, gy)
     return ttnn.SDPAProgramConfig(

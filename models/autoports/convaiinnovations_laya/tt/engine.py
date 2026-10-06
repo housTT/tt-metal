@@ -20,7 +20,9 @@ from models.autoports.convaiinnovations_laya.tt.model_config import (
     SEQ_BUCKETS,
     PortConfig,
     PrecisionPolicy,
+    pick_bucket,
     policy_from_name,
+    rows_for_seq,
 )
 
 log = logging.getLogger("laya.tt.engine")
@@ -53,6 +55,16 @@ def _env_int_list(name: str, default: Sequence[int]) -> Tuple[int, ...]:
     return tuple(sorted({int(x) for x in v.replace(";", ",").split(",") if x.strip()}))
 
 
+def row_buckets_by_seq_from_env(seq_buckets: Sequence[int]) -> Dict[int, Tuple[int, ...]]:
+    """LAYA_ROW_BUCKETS_<seq> (for example LAYA_ROW_BUCKETS_1024=1,2,4,5,8,10,16) overrides LAYA_ROW_BUCKETS at that seq bucket."""
+    out = {}
+    for s in seq_buckets:
+        v = os.environ.get(f"LAYA_ROW_BUCKETS_{int(s)}")
+        if v not in (None, ""):
+            out[int(s)] = _env_int_list(f"LAYA_ROW_BUCKETS_{int(s)}", ())
+    return out
+
+
 def parse_mesh_shape(text: Optional[str]) -> Tuple[int, int]:
     if not text:
         return (1, 1)
@@ -63,11 +75,11 @@ def parse_mesh_shape(text: Optional[str]) -> Tuple[int, int]:
 
 
 def parse_warmup_shapes(
-    text: Optional[str], row_buckets: Sequence[int], seq_buckets: Sequence[int]
+    text: Optional[str], row_buckets: Sequence[int], seq_buckets: Sequence[int], row_buckets_by_seq=None
 ) -> List[Tuple[int, int]]:
     """LAYA_WARMUP_SHAPES: 'all' (default), 'none', or '8x512,64x512' in per-device rows x seq."""
     if text is None or text.strip() == "" or text.strip().lower() == "all":
-        return [(b, s) for s in seq_buckets for b in row_buckets]
+        return [(b, s) for s in seq_buckets for b in rows_for_seq(s, row_buckets, row_buckets_by_seq)]
     if text.strip().lower() == "none":
         return []
     shapes = []
@@ -142,6 +154,7 @@ class LayaEngine:
         warmup_shapes: Optional[Sequence[Tuple[int, int]]] = None,
         device=None,
         threads: Optional[int] = None,
+        row_buckets_by_seq: Optional[Dict[int, Sequence[int]]] = None,
     ):
         from transformers import AutoConfig
 
@@ -161,6 +174,9 @@ class LayaEngine:
         self.port = port
         self.seq_buckets = tuple(sorted(seq_buckets))
         self.row_buckets = tuple(sorted(row_buckets))
+        self.row_buckets_by_seq = {
+            int(k): tuple(sorted(int(b) for b in v)) for k, v in (row_buckets_by_seq or {}).items()
+        }
         self.trace = bool(trace)
         self.trace_region_size = int(trace_region_size)
         self.l1_small_size = int(l1_small_size)
@@ -169,6 +185,7 @@ class LayaEngine:
         self.last_device_ms = 0.0
         self.last_host_tail_ms = 0.0
         self.last_bucket: Optional[Tuple[int, int]] = None
+        self.last_buckets: List[Tuple[int, int]] = []
         self.calls = 0
         self._close_device = close_device
         t0 = time.perf_counter()
@@ -200,12 +217,13 @@ class LayaEngine:
             port=self.port,
             row_buckets=self.row_buckets,
             seq_buckets=self.seq_buckets,
+            row_buckets_by_seq=self.row_buckets_by_seq,
         )
         self.act_head = build_act_head(self.model.act_head, int(self.config.hidden_size))
         self.temperature = self.model.temperature.clone()
         del sd
         if warmup_shapes is None:
-            warmup_shapes = [(b, s) for s in self.seq_buckets for b in self.row_buckets]
+            warmup_shapes = self.model.deployment_buckets()
         self.warmup_shapes = [tuple(x) for x in warmup_shapes]
         self.runner = LayaTraceRunner(self.model, self.warmup_shapes) if self.trace else None
         t1 = time.perf_counter()
@@ -249,13 +267,14 @@ class LayaEngine:
         mesh_shape = parse_mesh_shape(os.environ.get("LAYA_MESH_SHAPE"))
         seq_buckets = _env_int_list("LAYA_SEQ_BUCKETS", SEQ_BUCKETS)
         row_buckets = _env_int_list("LAYA_ROW_BUCKETS", ROW_BUCKETS)
+        row_buckets_by_seq = row_buckets_by_seq_from_env(seq_buckets)
         policy = policy_from_name(os.environ.get("LAYA_PRECISION") or DEFAULT_POLICY_NAME)
         port = DEFAULT_PORT
         overrides = os.environ.get("LAYA_PORT_OVERRIDES")
         if overrides:
             raw = json.loads(overrides)
             port = DEFAULT_PORT.with_(**{k: (tuple(v) if isinstance(v, list) else v) for k, v in raw.items()})
-        warm = parse_warmup_shapes(os.environ.get("LAYA_WARMUP_SHAPES"), row_buckets, seq_buckets)
+        warm = parse_warmup_shapes(os.environ.get("LAYA_WARMUP_SHAPES"), row_buckets, seq_buckets, row_buckets_by_seq)
         return cls(
             model_dir=os.environ.get("LAYA_MODEL_DIR") or None,
             mesh_shape=mesh_shape,
@@ -269,6 +288,7 @@ class LayaEngine:
             l1_small_size=_env_int("LAYA_L1_SMALL_SIZE", DEFAULT_L1_SMALL_SIZE),
             warmup_shapes=warm,
             threads=_env_int("LAYA_CPU_THREADS", 0) or None,
+            row_buckets_by_seq=row_buckets_by_seq,
         )
 
     def row_buckets_total(self) -> Tuple[int, ...]:
@@ -280,10 +300,31 @@ class LayaEngine:
     def bucket_for(self, n_rows: int, seq_len: int) -> Tuple[int, int]:
         return self.model.bucket_for(n_rows, seq_len)
 
-    def _run_device(self, input_ids: torch.Tensor, attention_mask: torch.Tensor, qtype: torch.Tensor) -> dict:
+    def _run_once(self, input_ids: torch.Tensor, attention_mask: torch.Tensor, qtype: torch.Tensor) -> dict:
         if self.runner is not None:
             return self.runner.run(input_ids, attention_mask, qtype)
         return self.model.forward(input_ids, attention_mask, qtype)
+
+    def _run_device(self, input_ids: torch.Tensor, attention_mask: torch.Tensor, qtype: torch.Tensor) -> dict:
+        """One replay when the rows fit the largest row bucket of the call's seq bucket; else replays of that bucket, concatenated."""
+        n, L = input_ids.shape
+        seq = pick_bucket(L, self.seq_buckets)
+        cap = self.model.max_rows_for_seq(seq)
+        if n <= cap:
+            out = self._run_once(input_ids, attention_mask, qtype)
+            out["buckets"] = [tuple(out["bucket"])]
+            return out
+        parts = [
+            self._run_once(input_ids[i : i + cap], attention_mask[i : i + cap], qtype[i : i + cap])
+            for i in range(0, n, cap)
+        ]
+        return {
+            "logits": torch.cat([p["logits"] for p in parts], 0),
+            "cls": torch.cat([p["cls"] for p in parts], 0),
+            "bucket": tuple(parts[0]["bucket"]),
+            "buckets": [tuple(p["bucket"]) for p in parts],
+            "device_ms": float(sum(p["device_ms"] for p in parts)),
+        }
 
     def forward(self, input_ids, attention_mask, marker_pos, marker_mask, qtype) -> Tuple[torch.Tensor, torch.Tensor]:
         input_ids = torch.as_tensor(input_ids).long()
@@ -302,6 +343,7 @@ class LayaEngine:
             out = self._run_device(input_ids, attention_mask, qtype)
             self.last_device_ms = float(out["device_ms"])
             self.last_bucket = tuple(out["bucket"])
+            self.last_buckets = list(out["buckets"])
             self.calls += 1
         t0 = time.perf_counter()
         logits, act = host_tail(out["logits"], out["cls"], marker_pos, marker_mask, self.act_head)
@@ -321,6 +363,7 @@ class LayaEngine:
             out = self._run_device(input_ids, attention_mask, qtype)
             self.last_device_ms = float(out["device_ms"])
             self.last_bucket = tuple(out["bucket"])
+            self.last_buckets = list(out["buckets"])
             self.calls += 1
         t0 = time.perf_counter()
         logits, act = host_tail(out["logits"], out["cls"], marker_pos, marker_mask, self.act_head)
@@ -331,6 +374,7 @@ class LayaEngine:
             "logits_all": out["logits"],
             "cls": out["cls"],
             "bucket": tuple(out["bucket"]),
+            "buckets": list(out["buckets"]),
             "device_ms": out["device_ms"],
             "host_tail_ms": self.last_host_tail_ms,
         }
@@ -349,6 +393,10 @@ class LayaEngine:
             "seq_buckets": list(self.seq_buckets),
             "row_buckets": total_rows,
             "row_buckets_per_device": list(self.row_buckets),
+            "row_buckets_by_seq": {
+                str(s): [self.model.rows_per_call(b) for b in self.model.rows_for_seq(s)] for s in self.seq_buckets
+            },
+            "max_rows_by_seq": {str(s): self.model.max_rows_for_seq(s) for s in self.seq_buckets},
             "max_rows": max(total_rows),
             "warm_shapes": [list(w) for w in self.warm_shapes_total()],
             "trace": self.trace,

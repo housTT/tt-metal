@@ -39,27 +39,29 @@ serve:
   env:
     LAYA_BACKEND: tt
     LAYA_REVISION: e929ae5cf69bc34259cd2f95c9e91145b818b1f0
-    LAYA_PRECISION: "PLACEHOLDER_SELECTED_POLICY"
-    LAYA_SEQ_BUCKETS: "PLACEHOLDER_SEQ_BUCKETS_INCLUDING_1024"
-    LAYA_ROW_BUCKETS: "1,2,4,8,16,32,64"
-    LAYA_ROW_BUCKETS_1024: "1,2,4,8,16"
+    LAYA_PRECISION: bf8w_hifi3_erf
+    LAYA_SEQ_BUCKETS: "128,256,512,1024"
+    LAYA_ROW_BUCKETS: "1,2,4,5,8,10,16,32,50,64"
+    LAYA_ROW_BUCKETS_1024: "1,2,4,5,8,10,16"
     LAYA_MAX_ROWS: "64"
     LAYA_MAX_BATCH_STATES: "64"
+    LAYA_MAX_BATCH_TOKENS: "16384"
     LAYA_TRACE: "1"
-    LAYA_TRACE_REGION_SIZE: "PLACEHOLDER_MEASURED_TRACE_REGION_BYTES"
+    LAYA_TRACE_REGION_SIZE: "536870912"
     LAYA_L1_SMALL_SIZE: "79104"
     LAYA_RAW_FORWARD: "1"
+    LAYA_SANITY_REFERENCE: /opt/tt-metal/models/autoports/convaiinnovations_laya/server/sanity_reference_typed_decisions.json
     TT_METAL_PINNED_MEMORY_CACHE_LIMIT_BYTES: "0"
 
 serve_profiles:
   - name: p150
     hardware: p150
     mesh_device: P150
-    description: "One Blackhole p150 chip; PLACEHOLDER_SELECTED_POLICY; traces for 1..64 rows at 512 tokens and 1..16 rows at 1024 tokens captured before the server reports ready."
+    description: "One Blackhole p150 chip; bf8w_hifi3_erf; 37 traces (176.8 MiB) captured before the server reports ready: 1, 2, 4, 5, 8, 10, 16, 32, 50 and 64 rows at 128, 256 and 512 tokens and 1, 2, 4, 5, 8, 10 and 16 rows at 1024 tokens; at most 16384 padded tokens per forward (16 rows at 1024 tokens, 32 at 512, 64 at 256 and 128)."
   - name: p150x4
     hardware: p150x4
     mesh_device: P150x4
-    description: "1x4 mesh, data parallel over rows, no fabric; PLACEHOLDER_MEASURED_OR_DECLARED_NOT_VALIDATED."
+    description: "1x4 mesh, data parallel over rows, no fabric; declared from the English bundle's measurement (bit-identical to one chip at equal per-chip bucket, 3.74x in throughput); validated in the sibling's own build if the chain's four-chip check passes."
 default_profile: p150
 
 verify:
@@ -73,6 +75,7 @@ verify:
   - "from pathlib import Path; assert Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/demo/index.html').is_file()"
   - "from pathlib import Path; import json; f = json.loads(Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/demo/feed_cases.json').read_text()); assert 40 <= len(f['cases']) <= 100 and f['attribution']['revision']"
   - "from pathlib import Path; import json; assert len(json.loads(Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/demo/presets.json').read_text())) >= 5"
+  - "from pathlib import Path; import json; r = json.loads(Path('/opt/tt-metal/models/autoports/convaiinnovations_laya/server/sanity_reference_typed_decisions.json').read_text()); assert r['answers']['routing']['choice'] == 'billing' and abs(r['answers']['routing']['probabilities']['billing'] - 0.6115) < 1e-6"
   - "from pathlib import Path; p = Path('/opt/tt-metal/tt_metal/fabric/impl/kernels/edm_fabric/fabric_erisc_router.cpp'); assert p.is_file() and len(p.read_text()) > 0"
   - "import transformers; assert transformers.__version__.startswith('5.'), transformers.__version__"
   - "import numpy; assert numpy.__version__.startswith('1.'), numpy.__version__"
@@ -82,23 +85,52 @@ card:
     Laya typed-decisions is the authors' fine-tune of Laya (ModernBERT-large encoder with an option-marker decision
     head, 421M parameters) on the LocalLLaMA/typed-decisions train split, with a 1024-token context and a 256-token
     head budget. One forward pass answers typed noul, choice and score questions with calibrated probabilities; it
-    never generates text. This package serves the Jev-compatible /v1/systemone API on one Blackhole p150 chip.
+    never generates text. This package serves the Jev-compatible /v1/systemone API of the authors' laya-serve on one
+    Blackhole p150 chip, with a live demo at /demo/.
   performance: >
-    PLACEHOLDER filled from evals/results SUMMARY.md: typed-decisions row (accuracy, soft accuracy, Brier, ECE, score
-    MAE) beside the published 0.766 / 0.471 / 0.062 / 0.213 / 0.242; speed table rows at 512 and 1024 tokens; parity
-    versus CPU fp32.
+    Host-served build 1 numbers (the sibling served from the development checkout on one p150, result files under
+    /home/hous/dev/laya/evals/results/host_tt_td-p150_b1_20261006T012706Z; the orchestrator replaces them with the
+    packaged run's values after the build). Latency per call (client median, warm, authors' bench_latency protocol,
+    rows of 194 to 205 tokens), p150 versus the authors' Tesla T4: 1 question 10.7 ms (T4 39.5), 5 questions 24.5 ms
+    (84.5), 10 questions 42.5 ms (158.6), 50 questions 197.5 ms (771). Batched /v1/systemone/batch: 202 to 249
+    questions per second on one p150 (T4 103 to 332). Long states of about 750 tokens per row at the 1024-token bucket:
+    23.9 / 99.0 / 183.2 / 305.6 ms for 1 / 5 / 10 / 16 questions and 52 questions per second batched. Typed-decisions
+    test set (400 cases, 2,000 decisions, max_len 1024 / head_max_len 256): accuracy 0.764, soft accuracy 0.469,
+    Brier 0.062, ECE 0.214, score MAE 0.244 (published 0.766 / 0.471 / 0.062 / 0.213 / 0.242; CPU fp32 on this host
+    0.766 / 0.471 / 0.061 / 0.213 / 0.242); argmax agreement with the CPU fp32 decisions 99.35 percent, 100 percent on
+    confident decisions (reference margin at least 0.10). AG News 0.953 and DAIR Emotion 0.595 accuracy at 1024 / 256
+    (authors' CPU run of the English checkpoint 0.950 / 0.595; Jev 0.910 / 0.480). Parity against the CPU fp32
+    reference on 488 decisions: 383 of 383 confident decisions agree, 485 of 488 argmax agree, median max abs delta p
+    0.0039, max 0.040, scorer-logit PCC 0.9989.
   limitations: >
-    Fine-tuned for the four typed-decisions workflows; outside them use the base checkpoint. max_len 1024,
-    head_max_len 256; requests are padded to PLACEHOLDER_SEQ_BUCKETS tokens with 1..64 rows at 512 and 1..16 rows at
-    1024. Temperatures are clamped to [0.5, 5.0] as pip laya 0.3.27 does. action.act_probability carries no usable
-    signal (authors' issue #185). PLACEHOLDER: n of N reference decisions flip within margin m. One device process
-    serializes requests. p150x4 status: PLACEHOLDER.
+    Fine-tuned for the four typed-decisions workflows (agent trace observability, customer service, invoice
+    processing, security incidents); outside them use the base checkpoint. max_len 1024, head_max_len 256; requests
+    are padded to 128, 256, 512 or 1024 tokens with 1 to 64 rows at 128 to 512 tokens (exact buckets at 5, 10 and 50
+    rows) and 1 to 16 rows at 1024 tokens (a longer 1024-token batch is split into chunks of 16 rows; at most 16384
+    padded tokens per forward); longer sequences are refused with 422. Temperatures are clamped to [0.5, 5.0] as pip
+    laya 0.3.27 does, so choice questions with more than 10 options use 0.5 instead of the shipped 0.1006.
+    action.act_probability carries no usable signal (authors' issue #185); gate on answer_confidence. 13 of 2,000
+    typed-decisions reference decisions flip on the device, all with a reference margin under 0.10 (max abs delta p
+    0.031); 3 of 488 parity decisions flip, all within margin 0.01 (none of the 383 confident decisions flips). The
+    English bundle's served DAIR Emotion run showed single-row deviations against the fp32 reference of up to 0.27 with
+    two confident flips (review R3); the corresponding rate is not measured for this checkpoint. One device process
+    serializes requests. p150x4 status: declared from the English bundle's measurement, not yet validated with this
+    checkpoint. Not reproduced: MASSIVE, XNLI, 45 of 51 languages, post-temperature ECE.
   risks: >
-    PLACEHOLDER_SELECTED_POLICY numerics move probabilities by up to PLACEHOLDER max abs delta p against the fp32
-    reference; gate on confidence, not act_probability. Long option texts are truncated to 48 tokens silently.
+    bf8w_hifi3_erf numerics move probabilities by up to 0.040 (parity corpus, median 0.0039) and 0.031
+    (typed-decisions) against the fp32 reference in the host-served run; the single-row Emotion deviation seen on the
+    English bundle is not measured for this checkpoint; gate on confidence, not act_probability. Long option texts are
+    truncated to 48 tokens silently, as in the reference. The shipped temperatures are over-confident per the authors;
+    refit on your own data.
   usage: |
-    Same API as tt-hous/laya-p150: POST /v1/systemone, POST /v1/systemone/batch, GET /v1/health, headers
-    X-Inference-Time-Ms, X-Laya-Device-Ms, X-Laya-Batch; demo at /demo/. Use max_len up to 1024 and head_max_len up to 256.
+    Same API as tt-hous/laya-p150: POST /v1/systemone with {"state": ..., "questions": {id: {"type": "choice"|"score"|"noul", "instructions": ..., "criteria": ...}}, "max_len", "head_max_len", "min_confidence"}
+    returns {"model", "answers": {id: {...}}, "usage": {input_tokens, output_tokens, state_tokens, state_tokens_dropped, truncated, truncated_questions}}.
+    POST /v1/systemone/batch takes {"states": [...], "questions": {...}} (1 to 64 states sharing one question set) and returns {"results": [...], "total_usage": {...}}.
+    Use max_len up to 1024 and head_max_len up to 256. GET /v1/health reports backend, precision, mesh, buckets and the
+    startup sanity check (compared against server/sanity_reference_typed_decisions.json, selected by LAYA_SANITY_REFERENCE).
+    Every /v1 response carries X-Inference-Time-Ms, X-Laya-Device-Ms and X-Laya-Batch. Existing laya and Jev clients work
+    by changing the base URL. The demo page is served at /demo/. shim/laya_tt_backend.py installs a TtBackend on a pip
+    laya Agent that routes agent.model.forward to this server's /v1/forward (served because LAYA_RAW_FORWARD=1).
   architecture: ModernBERT-large encoder (28 layers, 1024 hidden, GeGLU, dual-theta RoPE, one global attention layer per three) + a 2-layer decision head with an option-marker scorer and an act head
   status: Experimental community bring-up
   intended_use: Calibrated typed decisions for the typed-decisions workflows (agent trace observability, customer service, invoice processing, security incidents).

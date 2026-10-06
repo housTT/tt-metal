@@ -8,7 +8,8 @@
   "url": "https://huggingface.co/datasets/LocalLLaMA/typed-decisions",
   "selection": "the first 15 test cases of each of the 4 workflows in file order (60 cases, 300 decisions)",
   "gold": "the dataset's teacher mean distribution per question; 'label' is the answer key the demo compares against",
-  "source_file": "/home/hous/dev/laya/evals/typed_decisions/data/test-00000-of-00001.parquet"
+  "source_file": "/home/hous/dev/laya/evals/typed_decisions/data/test-00000-of-00001.parquet",
+  "normalization": "integral floats in state, questions and gold are written as integers (1625.0 -> 1625) so that a browser's JSON.stringify and Python's json.dumps serialize the same text for the model"
  },
  "cases": [
   {
@@ -154,7 +155,7 @@
     "task": "Reduce the nightly report job's runtime below fifteen minutes.",
     "trace_summary": {
      "constraint_violations": 0,
-     "duration_s": 532.0,
+     "duration_s": 532,
      "irreversible_actions": 0,
      "steps": 11,
      "tool_errors": 3
@@ -381,7 +382,7 @@
       "0": 0.383333,
       "1": 0.533333,
       "2": 0.083333,
-      "3": 0.0
+      "3": 0
      },
      "score": 0.7,
      "type": "score"
@@ -499,7 +500,7 @@
      "label": "partial",
      "probabilities": {
       "failure": 0.183333,
-      "harmful": 0.0,
+      "harmful": 0,
       "partial": 0.466667,
       "success": 0.35
      },
@@ -642,7 +643,7 @@
       "0": 0.716667,
       "1": 0.266667,
       "2": 0.016667,
-      "3": 0.0
+      "3": 0
      },
      "score": 0.3,
      "type": "score"
@@ -654,7 +655,7 @@
       "0": 0.733333,
       "1": 0.233333,
       "2": 0.033333,
-      "3": 0.0
+      "3": 0
      },
      "score": 0.3,
      "type": "score"
@@ -741,7 +742,7 @@
       "continue": 0.6,
       "human_review": 0.083333,
       "observe": 0.316667,
-      "stop": 0.0
+      "stop": 0
      },
      "type": "choice"
     },
@@ -760,7 +761,7 @@
      "label": "success",
      "probabilities": {
       "failure": 0.05,
-      "harmful": 0.0,
+      "harmful": 0,
       "partial": 0.15,
       "success": 0.8
      },
@@ -1289,7 +1290,7 @@
      "confidence": 0.583333,
      "label": "3",
      "probabilities": {
-      "0": 0.0,
+      "0": 0,
       "1": 0.083333,
       "2": 0.25,
       "3": 0.666667
@@ -1389,7 +1390,7 @@
       "continue": 0.833,
       "human_review": 0.033333,
       "observe": 0.133667,
-      "stop": 0.0
+      "stop": 0
      },
      "type": "choice"
     },
@@ -1408,7 +1409,7 @@
      "label": "success",
      "probabilities": {
       "failure": 0.033333,
-      "harmful": 0.0,
+      "harmful": 0,
       "partial": 0.067,
       "success": 0.899667
      },
@@ -1421,7 +1422,7 @@
       "0": 0.366667,
       "1": 0.583,
       "2": 0.050333,
-      "3": 0.0
+      "3": 0
      },
      "score": 0.683667,
      "type": "score"
@@ -1433,7 +1434,7 @@
       "0": 0.4,
       "1": 0.566333,
       "2": 0.033667,
-      "3": 0.0
+      "3": 0
      },
      "score": 0.633667,
      "type": "score"
@@ -2073,7 +2074,7 @@
       "0": 0.1,
       "1": 0.733333,
       "2": 0.166667,
-      "3": 0.0
+      "3": 0
      },
      "score": 1.066667,
      "type": "score"
@@ -2247,7 +2248,7 @@
      "confidence": 0.433333,
      "label": "2",
      "probabilities": {
-      "0": 0.0,
+      "0": 0,
       "1": 0.233333,
       "2": 0.433333,
       "3": 0.333333
@@ -2367,7 +2368,7 @@
       "0": 0.166667,
       "1": 0.65,
       "2": 0.183333,
-      "3": 0.0
+      "3": 0
      },
      "score": 1.016667,
      "type": "score"
@@ -2517,8 +2518,8 @@
      "probabilities": {
       "account": 0.01,
       "billing": 0.966667,
-      "delivery": 0.0,
-      "refund": 0.0,
+      "delivery": 0,
+      "refund": 0,
       "technical": 0.023333
      },
      "type": "choice"
@@ -2657,9 +2658,9 @@
      "label": "answer_directly",
      "probabilities": {
       "answer_directly": 0.853333,
-      "close_no_action": 0.0,
+      "close_no_action": 0,
       "escalate_to_human": 0.1,
-      "execute_refund": 0.0,
+      "execute_refund": 0,
       "request_information": 0.046667
      },
      "type": "choice"
@@ -2685,7 +2686,7 @@
       "2": 0.616667,
       "3": 0.2
      },
-     "score": 2.0,
+     "score": 2,
      "type": "score"
     },
     "needs_human": {
@@ -2816,9 +2817,9 @@
      "label": "escalate_to_human",
      "probabilities": {
       "answer_directly": 0.066667,
-      "close_no_action": 0.0,
+      "close_no_action": 0,
       "escalate_to_human": 0.583333,
-      "execute_refund": 0.0,
+      "execute_refund": 0,
       "request_information": 0.35
      },
      "type": "choice"
@@ -2827,9 +2828,9 @@
      "confidence": 0.9125,
      "label": "billing",
      "probabilities": {
-      "account": 0.0,
+      "account": 0,
       "billing": 0.93,
-      "delivery": 0.0,
+      "delivery": 0,
       "refund": 0.066667,
       "technical": 0.003333
      },
@@ -2861,7 +2862,7 @@
      "confidence": 0.65,
      "label": "3",
      "probabilities": {
-      "0": 0.0,
+      "0": 0,
       "1": 0.033333,
       "2": 0.283333,
       "3": 0.683333
@@ -3014,7 +3015,7 @@
      "confidence": 0.566667,
      "label": "2",
      "probabilities": {
-      "0": 0.0,
+      "0": 0,
       "1": 0.166667,
       "2": 0.566667,
       "3": 0.266667
@@ -3119,11 +3120,11 @@
      "confidence": 0.833333,
      "label": "refund",
      "probabilities": {
-      "account": 0.0,
+      "account": 0,
       "billing": 0.133333,
-      "delivery": 0.0,
+      "delivery": 0,
       "refund": 0.866667,
-      "technical": 0.0
+      "technical": 0
      },
      "type": "choice"
     },
@@ -3249,7 +3250,7 @@
       "answer_directly": 0.116667,
       "close_no_action": 0.023333,
       "escalate_to_human": 0.426667,
-      "execute_refund": 0.0,
+      "execute_refund": 0,
       "request_information": 0.433333
      },
      "type": "choice"
@@ -3439,7 +3440,7 @@
      "confidence": 0.583333,
      "label": "2",
      "probabilities": {
-      "0": 0.0,
+      "0": 0,
       "1": 0.083333,
       "2": 0.583333,
       "3": 0.333333
@@ -3543,7 +3544,7 @@
       "answer_directly": 0.083333,
       "close_no_action": 0.033333,
       "escalate_to_human": 0.616667,
-      "execute_refund": 0.0,
+      "execute_refund": 0,
       "request_information": 0.266667
      },
      "type": "choice"
@@ -3553,9 +3554,9 @@
      "label": "technical",
      "probabilities": {
       "account": 0.01,
-      "billing": 0.0,
+      "billing": 0,
       "delivery": 0.01,
-      "refund": 0.0,
+      "refund": 0,
       "technical": 0.98
      },
      "type": "choice"
@@ -3564,7 +3565,7 @@
      "confidence": 0.633333,
      "label": "2",
      "probabilities": {
-      "0": 0.0,
+      "0": 0,
       "1": 0.166667,
       "2": 0.633333,
       "3": 0.2
@@ -3694,9 +3695,9 @@
      "label": "request_information",
      "probabilities": {
       "answer_directly": 0.116667,
-      "close_no_action": 0.0,
+      "close_no_action": 0,
       "escalate_to_human": 0.4,
-      "execute_refund": 0.0,
+      "execute_refund": 0,
       "request_information": 0.483333
      },
      "type": "choice"
@@ -3707,9 +3708,9 @@
      "probabilities": {
       "account": 0.076667,
       "billing": 0.923333,
-      "delivery": 0.0,
-      "refund": 0.0,
-      "technical": 0.0
+      "delivery": 0,
+      "refund": 0,
+      "technical": 0
      },
      "type": "choice"
     },
@@ -3739,8 +3740,8 @@
      "confidence": 0.866667,
      "label": "3",
      "probabilities": {
-      "0": 0.0,
-      "1": 0.0,
+      "0": 0,
+      "1": 0,
       "2": 0.133333,
       "3": 0.866667
      },
@@ -3874,7 +3875,7 @@
      "probabilities": {
       "account": 0.023333,
       "billing": 0.963,
-      "delivery": 0.0,
+      "delivery": 0,
       "refund": 0.006667,
       "technical": 0.007
      },
@@ -4002,7 +4003,7 @@
       "answer_directly": 0.383333,
       "close_no_action": 0.016667,
       "escalate_to_human": 0.3,
-      "execute_refund": 0.0,
+      "execute_refund": 0,
       "request_information": 0.3
      },
      "type": "choice"
@@ -4399,7 +4400,7 @@
        "unit_usd": 292.97
       }
      ],
-     "total_usd": 117188.0
+     "total_usd": 117188
     },
     "vendor_history": {
      "disputes_12m": 2,
@@ -4528,11 +4529,11 @@
       {
        "qty": 10,
        "sku": "SKU-487",
-       "total_usd": 1625.0,
+       "total_usd": 1625,
        "unit_usd": 162.5
       }
      ],
-     "total_usd": 1625.0,
+     "total_usd": 1625,
      "vendor": "Northwind Components"
     },
     "payment": {
@@ -4551,7 +4552,7 @@
        "unit_usd": 162.5
       }
      ],
-     "total_usd": 1625.0
+     "total_usd": 1625
     },
     "vendor_history": {
      "disputes_12m": 1,
@@ -4615,7 +4616,7 @@
       "0": 0.976667,
       "1": 0.02,
       "2": 0.003333,
-      "3": 0.0
+      "3": 0
      },
      "score": 0.026667,
      "type": "score"
@@ -4655,12 +4656,12 @@
      "confidence": 0.733333,
      "label": "2",
      "probabilities": {
-      "0": 0.0,
+      "0": 0,
       "1": 0.133333,
       "2": 0.733333,
       "3": 0.133333
      },
-     "score": 2.0,
+     "score": 2,
      "type": "score"
     }
    }
@@ -4681,7 +4682,7 @@
       {
        "qty": 1000,
        "sku": "SKU-479",
-       "total_usd": 131290.0,
+       "total_usd": 131290,
        "unit_usd": 131.29
       },
       {
@@ -4710,7 +4711,7 @@
        "unit_usd": 131.29
       }
      ],
-     "total_usd": 131290.0
+     "total_usd": 131290
     },
     "vendor_history": {
      "disputes_12m": 0,
@@ -4769,12 +4770,12 @@
      "confidence": 0.6,
      "label": "2",
      "probabilities": {
-      "0": 0.0,
+      "0": 0,
       "1": 0.2,
       "2": 0.6,
       "3": 0.2
      },
-     "score": 2.0,
+     "score": 2,
      "type": "score"
     },
     "disposition": {
@@ -4812,7 +4813,7 @@
      "confidence": 0.6,
      "label": "2",
      "probabilities": {
-      "0": 0.0,
+      "0": 0,
       "1": 0.083333,
       "2": 0.6,
       "3": 0.316667
@@ -4848,7 +4849,7 @@
     "payment": {
      "days_until_due": 27,
      "discount_expires_in_days": 6,
-     "early_payment_discount_pct": 2.0,
+     "early_payment_discount_pct": 2,
      "status": "scheduled",
      "terms": "net 30"
     },
@@ -4921,7 +4922,7 @@
      "confidence": 0.8,
      "label": "3",
      "probabilities": {
-      "0": 0.0,
+      "0": 0,
       "1": 0.016667,
       "2": 0.166667,
       "3": 0.816667
@@ -4964,7 +4965,7 @@
      "confidence": 0.583333,
      "label": "2",
      "probabilities": {
-      "0": 0.0,
+      "0": 0,
       "1": 0.216667,
       "2": 0.583333,
       "3": 0.2
@@ -4990,17 +4991,17 @@
       {
        "qty": 50,
        "sku": "SKU-864",
-       "total_usd": 19914.0,
+       "total_usd": 19914,
        "unit_usd": 398.28
       }
      ],
-     "total_usd": 19914.0,
+     "total_usd": 19914,
      "vendor": "Kestrel Supply"
     },
     "payment": {
      "days_until_due": 2,
      "discount_expires_in_days": 7,
-     "early_payment_discount_pct": 2.0,
+     "early_payment_discount_pct": 2,
      "status": "scheduled",
      "terms": "net 30"
     },
@@ -5013,7 +5014,7 @@
        "unit_usd": 398.28
       }
      ],
-     "total_usd": 39828.0
+     "total_usd": 39828
     },
     "vendor_history": {
      "disputes_12m": 1,
@@ -5118,7 +5119,7 @@
      "confidence": 0.666667,
      "label": "2",
      "probabilities": {
-      "0": 0.0,
+      "0": 0,
       "1": 0.233333,
       "2": 0.666667,
       "3": 0.1
@@ -5144,11 +5145,11 @@
       {
        "qty": 950,
        "sku": "SKU-981",
-       "total_usd": 291365.0,
+       "total_usd": 291365,
        "unit_usd": 306.7
       }
      ],
-     "total_usd": 291365.0,
+     "total_usd": 291365,
      "vendor": "Vantage Materials"
     },
     "payment": {
@@ -5167,7 +5168,7 @@
        "unit_usd": 306.7
       }
      ],
-     "total_usd": 306700.0
+     "total_usd": 306700
     },
     "vendor_history": {
      "disputes_12m": 0,
@@ -5297,11 +5298,11 @@
       {
        "qty": 100,
        "sku": "SKU-619",
-       "total_usd": 414.0,
+       "total_usd": 414,
        "unit_usd": 4.14
       }
      ],
-     "total_usd": 414.0,
+     "total_usd": 414,
      "vendor": "Pallas Industrial"
     },
     "payment": {
@@ -5320,7 +5321,7 @@
        "unit_usd": 2.96
       }
      ],
-     "total_usd": 296.0
+     "total_usd": 296
     },
     "vendor_history": {
      "disputes_12m": 0,
@@ -5380,7 +5381,7 @@
      "confidence": 0.903333,
      "label": "3",
      "probabilities": {
-      "0": 0.0,
+      "0": 0,
       "1": 0.013333,
       "2": 0.07,
       "3": 0.916667
@@ -5449,11 +5450,11 @@
       {
        "qty": 250,
        "sku": "SKU-159",
-       "total_usd": 36720.0,
+       "total_usd": 36720,
        "unit_usd": 146.88
       }
      ],
-     "total_usd": 36720.0,
+     "total_usd": 36720,
      "vendor": "Acme Fabrication"
     },
     "payment": {
@@ -5472,7 +5473,7 @@
        "unit_usd": 146.88
       }
      ],
-     "total_usd": 36720.0
+     "total_usd": 36720
     },
     "vendor_history": {
      "disputes_12m": 2,
@@ -5600,11 +5601,11 @@
       {
        "qty": 1000,
        "sku": "SKU-533",
-       "total_usd": 240420.0,
+       "total_usd": 240420,
        "unit_usd": 240.42
       }
      ],
-     "total_usd": 240420.0,
+     "total_usd": 240420,
      "vendor": "Vantage Materials"
     },
     "payment": {
@@ -5623,7 +5624,7 @@
        "unit_usd": 240.42
       }
      ],
-     "total_usd": 240420.0
+     "total_usd": 240420
     },
     "vendor_history": {
      "disputes_12m": 0,
@@ -5698,7 +5699,7 @@
       "approve": 0.256667,
       "hold": 0.376667,
       "manual_review": 0.366667,
-      "reject": 0.0
+      "reject": 0
      },
      "type": "choice"
     },
@@ -5752,17 +5753,17 @@
       {
        "qty": 400,
        "sku": "SKU-702",
-       "total_usd": 67592.0,
+       "total_usd": 67592,
        "unit_usd": 168.98
       }
      ],
-     "total_usd": 67592.0,
+     "total_usd": 67592,
      "vendor": "Northwind Components"
     },
     "payment": {
      "days_until_due": 18,
      "discount_expires_in_days": 4,
-     "early_payment_discount_pct": 2.0,
+     "early_payment_discount_pct": 2,
      "status": "scheduled",
      "terms": "net 60"
     },
@@ -5775,7 +5776,7 @@
        "unit_usd": 168.98
       }
      ],
-     "total_usd": 67592.0
+     "total_usd": 67592
     },
     "vendor_history": {
      "disputes_12m": 0,
@@ -6057,17 +6058,17 @@
       {
        "qty": 100,
        "sku": "SKU-296",
-       "total_usd": 21096.0,
+       "total_usd": 21096,
        "unit_usd": 210.96
       }
      ],
-     "total_usd": 21096.0,
+     "total_usd": 21096,
      "vendor": "Acme Fabrication"
     },
     "payment": {
      "days_until_due": -9,
      "discount_expires_in_days": 8,
-     "early_payment_discount_pct": 2.0,
+     "early_payment_discount_pct": 2,
      "status": "overdue",
      "terms": "net 45"
     },
@@ -6080,7 +6081,7 @@
        "unit_usd": 210.96
       }
      ],
-     "total_usd": 21096.0
+     "total_usd": 21096
     },
     "vendor_history": {
      "disputes_12m": 1,
@@ -6138,7 +6139,7 @@
    },
    "gold": {
     "discrepancy_severity": {
-     "confidence": 0.0,
+     "confidence": 0,
      "label": "0",
      "probabilities": {
       "0": 0.606667,
@@ -6210,11 +6211,11 @@
       {
        "qty": 1000,
        "sku": "SKU-516",
-       "total_usd": 396960.0,
+       "total_usd": 396960,
        "unit_usd": 396.96
       }
      ],
-     "total_usd": 396960.0,
+     "total_usd": 396960,
      "vendor": "Acme Fabrication"
     },
     "payment": {
@@ -6233,7 +6234,7 @@
        "unit_usd": 385.4
       }
      ],
-     "total_usd": 385400.0
+     "total_usd": 385400
     },
     "vendor_history": {
      "disputes_12m": 5,
@@ -6295,8 +6296,8 @@
      "confidence": 0.866667,
      "label": "3",
      "probabilities": {
-      "0": 0.0,
-      "1": 0.0,
+      "0": 0,
+      "1": 0,
       "2": 0.133333,
       "3": 0.866667
      },
@@ -6364,11 +6365,11 @@
       {
        "qty": 50,
        "sku": "SKU-294",
-       "total_usd": 20852.0,
+       "total_usd": 20852,
        "unit_usd": 417.04
       }
      ],
-     "total_usd": 20852.0,
+     "total_usd": 20852,
      "vendor": "Acme Fabrication"
     },
     "payment": {
@@ -6387,7 +6388,7 @@
        "unit_usd": 417.04
       }
      ],
-     "total_usd": 20852.0
+     "total_usd": 20852
     },
     "vendor_history": {
      "disputes_12m": 5,
@@ -6461,7 +6462,7 @@
       "approve": 0.483333,
       "hold": 0.4,
       "manual_review": 0.116667,
-      "reject": 0.0
+      "reject": 0
      },
      "type": "choice"
     },
@@ -6489,7 +6490,7 @@
      "confidence": 0.6,
      "label": "2",
      "probabilities": {
-      "0": 0.0,
+      "0": 0,
       "1": 0.133333,
       "2": 0.6,
       "3": 0.266667
@@ -7267,7 +7268,7 @@
      "confidence": 0.547222,
      "label": "3",
      "probabilities": {
-      "0": 0.0,
+      "0": 0,
       "1": 0.043333,
       "2": 0.206667,
       "3": 0.5,
@@ -7509,7 +7510,7 @@
    },
    "gold": {
     "credential_compromise": {
-     "confidence": 0.0,
+     "confidence": 0,
      "label": "true",
      "noul": 0.5,
      "probabilities": {
@@ -7804,7 +7805,7 @@
       "1": 0.25,
       "2": 0.533333,
       "3": 0.15,
-      "4": 0.0
+      "4": 0
      },
      "score": 1.766667,
      "type": "score"
@@ -8204,7 +8205,7 @@
       "1": 0.5,
       "2": 0.35,
       "3": 0.033333,
-      "4": 0.0
+      "4": 0
      },
      "score": 1.3,
      "type": "score"
@@ -8337,7 +8338,7 @@
       "1": 0.3,
       "2": 0.516667,
       "3": 0.083333,
-      "4": 0.0
+      "4": 0
      },
      "score": 1.583333,
      "type": "score"

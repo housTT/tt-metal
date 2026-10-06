@@ -71,6 +71,19 @@ def model_dir() -> str:
     return d
 
 
+def checkpoint_pins(d: str | None = None) -> dict:
+    """Hub repo and revision of a checkpoint directory, read from its huggingface_hub snapshot path (models--<org>--<name>/snapshots/<revision>); the English pins when the path is not a snapshot."""
+    real = os.path.realpath(d or model_dir())
+    parts = real.split(os.sep)
+    repo, revision = HF_MODEL, LAYA_REVISION
+    if "snapshots" in parts:
+        i = parts.index("snapshots")
+        if i >= 1 and parts[i - 1].startswith("models--") and i + 1 < len(parts):
+            repo = parts[i - 1][len("models--") :].replace("--", "/")
+            revision = parts[i + 1]
+    return {"hf_model": repo, "revision": revision, "model_dir": real}
+
+
 def load_rl_config(d: str | None = None) -> dict:
     with open(os.path.join(d or model_dir(), "rl_agent_config.json")) as f:
         return json.load(f)
@@ -254,7 +267,9 @@ def gate_items(tok, seq_len: int = DEFAULT_MAX_LEN, head_max_len: int = DEFAULT_
     return _GATE_ITEMS_CACHE[key]
 
 
-def build_batch(seq_len: int = DEFAULT_MAX_LEN, batch_size: int = 1, seed: int = 0, head_max_len: int = DEFAULT_HEAD_MAX_LEN) -> dict:
+def build_batch(
+    seq_len: int = DEFAULT_MAX_LEN, batch_size: int = 1, seed: int = 0, head_max_len: int = DEFAULT_HEAD_MAX_LEN
+) -> dict:
     tok = load_tokenizer()
     items = gate_items(tok, seq_len=seq_len, head_max_len=head_max_len)
     order = np.random.RandomState(seed).permutation(len(items))

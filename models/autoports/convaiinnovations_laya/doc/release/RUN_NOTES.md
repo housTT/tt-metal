@@ -89,8 +89,10 @@ Results `/home/hous/dev/laya/evals/results/package_p150_b4_20261006T010016Z/SUMM
 | demo page | `/home/hous/dev/laya/evidence/demo_p150_b4.png` (answered preset, tiles, live feed) |
 | p150x4 (`--device-id 0,1,2,3`, `package_p150x4_b4_20261006T010523Z`) | healthy 20 s after start; E5 13.1 / 16.1 / 23.6 / 68.7 ms, batched 351 to 939 questions per second |
 
-The card quotes the build 3 run; build 4 reproduces it within 0.7 ms on every latency cell and exactly on every
-accuracy row.
+The card quotes the build 3 run; on the p150 profile build 4 reproduces it within 0.7 ms on every latency cell and
+exactly on every accuracy row. On the p150x4 profile the cells differ by up to 1.2 ms (69.9 against 68.7 ms at 50
+questions) and the batched low end moved from 301 to 351 questions per second because one noisy 1x5 cell (16.6 against
+14.2 ms client p50) sets it; the card keeps the lower figure.
 
 ## Publish (gated, not run)
 

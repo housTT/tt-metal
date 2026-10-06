@@ -123,6 +123,7 @@ class TtnnLayaModel:
         seq_buckets: Sequence[int] = SEQ_BUCKETS,
         mesh_mapper=None,
         intermediate_pads=None,
+        row_buckets_by_seq=None,
     ):
         self.device = device
         self.config = config
@@ -130,6 +131,9 @@ class TtnnLayaModel:
         self.port = port
         self.row_buckets = tuple(sorted(row_buckets))
         self.seq_buckets = tuple(sorted(seq_buckets))
+        self.row_buckets_by_seq = {
+            int(s): tuple(sorted(int(b) for b in v)) for s, v in (row_buckets_by_seq or {}).items()
+        }
         self.num_devices = mesh_size(device)
         if self.num_devices > 1:
             if mesh_mapper is None:
@@ -165,11 +169,27 @@ class TtnnLayaModel:
         return batch_size * self.num_devices
 
     def row_buckets_total(self) -> Tuple[int, ...]:
-        return tuple(self.rows_per_call(b) for b in self.row_buckets)
+        """Rows per call over every captured row bucket (the common list and the per-seq lists)."""
+        buckets = set(self.row_buckets)
+        for v in self.row_buckets_by_seq.values():
+            buckets.update(v)
+        return tuple(self.rows_per_call(b) for b in sorted(buckets))
+
+    def rows_for_seq(self, seq_bucket: int) -> Tuple[int, ...]:
+        """Per-device row buckets captured at one seq bucket (the per-seq list when given, else the common list)."""
+        return self.row_buckets_by_seq.get(int(seq_bucket), self.row_buckets)
+
+    def max_rows_for_seq(self, seq_bucket: int) -> int:
+        """Rows one call may carry at this seq bucket: the largest per-device row bucket there times the device count."""
+        return self.rows_per_call(max(self.rows_for_seq(seq_bucket)))
+
+    def deployment_buckets(self) -> list:
+        return [(b, s) for s in self.seq_buckets for b in self.rows_for_seq(s)]
 
     def bucket_for(self, n_rows: int, seq_len: int) -> Tuple[int, int]:
+        seq = pick_bucket(seq_len, self.seq_buckets)
         per_device = -(-n_rows // self.num_devices)
-        return pick_bucket(per_device, self.row_buckets), pick_bucket(seq_len, self.seq_buckets)
+        return pick_bucket(per_device, self.rows_for_seq(seq)), seq
 
     def build_bucket(self, batch_size: int, seq_len: int) -> Bucket:
         key = (batch_size, seq_len)
@@ -282,6 +302,7 @@ class TtnnLayaModel:
             "port": self.port.describe(),
             "row_buckets": list(self.row_buckets),
             "seq_buckets": list(self.seq_buckets),
+            "row_buckets_by_seq": {str(s): list(v) for s, v in self.row_buckets_by_seq.items()},
             "num_devices": self.num_devices,
             "rows_per_call": list(self.row_buckets_total()),
             "buckets": {f"{b}x{s}": describe_plan(v.encoder.plan) for (b, s), v in self.buckets.items()},

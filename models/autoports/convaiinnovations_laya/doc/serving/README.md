@@ -110,6 +110,7 @@ server calls, so the two agree on logits and differ in decoding only for `choice
 | `LAYA_API_KEY` | unset | bearer token for `/v1/*` |
 | `LAYA_NO_DEMO` | 0 | do not register `/demo` |
 | `LAYA_SANITY_CHECK` | 1 | run the STATE_EN / Q_CHOICE check at startup |
+| `LAYA_SANITY_REFERENCE` | `server/sanity_reference.json` | the stored CPU answer the startup check compares against; the sibling manifest points it at `server/sanity_reference_typed_decisions.json` (billing 0.6115, technical 0.1441, sales 0.2444, recorded by Track T4 with the server's CPU backend); `create_app(sanity_reference=...)` overrides the env |
 | `LAYA_CORS` | 0 | permissive CORS with the three headers exposed |
 | `LAYA_CPU_THREADS`, `LAYA_CPU_ATTN`, `LAYA_CPU_IMPL` | unset (`common.DEFAULT_THREADS`, 6), `eager`, `reference` | CPU backend: torch threads, attention implementation passed to `LayaReference`, `vendored` builds the Hub `DecisionModel` with sdpa instead |
 | `LAYA_MESH_SHAPE`, `LAYA_PRECISION`, `LAYA_WARMUP_SHAPES`, `LAYA_TRACE`, `LAYA_TRACE_REGION_SIZE`, `LAYA_L1_SMALL_SIZE` | Track T | read by `LayaEngine.from_env()`; the server only reports what `shapes()` returns |
@@ -220,7 +221,9 @@ argmax and probabilities with `server/sanity_reference.json` (recorded 2026 Oct 
 0.8899, technical 0.0417, sales 0.0685). An argmax mismatch logs a warning and is reported in `/v1/health["sanity"]`;
 the server still starts. The ready line `laya server ready backend=... seq_buckets=... row_buckets=... warm=...` is
 logged before uvicorn's `Application startup complete`, which is what `tt-model serve` waits for. Shutdown calls
-`engine.close()` (the TT engine releases traces and closes the mesh there) and drains the single-worker executor.
+`engine.close()` only for an engine the lifespan loaded itself (the TT engine releases traces and closes the mesh
+there); an engine injected through `create_app(engine=...)` belongs to the caller and is left open, so several test
+apps can share one loaded model. The executor is drained in both cases.
 
 Concurrency: one `asyncio.Lock` around every forward (systemone, batch, raw); the work runs in a
 `ThreadPoolExecutor(max_workers=1)` so health and static requests stay responsive while the device is busy.
@@ -260,6 +263,22 @@ Concurrency: one `asyncio.Lock` around every forward (systemone, batch, raw); th
 Agreement rule: choice: `choice == gold.label`; score: `argmax(probabilities) == gold.label` (the dataset's label is
 the level index as a string); noul: `(noul >= 0.5 ? "true" : "false") == gold.label.toLowerCase()`.
 
+Feed serialization (review R3): the dataset's states carry integral floats such as `total_usd: 1625.0`; a browser's
+`JSON.stringify` writes them as `1625` while Python's `json.dumps` writes `1625.0`, and the server tokenizes whatever
+text it receives (`serialize_state` is `json.dumps` of the parsed object), so the page and the Python feed client fed
+the model different tokens and disagreed on near ties. `demo/feed_cases.json` is therefore written with integral floats
+as integers in state, questions and gold (same 60 cases, same order; `attribution.normalization` records it; the
+states carry no integer-like dict keys, which JS would reorder), so both clients post the same text; the page is the
+reference. `evals/demo/feed_client.py` already posts the states it loads from `/demo/feed.json` unchanged, so it needs
+no edit for the default path; its `--parquet-only` and `--cases` paths bypass the file and should apply the same
+normalization (`int(x)` for every float with `x.is_integer()`, recursively) before posting, which is Track E's change.
+`test_demo_page.py::test_feed_has_no_integral_floats` guards the file.
+
+`GET /v1/health` serves `shapes` from a live `backend.shapes()` call on every request (`Engine.live_shapes()`), so
+per-bucket counters such as the TT engine's `calls` advance with traffic; the startup snapshot is used only to derive
+the buckets and as a fallback when the live call fails. `requests`, `rows_served` and `batch_histogram` are the
+server's own live counters.
+
 ### Stats JSON (Copy stats JSON; the shape `evals/demo/feed_client.py` should write)
 
 `/home/hous/dev/laya/evals/README.md` did not exist when this was written, so this is the defining description.
@@ -296,7 +315,10 @@ tt-metal venv lacks pip laya); the HTTP path is exercised by `test_raw_forward_m
 
 ## Tests
 
-Run in the tt-metal venv from the tt-metal root with the repo's `conftest.py` (it imports no device at collection):
+Run in the tt-metal venv from the tt-metal root with the repo's `conftest.py` (it imports no device at collection).
+`tests/conftest.py` holds the two session fixtures `cpu_engine` and `client` (one model load for the whole run); they
+live in a conftest because the repository's pre-commit hook removes imports it sees as unused, which dropped fixture
+imports from a test module once:
 
 ```
 source /home/hous/dev/laya/bin/ttenv.sh

@@ -24,7 +24,7 @@ from models.autoports.convaiinnovations_laya.server.app import (
     STATE_EN,
     create_app,
 )
-from models.autoports.convaiinnovations_laya.server.engine import Engine, collate_items, encode_state, to_internal
+from models.autoports.convaiinnovations_laya.server.engine import collate_items, encode_state, to_internal
 
 MODEL_DIR = os.environ["LAYA_MODEL_DIR"]
 needs_weights = pytest.mark.skipif(
@@ -32,19 +32,6 @@ needs_weights = pytest.mark.skipif(
 )
 SHORT_STATE = {"ticket": "Payout failed twice this week, please fix it today."}
 TONE = {"type": "score", "instructions": "What is the customer's tone?", "criteria": ["angry", "neutral", "happy"]}
-
-
-@pytest.fixture(scope="session")
-def cpu_engine():
-    if not os.path.isfile(os.path.join(MODEL_DIR, "model.safetensors")):
-        pytest.skip("weights missing: %s" % MODEL_DIR)
-    return Engine.from_env()
-
-
-@pytest.fixture(scope="session")
-def client(cpu_engine):
-    with TestClient(create_app(engine=cpu_engine, raw_forward=True, demo=True, sanity=True)) as c:
-        yield c
 
 
 def probs_of(answer):
@@ -131,7 +118,11 @@ def test_score_question_and_truncation(client):
 
 @needs_weights
 def test_batch_and_chunking(client, cpu_engine):
-    states = [SHORT_STATE, {"ticket": "Can I get a demo of the enterprise plan?"}, {"ticket": "The API returns 500 on every call since the deploy."}]
+    states = [
+        SHORT_STATE,
+        {"ticket": "Can I get a demo of the enterprise plan?"},
+        {"ticket": "The API returns 500 on every call since the deploy."},
+    ]
     body = {"states": states, "questions": {"routing": Q_CHOICE}}
     r = client.post("/v1/systemone/batch", json=body)
     assert r.status_code == 200, r.text
@@ -163,7 +154,9 @@ def test_min_confidence(client):
     r = client.post("/v1/systemone", json={"state": SHORT_STATE, "questions": q, "min_confidence": 0.0})
     a = r.json()["answers"]["routing"]
     assert a["abstention"] == "passed" and "low_confidence" not in a and a["abstention_threshold"] == 0.0
-    r = client.post("/v1/systemone", json={"state": SHORT_STATE, "questions": q, "min_confidence": {"choice:3-5": 0.999}})
+    r = client.post(
+        "/v1/systemone", json={"state": SHORT_STATE, "questions": q, "min_confidence": {"choice:3-5": 0.999}}
+    )
     assert r.json()["answers"]["routing"]["abstention"] == "abstained"
 
 
@@ -174,7 +167,10 @@ def test_min_confidence(client):
         {"state": "x", "questions": {"q": {"type": "choice", "criteria": ["a"]}}},
         {"state": "x", "questions": {"q": {"type": "pick", "instructions": "x"}}},
         {"state": "x", "questions": {"q": {"type": "score", "instructions": "x", "criteria": ["a", None]}}},
-        {"state": "x", "questions": {"q": {"type": "noul", "instructions": "x", "labels": {"false": "B", "true": "A"}}}},
+        {
+            "state": "x",
+            "questions": {"q": {"type": "noul", "instructions": "x", "labels": {"false": "B", "true": "A"}}},
+        },
         {"state": "x", "questions": {"q": Q_NOUL}, "min_confidence": 1.5},
         {"state": "x", "questions": {"q": Q_NOUL}, "max_len": 100000},
         {"state": "x", "questions": {"q": Q_NOUL}, "max_len": "512"},
@@ -195,7 +191,13 @@ def test_413_on_too_many(client):
     assert r.status_code == 413
     r = client.post("/v1/systemone", json={"state": "y" * 50001, "questions": {"q": Q_NOUL}})
     assert r.status_code == 413
-    r = client.post("/v1/systemone", json={"state": "x", "questions": {"q": {"type": "choice", "instructions": "x", "criteria": ["o%d" % i for i in range(101)]}}})
+    r = client.post(
+        "/v1/systemone",
+        json={
+            "state": "x",
+            "questions": {"q": {"type": "choice", "instructions": "x", "criteria": ["o%d" % i for i in range(101)]}},
+        },
+    )
     assert r.status_code == 413
 
 
@@ -229,7 +231,9 @@ def test_raw_forward_matches_wire_path(client, cpu_engine):
     out = r.json()
     assert len(out["logits"]) == 1 and len(out["logits"][0]) == 3 and len(out["act_logits"][0]) == 2
     assert BATCH_HEADER in r.headers and out["batch"] == r.headers[BATCH_HEADER]
-    wire = client.post("/v1/systemone", json={"state": SHORT_STATE, "questions": questions}).json()["answers"]["routing"]
+    wire = client.post("/v1/systemone", json={"state": SHORT_STATE, "questions": questions}).json()["answers"][
+        "routing"
+    ]
     temps = cpu_engine.temps
     from models.autoports.convaiinnovations_laya.server.decode import scaled_softmax
 
@@ -258,6 +262,56 @@ def test_api_key(cpu_engine):
         assert h["api_key_required"] is True and "seq_buckets" not in h
         assert c.get("/v1/models", headers={"Authorization": "Bearer secret"}).status_code == 200
         assert c.get("/v1/health", headers={"Authorization": "Bearer secret"}).json()["seq_buckets"]
+
+
+@needs_weights
+def test_health_shapes_are_live(client, cpu_engine):
+    original = cpu_engine.backend.shapes
+    counter = {"calls": 0}
+
+    def live():
+        counter["calls"] += 1
+        out = dict(original())
+        out["calls"] = counter["calls"]
+        return out
+
+    cpu_engine.backend.shapes = live
+    try:
+        first = client.get("/v1/health").json()["shapes"]["calls"]
+        second = client.get("/v1/health").json()["shapes"]["calls"]
+    finally:
+        cpu_engine.backend.shapes = original
+    assert second == first + 1
+    h = client.get("/v1/health").json()
+    assert "calls" not in h["shapes"] and h["shapes"]["seq_buckets"] == original()["seq_buckets"]
+    assert h["batch_histogram"] and h["rows_served"] > 0
+
+
+@needs_weights
+def test_sanity_reference_selectable(cpu_engine, monkeypatch):
+    sibling = os.path.join(os.path.dirname(SANITY_FILE), "sanity_reference_typed_decisions.json")
+    assert os.path.isfile(sibling)
+    with open(sibling, encoding="utf-8") as fh:
+        ref = json.load(fh)["answers"]["routing"]
+    monkeypatch.setenv("LAYA_SANITY_REFERENCE", sibling)
+    with TestClient(create_app(engine=cpu_engine, demo=False, raw_forward=False, sanity=True)) as c:
+        s = c.get("/v1/health").json()["sanity"]
+    assert s["reference_file"] == sibling
+    assert s["reference_choice"] == ref["choice"] == "billing"
+    assert s["ok"] is True
+    assert (
+        abs(s["max_abs_dp"] - max(abs(s["probabilities"][k] - ref["probabilities"][k]) for k in ref["probabilities"]))
+        < 1e-6
+    )
+    assert s["max_abs_dp"] > 0.2
+    monkeypatch.delenv("LAYA_SANITY_REFERENCE")
+    with TestClient(
+        create_app(engine=cpu_engine, demo=False, raw_forward=False, sanity=True, sanity_reference=sibling)
+    ) as c:
+        assert c.get("/v1/health").json()["sanity"]["reference_file"] == sibling
+    with TestClient(create_app(engine=cpu_engine, demo=False, raw_forward=False, sanity=True)) as c:
+        default = c.get("/v1/health").json()["sanity"]
+    assert default["reference_file"] == SANITY_FILE and default["max_abs_dp"] < 1e-3
 
 
 def test_module_level_app_exists():

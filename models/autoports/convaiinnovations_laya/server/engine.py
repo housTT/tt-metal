@@ -715,7 +715,15 @@ class Engine:
     def token_budget(self) -> int:
         return self.limits.token_budget or self.buckets.max_seq
 
+    def live_shapes(self) -> Dict[str, Any]:
+        try:
+            return dict(self.backend.shapes())
+        except Exception as e:
+            log.warning("backend.shapes() failed (%s); serving the startup snapshot", e)
+            return dict(self.shapes)
+
     def info(self) -> Dict[str, Any]:
+        shapes = self.live_shapes()
         return {
             "backend": self.backend_kind,
             "model": self.hf_model,
@@ -723,12 +731,12 @@ class Engine:
             "model_dir": self.model_dir,
             "max_len": self.max_len,
             "head_max_len": self.head_max_len,
-            "mesh_shape": self.shapes.get("mesh_shape"),
-            "precision": self.shapes.get("precision"),
+            "mesh_shape": shapes.get("mesh_shape", self.shapes.get("mesh_shape")),
+            "precision": shapes.get("precision", self.shapes.get("precision")),
             "seq_buckets": self.buckets.seqs,
             "row_buckets": self.buckets.rows,
-            "warm_shapes": self.shapes.get("warm_shapes", []),
-            "shapes": self.shapes,
+            "warm_shapes": shapes.get("warm_shapes", self.shapes.get("warm_shapes", [])),
+            "shapes": shapes,
             "limits": self.limits.describe(),
             "token_budget": self.token_budget,
             "temperatures": self.temps.describe(),

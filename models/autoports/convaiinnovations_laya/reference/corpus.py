@@ -41,8 +41,21 @@ def parity_fast_definitions() -> tuple:
     presets = _load_presets_module()
     path = os.path.join(clone_dir(), "benchmarks", "parity_fast.py")
     tree = ast.parse(open(path).read())
-    ns = {name: getattr(presets, name) for name in ("triage_questions", "moderation_questions", "guard_questions", "router_questions", "email_questions")}
-    nodes = [n for n in tree.body if isinstance(n, ast.Assign) and any(getattr(t, "id", None) in ("TEXTS", "PRESETS") for t in n.targets)]
+    ns = {
+        name: getattr(presets, name)
+        for name in (
+            "triage_questions",
+            "moderation_questions",
+            "guard_questions",
+            "router_questions",
+            "email_questions",
+        )
+    }
+    nodes = [
+        n
+        for n in tree.body
+        if isinstance(n, ast.Assign) and any(getattr(t, "id", None) in ("TEXTS", "PRESETS") for t in n.targets)
+    ]
     if len(nodes) != 2:
         raise RuntimeError(f"expected TEXTS and PRESETS assignments in {path}, found {len(nodes)}")
     exec(compile(ast.Module(body=nodes, type_ignores=[]), path, "exec"), ns)
@@ -87,7 +100,11 @@ def gold_for(case: dict, qid: str, q: dict):
     g = case["gold"][qid]
     if q["t"] == "choice":
         keys = list(q["crit"].keys())
-        return {"label": str(g["label"]), "idx": keys.index(str(g["label"])), "soft": [float(g.get("probabilities", {}).get(k, 0.0)) for k in keys]}
+        return {
+            "label": str(g["label"]),
+            "idx": keys.index(str(g["label"])),
+            "soft": [float(g.get("probabilities", {}).get(k, 0.0)) for k in keys],
+        }
     if q["t"] == "noul":
         pt = float(g.get("probabilities", {}).get("true", g.get("noul", 0.5)))
         return {"label": str(g["label"]), "idx": 1 if str(g["label"]).lower() == "true" else 0, "soft": [1 - pt, pt]}
@@ -134,7 +151,9 @@ def run_groups(ref: lr.LayaReference, groups: list, source: int, log=print) -> l
                     "ids": list(map(int, it["ids"])),
                     "markers": list(map(int, it["markers"])),
                     "seq_len": len(it["ids"]),
-                    "option_keys": list(it["q"]["crit"].keys()) if it["q"]["t"] == "choice" else [str(i) for i in range(k)],
+                    "option_keys": list(it["q"]["crit"].keys())
+                    if it["q"]["t"] == "choice"
+                    else [str(i) for i in range(k)],
                     "temperature": t,
                     "temperature_raw": t_raw,
                     "temperature_bucket": lr.temp_bucket(qt, k),
@@ -145,8 +164,24 @@ def run_groups(ref: lr.LayaReference, groups: list, source: int, log=print) -> l
                     "probs_hub": [float(x) for x in lr.scaled_probs(logits[r, :k], t_raw)],
                     "probs_raw": [float(x) for x in lr.scaled_probs(logits[r, :k], 1.0)],
                     "gold": gold_for(case, it["qid"], it["q"]),
-                    "answer_pip": lr.decode_answer(it["q"], logits[r, :k], ap[r], ref.temperature, ref.temperature_by_options, shape="pip", clamp=True),
-                    "answer_hub": lr.decode_answer(it["q"], logits[r, :k], ap[r], ref.temperature, ref.temperature_by_options, shape="hub", clamp=False),
+                    "answer_pip": lr.decode_answer(
+                        it["q"],
+                        logits[r, :k],
+                        ap[r],
+                        ref.temperature,
+                        ref.temperature_by_options,
+                        shape="pip",
+                        clamp=True,
+                    ),
+                    "answer_hub": lr.decode_answer(
+                        it["q"],
+                        logits[r, :k],
+                        ap[r],
+                        ref.temperature,
+                        ref.temperature_by_options,
+                        shape="hub",
+                        clamp=False,
+                    ),
                     "forward_ms_group": stored_ms if stored_ms is not None else round(1000 * dt, 1),
                 }
             )
@@ -206,17 +241,41 @@ def sha256_file(path: str) -> str:
     return h.hexdigest()
 
 
-def write_outputs(ref: lr.LayaReference, records: list, gate_cases: list, out_dir: str, max_len: int, head_max_len: int, seed: int, per_workflow: int, parity_path: str, timings: dict):
+def corpus_names(tag: str = "") -> dict:
+    """File names of one corpus: the English corpus has no tag; a tag such as 'td' gives parity_corpus_td.npz, parity_corpus_td_index.json and typed_decisions_cpu_td/."""
+    suffix = f"_{tag}" if tag else ""
+    return {
+        "npz": f"parity_corpus{suffix}.npz",
+        "index": f"parity_corpus{suffix}_index.json",
+        "typed_dir": f"typed_decisions_cpu{suffix}",
+    }
+
+
+def write_outputs(
+    ref: lr.LayaReference,
+    records: list,
+    gate_cases: list,
+    out_dir: str,
+    max_len: int,
+    head_max_len: int,
+    seed: int,
+    per_workflow: int,
+    parity_path: str,
+    timings: dict,
+    tag: str = "",
+):
     import transformers
 
     os.makedirs(out_dir, exist_ok=True)
+    names = corpus_names(tag)
+    pins = common.checkpoint_pins(ref.model_dir)
     arrays = pack_corpus(records, max_len)
-    npz_path = os.path.join(out_dir, "parity_corpus.npz")
+    npz_path = os.path.join(out_dir, names["npz"])
     np.savez_compressed(npz_path, **arrays)
     index = {
         "created_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "hf_model": common.HF_MODEL,
-        "revision": common.LAYA_REVISION,
+        "hf_model": pins["hf_model"],
+        "revision": pins["revision"],
         "model_dir": ref.model_dir,
         "model_safetensors_sha256": sha256_file(os.path.join(ref.model_dir, "model.safetensors")),
         "max_len": max_len,
@@ -239,7 +298,11 @@ def write_outputs(ref: lr.LayaReference, records: list, gate_cases: list, out_di
             "case_indices": [c["index"] for c in gate_cases],
             "case_ids": [c["id"] for c in gate_cases],
         },
-        "parity_fast": {"source_file": parity_path, "clone_dir": clone_dir(), "rule": "TEXTS and PRESETS executed from the file's AST; states() replicated: 5 presets x 12 texts, up to 8 questions each, state {subject: text[:60], body: text}"},
+        "parity_fast": {
+            "source_file": parity_path,
+            "clone_dir": clone_dir(),
+            "rule": "TEXTS and PRESETS executed from the file's AST; states() replicated: 5 presets x 12 texts, up to 8 questions each, state {subject: text[:60], body: text}",
+        },
         "temperature": ref.temperature,
         "temperature_by_options": ref.temperature_by_options,
         "temperature_rule": {
@@ -248,7 +311,9 @@ def write_outputs(ref: lr.LayaReference, records: list, gate_cases: list, out_di
             "probs_raw": "temperature 1.0 (parity_fast.py p_fp32)",
             "answer_pip": "pip shape, clamped rule",
             "answer_hub": "Hub shape, raw rule",
-            "buckets_where_the_rules_differ": [k for k, v in ref.temperature_by_options.items() if lr.clamp_temperature(v) != float(v)],
+            "buckets_where_the_rules_differ": [
+                k for k, v in ref.temperature_by_options.items() if lr.clamp_temperature(v) != float(v)
+            ],
         },
         "n_items": len(records),
         "n_typed": int(sum(1 for r in records if r["source"] == SOURCE_TYPED)),
@@ -258,9 +323,9 @@ def write_outputs(ref: lr.LayaReference, records: list, gate_cases: list, out_di
         "arrays": {k: [list(v.shape), str(v.dtype)] for k, v in arrays.items()},
         "items": [{k: v for k, v in r.items() if k not in ("ids",)} for r in records],
     }
-    with open(os.path.join(out_dir, "parity_corpus_index.json"), "w") as f:
+    with open(os.path.join(out_dir, names["index"]), "w") as f:
         json.dump(index, f, indent=1)
-    td_dir = os.path.join(out_dir, "typed_decisions_cpu")
+    td_dir = os.path.join(out_dir, names["typed_dir"])
     os.makedirs(td_dir, exist_ok=True)
     by_case = {}
     for r in records:
@@ -280,16 +345,38 @@ def write_outputs(ref: lr.LayaReference, records: list, gate_cases: list, out_di
             for r in rows:
                 n_dec += 1
                 agree += int(int(np.argmax(r["probs"])) == r["gold"]["idx"])
-            f.write(json.dumps({"id": c["id"], "index": c["index"], "workflow": c["workflow"], "answers": answers, "answers_hub": answers_hub, "logits": logits, "probs": probs, "probs_hub": probs_hub, "gold": gold, "state": c["state"], "questions": c["questions"]}, ensure_ascii=False) + "\n")
+            f.write(
+                json.dumps(
+                    {
+                        "id": c["id"],
+                        "index": c["index"],
+                        "workflow": c["workflow"],
+                        "answers": answers,
+                        "answers_hub": answers_hub,
+                        "logits": logits,
+                        "probs": probs,
+                        "probs_hub": probs_hub,
+                        "gold": gold,
+                        "state": c["state"],
+                        "questions": c["questions"],
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
     summary = {
         "n_cases": len(gate_cases),
         "n_decisions": n_dec,
         "argmax_equals_gold_label": agree,
         "argmax_equals_gold_label_fraction": round(agree / max(1, n_dec), 4),
         "note": "sanity count only; the E2 metrics come from the authors' bench_local.py metric block in the evals harness",
-        "protocol": "one forward per case with its 5 questions, rows padded to the longest row of the case, max_len 512, head_max_len 192, fp32, eager attention",
-        "temperature_rule": {"answers, probs": "pip laya 0.3.27 rule, temperatures clamped to [0.5, 5.0]", "answers_hub, probs_hub": "Hub rl_agent_api.py rule, raw temperatures", "note": "the two rules differ only for the choice:11+ bucket (0.1006 raw, 0.5 clamped), which no typed-decisions question uses"},
-        "index_json": os.path.join(out_dir, "parity_corpus_index.json"),
+        "protocol": f"one forward per case with its 5 questions, rows padded to the longest row of the case, max_len {max_len}, head_max_len {head_max_len}, fp32, eager attention",
+        "temperature_rule": {
+            "answers, probs": "pip laya 0.3.27 rule, temperatures clamped to [0.5, 5.0]",
+            "answers_hub, probs_hub": "Hub rl_agent_api.py rule, raw temperatures",
+            "note": "the two rules differ only for the choice:11+ bucket (0.1006 raw, 0.5 clamped), which no typed-decisions question uses",
+        },
+        "index_json": os.path.join(out_dir, names["index"]),
     }
     with open(os.path.join(td_dir, "summary.json"), "w") as f:
         json.dump(summary, f, indent=1)
@@ -297,8 +384,8 @@ def write_outputs(ref: lr.LayaReference, records: list, gate_cases: list, out_di
 
 
 class StoredForward:
-    def __init__(self, out_dir: str):
-        self.index = json.load(open(os.path.join(out_dir, "parity_corpus_index.json")))
+    def __init__(self, out_dir: str, tag: str = ""):
+        self.index = json.load(open(os.path.join(out_dir, corpus_names(tag)["index"])))
         self.items = self.index["items"]
         self.pos = 0
         self.model_dir = self.index["model_dir"]
@@ -323,8 +410,14 @@ class StoredForward:
         logits = torch.full((n, kmax), lr.NEG_LOGIT, dtype=torch.float32)
         act = torch.zeros((n, 2), dtype=torch.float32)
         for r, it in enumerate(rows):
-            if it["seq_len"] != int(attention_mask[r].sum()) or it["markers"] != marker_pos[r, : it["k"]].tolist() or it["qtype"] != int(qtype[r]):
-                raise RuntimeError(f"stored item {self.pos - n + r} ({it['group']}/{it['qid']}) does not match the rebuilt sequence")
+            if (
+                it["seq_len"] != int(attention_mask[r].sum())
+                or it["markers"] != marker_pos[r, : it["k"]].tolist()
+                or it["qtype"] != int(qtype[r])
+            ):
+                raise RuntimeError(
+                    f"stored item {self.pos - n + r} ({it['group']}/{it['qid']}) does not match the rebuilt sequence"
+                )
             logits[r, : it["k"]] = torch.tensor(it["logits"], dtype=torch.float32)
             act[r] = torch.tensor(it["act_logits"], dtype=torch.float32)
         self.last_forward_ms = rows[0]["forward_ms_group"]
@@ -342,6 +435,11 @@ def main(argv=None):
     ap.add_argument("--attn", default="eager")
     ap.add_argument("--skip-parity-fast", action="store_true")
     ap.add_argument("--repack-from-index", action="store_true")
+    ap.add_argument(
+        "--tag",
+        default="",
+        help="corpus file tag: '' writes parity_corpus.npz (the English corpus), 'td' writes parity_corpus_td.npz",
+    )
     a = ap.parse_args(argv)
 
     def log(msg):
@@ -349,14 +447,16 @@ def main(argv=None):
 
     t_all = time.perf_counter()
     if a.repack_from_index:
-        ref = StoredForward(a.out_dir)
+        ref = StoredForward(a.out_dir, a.tag)
         a.seed = ref.index["gate_subset"]["seed"]
         a.per_workflow = ref.index["gate_subset"]["per_workflow"]
         a.max_len, a.head_max_len = ref.index["max_len"], ref.index["head_max_len"]
         log(f"repacking {ref.index['n_items']} stored items from {a.out_dir} without a model forward")
     else:
         ref = lr.LayaReference(model_dir=a.model_dir, attn_implementation=a.attn)
-    log(f"model loaded in {ref.load_seconds:.1f} s from {ref.model_dir}; threads {ref.threads}; load report {ref.load_report}")
+    log(
+        f"model loaded in {ref.load_seconds:.1f} s from {ref.model_dir}; threads {ref.threads}; load report {ref.load_report}"
+    )
     cases = common.load_typed_decisions()
     gate = common.gate_subset(cases, seed=a.seed, per_workflow=a.per_workflow)
     log(f"gate subset: {len(gate)} cases, indices {[c['index'] for c in gate]}")
@@ -373,12 +473,32 @@ def main(argv=None):
         t0 = time.perf_counter()
         records += run_groups(ref, pg, SOURCE_PARITY_FAST, log=log)
         t_parity = time.perf_counter() - t0
-    timings = {"typed_decisions_s": round(t_typed, 1), "parity_fast_s": round(t_parity, 1), "model_load_s": round(ref.load_seconds, 1)}
+    timings = {
+        "typed_decisions_s": round(t_typed, 1),
+        "parity_fast_s": round(t_parity, 1),
+        "model_load_s": round(ref.load_seconds, 1),
+    }
     if a.repack_from_index:
-        timings = dict(ref.index["timings"], repacked_from_index_utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), original_created_utc=ref.index["created_utc"])
+        timings = dict(
+            ref.index["timings"],
+            repacked_from_index_utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            original_created_utc=ref.index["created_utc"],
+        )
         if ref.pos != len(ref.items):
             raise RuntimeError(f"repack consumed {ref.pos} of {len(ref.items)} stored items")
-    npz_path, summary = write_outputs(ref, records, gate, a.out_dir, a.max_len, a.head_max_len, a.seed, a.per_workflow, parity_path, timings)
+    npz_path, summary = write_outputs(
+        ref,
+        records,
+        gate,
+        a.out_dir,
+        a.max_len,
+        a.head_max_len,
+        a.seed,
+        a.per_workflow,
+        parity_path,
+        timings,
+        tag=a.tag,
+    )
     log(f"wrote {npz_path} with {len(records)} items; typed_decisions_cpu summary {summary}")
     log(f"total {time.perf_counter() - t_all:.0f} s")
 

@@ -50,7 +50,7 @@ class LayaTraceRunner:
         self.device = model.device
         self.cq_id = cq_id
         if buckets is None:
-            buckets = [(b, s) for s in model.seq_buckets for b in model.row_buckets]
+            buckets = model.deployment_buckets()
         self.bucket_keys: List[Tuple[int, int]] = list(buckets)
         self.captured: Dict[Tuple[int, int], Bucket] = {}
         self.warmup_seconds = {"phase1": 0.0, "phase2": 0.0}

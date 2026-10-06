@@ -42,7 +42,25 @@ def scaled_probs(logits_k, t):
     return e / e.sum()
 
 
-def load_corpus(corpus=CORPUS, index=INDEX):
+def index_for(corpus: str) -> str:
+    """parity_corpus.npz -> parity_corpus_index.json; parity_corpus_td.npz -> parity_corpus_td_index.json."""
+    base = corpus[: -len(".npz")] if corpus.endswith(".npz") else corpus
+    return base + "_index.json"
+
+
+def row_buckets_by_seq_arg(text):
+    """'{"1024": "1,2,4,5,8,10,16"}' -> {1024: (1, 2, 4, 5, 8, 10, 16)}; None when empty."""
+    if not text:
+        return None
+    raw = json.loads(text)
+    return {
+        int(k): tuple(sorted(int(x) for x in str(v).replace(";", ",").split(",") if str(x).strip()))
+        for k, v in raw.items()
+    }
+
+
+def load_corpus(corpus=CORPUS, index=None):
+    index = index or (INDEX if corpus == CORPUS else index_for(corpus))
     z = np.load(corpus, allow_pickle=True)
     with open(index) as f:
         idx = json.load(f)
@@ -268,7 +286,19 @@ def main(argv=None):
     ap.add_argument(
         "--hidden-cache", default=None, help="torch file caching the CPU fp32 hidden states of the hidden-state cases"
     )
+    ap.add_argument("--corpus", default=CORPUS, help="reference corpus npz (default: the English corpus)")
+    ap.add_argument("--index", default=None, help="corpus index JSON (default: derived from --corpus)")
+    ap.add_argument(
+        "--model-dir", default=None, help="checkpoint directory (default: LAYA_MODEL_DIR or the English checkpoint)"
+    )
+    ap.add_argument(
+        "--row-buckets-by-seq", default=None, help='JSON of per-seq row lists, e.g. {"1024": "1,2,4,5,8,10,16"}'
+    )
     a = ap.parse_args(argv)
+    if a.model_dir:
+        os.environ["LAYA_MODEL_DIR"] = a.model_dir
+    index_path = a.index or (INDEX if a.corpus == CORPUS else index_for(a.corpus))
+    by_seq = row_buckets_by_seq_arg(a.row_buckets_by_seq)
     torch.set_num_threads(a.threads)
     os.environ.setdefault("LAYA_CPU_THREADS", str(a.threads))
 
@@ -282,7 +312,7 @@ def main(argv=None):
     if a.label:
         suffix += f"_{a.label}"
     out = a.out or os.path.join(DOC_DIR, f"fidelity_{policy.name}_{a.mesh}{suffix}.json")
-    data = load_corpus()
+    data = load_corpus(a.corpus, index_path)
     calls = data["calls"] if a.items == "all" else [c for c in data["calls"] if int(data["source"][c[0]]) == 0]
     if a.chunk:
         calls = [c[i : i + a.chunk] for c in calls for i in range(0, len(c), a.chunk)]
@@ -294,8 +324,10 @@ def main(argv=None):
         "policy": policy.describe(),
         "mesh": a.mesh,
         "trace": not a.no_trace,
-        "corpus": CORPUS,
-        "index": INDEX,
+        "corpus": a.corpus,
+        "index": index_path,
+        "model_dir": a.model_dir or os.environ.get("LAYA_MODEL_DIR"),
+        "row_buckets_by_seq": {str(k): list(v) for k, v in (by_seq or {}).items()},
         "calls": len(calls),
         "call_sizes": sizes,
         "chunk": a.chunk,
@@ -313,14 +345,16 @@ def main(argv=None):
     report["row_buckets"] = list(row_buckets)
     report["seq_buckets"] = list(seq_buckets)
     engine = LayaEngine(
+        model_dir=a.model_dir,
         mesh_shape=mesh,
         policy=policy,
         row_buckets=row_buckets,
         seq_buckets=seq_buckets,
         trace=not a.no_trace,
         trace_region_size=a.trace_region,
-        warmup_shapes=[(b, s) for s in seq_buckets for b in row_buckets],
+        warmup_shapes=[(b, s) for s in seq_buckets for b in mc.rows_for_seq(s, row_buckets, by_seq)],
         threads=a.threads,
+        row_buckets_by_seq=by_seq,
     )
     report["engine"] = engine.shapes()
     report["engine_load_seconds"] = round(time.perf_counter() - t0, 1)
@@ -363,7 +397,7 @@ def main(argv=None):
             if tuple(rows) not in cache:
                 cache_dirty = True
                 if reference is None:
-                    reference = LayaReference(threads=a.threads)
+                    reference = LayaReference(model_dir=a.model_dir, threads=a.threads)
                     report["reference_load_seconds"] = round(reference.load_seconds, 1)
             h = hidden_check(engine, reference, data, rows, cache)
             p = h.pop("pooled")
