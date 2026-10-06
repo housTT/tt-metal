@@ -249,11 +249,35 @@ cached from the earlier builds).
 The feed agreement rates equal those recorded for builds 7 and 4 to four decimals (0.3817 and 0.751), as expected for
 unchanged model code.
 
-## Publish (gated, not run)
+## Publish
+
+English bundle, pushed and listed at the user's request after the demo review (2026 Oct 6):
 
 ```
-tt-model push /home/hous/dev/laya/package/out/laya-p150 --public
-tt-model publish tt-hous/laya-p150
-tt-model push /home/hous/dev/laya/package/out/laya-typed-decisions-p150 --public
-tt-model publish tt-hous/laya-typed-decisions-p150
+/home/hous/.tenstorrent-venv/bin/tt-model push /home/hous/dev/laya/package/out/laya-p150 --public
+/home/hous/.tenstorrent-venv/bin/tt-model publish tt-hous/laya-p150
+```
+
+- Push 14:05 UTC (`/home/hous/dev/laya/logs/p9_push_laya-p150_b9.log`): repo `tt-hous/laya-p150` created public,
+  `image/` 892.5 MB in 28 content-addressed blobs (layers shared with another model on the same tt-metal commit upload
+  once), upload 21.2 s, `pushed tt-hous/laya-p150`. Hub revision `dcd0ad8ca6cd44bfb3b248d75747b9d555382bc0`, 82 files,
+  tags `tt-model-container`, `tt-dit-server`, `tt-model-cache`, `tt-model-catalog`.
+- Publish 14:06 UTC (`p9_publish_laya-p150.log`): `listed tt-hous/laya-p150 in the community catalog`. Delist with
+  `tt-model unpublish tt-hous/laya-p150`.
+- Consumers: `tt-model pull tt-hous/laya-p150` then `tt-model serve tt-hous/laya-p150 --device-id 0 --profile p150`
+  (or `--profile p150x4 --device-id 0,1,2,3`); the demo is at `/demo/` on the served port.
+- Pull check (14:07 to 14:15 UTC): `tt-model pull tt-hous/laya-p150` resolved the Hub revision `dcd0ad8c` to image
+  `tt-model/laya-p150:a335363e74e5`, which was already loaded on this box (the image layers were not re-downloaded, so
+  the check covers the Hub manifest and bundle, not the image transfer); manifest at
+  `/home/hous/.cache/tt-model/pulled/tt-hous__laya-p150/tt_kernel_manifest.json`. The container name is per package and
+  profile, so the staged demo container on port 8710 was stopped and the published bundle served in its place with
+  `tt-model serve tt-hous/laya-p150 --port 8710 --device-id 0 --detach --profile p150`: ready after about 20 s,
+  `/health` ok on backend `tt`, `/demo/` 200 with the title `Laya (original) on p150`, a noul decision answered
+  (`urgent` 0.7511). Port 8710 keeps serving the published bundle; port 8711 serves the staged sibling build 6.
+
+Sibling bundle `tt-hous/laya-typed-decisions-p150` (build 6): still staged only, awaiting the user's decision:
+
+```
+/home/hous/.tenstorrent-venv/bin/tt-model push /home/hous/dev/laya/package/out/laya-typed-decisions-p150 --public
+/home/hous/.tenstorrent-venv/bin/tt-model publish tt-hous/laya-typed-decisions-p150
 ```
