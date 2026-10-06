@@ -59,6 +59,18 @@ review (PLAN.md, decisions of 2026 Oct 4); the exact commands are at the end of 
   run within 0.3 ms); feed 20.07 decisions per second, agreement 0.382, 0 errors; demo page
   `/home/hous/dev/laya/evidence/demo_laya-p150_b6.png`; p150x4 healthy in 20 s, 11.1 / 16.1 / 23.7 / 68.9 ms, 308 to 936
   questions per second.
+- Build 7, the English release candidate (2026 Oct 6 03:28 to 03:30 UTC, `package exit 0`, commit `578c6dbdb5`): card
+  only (review R3 re-check corrections: the `bf16_hifi4` sentence scoped to the measured sets, the placement spread
+  stated at its measured bucket); code sha256 identical to builds 5 and 6. Image `tt-model/laya-p150:42bac8981309`,
+  digest `sha256:42bac89813098e37ed4d405b906e640301f139e80a7722d901362989e6e25b9e`, code sha256
+  `7b36a18faed4998a61c5c6e355eb2bd62cdd9ca9f8ec408bf489b6c30def831b`, `dirty: false`. Staged bundle
+  `/home/hous/dev/laya/package/out/laya-p150/` (this build). Verification (`package_p150_b7_20261006T033045Z`,
+  `package_p150x4_b7_20261006T033521Z`, load 3.1 and 2.2 at the speed tables, nothing else running): every accuracy row
+  equals builds 2 to 6 (E1 wire and tensor 476 of 488 and 403 of 403; single-row E1 792 of 800 and 777 of 779; E2 0.359 /
+  0.332 / 0.311 / 0.172 / 0.689; E3 0.955 / 0.593); E5 10.8 / 24.7 / 42.7 / 197.2 ms, 202 to 249 questions per second;
+  feed 20.07 decisions per second, agreement 0.382, 0 errors; demo page `/home/hous/dev/laya/evidence/demo_laya-p150_b7.png`;
+  p150x4 healthy in 20 s, 13.2 / 16.1 / 23.6 / 68.4 ms, 309 to 937 questions per second, parity smoke 97 of 100 and
+  82 of 82.
 
 ## Verification from the served package (build 1, profile p150, chip 0, port 8710)
 
@@ -161,6 +173,18 @@ at 1024; 37 traces, 177.3 MiB), `LAYA_MAX_BATCH_TOKENS` 16384, a sibling sanity 
   0.214 / 0.244; E3 0.953 / 0.595); E5 10.8 / 24.7 / 42.5 / 197.6 ms, 202 to 249 questions per second; feed 20.08
   decisions per second at agreement 0.751, 0 errors; p150x4 healthy in 20 s, 11.4 / 14.9 / 22.2 / 68.6 ms, 342 to 938
   questions per second. Staged bundle `/home/hous/dev/laya/package/out/laya-typed-decisions-p150/` (this build).
+- Build 4, the sibling release candidate (2026 Oct 6 03:20 to 03:22 UTC, `package exit 0`, commit `578c6dbdb5`): card
+  only (the measured single-row agreement of this checkpoint quoted, the parity flip margin stated as under 0.015) and
+  `runtime.lock: requirements.lock` in the manifest; code sha256 identical to builds 2 and 3. Image
+  `tt-model/laya-typed-decisions-p150:aed3896b5546`, digest
+  `sha256:aed3896b5546096b8aae031a5a258034f6b0cff08a8ee802995f67e0d483f1f8`, code sha256
+  `7b36a18faed4998a61c5c6e355eb2bd62cdd9ca9f8ec408bf489b6c30def831b`, `dirty: false`. Staged bundle
+  `/home/hous/dev/laya/package/out/laya-typed-decisions-p150/` (this build). Verification
+  (`package_laya-typed-decisions-p150_p150_b4_20261006T032237Z`, `..._p150x4_b4_20261006T032658Z`, load 4.1 and 1.9):
+  every accuracy row equals builds 2 and 3 (E1 485 of 488 and 383 of 383; E2 0.764 / 0.469 / 0.062 / 0.214 / 0.244; E3
+  0.953 / 0.595); E5 10.8 / 24.7 / 42.8 / 197.7 ms, 202 to 249 questions per second; feed 20.07 decisions per second at
+  agreement 0.751, 0 errors; p150x4 healthy in 20 s, 13.2 / 16.2 / 23.6 / 68.6 ms, 349 to 942 questions per second,
+  parity smoke 100 of 100.
 
 Verification from the served sibling package (build 1, profile p150, chip 0, port 8710;
 `/home/hous/dev/laya/evals/results/package_laya-typed-decisions-p150_p150_b1_20261006T020850Z/SUMMARY.md`; healthy 20 s
