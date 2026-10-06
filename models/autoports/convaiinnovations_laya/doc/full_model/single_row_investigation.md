@@ -12,7 +12,10 @@ fp32 logits and probabilities, same format as the parity corpus; (2) `device` ru
 |dp| above 0.12 (cases 398, 381, 335, 209, 244, 286, 140) through the device model in four placements: alone at 1x128
 exactly as served, alone at 1x256, inside a 5x256 batch and inside a 5x128 batch (filled with cases 0 to 3), for the
 shipped policy and for `bf16_hifi4`, and compares the gathered scorer logits and probabilities with fp32; (3) the stage 6
-decision gates on the whole 800-item single-row corpus for both policies (`gates_single_row_<policy>.json`).
+placement-invariance protocol (16 questions of the single-row corpus, alone and in batches at the 512-token bucket) for
+both policies (`gates_single_row_<policy>.json`), and the decision-agreement statistics over all 800 served single-row
+decisions of the shipped policy from the package run (`served_single_row_gates_build4.json`; `bf16_hifi4` was not run
+over the 800 items).
 
 ## Placement and policy controls (seven flagged Emotion decisions)
 
@@ -43,8 +46,9 @@ Per suite: AG News 393 of 393 confident, max 0.056; Emotion 384 of 386 confident
 median 0.0016, max 0.273. The decision gates pass on this corpus; the two Emotion flips are the
 only confident disagreements.
 
-Placement invariance (`tests/decision_agreement.py` on 16 single-row questions of this corpus, alone versus 2, 4, a
-mixed 8 and the largest bucket; gate max abs dp 0.01, which holds on the gate corpus): shipped `bf8w_hifi3_erf`
+Placement invariance (`tests/decision_agreement.py` on 16 single-row questions of this corpus at the 512-token bucket,
+alone versus 2, 4, a mixed 8 and the largest bucket; the served single-row calls use the 128-token bucket, where the
+seven flagged texts were bit-identical across placements; gate max abs dp 0.01, which holds on the gate corpus): shipped `bf8w_hifi3_erf`
 max 0.0192 with the same argmax in all placements (16 of 16); `bf16_hifi4`
 max 0.0111, same argmax 16 of 16. On short single-row inputs the placement spread exceeds the
 0.01 gate for both policies without changing any answer; the card states the spread per corpus.

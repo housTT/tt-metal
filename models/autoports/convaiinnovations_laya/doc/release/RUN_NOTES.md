@@ -128,7 +128,7 @@ package name from then on.
 
 Manifest `tt-model-typed-decisions.yaml`: the same server and port, weights `convaiinnovations/laya-typed-decisions` at
 revision `e929ae5cf69bc34259cd2f95c9e91145b818b1f0`, sequence buckets 128, 256, 512 and 1024 (rows 1, 2, 4, 5, 8, 10, 16
-at 1024; 37 traces, 176.8 MiB), `LAYA_MAX_BATCH_TOKENS` 16384, a sibling sanity reference
+at 1024; 37 traces, 177.3 MiB), `LAYA_MAX_BATCH_TOKENS` 16384, a sibling sanity reference
 (`server/sanity_reference_typed_decisions.json`, selected by `LAYA_SANITY_REFERENCE`). Stage evidence:
 `doc/release_typed_decisions/README.md`.
 

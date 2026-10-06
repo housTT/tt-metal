@@ -110,10 +110,11 @@ card:
     and 2 of 386 confident decisions flip (reference margins 0.125 and 0.369), on the 400 single-row four-option AG News
     decisions 2 flip and none of the 393 confident decisions. Short single-row inputs with several near-tied options are
     the most sensitive shape. The investigation (doc/full_model/single_row_investigation.md) shows the
-    deviation is a property of the bfp8 numerics on those inputs, not of the bucket or batch placement; serving with
-    LAYA_PRECISION=bf16_hifi4 keeps the same decisions within 0.11 of the reference with no flip at about 11 percent more
-    latency. Placement invariance (the same question answered alone or inside a batch): max probability spread 0.009
-    on the gate corpus; 0.019 on short single-row inputs, with the same answer in every placement. One device process serializes
+    deviation is a property of the bfp8 numerics on those inputs, not of the bucket or batch placement; on the seven
+    Emotion texts with the largest moves and on the 200-decision gate subset, LAYA_PRECISION=bf16_hifi4 keeps every
+    decision within 0.11 of the reference with no flip, at about 11 percent more latency (not measured over all 800
+    single-row decisions). Placement invariance (the same question answered alone or inside a batch): max probability spread 0.009
+    on the gate corpus; 0.019 on 16 short single-row questions measured at the 512-token bucket, with the same answer in every placement. One device process serializes
     requests. p150x4 status: data parallel over rows, bit-identical to one chip at equal per-chip batch, served from the packaged image (build 5: healthy in 20 s, 68.5 ms for 50 questions; parity smoke 97 of 100 decisions and 82 of 82 confident). Not reproduced: MASSIVE, XNLI, 45 of 51 languages, post-temperature ECE.
   risks: >
     bf8w_hifi3_erf numerics move probabilities against the fp32 reference by up to 0.12 (median 0.008) on the parity
