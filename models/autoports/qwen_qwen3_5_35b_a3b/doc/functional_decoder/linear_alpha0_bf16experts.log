@@ -1,0 +1,47 @@
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+[transformers] You tried to access the `ExpertsInterface` with a `config._experts_implementation` set to `None`. This is expected if you use an Expert Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._experts_implementation`
+HF_REFERENCE_READY
+2026-10-10 00:07:43.952 | DEBUG    | ttnn:<module>:45 - Initial ttnn.CONFIG:
+Config{cache_path=/home/hous/.cache/ttnn,model_cache_path=/home/hous/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+2026-10-10 00:07:43.987 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:234)
+2026-10-10 00:07:43.987 | info     |             UMD | Cluster constructor started. (cluster.cpp:409)
+2026-10-10 00:07:43.987 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:131)
+2026-10-10 00:07:43.987 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:150)
+2026-10-10 00:07:43.993 | info     |             UMD | Established firmware bundle version: 19.15.0 (topology_discovery.cpp:654)
+2026-10-10 00:07:43.994 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:154)
+2026-10-10 00:07:44.073 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:176)
+2026-10-10 00:07:44.073 | info     |             UMD | IOMMU: enabled (cluster.cpp:150)
+2026-10-10 00:07:44.073 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:153)
+2026-10-10 00:07:44.073 | info     |             UMD | Cluster constructor completed. (cluster.cpp:880)
+2026-10-10 00:07:44.074 | info     |             UMD | Starting devices in cluster (cluster.cpp:1466)
+2026-10-10 00:07:44.343 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1475)
+2026-10-10 00:07:44.376 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:529)
+2026-10-10 00:07:44.376 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:591)
+2026-10-10 00:07:44.376 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-10-10 00:07:44.376 | info     |          Fabric | Loaded physical groupings from: /home/hous/dev/qwen3.5-35b-a3b/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (physical_grouping_descriptor_core.cpp:813)
+2026-10-10 00:07:44.376 | info     |          Fabric | No specific Physical Grouping Descriptor found; using default. (physical_grouping_descriptor_core.cpp:895)
+2026-10-10 00:07:44.376 | info     |          Fabric | Matching MESH mgd groupings to MESH groupings (physical_grouping_descriptor_matching.cpp:1428)
+2026-10-10 00:07:44.376 | info     |          Fabric | Grouping valid candidates by node difference (physical_grouping_descriptor_matching.cpp:1522)
+2026-10-10 00:07:44.377 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 1 topology match(es), committed: 2x2_Mesh_flat (MESH) (physical_grouping_descriptor_matching.cpp:1731)
+2026-10-10 00:07:44.377 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': MGD placement fallback M0 (MESH) embeds on PSD (physical_grouping_descriptor_matching.cpp:1848)
+2026-10-10 00:07:44.419 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using distributed::MeshDevice::create_unit_meshes(). (device_manager.cpp:264)
+2026-10-10 00:07:44.420 | warning  |           Metal | Failed to create shared memory /tt_device_154095682326272_memory: Permission denied (memory_stats_shm.cpp:57)
+TT_LAYER_READY
+PREFILL_PCC 0.9989665150642395
+{"layer_type": "linear_attention", "layer_idx": 0, "weights": "real", "implementation_sha256": "2dbb1ab0cf70a4820df23ff000731273cf89b5f1611d907b21bebc7d410bfc69", "gdn_diag_alpha": "0", "expert_precision": "bf16", "length": 4096, "batch": 1, "decode_steps": 128, "page_size": 32, "prefill_pcc": 0.9989665150642395, "decode_pcc": 0.9975613355636597, "prefill_probes": null, "runtime_audit": true, "trace_id": "MeshTraceId(0)", "decode_pcc_min": 0.9866843223571777, "decode_pcc_by_token": [0.9994974136352539, 0.9979674816131592, 0.9987817406654358, 0.9986649751663208, 0.9983134269714355, 0.998724102973938, 0.9992652535438538, 0.9980945587158203, 0.9979268312454224, 0.9994380474090576, 0.9996317028999329, 0.9988094568252563, 0.9988583922386169, 0.9980150461196899, 0.9969505071640015, 0.9993534088134766, 0.9986146092414856, 0.9989111423492432, 0.9976832270622253, 0.9993609189987183, 0.9986030459403992, 0.9985775351524353, 0.9992613196372986, 0.9991399645805359, 0.9988973736763, 0.9993103742599487, 0.9992250204086304, 0.9985750317573547, 0.9986532926559448, 0.9987038373947144, 0.9991894960403442, 0.9982128739356995, 0.9975139498710632, 0.99819016456604, 0.9983048439025879, 0.9977572560310364, 0.9991536140441895, 0.9995984435081482, 0.9983974695205688, 0.9991751909255981, 0.9979854822158813, 0.9984164237976074, 0.9985069036483765, 0.9944630265235901, 0.9995700716972351, 0.998782753944397, 0.9960313439369202, 0.9984058737754822, 0.9995134472846985, 0.9989701509475708, 0.999333381652832, 0.997540295124054, 0.996700644493103, 0.9968472123146057, 0.9989544153213501, 0.9986457228660583, 0.9990617632865906, 0.9969031810760498, 0.9986729025840759, 0.998194694519043, 0.9975143074989319, 0.9977944493293762, 0.9948492646217346, 0.9908020496368408, 0.9991521835327148, 0.9951823949813843, 0.9909497499465942, 0.9981153607368469, 0.9969882965087891, 0.9983139038085938, 0.99828040599823, 0.9866843223571777, 0.9912611246109009, 0.9979351162910461, 0.9969866275787354, 0.9959396123886108, 0.991802453994751, 0.9978092312812805, 0.993992030620575, 0.996639609336853, 0.9982683062553406, 0.9985529780387878, 0.9972937107086182, 0.9964785575866699, 0.9973812699317932, 0.9986521601676941, 0.9969013333320618, 0.9975996017456055, 0.996288001537323, 0.9985334277153015, 0.9968708753585815, 0.9990753531455994, 0.9962683916091919, 0.9963081479072571, 0.996124804019928, 0.9949671030044556, 0.9970644116401672, 0.9980192184448242, 0.9970875382423401, 0.997789204120636, 0.9995604753494263, 0.9989952445030212, 0.9971804618835449, 0.996091902256012, 0.9923494458198547, 0.9929304718971252, 0.9917023181915283, 0.9934447407722473, 0.9973798990249634, 0.9888997077941895, 0.9979202151298523, 0.9971064925193787, 0.9985364675521851, 0.9978194832801819, 0.9949182868003845, 0.995611846446991, 0.9979986548423767, 0.9976523518562317, 0.9932361841201782, 0.9986746311187744, 0.9962527751922607, 0.9979263544082642, 0.9995704889297485, 0.9984188079833984, 0.999416172504425, 0.9976178407669067, 0.9983541965484619, 0.9961051344871521], "traced": true, "repeated_identical": true, "threshold": 0.995}
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_layer.py", line 177, in <module>
+    main()
+  File "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_layer.py", line 171, in main
+    assert result['decode_pcc_min'] >= 0.995
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError
+2026-10-10 00:07:52.595 | info     |    BuildKernels | JIT cache stats: 625/663 hits (94.3%) [625 cached, 325 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:268)
+2026-10-10 00:07:52.595 | info     |    BuildKernels | JIT telemetry: 43 registered TelemetryTokens (build_cache_telemetry.cpp:325)
+2026-10-10 00:07:52.615 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:532)
+2026-10-10 00:07:52.615 | info     |             UMD | Closing devices in cluster (cluster.cpp:1480)
+2026-10-10 00:07:52.768 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1490)
+2026-10-10 00:07:52.768 | info     |             UMD | Cluster destructor started. (cluster.cpp:1211)
+2026-10-10 00:07:52.768 | info     |             UMD | Cluster destructor completed. (cluster.cpp:1224)

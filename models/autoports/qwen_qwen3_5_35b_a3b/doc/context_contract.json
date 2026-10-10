@@ -1,0 +1,58 @@
+{
+  "model": "Qwen/Qwen3.5-35B-A3B",
+  "revision": "59d61f3ce65a6d9863b86d2e96597125219dc754",
+  "hf_advertised_context": 262144,
+  "supported_context": 262144,
+  "largest_tested_prefill_context": 262144,
+  "largest_tested_decode_context": 262144,
+  "capability_reduction": null,
+  "status": "validated",
+  "layer_types": [
+    "linear_attention",
+    "full_attention"
+  ],
+  "cache_semantics": {
+    "linear_attention": "per-request causal convolution and recurrent state",
+    "full_attention": "paged causal grouped-query KV, absolute positions"
+  },
+  "evidence": [
+    "../weights/Qwen3.5-35B-A3B/config.json",
+    "tests/run_layer.py"
+  ],
+  "notes": [
+    "No capability reduction. Context length counts tokens; last tested decode position is 262143.",
+    "Native-context evidence uses complete target geometry and real weights, TT runtime audit, and traced final-position decode. HF selected-query/reference decomposition is controlled against dense HF at 1153 tokens.",
+    "Batch 32 is separately tested at heterogeneous prefixes 1..1006; native context is tested at batch 1. This does not assert that the full batch/context Cartesian product fits device memory."
+  ],
+  "tested_layer_types": {
+    "linear_attention": {
+      "prefill_tokens": 262144,
+      "decode_context_tokens": 262144,
+      "decode_position_zero_based": 262143,
+      "nonaligned_prefill_tokens": 262143,
+      "batch": 1,
+      "prefill_pcc": 0.999611496925354,
+      "decode_pcc": 0.9998752474784851,
+      "prefill_reference_scope": "16 selected outputs; every recurrent/KV contribution retained; full TT layer executes every token",
+      "artifacts": [
+        "functional_decoder/linear_accept_context262144.json",
+        "functional_decoder/linear_accept_context262143.json"
+      ]
+    },
+    "full_attention": {
+      "prefill_tokens": 262144,
+      "decode_context_tokens": 262144,
+      "decode_position_zero_based": 262143,
+      "nonaligned_prefill_tokens": 262143,
+      "batch": 1,
+      "prefill_pcc": 0.9983735680580139,
+      "decode_pcc": 0.9983523488044739,
+      "prefill_reference_scope": "16 selected outputs; every recurrent/KV contribution retained; full TT layer executes every token",
+      "artifacts": [
+        "functional_decoder/full_accept_context262144.json",
+        "functional_decoder/full_accept_context262143.json"
+      ]
+    }
+  },
+  "stage_review": "functional_decoder/stage_review_final.md"
+}

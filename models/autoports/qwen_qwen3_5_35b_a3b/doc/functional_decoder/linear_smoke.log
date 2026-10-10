@@ -1,0 +1,38 @@
+[transformers] The fast path is not available because one of the required library is not installed. Falling back to torch implementation. To install follow https://github.com/fla-org/flash-linear-attention#installation and https://github.com/Dao-AILab/causal-conv1d
+[transformers] You tried to access the `ExpertsInterface` with a `config._experts_implementation` set to `None`. This is expected if you use an Expert Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._experts_implementation`
+HF_REFERENCE_READY
+2026-10-09 23:59:24.935 | DEBUG    | ttnn:<module>:45 - Initial ttnn.CONFIG:
+Config{cache_path=/home/hous/.cache/ttnn,model_cache_path=/home/hous/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+2026-10-09 23:59:24.970 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:234)
+2026-10-09 23:59:24.970 | info     |             UMD | Cluster constructor started. (cluster.cpp:409)
+2026-10-09 23:59:24.970 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:131)
+2026-10-09 23:59:24.970 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:150)
+2026-10-09 23:59:24.977 | info     |             UMD | Established firmware bundle version: 19.15.0 (topology_discovery.cpp:654)
+2026-10-09 23:59:24.977 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:154)
+2026-10-09 23:59:25.056 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:176)
+2026-10-09 23:59:25.056 | info     |             UMD | IOMMU: enabled (cluster.cpp:150)
+2026-10-09 23:59:25.056 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:153)
+2026-10-09 23:59:25.056 | info     |             UMD | Cluster constructor completed. (cluster.cpp:880)
+2026-10-09 23:59:25.057 | info     |             UMD | Starting devices in cluster (cluster.cpp:1466)
+2026-10-09 23:59:25.269 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1475)
+2026-10-09 23:59:25.301 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:529)
+2026-10-09 23:59:25.301 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:591)
+2026-10-09 23:59:25.301 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-10-09 23:59:25.301 | info     |          Fabric | Loaded physical groupings from: /home/hous/dev/qwen3.5-35b-a3b/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (physical_grouping_descriptor_core.cpp:813)
+2026-10-09 23:59:25.301 | info     |          Fabric | No specific Physical Grouping Descriptor found; using default. (physical_grouping_descriptor_core.cpp:895)
+2026-10-09 23:59:25.302 | info     |          Fabric | Matching MESH mgd groupings to MESH groupings (physical_grouping_descriptor_matching.cpp:1428)
+2026-10-09 23:59:25.302 | info     |          Fabric | Grouping valid candidates by node difference (physical_grouping_descriptor_matching.cpp:1522)
+2026-10-09 23:59:25.302 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 1 topology match(es), committed: 2x2_Mesh_flat (MESH) (physical_grouping_descriptor_matching.cpp:1731)
+2026-10-09 23:59:25.302 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': MGD placement fallback M0 (MESH) embeds on PSD (physical_grouping_descriptor_matching.cpp:1848)
+2026-10-09 23:59:25.345 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using distributed::MeshDevice::create_unit_meshes(). (device_manager.cpp:264)
+2026-10-09 23:59:25.345 | warning  |           Metal | Failed to create shared memory /tt_device_154095682326272_memory: Permission denied (memory_stats_shm.cpp:57)
+TT_LAYER_READY
+PREFILL_PCC 0.9967768788337708
+{"layer_type": "linear_attention", "layer_idx": 0, "weights": "real", "length": 128, "prefill_pcc": 0.9967768788337708, "decode_pcc": 0.9986991286277771, "traced": false, "threshold": 0.995}
+2026-10-09 23:59:54.656 | info     |    BuildKernels | JIT cache stats: 260/635 hits (40.9%) [260 cached, 254 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:268)
+2026-10-09 23:59:54.656 | info     |    BuildKernels | JIT telemetry: 43 registered TelemetryTokens (build_cache_telemetry.cpp:325)
+2026-10-09 23:59:54.672 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:532)
+2026-10-09 23:59:54.672 | info     |             UMD | Closing devices in cluster (cluster.cpp:1480)
+2026-10-09 23:59:54.898 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1490)
+2026-10-09 23:59:54.898 | info     |             UMD | Cluster destructor started. (cluster.cpp:1211)
+2026-10-09 23:59:54.898 | info     |             UMD | Cluster destructor completed. (cluster.cpp:1224)

@@ -1,0 +1,47 @@
+{
+  "layer_type": "linear_attention",
+  "source": "single_layer",
+  "evidence": "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/functional_decoder/tracy/linear_attention/measurement.json",
+  "workload": {
+    "input_tokens": 4096,
+    "output_tokens": 128,
+    "batch": 1,
+    "concurrency": 1
+  },
+  "prefill_device_us": 1743870.348148148,
+  "decode_device_us": 2190.2552324981334,
+  "prefill_useful_flops": 527492448256,
+  "decode_dram_bytes": 118681600.0,
+  "peak_flops_per_s": 663552000000000.0,
+  "peak_dram_bytes_per_s": 512000000000.0,
+  "prefill_flops_pct": 0.04558553863836274,
+  "decode_dram_pct": 10.58324146705115,
+  "peak_basis": "One Blackhole ASIC:120 physical Tensix cores x4096 FLOPs/cycle x1.35GHz LoFi nominal peak;512GB/s DRAM. Actual mixed LoFi/HiFi2/HiFi4; HiFi4 peak is one quarter of this maximum.110 user cores are exposed. P300c spec is two ASICs; divided card DRAM bandwidth by2.",
+  "peak_sources": [
+    "https://docs.tenstorrent.com/aibs/blackhole/p300.html",
+    "tt_perf_report/perf_report.py ArchitectureSpec blackhole per-core phase rates"
+  ],
+  "useful_flops_components": {
+    "moe_and_shared": 231928233984,
+    "router_and_shared_gate": 4311744512,
+    "attention_projections": 275951648768,
+    "delta_recurrence": 15065939968,
+    "causal_convolution": 234881024
+  },
+  "estimated_compulsory_dram_bytes_components": {
+    "input_output_and_norm_weights": 24576,
+    "router": 1048576,
+    "shared_gate": 4096,
+    "active_experts_and_shared_weights": 20643840.0,
+    "attention_projection_weights": 67371008,
+    "convolution_weights_and_state": 229376,
+    "materialized_recurrent_state": 29360128
+  },
+  "assumptions": [
+    "Whole-layer firmware spans, including normalization, movement and gaps, are the denominator for both ratios.",
+    "Useful FLOPs count projections, active MoE, causal QK/PV or delta recurrence, and convolution. Small vector/transcendental operations are excluded from numerator; their full time remains in denominator.",
+    "DRAM is a compulsory-traffic lower-bound estimate: each active weight once, KV once,14 materialized FP32 state volumes for token GDN. Additional temporary traffic, tile padding, multicast reloads and caching are not modeled. This is not measured DRAM utilization.",
+    "Default experts/shared:gate-up BFP4,down BFP8; attention projections GDN BF16 HiFi4/full BFP8 LoFi; FP32 GDN state; full KV BF16. Sparse prefill tile-union over-computation is not useful FLOPs.",
+    "No percentage is clamped. These nominal-peak ratios are not per-op utilization averages."
+  ]
+}

@@ -1,0 +1,169 @@
+[transformers] You tried to access the `ExpertsInterface` with a `config._experts_implementation` set to `None`. This is expected if you use an Expert Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._experts_implementation`
+REFERENCES_READY
+2026-10-10 00:29:47.951 | DEBUG    | ttnn:<module>:45 - Initial ttnn.CONFIG:
+Config{cache_path=/home/hous/.cache/ttnn,model_cache_path=/home/hous/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+2026-10-10 00:29:47.988 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:234)
+2026-10-10 00:29:47.988 | info     |             UMD | Cluster constructor started. (cluster.cpp:409)
+2026-10-10 00:29:47.988 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:131)
+2026-10-10 00:29:47.988 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:150)
+2026-10-10 00:29:47.994 | info     |             UMD | Established firmware bundle version: 19.15.0 (topology_discovery.cpp:654)
+2026-10-10 00:29:47.995 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:154)
+2026-10-10 00:29:48.074 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:176)
+2026-10-10 00:29:48.074 | info     |             UMD | IOMMU: enabled (cluster.cpp:150)
+2026-10-10 00:29:48.074 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:153)
+2026-10-10 00:29:48.074 | info     |             UMD | Cluster constructor completed. (cluster.cpp:880)
+2026-10-10 00:29:48.075 | info     |             UMD | Starting devices in cluster (cluster.cpp:1466)
+2026-10-10 00:29:48.341 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1475)
+2026-10-10 00:29:48.374 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:529)
+2026-10-10 00:29:48.374 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:591)
+2026-10-10 00:29:48.374 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-10-10 00:29:48.374 | info     |          Fabric | Loaded physical groupings from: /home/hous/dev/qwen3.5-35b-a3b/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (physical_grouping_descriptor_core.cpp:813)
+2026-10-10 00:29:48.375 | info     |          Fabric | No specific Physical Grouping Descriptor found; using default. (physical_grouping_descriptor_core.cpp:895)
+2026-10-10 00:29:48.375 | info     |          Fabric | Matching MESH mgd groupings to MESH groupings (physical_grouping_descriptor_matching.cpp:1428)
+2026-10-10 00:29:48.375 | info     |          Fabric | Grouping valid candidates by node difference (physical_grouping_descriptor_matching.cpp:1522)
+2026-10-10 00:29:48.375 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 1 topology match(es), committed: 2x2_Mesh_flat (MESH) (physical_grouping_descriptor_matching.cpp:1731)
+2026-10-10 00:29:48.375 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': MGD placement fallback M0 (MESH) embeds on PSD (physical_grouping_descriptor_matching.cpp:1848)
+2026-10-10 00:29:48.417 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using distributed::MeshDevice::create_unit_meshes(). (device_manager.cpp:264)
+2026-10-10 00:29:48.418 | warning  |           Metal | Failed to create shared memory /tt_device_154095682326272_memory: Permission denied (memory_stats_shm.cpp:57)
+Building ncrisc, compile step:
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O2 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=1 -flto-partition=one -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh -fno-tree-loop-distribute-patterns -Winvalid-pch -Wno-error=invalid-pch -I. -I.. -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/common -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/tools/include -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hostdevcommon/api -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/api/ -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib/hal -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow -include /home/hous/.cache/tt-metal-cache/pch/6b708ed91977489e/pch.h -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=1 -DCOMPILE_FOR_NCRISC -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DNOC_INDEX=0 -DNOC_MODE=0 -DFULL_KERNEL_NAME="gather_reader_rm_single_row_single_core/16833737884561945041/" -DKERNEL_COMPILE_TIME_ARGS=0,1,2,1,64,4,1,4,4,4,2,64 -c -o /home/hous/.cache/tt-metal-cache/10931811594613591564/kernels/gather_reader_rm_single_row_single_core/16833737884561945041/ncrisc/ncrisck.14334420152078374456_19502.o /home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc -MF /home/hous/.cache/tt-metal-cache/10931811594613591564/kernels/gather_reader_rm_single_row_single_core/16833737884561945041/ncrisc/ncrisck.14334420152078374456_19502.d
+In file included from ../kernel_includes.hpp:2,
+                 from /home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc:23:
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow/gather_reader_rm_single_row_single_core.cpp: In function 'void kernel_main()':
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow/gather_reader_rm_single_row_single_core.cpp:53:58: warning: 'void tt::data_movement::common::noc_async_read_sharded(uint32_t, AddrGenType, uint32_t, uint32_t, uint32_t) [with AddrGenType = TensorAccessor<tensor_accessor::DistributionSpec<0, 0, tensor_accessor::ArrayStaticWrapper<long unsigned int>, tensor_accessor::ArrayStaticWrapper<long unsigned int>, tensor_accessor::ArrayStaticWrapper<short unsigned int>, true, true, false, 4294967295> >; uint32_t = long unsigned int]' is deprecated: Use the overload with leading Noc parameter instead. [-Wdeprecated-declarations]
+   53 |         tt::data_movement::common::noc_async_read_sharded(
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+   54 |             input_index_cb.get_write_ptr(),
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~               
+   55 |             input_index_accessor,
+      |             ~~~~~~~~~~~~~~~~~~~~~                         
+   56 |             /*src_id=*/h,
+      |             ~~~~~~~~~~~~~                                 
+   57 |             /*offset=*/0,
+      |             ~~~~~~~~~~~~~                                 
+   58 |             /*size=*/input_index_stick_size_bytes);
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~        
+In file included from /home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow/gather_reader_rm_single_row_single_core.cpp:11:
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/common/kernels/common.hpp:458:19: note: declared here
+  458 | FORCE_INLINE void noc_async_read_sharded(
+      |                   ^~~~~~~~~~~~~~~~~~~~~~
+Building brisc, compile step:
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O2 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=1 -flto-partition=one -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh -fno-tree-loop-distribute-patterns -Winvalid-pch -Wno-error=invalid-pch -I. -I.. -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/common -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/tools/include -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hostdevcommon/api -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/api/ -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib/hal -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow -include /home/hous/.cache/tt-metal-cache/pch/6b708ed91977489e/pch.h -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=0 -DCOMPILE_FOR_BRISC -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DNOC_INDEX=1 -DNOC_MODE=0 -DFULL_KERNEL_NAME="gather_writer_rm_single_row_single_core/9835819224192076205/" -DKERNEL_COMPILE_TIME_ARGS=0,2,1,64,4,1,4,4,2,256,2,64 -c -o /home/hous/.cache/tt-metal-cache/10931811594613591564/kernels/gather_writer_rm_single_row_single_core/9835819224192076205/brisc/brisck.14334420152078374456_19502.o /home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc -MF /home/hous/.cache/tt-metal-cache/10931811594613591564/kernels/gather_writer_rm_single_row_single_core/9835819224192076205/brisc/brisck.14334420152078374456_19502.d
+In file included from ../kernel_includes.hpp:2,
+                 from /home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc:21:
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow/gather_writer_rm_single_row_single_core.cpp: In function 'void kernel_main()':
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow/gather_writer_rm_single_row_single_core.cpp:53:58: warning: 'void tt::data_movement::common::noc_async_read_sharded(uint32_t, AddrGenType, uint32_t, uint32_t, uint32_t) [with AddrGenType = TensorAccessor<tensor_accessor::DistributionSpec<0, 0, tensor_accessor::ArrayStaticWrapper<long unsigned int>, tensor_accessor::ArrayStaticWrapper<long unsigned int>, tensor_accessor::ArrayStaticWrapper<short unsigned int>, true, true, false, 4294967295> >; uint32_t = long unsigned int]' is deprecated: Use the overload with leading Noc parameter instead. [-Wdeprecated-declarations]
+   53 |         tt::data_movement::common::noc_async_read_sharded(
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+   54 |             input_cb.get_write_ptr(),
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~                     
+   55 |             input_accessor,
+      |             ~~~~~~~~~~~~~~~                               
+   56 |             /*src_id=*/h,
+      |             ~~~~~~~~~~~~~                                 
+   57 |             /*offset=*/0,
+      |             ~~~~~~~~~~~~~                                 
+   58 |             /*size=*/input_stick_size_bytes);
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~              
+In file included from /home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow/gather_writer_rm_single_row_single_core.cpp:9:
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/common/kernels/common.hpp:458:19: note: declared here
+  458 | FORCE_INLINE void noc_async_read_sharded(
+      |                   ^~~~~~~~~~~~~~~~~~~~~~
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow/gather_writer_rm_single_row_single_core.cpp:63:59: warning: 'void tt::data_movement::common::noc_async_write_sharded(uint32_t, AddrGenType, uint32_t, uint32_t, uint32_t) [with AddrGenType = TensorAccessor<tensor_accessor::DistributionSpec<0, 0, tensor_accessor::ArrayStaticWrapper<long unsigned int>, tensor_accessor::ArrayStaticWrapper<long unsigned int>, tensor_accessor::ArrayStaticWrapper<short unsigned int>, true, true, false, 4294967295> >; uint32_t = long unsigned int]' is deprecated: Use the overload with leading Noc parameter instead. [-Wdeprecated-declarations]
+   63 |         tt::data_movement::common::noc_async_write_sharded(
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+   64 |             output_cb.get_read_ptr(),
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~                      
+   65 |             output_accessor,
+      |             ~~~~~~~~~~~~~~~~                               
+   66 |             /*dest_id=*/h,
+      |             ~~~~~~~~~~~~~~                                 
+   67 |             /*offset=*/0,
+      |             ~~~~~~~~~~~~~                                  
+   68 |             /*size=*/output_stick_size_bytes);
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~              
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/common/kernels/common.hpp:409:19: note: declared here
+  409 | FORCE_INLINE void noc_async_write_sharded(
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~
+Building ncrisc, compile step:
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O2 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=1 -flto-partition=one -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh -fno-tree-loop-distribute-patterns -Winvalid-pch -Wno-error=invalid-pch -I. -I.. -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/common -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/tools/include -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hostdevcommon/api -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/api/ -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib/hal -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow -include /home/hous/.cache/tt-metal-cache/pch/6b708ed91977489e/pch.h -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=1 -DCOMPILE_FOR_NCRISC -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DNOC_INDEX=0 -DNOC_MODE=0 -DFULL_KERNEL_NAME="gather_reader_rm_single_row_single_core/10925013735571794345/" -DKERNEL_COMPILE_TIME_ARGS=0,1,2,1,64,16,1,4,4,4,2,64 -c -o /home/hous/.cache/tt-metal-cache/10931811594613591564/kernels/gather_reader_rm_single_row_single_core/10925013735571794345/ncrisc/ncrisck.14334420152078374456_19502.o /home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc -MF /home/hous/.cache/tt-metal-cache/10931811594613591564/kernels/gather_reader_rm_single_row_single_core/10925013735571794345/ncrisc/ncrisck.14334420152078374456_19502.d
+In file included from ../kernel_includes.hpp:2,
+                 from /home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/firmware/src/tt-1xx/ncrisck.cc:23:
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow/gather_reader_rm_single_row_single_core.cpp: In function 'void kernel_main()':
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow/gather_reader_rm_single_row_single_core.cpp:53:58: warning: 'void tt::data_movement::common::noc_async_read_sharded(uint32_t, AddrGenType, uint32_t, uint32_t, uint32_t) [with AddrGenType = TensorAccessor<tensor_accessor::DistributionSpec<0, 0, tensor_accessor::ArrayStaticWrapper<long unsigned int>, tensor_accessor::ArrayStaticWrapper<long unsigned int>, tensor_accessor::ArrayStaticWrapper<short unsigned int>, true, true, false, 4294967295> >; uint32_t = long unsigned int]' is deprecated: Use the overload with leading Noc parameter instead. [-Wdeprecated-declarations]
+   53 |         tt::data_movement::common::noc_async_read_sharded(
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+   54 |             input_index_cb.get_write_ptr(),
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~               
+   55 |             input_index_accessor,
+      |             ~~~~~~~~~~~~~~~~~~~~~                         
+   56 |             /*src_id=*/h,
+      |             ~~~~~~~~~~~~~                                 
+   57 |             /*offset=*/0,
+      |             ~~~~~~~~~~~~~                                 
+   58 |             /*size=*/input_index_stick_size_bytes);
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~        
+In file included from /home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow/gather_reader_rm_single_row_single_core.cpp:11:
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/common/kernels/common.hpp:458:19: note: declared here
+  458 | FORCE_INLINE void noc_async_read_sharded(
+      |                   ^~~~~~~~~~~~~~~~~~~~~~
+Building brisc, compile step:
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/runtime/sfpi/compiler/bin/riscv-tt-elf-g++ -O2 -std=c++17 -ftt-nttp -ftt-constinit -ftt-consteval -ftt-no-dyninit -flto=1 -flto-partition=one -ffast-math -fno-finite-math-only -fsigned-zeros -fno-associative-math -fno-exceptions -fno-rtti -fno-use-cxa-atexit -g -MMD -Wall -Werror -Wno-error=deprecated-declarations -Wno-error=multistatement-macros -Wno-error=parentheses -Wno-error=unused-but-set-variable -Wno-unused-variable -Wno-unused-function --param=min-pagesize=0 -mcpu=tt-bh -fno-tree-loop-distribute-patterns -Winvalid-pch -Wno-error=invalid-pch -I. -I.. -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/common -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/tools/include -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hostdevcommon/api -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/api/ -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/ckernels/blackhole/metal/common -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/ckernels/blackhole/metal/llk_io -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc/internal/tt-1xx -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/blackhole_defines -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/inc/internal/tt-1xx/blackhole/noc -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/common/inc -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/tt-llk/tt_llk_blackhole/llk_lib/hal -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/firmware/src/tt-1xx -I/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow -include /home/hous/.cache/tt-metal-cache/pch/6b708ed91977489e/pch.h -DIS_NOT_POW2_NUM_L1_BANKS=1 -DLOG_BASE_2_OF_NUM_DRAM_BANKS=3 -DNUM_DRAM_BANKS=8 -DNUM_L1_BANKS=110 -DPCIE_NOC_X=19 -DPCIE_NOC_Y=24 -DTENSIX_FIRMWARE -DLOCAL_MEM_EN=0 -DPROCESSOR_INDEX=0 -DCOMPILE_FOR_BRISC -DPROGRAMMABLE_CORE_TYPE=0 -DARCH_BLACKHOLE -DDISPATCH_MESSAGE_ADDR=4290184248 -DKERNEL_BUILD -DNOC_INDEX=1 -DNOC_MODE=0 -DFULL_KERNEL_NAME="gather_writer_rm_single_row_single_core/13285499078524701805/" -DKERNEL_COMPILE_TIME_ARGS=0,2,1,64,16,1,4,4,2,256,2,64 -c -o /home/hous/.cache/tt-metal-cache/10931811594613591564/kernels/gather_writer_rm_single_row_single_core/13285499078524701805/brisc/brisck.14334420152078374456_19502.o /home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc -MF /home/hous/.cache/tt-metal-cache/10931811594613591564/kernels/gather_writer_rm_single_row_single_core/13285499078524701805/brisc/brisck.14334420152078374456_19502.d
+In file included from ../kernel_includes.hpp:2,
+                 from /home/hous/dev/qwen3.5-35b-a3b/tt-metal/tt_metal/hw/firmware/src/tt-1xx/brisck.cc:21:
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow/gather_writer_rm_single_row_single_core.cpp: In function 'void kernel_main()':
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow/gather_writer_rm_single_row_single_core.cpp:53:58: warning: 'void tt::data_movement::common::noc_async_read_sharded(uint32_t, AddrGenType, uint32_t, uint32_t, uint32_t) [with AddrGenType = TensorAccessor<tensor_accessor::DistributionSpec<0, 0, tensor_accessor::ArrayStaticWrapper<long unsigned int>, tensor_accessor::ArrayStaticWrapper<long unsigned int>, tensor_accessor::ArrayStaticWrapper<short unsigned int>, true, true, false, 4294967295> >; uint32_t = long unsigned int]' is deprecated: Use the overload with leading Noc parameter instead. [-Wdeprecated-declarations]
+   53 |         tt::data_movement::common::noc_async_read_sharded(
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+   54 |             input_cb.get_write_ptr(),
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~                     
+   55 |             input_accessor,
+      |             ~~~~~~~~~~~~~~~                               
+   56 |             /*src_id=*/h,
+      |             ~~~~~~~~~~~~~                                 
+   57 |             /*offset=*/0,
+      |             ~~~~~~~~~~~~~                                 
+   58 |             /*size=*/input_stick_size_bytes);
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~              
+In file included from /home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow/gather_writer_rm_single_row_single_core.cpp:9:
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/common/kernels/common.hpp:458:19: note: declared here
+  458 | FORCE_INLINE void noc_async_read_sharded(
+      |                   ^~~~~~~~~~~~~~~~~~~~~~
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/gather/device/kernels/dataflow/gather_writer_rm_single_row_single_core.cpp:63:59: warning: 'void tt::data_movement::common::noc_async_write_sharded(uint32_t, AddrGenType, uint32_t, uint32_t, uint32_t) [with AddrGenType = TensorAccessor<tensor_accessor::DistributionSpec<0, 0, tensor_accessor::ArrayStaticWrapper<long unsigned int>, tensor_accessor::ArrayStaticWrapper<long unsigned int>, tensor_accessor::ArrayStaticWrapper<short unsigned int>, true, true, false, 4294967295> >; uint32_t = long unsigned int]' is deprecated: Use the overload with leading Noc parameter instead. [-Wdeprecated-declarations]
+   63 |         tt::data_movement::common::noc_async_write_sharded(
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+   64 |             output_cb.get_read_ptr(),
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~                      
+   65 |             output_accessor,
+      |             ~~~~~~~~~~~~~~~~                               
+   66 |             /*dest_id=*/h,
+      |             ~~~~~~~~~~~~~~                                 
+   67 |             /*offset=*/0,
+      |             ~~~~~~~~~~~~~                                  
+   68 |             /*size=*/output_stick_size_bytes);
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~              
+/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/data_movement/common/kernels/common.hpp:409:19: note: declared here
+  409 | FORCE_INLINE void noc_async_write_sharded(
+      |                   ^~~~~~~~~~~~~~~~~~~~~~~
+{"length": 1, "padded_input": false, "warmed": true, "cuts": [], "batch": 2, "prefill_pcc": 0.9995675683021545, "prefill_pcc_min": 0.9995031356811523, "decode_pcc": 0.9993511438369751, "decode_pcc_min": 0.9992140531539917, "trace_id": "MeshTraceId(0)"}
+{"length": 31, "padded_input": false, "warmed": true, "cuts": [], "batch": 2, "prefill_pcc": 0.998971164226532, "prefill_pcc_min": 0.998904287815094, "decode_pcc": 0.9985483288764954, "decode_pcc_min": 0.9984049797058105, "trace_id": "MeshTraceId(0)"}
+{"length": 32, "padded_input": false, "warmed": true, "cuts": [], "batch": 2, "prefill_pcc": 0.9988985657691956, "prefill_pcc_min": 0.9988115429878235, "decode_pcc": 0.9990712404251099, "decode_pcc_min": 0.9989742040634155, "trace_id": "MeshTraceId(0)"}
+{"length": 33, "padded_input": false, "warmed": true, "cuts": [], "batch": 2, "prefill_pcc": 0.9989715814590454, "prefill_pcc_min": 0.9989606738090515, "decode_pcc": 0.9989650249481201, "decode_pcc_min": 0.9988423585891724, "trace_id": "MeshTraceId(0)"}
+{"length": 127, "padded_input": false, "warmed": true, "cuts": [], "batch": 2, "prefill_pcc": 0.9988253116607666, "prefill_pcc_min": 0.998811662197113, "decode_pcc": 0.9988773465156555, "decode_pcc_min": 0.9989127516746521, "trace_id": "MeshTraceId(0)"}
+{"length": 128, "padded_input": false, "warmed": true, "cuts": [], "batch": 2, "prefill_pcc": 0.9988605976104736, "prefill_pcc_min": 0.9988301396369934, "decode_pcc": 0.9985705018043518, "decode_pcc_min": 0.9985173344612122, "trace_id": "MeshTraceId(0)"}
+{"length": 129, "padded_input": false, "warmed": true, "cuts": [], "batch": 2, "prefill_pcc": 0.9989179968833923, "prefill_pcc_min": 0.9988999366760254, "decode_pcc": 0.9982990026473999, "decode_pcc_min": 0.9974502921104431, "trace_id": "MeshTraceId(0)"}
+{"length": 511, "padded_input": false, "warmed": true, "cuts": [], "batch": 2, "prefill_pcc": 0.9986836910247803, "prefill_pcc_min": 0.998627245426178, "decode_pcc": 0.998552680015564, "decode_pcc_min": 0.9980871677398682, "trace_id": "MeshTraceId(0)"}
+{"length": 512, "padded_input": false, "warmed": true, "cuts": [], "batch": 2, "prefill_pcc": 0.9986585378646851, "prefill_pcc_min": 0.9986214637756348, "decode_pcc": 0.9980939626693726, "decode_pcc_min": 0.9978494644165039, "trace_id": "MeshTraceId(0)"}
+{"length": 513, "padded_input": false, "warmed": true, "cuts": [], "batch": 2, "prefill_pcc": 0.9986010193824768, "prefill_pcc_min": 0.998635470867157, "decode_pcc": 0.9979346990585327, "decode_pcc_min": 0.9977836608886719, "trace_id": "MeshTraceId(0)"}
+{"length": 1153, "padded_input": false, "warmed": true, "cuts": [], "batch": 2, "prefill_pcc": 0.998586118221283, "prefill_pcc_min": 0.9986203908920288, "decode_pcc": 0.9989743828773499, "decode_pcc_min": 0.9989798665046692, "trace_id": "MeshTraceId(0)"}
+{"length": 33, "padded_input": false, "warmed": true, "cuts": [], "batch": 2, "prefill_pcc": 0.9990343451499939, "prefill_pcc_min": 0.9989297389984131, "decode_pcc": 0.9989964962005615, "decode_pcc_min": 0.9989655613899231, "trace_id": "MeshTraceId(0)"}
+{"length": 35, "padded_input": true, "warmed": true, "cuts": [], "batch": 2, "prefill_pcc": 0.998947262763977, "prefill_pcc_min": 0.9989131689071655, "decode_pcc": 0.9987533092498779, "decode_pcc_min": 0.9985154271125793, "trace_id": "MeshTraceId(0)"}
+{"length": 36, "padded_input": true, "warmed": false, "cuts": [], "batch": 2, "prefill_pcc": 0.9989970922470093, "prefill_pcc_min": 0.9989417195320129, "decode_pcc": 0.9985554814338684, "decode_pcc_min": 0.9984530210494995, "trace_id": "MeshTraceId(0)"}
+{"length": 1153, "padded_input": false, "warmed": true, "cuts": [1, 3, 127, 129, 160, 513], "batch": 2, "prefill_pcc": 0.9983729720115662, "prefill_pcc_min": 0.9985175728797913, "decode_pcc": 0.998812198638916, "decode_pcc_min": 0.9986875057220459, "trace_id": "MeshTraceId(0)"}
+2026-10-10 00:30:14.496 | info     |    BuildKernels | JIT cache stats: 620/739 hits (83.9%) [620 cached, 443 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:268)
+2026-10-10 00:30:14.496 | info     |    BuildKernels | JIT telemetry: 43 registered TelemetryTokens (build_cache_telemetry.cpp:325)
+2026-10-10 00:30:14.516 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:532)
+2026-10-10 00:30:14.516 | info     |             UMD | Closing devices in cluster (cluster.cpp:1480)
+2026-10-10 00:30:14.668 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1490)
+2026-10-10 00:30:14.669 | info     |             UMD | Cluster destructor started. (cluster.cpp:1211)
+2026-10-10 00:30:14.669 | info     |             UMD | Cluster destructor completed. (cluster.cpp:1224)

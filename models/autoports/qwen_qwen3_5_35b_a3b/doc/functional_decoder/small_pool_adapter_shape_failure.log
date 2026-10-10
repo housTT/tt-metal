@@ -1,0 +1,62 @@
+[transformers] You tried to access the `ExpertsInterface` with a `config._experts_implementation` set to `None`. This is expected if you use an Expert Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._experts_implementation`
+HF_REFERENCE_READY
+2026-10-10 01:00:29.651 | DEBUG    | ttnn:<module>:45 - Initial ttnn.CONFIG:
+Config{cache_path=/home/hous/.cache/ttnn,model_cache_path=/home/hous/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+2026-10-10 01:00:29.686 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:234)
+2026-10-10 01:00:29.686 | info     |             UMD | Cluster constructor started. (cluster.cpp:409)
+2026-10-10 01:00:29.686 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:131)
+2026-10-10 01:00:29.686 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:150)
+2026-10-10 01:00:29.694 | info     |             UMD | Established firmware bundle version: 19.15.0 (topology_discovery.cpp:654)
+2026-10-10 01:00:29.694 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:154)
+2026-10-10 01:00:29.775 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:176)
+2026-10-10 01:00:29.775 | info     |             UMD | IOMMU: enabled (cluster.cpp:150)
+2026-10-10 01:00:29.775 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:153)
+2026-10-10 01:00:29.775 | info     |             UMD | Cluster constructor completed. (cluster.cpp:880)
+2026-10-10 01:00:29.777 | info     |             UMD | Starting devices in cluster (cluster.cpp:1466)
+2026-10-10 01:00:30.016 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1475)
+2026-10-10 01:00:30.049 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:529)
+2026-10-10 01:00:30.049 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:591)
+2026-10-10 01:00:30.049 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-10-10 01:00:30.049 | info     |          Fabric | Loaded physical groupings from: /home/hous/dev/qwen3.5-35b-a3b/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (physical_grouping_descriptor_core.cpp:813)
+2026-10-10 01:00:30.050 | info     |          Fabric | No specific Physical Grouping Descriptor found; using default. (physical_grouping_descriptor_core.cpp:895)
+2026-10-10 01:00:30.050 | info     |          Fabric | Matching MESH mgd groupings to MESH groupings (physical_grouping_descriptor_matching.cpp:1428)
+2026-10-10 01:00:30.050 | info     |          Fabric | Grouping valid candidates by node difference (physical_grouping_descriptor_matching.cpp:1522)
+2026-10-10 01:00:30.050 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 1 topology match(es), committed: 2x2_Mesh_flat (MESH) (physical_grouping_descriptor_matching.cpp:1731)
+2026-10-10 01:00:30.050 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': MGD placement fallback M0 (MESH) embeds on PSD (physical_grouping_descriptor_matching.cpp:1848)
+2026-10-10 01:00:30.135 | info     |       LLRuntime | Watcher log file: models/autoports/qwen_qwen3_5_35b_a3b/doc/functional_decoder/watcher_pool3_b2/generated/watcher/watcher.log (watcher_server.cpp:298)
+2026-10-10 01:00:30.136 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using distributed::MeshDevice::create_unit_meshes(). (device_manager.cpp:264)
+2026-10-10 01:00:30.136 | info     |       LLRuntime | Watcher server initialized, disabled features: None (watcher_server.cpp:616)
+2026-10-10 01:00:30.136 | warning  |           Metal | Failed to create shared memory /tt_device_154095682326272_memory: Permission denied (memory_stats_shm.cpp:57)
+TT_LAYER_READY
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_layer.py", line 278, in <module>
+    main()
+  File "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_layer.py", line 134, in main
+    pf_out = model.prefill_forward(px, **kw)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/tt/functional_decoder.py", line 426, in prefill_forward
+    y = self.layer.forward(x, mode="decode" if count == 1 else "prefill", chunk_size=128, **kw)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/demos/blackhole/qwen36/tt/layer.py", line 281, in forward
+    attn_output = self.attention.forward(
+                  ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/tt/functional_attention.py", line 72, in forward
+    return self._decode_tile_chunks(x, cos, sin, position_tensor, page_table)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/tt/functional_attention.py", line 82, in _decode_tile_chunks
+    batch, length = x.shape[:2]
+                    ~~~~~~~^^^^
+TypeError: __getitem__(): incompatible function arguments. The following argument types are supported:
+    1. __getitem__(self, arg: int, /) -> int
+
+Invoked with types: ttnn._ttnn.types.Shape, slice
+2026-10-10 01:00:35.898 | info     |    BuildKernels | JIT cache stats: 137/157 hits (87.3%) [137 cached, 22 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:268)
+2026-10-10 01:00:35.898 | info     |    BuildKernels | JIT telemetry: 43 registered TelemetryTokens (build_cache_telemetry.cpp:325)
+2026-10-10 01:00:35.899 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:664)
+2026-10-10 01:00:35.914 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:532)
+2026-10-10 01:00:35.914 | info     |             UMD | Closing devices in cluster (cluster.cpp:1480)
+2026-10-10 01:00:36.039 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1490)
+2026-10-10 01:00:36.039 | info     |             UMD | Cluster destructor started. (cluster.cpp:1211)
+2026-10-10 01:00:36.039 | info     |             UMD | Cluster destructor completed. (cluster.cpp:1224)

@@ -1,0 +1,100 @@
+[transformers] You tried to access the `ExpertsInterface` with a `config._experts_implementation` set to `None`. This is expected if you use an Expert Module as a standalone Module. If this is not the case, something went wrong with the dispatch of `config._experts_implementation`
+HF_REFERENCE_READY
+2026-10-10 01:00:04.659 | DEBUG    | ttnn:<module>:45 - Initial ttnn.CONFIG:
+Config{cache_path=/home/hous/.cache/ttnn,model_cache_path=/home/hous/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+2026-10-10 01:00:04.695 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:234)
+2026-10-10 01:00:04.695 | info     |             UMD | Cluster constructor started. (cluster.cpp:409)
+2026-10-10 01:00:04.695 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:131)
+2026-10-10 01:00:04.695 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:150)
+2026-10-10 01:00:04.701 | info     |             UMD | Established firmware bundle version: 19.15.0 (topology_discovery.cpp:654)
+2026-10-10 01:00:04.701 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:154)
+2026-10-10 01:00:04.784 | info     |             UMD | Opening local chip ids/PCIe ids: {0, 1, 2, 3}/[0, 1, 2, 3] and remote chip ids {} (cluster.cpp:176)
+2026-10-10 01:00:04.784 | info     |             UMD | IOMMU: enabled (cluster.cpp:150)
+2026-10-10 01:00:04.784 | info     |             UMD | KMD version: 2.10.0 (cluster.cpp:153)
+2026-10-10 01:00:04.784 | info     |             UMD | Cluster constructor completed. (cluster.cpp:880)
+2026-10-10 01:00:04.785 | info     |             UMD | Starting devices in cluster (cluster.cpp:1466)
+2026-10-10 01:00:05.012 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1475)
+2026-10-10 01:00:05.045 | info     |     Distributed | Using auto discovery to generate mesh graph. (metal_env.cpp:529)
+2026-10-10 01:00:05.045 | info     |     Distributed | Constructing control plane using auto-discovery (no mesh graph descriptor). (metal_env.cpp:591)
+2026-10-10 01:00:05.045 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-10-10 01:00:05.045 | info     |          Fabric | Loaded physical groupings from: /home/hous/dev/qwen3.5-35b-a3b/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (physical_grouping_descriptor_core.cpp:813)
+2026-10-10 01:00:05.046 | info     |          Fabric | No specific Physical Grouping Descriptor found; using default. (physical_grouping_descriptor_core.cpp:895)
+2026-10-10 01:00:05.046 | info     |          Fabric | Matching MESH mgd groupings to MESH groupings (physical_grouping_descriptor_matching.cpp:1428)
+2026-10-10 01:00:05.046 | info     |          Fabric | Grouping valid candidates by node difference (physical_grouping_descriptor_matching.cpp:1522)
+2026-10-10 01:00:05.046 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 1 topology match(es), committed: 2x2_Mesh_flat (MESH) (physical_grouping_descriptor_matching.cpp:1731)
+2026-10-10 01:00:05.046 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': MGD placement fallback M0 (MESH) embeds on PSD (physical_grouping_descriptor_matching.cpp:1848)
+2026-10-10 01:00:05.088 | warning  |           Metal | Opening subset of mmio devices slows down UMD read/write to remote chips. If opening more devices, consider using distributed::MeshDevice::create_unit_meshes(). (device_manager.cpp:264)
+2026-10-10 01:00:05.088 | warning  |           Metal | Failed to create shared memory /tt_device_154095682326272_memory: Permission denied (memory_stats_shm.cpp:57)
+TT_LAYER_READY
+2026-10-10 01:00:08.390 | critical |          Always | TT_FATAL: max_num_blocks_per_seq must be less than max_num_blocks: max_num_blocks_per_seq=8, max_num_blocks=6 (assert.hpp:104)
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_layer.py", line 213, in <module>
+    main()
+  File "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_layer.py", line 103, in main
+    pf_out = model.prefill_forward(px, **kw)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/tt/functional_decoder.py", line 368, in prefill_forward
+    y = self.layer.forward(x, mode="decode" if count == 1 else "prefill", chunk_size=128, **kw)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/demos/blackhole/qwen36/tt/layer.py", line 281, in forward
+    attn_output = self.attention.forward(
+                  ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/demos/blackhole/qwen36/tt/attention/gated_attention.py", line 63, in forward
+    return decode_forward(
+           ^^^^^^^^^^^^^^^
+  File "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/demos/blackhole/qwen36/tt/attention/decode.py", line 25, in decode_forward
+    output, _, _ = gated_attention_forward_ttnn(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/experimental/gated_attention_gated_deltanet/tt/ttnn_gated_attention.py", line 348, in gated_attention_forward_ttnn
+    ttnn.experimental.paged_update_cache(
+  File "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/ttnn/decorators.py", line 1317, in _tracked_fast_operation_call
+    return _untracked_fast_operation_call(self, *function_args, **function_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/ttnn/decorators.py", line 1246, in __call__
+    result = self.function(*function_args, **function_kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: TT_FATAL @ /home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/cpp/ttnn/operations/experimental/paged_cache/device/update_cache/paged_update_cache_device_operation.cpp:194: page_table_val.padded_shape()[1] <= cache_tensor.padded_shape()[0]
+info:
+max_num_blocks_per_seq must be less than max_num_blocks: max_num_blocks_per_seq=8, max_num_blocks=6
+backtrace:
+ --- void tt::assert::detail::tt_throw<unsigned long, unsigned long>(char const*, int, char const*, char const*, fmt::v11::fstring<unsigned long const&, unsigned long const&>::t, unsigned long const&, unsigned long const&)
+ --- ttnn::experimental::prim::PagedUpdateCacheDeviceOperation::validate_on_program_cache_miss(ttnn::experimental::prim::PagedUpdateCacheParams const&, ttnn::experimental::prim::PagedUpdateCacheInputs const&)
+ --- /home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail54create_and_cache_mesh_workload_with_allocation_contextITkNS0_22DeviceOperationConceptENS0_26MeshDeviceOperationAdapterINS_12experimental4prim31PagedUpdateCacheDeviceOperationEEEZNS1_29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterES7_EEvRKNT_22operation_attributes_tERKNS9_13tensor_args_tERNS9_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceEEUlRNSK_12MeshWorkloadEE_EEvSC_SF_SH_SM_RNSJ_13program_cache6detail12ProgramCacheERKNSR_15ProgramCacheKeyERKT0_+0x585) [0x7a1cdf045795]
+ --- /home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail17use_mesh_workloadITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_12experimental4prim31PagedUpdateCacheDeviceOperationEEEZNS1_29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterES7_EEvRKNT_22operation_attributes_tERKNS9_13tensor_args_tERNS9_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceEEUlRNSK_12MeshWorkloadEE_EEvSC_SF_SH_SM_RKNS1_18ProgramCacheLookupERKT0_+0x12e) [0x7a1cdf044eee]
+ --- /home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_12experimental4prim31PagedUpdateCacheDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS8_13tensor_args_tERNS8_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x81) [0x7a1cdf0433b1]
+ --- /home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_12experimental4prim31PagedUpdateCacheDeviceOperationEEENT_21tensor_return_value_tERKNS6_22operation_attributes_tERKNS6_13tensor_args_tE+0x109) [0x7a1cdf041649]
+ --- ttnn::prim::paged_update_cache(ttnn::Tensor const&, ttnn::Tensor const&, std::vector<unsigned int, std::allocator<unsigned int> > const&, std::optional<ttnn::Tensor const> const&, std::optional<bool>, std::optional<ttnn::Tensor const> const&, unsigned int, std::optional<ttnn::ComputeKernelConfig const>, std::optional<std::set<tt::tt_metal::distributed::MeshCoordinate, std::less<tt::tt_metal::distributed::MeshCoordinate>, std::allocator<tt::tt_metal::distributed::MeshCoordinate> > const> const&, std::optional<unsigned int>, std::optional<unsigned int>, std::optional<unsigned int>)
+ --- ttnn::experimental::paged_update_cache(ttnn::Tensor const&, ttnn::Tensor const&, std::vector<unsigned int, std::allocator<unsigned int> > const&, std::optional<ttnn::Tensor const> const&, std::optional<bool>, std::optional<ttnn::Tensor const> const&, unsigned int, std::optional<ttnn::ComputeKernelConfig const>, std::optional<std::set<tt::tt_metal::distributed::MeshCoordinate, std::less<tt::tt_metal::distributed::MeshCoordinate>, std::allocator<tt::tt_metal::distributed::MeshCoordinate> > const> const&, std::optional<unsigned int>, std::optional<unsigned int>, std::optional<unsigned int>)
+ --- /home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/ttnn/_ttnn.so(+0x4c2827) [0x7a1ce48c2827]
+ --- /home/hous/dev/qwen3.5-35b-a3b/tt-metal/ttnn/ttnn/_ttnn.so(+0x3bf114) [0x7a1ce47bf114]
+ --- python(_PyObject_Call_Prepend+0x179) [0x180fe79]
+ --- python() [0x18a1d58]
+ --- python(_PyEval_EvalFrameDefault+0xe033) [0x1822bf3]
+ --- python(_PyObject_Call_Prepend+0x179) [0x180fe79]
+ --- python() [0x18a1d58]
+ --- python(_PyEval_EvalFrameDefault+0x30ed) [0x1817cad]
+ --- python() [0x1813ad0]
+ --- python(_PyEval_EvalFrameDefault+0x131ca) [0x1827d8a]
+ --- python() [0x1813ad0]
+ --- python(_PyEval_EvalFrameDefault+0x131ca) [0x1827d8a]
+ --- python(PyEval_EvalCode+0xde) [0x18a149e]
+ --- python() [0x18a2fcc]
+ --- python() [0x1804d3d]
+ --- python(_PyEval_EvalFrameDefault+0x3290) [0x1817e50]
+ --- python() [0x19121a8]
+ --- python(Py_RunMain+0x302) [0x1911c5e]
+ --- python() [0x191194f]
+ --- python() [0x19117ac]
+ --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7a1d5be2a1ca]
+ --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7a1d5be2a28b]
+ --- python(_start+0x29) [0x19bdc69]
+
+2026-10-10 01:00:09.031 | info     |    BuildKernels | JIT cache stats: 189/195 hits (96.9%) [189 cached, 52 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:268)
+2026-10-10 01:00:09.031 | info     |    BuildKernels | JIT telemetry: 37 registered TelemetryTokens (build_cache_telemetry.cpp:325)
+2026-10-10 01:00:09.047 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:532)
+2026-10-10 01:00:09.047 | info     |             UMD | Closing devices in cluster (cluster.cpp:1480)
+2026-10-10 01:00:09.234 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1490)
+2026-10-10 01:00:09.234 | info     |             UMD | Cluster destructor started. (cluster.cpp:1211)
+2026-10-10 01:00:09.234 | info     |             UMD | Cluster destructor completed. (cluster.cpp:1224)

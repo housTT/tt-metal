@@ -1,0 +1,78 @@
+2026-10-10 00:17:07.667 | DEBUG    | ttnn:<module>:45 - Initial ttnn.CONFIG:
+Config{cache_path=/home/hous/.cache/ttnn,model_cache_path=/home/hous/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=false,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.15, pytest-9.0.3, pluggy-1.6.0 -- /home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python
+cachedir: .pytest_cache
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/hous/dev/qwen3.5-35b-a3b/tt-metal
+configfile: pytest.ini
+plugins: timeout-2.4.0, dash-2.15.0, repeat-0.9.4, benchmark-5.2.3, cov-7.0.0, github-actions-annotate-failures-0.3.0, anyio-4.15.1, split-0.11.0
+timeout: 300.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 9 items
+
+models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_real_text_config_contract PASSED
+models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_prefill_physical_length[1-128] PASSED
+models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_prefill_physical_length[127-128] PASSED
+models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_prefill_physical_length[128-128] PASSED
+models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_prefill_physical_length[129-256] PASSED
+models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_prefill_physical_length[2200-2304] PASSED
+models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_checkpoint_has_complete_layer_kinds[0-linear_attn.in_proj_qkv.weight] PASSED
+models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_checkpoint_has_complete_layer_kinds[3-self_attn.q_proj.weight] PASSED
+models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_selective_shard_enumeration_ignores_other_layers PASSED
+
+==================================== PASSES ====================================
+- generated xml file: /home/hous/dev/qwen3.5-35b-a3b/tt-metal/generated/test_reports/most_recent_tests.xml -
+============================= slowest 25 durations =============================
+0.21s setup    models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_selective_shard_enumeration_ignores_other_layers
+0.17s setup    models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_checkpoint_has_complete_layer_kinds[3-self_attn.q_proj.weight]
+0.14s setup    models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_checkpoint_has_complete_layer_kinds[0-linear_attn.in_proj_qkv.weight]
+0.14s setup    models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_real_text_config_contract
+0.14s setup    models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_prefill_physical_length[1-128]
+0.13s setup    models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_prefill_physical_length[127-128]
+0.12s setup    models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_prefill_physical_length[129-256]
+0.12s setup    models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_prefill_physical_length[128-128]
+0.12s setup    models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_prefill_physical_length[2200-2304]
+
+(16 durations < 0.005s hidden.  Use -vv to show these durations.)
+=========================== short test summary info ============================
+PASSED models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_real_text_config_contract
+PASSED models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_prefill_physical_length[1-128]
+PASSED models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_prefill_physical_length[127-128]
+PASSED models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_prefill_physical_length[128-128]
+PASSED models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_prefill_physical_length[129-256]
+PASSED models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_prefill_physical_length[2200-2304]
+PASSED models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_checkpoint_has_complete_layer_kinds[0-linear_attn.in_proj_qkv.weight]
+PASSED models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_checkpoint_has_complete_layer_kinds[3-self_attn.q_proj.weight]
+PASSED models/autoports/qwen_qwen3_5_35b_a3b/tests/test_functional_contract.py::test_selective_shard_enumeration_ignores_other_layers
+============================== 9 passed in 1.32s ===============================
+nanobind: leaked 2 instances!
+ - leaked instance 0x74a5b1fbd398 of type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked instance 0x74a5a2caf428 of type "ttnn._ttnn.tensor.MemoryConfig"
+nanobind: leaked 19 types!
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCast1DProgramConfig"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulInputs"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulMultiCoreReuseMultiCastBatchedDRAMShardedProgramConfig"
+ - leaked type "BufferType"
+ - leaked type "UnaryOpType"
+ - leaked type "Layout"
+ - leaked type "Arch"
+ - leaked type "ttnn._ttnn.operations.matmul.MatmulParams"
+ - leaked type "ttnn._ttnn.tensor.CoreRangeSet"
+ - leaked type "DataType"
+ - ... skipped remainder
+nanobind: leaked 256 functions!
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - leaked function "buffer_page_size"
+ - leaked function "remove_sub_device_manager"
+ - leaked function ""
+ - leaked function ""
+ - leaked function ""
+ - ... skipped remainder
+nanobind: this is likely caused by a reference counting issue in the binding code.
+See https://nanobind.readthedocs.io/en/latest/refleaks.html
