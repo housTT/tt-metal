@@ -49,6 +49,7 @@ Tensor contracts:
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -792,6 +793,7 @@ class FunctionalDecoder(LightweightModule):
                 chunk_start_idx=start,
                 scale=1.0,
                 compute_kernel_config=self.correctness_compute_config,
+                program_config=_prefill_sdpa_program_config(self.mesh_device),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
                 **self._sdpa_cache_view_kwargs(),
             )
@@ -844,6 +846,7 @@ class FunctionalDecoder(LightweightModule):
                 is_causal=True,
                 sliding_window_size=self.layer_kind.sliding_window,
                 scale=1.0,
+                program_config=_prefill_sdpa_program_config(self.mesh_device),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
             q_slice.deallocate(True)
@@ -1266,6 +1269,21 @@ def _make_correctness_compute_config(device: Any) -> ttnn.DeviceComputeKernelCon
         math_approx_mode=False,
         fp32_dest_acc_en=True,
         packer_l1_acc=False,
+    )
+
+
+def _prefill_sdpa_program_config(device: Any) -> ttnn.SDPAProgramConfig | None:
+    q_chunk = os.getenv("GEMMA4_OPT_PREFILL_SDPA_Q_CHUNK")
+    k_chunk = os.getenv("GEMMA4_OPT_PREFILL_SDPA_K_CHUNK")
+    exp_approx = os.getenv("GEMMA4_OPT_PREFILL_SDPA_EXP_APPROX")
+    if q_chunk is None and k_chunk is None and exp_approx is None:
+        return None
+    grid = device.compute_with_storage_grid_size()
+    return ttnn.SDPAProgramConfig(
+        compute_with_storage_grid_size=grid,
+        q_chunk_size=int(q_chunk or 32),
+        k_chunk_size=int(k_chunk or 32),
+        exp_approx_mode=exp_approx == "1",
     )
 
 

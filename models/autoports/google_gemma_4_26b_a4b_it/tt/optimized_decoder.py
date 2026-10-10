@@ -36,6 +36,7 @@ from models.autoports.google_gemma_4_26b_a4b_it.tt.functional_decoder import (
     _make_decode_height_sharded_memory_config,
     _make_decode_rope_memory_config,
     _make_single_user_cache_update_memory_config,
+    _prefill_sdpa_program_config,
     _replicate_mapper,
     union_expert_sparsity,
 )
@@ -2473,6 +2474,7 @@ class OptimizedDecoder(FunctionalDecoder):
                 is_causal=True,
                 sliding_window_size=kind.sliding_window,
                 scale=1.0,
+                program_config=_prefill_sdpa_program_config(self.mesh_device),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
         attn_out = ttnn.reshape(attn_out, [1, NUM_Q_HEADS, seq_len, kind.head_dim])

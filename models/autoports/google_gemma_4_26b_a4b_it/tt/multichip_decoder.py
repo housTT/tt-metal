@@ -39,6 +39,7 @@ from models.autoports.google_gemma_4_26b_a4b_it.tt.functional_decoder import (
     _make_decode_rope_memory_config,
     _make_single_user_cache_update_memory_config,
     _prefill_attention_path,
+    _prefill_sdpa_program_config,
     _text_config,
     _validate_text_config,
     union_expert_sparsity,
@@ -1459,6 +1460,7 @@ class MultichipDecoder(OptimizedDecoder):
                 is_causal=True,
                 sliding_window_size=kind.sliding_window,
                 scale=1.0,
+                program_config=_prefill_sdpa_program_config(self.mesh_device),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
         attn_out = ttnn.reshape(attn_out, [1, self.local_q_heads, seq_len, kind.head_dim])
@@ -1603,7 +1605,7 @@ class MultichipDecoder(OptimizedDecoder):
                         k_chunk_size=32,
                     )
                     if (aligned_start + start) % 128
-                    else None
+                    else _prefill_sdpa_program_config(self.mesh_device)
                 ),
                 scale=1.0,
                 **self._sdpa_cache_view_kwargs(),
@@ -1667,6 +1669,7 @@ class MultichipDecoder(OptimizedDecoder):
                 is_causal=True,
                 sliding_window_size=self.layer_kind.sliding_window,
                 scale=1.0,
+                program_config=_prefill_sdpa_program_config(self.mesh_device),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
             q_slice.deallocate(True)
