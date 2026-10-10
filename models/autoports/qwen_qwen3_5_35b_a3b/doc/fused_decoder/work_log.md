@@ -1,6 +1,6 @@
 # Fused decoder work log
 
-Stage 02, qualification complete, started 2026-10-10. Scope is `tt/fused_decoder.py`, tests and
+Stage 02, complete, started 2026-10-10. Scope is `tt/fused_decoder.py`, tests and
 stage documentation only. Functional runtime files remain unchanged. Initial
 checkout is `53274a46` on `feat/qwen3-5-35b-a3b`; checkpoint revision is
 `59d61f3ce65a6d9863b86d2e96597125219dc754`.
@@ -225,3 +225,17 @@ work remaining (`stage_review.md`). All review findings were fixed or rejected
 with adapted measured controls and rereviewed. The final packet identities,
 workload, roofline equations and source references were checked directly against
 the supplied template. Local checkpoint follows this verdict; nothing is pushed.
+
+## Local checkpoints
+
+Implementation, tests, review and portable evidence are committed locally as
+`4712775268964c4a4fd495b9c3a56ab1a8c6b8fa`
+(`Fuse Qwen3.5-35B-A3B decoder graph and qualify stage 02`). The commit completed
+with every applicable non-skipped repository hook passing; commit_stage.log.gz
+preserves its full output. The Python files had already passed the full hook
+set independently, as recorded above. Source SHA remains e570144c.
+
+This closure entry and the archived commit log form a separate bookkeeping
+checkpoint. Its own SHA is recorded in the external compact telemetry packet
+and final handoff, avoiding a self-referential commit hash. Only this stage's
+decoder/tests/docs changed. No push and no subsequent pipeline stage were run.
