@@ -240,3 +240,14 @@ formatting update before the commit proceeds.
 Post-hook CPU contracts: `python -m pytest -q <autoport>/tests/test_functional_contract.py`: 9 passed (`cpu_contract_commit_format.log`).
 
 The final reviewer independently checked the commit-hook cleanup and preserved **clean-pass** in the final report addendum. No required work or hardware rerun remains.
+
+
+### Local commits
+
+- Implementation, tests, accepted/rejected evidence and clean-pass review:
+  `4dc2c097fafe6c4b96d7af7001ed7e80af6dcd04` — `Add validated Qwen3.5-35B-A3B functional decoder and layer evidence`.
+- The following bookkeeping commit adds this SHA and `local_commit_hooks.log`.
+  Its own SHA is recorded alongside the implementation SHA in the required
+  external JSON evidence packet, avoiding a self-referential commit hash.
+- Applicable commit hooks passed; the evidence-preservation exceptions above
+  were command-scoped. Both commits are local. Nothing was pushed.
