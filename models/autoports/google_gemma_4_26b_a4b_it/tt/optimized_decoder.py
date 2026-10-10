@@ -706,6 +706,10 @@ def _compute_config(
     )
 
 
+def _expert_major(tensor: ttnn.Tensor, groups: int) -> ttnn.Tensor:
+    return tensor if groups == 1 else ttnn.transpose(tensor, 1, 3)
+
+
 def _rectangular_grid(device: Any, num_cores: int) -> ttnn.CoreCoord:
     grid = device.compute_with_storage_grid_size()
     for height in range(min(grid.y, num_cores), 0, -1):
@@ -765,6 +769,7 @@ def _optimized_sparse_prefill_config(
     groups: int,
     requested_per_core_n: int,
     in0_block_w: int,
+    per_core_m: int = 1,
 ) -> ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig:
     """Use the Blackhole grid while accounting for sparse group replication."""
     n_tiles = math.ceil(n / TILE_SIZE)
@@ -791,9 +796,9 @@ def _optimized_sparse_prefill_config(
         in0_block_w=in0_block_w,
         out_subblock_h=1,
         out_subblock_w=out_subblock_w,
-        out_block_h=1,
+        out_block_h=per_core_m,
         out_block_w=per_core_n,
-        per_core_M=1,
+        per_core_M=per_core_m,
         per_core_N=per_core_n,
         fuse_batch=False,
         fused_activation=None,
@@ -856,6 +861,7 @@ class OptimizedDecoder(FunctionalDecoder):
         expert_decode_input_l1: bool = True,
         prefill_expert_input_l1: bool = False,
         prefill_expert_chunk_size: int = TILE_SIZE,
+        prefill_expert_rows_per_group: int = TILE_SIZE,
         prefill_expert_per_core_n: int = 2,
         prefill_expert_gate_in0_block_w: int = 44,
         prefill_expert_down_in0_block_w: int = 11,
@@ -918,6 +924,9 @@ class OptimizedDecoder(FunctionalDecoder):
         self.expert_decode_input_l1 = expert_decode_input_l1
         self.prefill_expert_input_l1 = prefill_expert_input_l1
         self.prefill_expert_chunk_size = prefill_expert_chunk_size
+        self.prefill_expert_rows_per_group = int(
+            os.getenv("GEMMA4_OPT_PREFILL_EXPERT_ROWS", prefill_expert_rows_per_group)
+        )
         self.prefill_expert_per_core_n = prefill_expert_per_core_n
         self.prefill_expert_gate_in0_block_w = prefill_expert_gate_in0_block_w
         self.prefill_expert_down_in0_block_w = prefill_expert_down_in0_block_w
@@ -3011,23 +3020,30 @@ class OptimizedDecoder(FunctionalDecoder):
         return ttnn.concat(chunks, dim=2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
 
     def _moe_prefill_chunk(self, hidden_states: ttnn.Tensor, routing_weights: ttnn.Tensor) -> ttnn.Tensor:
-        chunk_size = self.prefill_expert_chunk_size
+        chunk_size = max(self.prefill_expert_chunk_size, self.prefill_expert_rows_per_group)
         seq_len = hidden_states.shape[2]
         packed_expert_width = getattr(self, "packed_expert_width", _PACKED_EXPERT_WIDTH)
         if seq_len % TILE_SIZE != 0 or chunk_size % TILE_SIZE != 0:
             raise ValueError(f"physical prefill and expert chunk must be tile aligned, got {seq_len=} {chunk_size=}")
+        routing_major = ttnn.permute(routing_weights, (0, 3, 2, 1))
         if seq_len > chunk_size:
             hidden_chunks = ttnn.split(hidden_states, chunk_size, dim=2)
             routing_chunks = ttnn.split(routing_weights, chunk_size, dim=2)
+            routing_major_chunks = ttnn.split(routing_major, chunk_size, dim=2)
         else:
             hidden_chunks = [hidden_states]
             routing_chunks = [routing_weights]
+            routing_major_chunks = [routing_major]
 
         results = []
         output_tile = ttnn.Tile([TILE_SIZE, TILE_SIZE])
-        for hidden_chunk, routing_chunk in zip(hidden_chunks, routing_chunks):
+        for hidden_chunk, routing_chunk, routing_permuted in zip(hidden_chunks, routing_chunks, routing_major_chunks):
             physical_chunk = hidden_chunk.shape[2]
-            groups = physical_chunk // TILE_SIZE
+            rows = min(self.prefill_expert_rows_per_group, physical_chunk)
+            if physical_chunk % rows:
+                rows = physical_chunk
+            groups = physical_chunk // rows
+            per_core_m = rows // TILE_SIZE
             tail_geometry = physical_chunk < self.prefill_expert_chunk_size
             per_core_n = self.prefill_expert_tail_per_core_n if tail_geometry else self.prefill_expert_per_core_n
             gate_block_w = (
@@ -3036,7 +3052,7 @@ class OptimizedDecoder(FunctionalDecoder):
             down_block_w = (
                 self.prefill_expert_tail_in0_block_w if tail_geometry else self.prefill_expert_down_in0_block_w
             )
-            hidden_grouped = ttnn.reshape(hidden_chunk, (1, groups, TILE_SIZE, HIDDEN_SIZE))
+            hidden_grouped = ttnn.reshape(hidden_chunk, (1, groups, rows, HIDDEN_SIZE))
             if self.prefill_expert_input_l1:
                 hidden_grouped = ttnn.to_memory_config(
                     hidden_grouped,
@@ -3071,6 +3087,7 @@ class OptimizedDecoder(FunctionalDecoder):
                 groups=groups,
                 requested_per_core_n=per_core_n,
                 in0_block_w=gate_block_w,
+                per_core_m=per_core_m,
             )
             down_config = _optimized_sparse_prefill_config(
                 self.mesh_device,
@@ -3078,6 +3095,7 @@ class OptimizedDecoder(FunctionalDecoder):
                 groups=groups,
                 requested_per_core_n=per_core_n,
                 in0_block_w=down_block_w,
+                per_core_m=per_core_m,
             )
             if self.packed_expert_prefill_gate_up:
                 self.optimized_path_counters["packed_expert_prefill"] += 1
@@ -3088,7 +3106,7 @@ class OptimizedDecoder(FunctionalDecoder):
                     compute_kernel_config=self.expert_gate_compute_config,
                     **common,
                 )
-                gate_up = ttnn.transpose(gate_up, 1, 3)
+                gate_up = _expert_major(gate_up, groups)
                 gate_up = ttnn.reshape(gate_up, (1, NUM_EXPERTS, physical_chunk, packed_expert_width))
                 down_input = self._packed_expert_activation(gate_up)
             else:
@@ -3100,7 +3118,7 @@ class OptimizedDecoder(FunctionalDecoder):
                     **common,
                 )
                 sparse_intermediate = gate.shape[-1]
-                gate = ttnn.transpose(gate, 1, 3)
+                gate = _expert_major(gate, groups)
                 gate = ttnn.reshape(gate, (1, NUM_EXPERTS, physical_chunk, sparse_intermediate))
                 up = ttnn.sparse_matmul(
                     hidden_grouped,
@@ -3109,7 +3127,7 @@ class OptimizedDecoder(FunctionalDecoder):
                     compute_kernel_config=self.expert_gate_compute_config,
                     **common,
                 )
-                up = ttnn.transpose(up, 1, 3)
+                up = _expert_major(up, groups)
                 up = ttnn.reshape(up, (1, NUM_EXPERTS, physical_chunk, sparse_intermediate))
                 down_input = ttnn.reshape(
                     apply_geglu(gate, up),
@@ -3128,7 +3146,6 @@ class OptimizedDecoder(FunctionalDecoder):
                 compute_kernel_config=self.expert_compute_config,
             )
             next_states = ttnn.reshape(down, (1, NUM_EXPERTS, physical_chunk, HIDDEN_SIZE))
-            routing_permuted = ttnn.permute(routing_chunk, (0, 3, 2, 1))
             next_states = ttnn.mul(next_states, routing_permuted)
             next_states = ttnn.unsqueeze_to_4D(ttnn.experimental.fast_reduce_nc(next_states, dims=[1]))
             results.append(ttnn.reshape(next_states, (1, 1, physical_chunk, HIDDEN_SIZE)))

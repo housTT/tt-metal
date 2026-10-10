@@ -489,6 +489,7 @@ class MultichipDecoder(OptimizedDecoder):
         # per core preserves the active-expert topology and avoids that
         # degenerate multi-device sparse program.
         kwargs.setdefault("prefill_expert_per_core_n", 1 if tp_size == 2 else 2)
+        kwargs.setdefault("prefill_expert_rows_per_group", 128 if tp_size == 1 else TILE_SIZE)
         prefix = _detect_layer_prefix(state_dict, layer_idx)
         graph_defaults, residual_default = _multichip_optimized_defaults(tp_size, kind)
         graph_fusion_policy = _multichip_graph_fusion_policy(kwargs, defaults=graph_defaults)
