@@ -1,0 +1,123 @@
+--- qualified_a4c8_fused_decoder.py
++++ fused_decoder.py
+@@ -21,6 +21,7 @@
+         "cache",
+         "qkv",
+         "heads",
++        "indexed_rope",
+         "gate",
+         "kda_conv",
+         "kda_tuple",
+@@ -43,7 +44,7 @@
+     @classmethod
+     def from_state_dict(cls, *args, fusions=None, **kwargs):
+         selected = cls.DEFAULT_FUSIONS if fusions is None else tuple(fusions)
+-        attention_fusions = {"rope", "qkv", "cache", "heads", "gate", "decode_heads", "decode_concat"}
++        attention_fusions = {"rope", "qkv", "cache", "heads", "gate", "decode_heads", "decode_concat", "indexed_rope"}
+         gdn_fusions = {
+             "kda_conv",
+             "kda_tuple",
+@@ -100,6 +101,8 @@
+             raise ValueError("compact_routing requires moe_gate and a compact expert consumer")
+         if len({"prefill_minimal", "prefill_split", "prefill_split32"}.intersection(selected)) > 1:
+             raise ValueError("Select one packed prefill adapter")
++        if "indexed_rope" in selected and (not {"rope", "qkv", "heads"} <= set(selected) or "decode_heads" in selected):
++            raise ValueError("indexed_rope requires packed prefill-layout heads and rope")
+         result = super().from_state_dict(*args, **kwargs)
+         ignored = gdn_fusions if result.config.is_full_attention_layer(result.layer_idx) else attention_fusions
+         selected = tuple(flag for flag in selected if flag not in ignored)
+@@ -174,6 +177,8 @@
+             result.layer.attention = _FusedGDN.from_existing(result.layer.attention, selected)
+         if "projection_residual" in selected:
+             result.layer = _ProjectionResidualLayer(result.layer)
++        if "indexed_rope" in selected:
++            _enable_indexed_rope(result, kwargs["mesh_device"])
+         return result
+ 
+     def prefill_forward(
+@@ -745,6 +750,19 @@
+     def _rope(self, x, cos, sin, decode):
+         import ttnn
+ 
++        if "indexed_rope" in self.fusions:
++            output = ttnn.experimental.deepseek_prefill.rotary_embedding_indexed(
++                x,
++                cos,
++                sin,
++                self.rotation,
++                0,
++                0,
++                rotary_dim=64,
++                compute_kernel_config=self.compute_kernel_config,
++                memory_config=ttnn.L1_MEMORY_CONFIG if decode else ttnn.DRAM_MEMORY_CONFIG,
++            )
++            return ttnn.transpose(output, 1, 2) if decode else output
+         width = cos.shape[-1]
+         rotated = ttnn.experimental.rotary_embedding(
+             x[..., :width],
+@@ -821,7 +839,7 @@
+         cos = ttnn.reshape(cos, (1, 1, length, cos.shape[-1]))
+         sin = ttnn.reshape(sin, (1, 1, length, sin.shape[-1]))
+         if "rope" in self.fusions:
+-            if decode and not heads_in_decode:
++            if decode and not heads_in_decode and "indexed_rope" not in self.fusions:
+                 query = ttnn.transpose(query, 1, 2)
+                 key = ttnn.transpose(key, 1, 2)
+             query, key = self._rope(query, cos, sin, decode), self._rope(key, cos, sin, decode)
+@@ -1206,6 +1224,56 @@
+         )
+ 
+ 
++def _enable_indexed_rope(model, mesh):
++    """Pack complete16-value exponent groups; both cache readers use this basis."""
++    from dataclasses import replace
++
++    import torch
++
++    import ttnn
++
++    def host(tensor):
++        return ttnn.to_torch(tensor, mesh_composer=ttnn.ConcatMeshToTensor(mesh, dim=0))
++
++    def put(value, like):
++        return ttnn.from_torch(
++            value.contiguous(),
++            device=mesh,
++            dtype=like.dtype,
++            layout=like.layout,
++            memory_config=like.memory_config(),
++            mesh_mapper=ttnn.ReplicateTensorToMesh(mesh),
++        )
++
++    partial = torch.cat((torch.arange(16), torch.arange(32, 48), torch.arange(16, 32), torch.arange(48, 64)))
++    perm = torch.cat((partial, torch.arange(64, 256)))
++    attention = model.layer.attention
++    norm_weights = {}
++    for name in ("q_norm", "k_norm"):
++        old = getattr(attention.weights, name)
++        norm_weights[name] = put(host(old)[..., perm], old)
++    attention.weights = replace(attention.weights, **norm_weights)
++    old = attention.qkvg_weight
++    value = host(old)
++    columns = torch.arange(value.shape[-1])
++    for start, heads in ((0, 16), (4096, 2)):
++        columns[start : start + heads * 256] = (start + torch.arange(heads)[:, None] * 256 + perm).reshape(-1)
++    attention.qkvg_weight = put(value[..., columns], old)
++    for name in ("_rope_cos", "_rope_sin"):
++        old = getattr(model, name)
++        setattr(model, name, put(host(old)[..., partial], old))
++    rotation = torch.zeros(1, 1, 32, 32)
++    rotation[..., torch.arange(16), torch.arange(16, 32)] = 1
++    rotation[..., torch.arange(16, 32), torch.arange(16)] = -1
++    attention.rotation = ttnn.from_torch(
++        rotation,
++        device=mesh,
++        dtype=ttnn.bfloat16,
++        layout=ttnn.TILE_LAYOUT,
++        mesh_mapper=ttnn.ReplicateTensorToMesh(mesh),
++    )
++
++
+ class _ResidualProjection:
+     def __init__(self, weight, device):
+         import ttnn

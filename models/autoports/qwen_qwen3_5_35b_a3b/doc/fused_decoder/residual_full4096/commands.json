@@ -1,0 +1,66 @@
+[
+  {
+    "name": "functional",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_full4096/functional.json",
+      "--save-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_full4096/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 13.580429553985596,
+    "prefill_pcc": 0.9985968470573425,
+    "decode_pcc_min": 0.9959692358970642,
+    "unfused_equivalence": null,
+    "median_traced_replay_host_us": 1512.83,
+    "warmed_prefill_host_us": 1718511.782
+  },
+  {
+    "name": "full_residual",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_full4096/full_residual.json",
+      "--decoder",
+      "fused",
+      "--fusions",
+      "moe_gate,rope,cache,qkv,heads,gate,shared_gate,shared_minimal,compact_reduce,compact_routing,prefill_split,projection_residual",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_full4096/functional_outputs.pt"
+    ],
+    "exit_code": 1,
+    "elapsed_seconds": 15.419877529144287,
+    "prefill_pcc": 0.9982333183288574,
+    "decode_pcc_min": 0.9948603510856628,
+    "unfused_equivalence": {
+      "prefill_pcc": 0.9998763799667358,
+      "decode_pcc_min": 0.9994891881942749,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_full4096/functional_outputs.pt"
+    },
+    "median_traced_replay_host_us": 935.534,
+    "warmed_prefill_host_us": 696903.945
+  }
+]

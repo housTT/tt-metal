@@ -1,0 +1,85 @@
+[
+  {
+    "command": [
+      "python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_indexed_rope_trial",
+      "--decoder",
+      "fused",
+      "--layer",
+      "3",
+      "--length",
+      "129",
+      "--steps",
+      "8",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/indexed_rope_adapted.json"
+    ],
+    "exit_code": 0,
+    "environment": {
+      "TT_METAL_TRACE_ALLOC_TRACKING": "1",
+      "TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE": "0"
+    },
+    "evidence": "indexed_rope_adapted.json"
+  },
+  {
+    "command": [
+      "python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_indexed_rope_trial",
+      "--decoder",
+      "fused",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/split32_full4096/functional_outputs.pt",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/indexed_rope4096.json"
+    ],
+    "exit_code": 0,
+    "environment": {
+      "TT_METAL_TRACE_ALLOC_TRACKING": "1",
+      "TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE": "0"
+    },
+    "evidence": "indexed_rope4096.json"
+  },
+  {
+    "command": [
+      "python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_indexed_rope_trial",
+      "--indexed-native-layout",
+      "--decoder",
+      "fused",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/split32_full4096/functional_outputs.pt",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/indexed_rope_native4096.json"
+    ],
+    "exit_code": 0,
+    "environment": {
+      "TT_METAL_TRACE_ALLOC_TRACKING": "1",
+      "TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE": "0"
+    },
+    "evidence": "indexed_rope_native4096.json"
+  }
+]

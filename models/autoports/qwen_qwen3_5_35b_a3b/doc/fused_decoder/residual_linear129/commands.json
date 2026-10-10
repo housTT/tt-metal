@@ -1,0 +1,66 @@
+[
+  {
+    "name": "functional",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "0",
+      "--length",
+      "129",
+      "--steps",
+      "8",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear129/functional.json",
+      "--save-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear129/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 7.270017147064209,
+    "prefill_pcc": 0.9996148347854614,
+    "decode_pcc_min": 0.9989858269691467,
+    "unfused_equivalence": null,
+    "median_traced_replay_host_us": 1923.3564999999999,
+    "warmed_prefill_host_us": 58979.18
+  },
+  {
+    "name": "linear_residual",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "0",
+      "--length",
+      "129",
+      "--steps",
+      "8",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear129/linear_residual.json",
+      "--decoder",
+      "fused",
+      "--fusions",
+      "moe_gate,kda_conv,gdn_heads,gdn_norm,gdn_eltwise,gdn_grouped,gdn_state_ternary,shared_gate,shared_minimal,gdn_inplace,gdn_flat_v,gdn_head_major,gdn_fused_chunk,compact_reduce,compact_routing,prefill_split,kda_tuple,kda_norm,projection_residual",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear129/functional_outputs.pt"
+    ],
+    "exit_code": 1,
+    "elapsed_seconds": 11.603355169296265,
+    "prefill_pcc": 0.9985769987106323,
+    "decode_pcc_min": 0.3617534041404724,
+    "unfused_equivalence": {
+      "prefill_pcc": 0.9989321827888489,
+      "decode_pcc_min": 0.34015950560569763,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear129/functional_outputs.pt"
+    },
+    "median_traced_replay_host_us": 1256.664,
+    "warmed_prefill_host_us": 26407.206
+  }
+]

@@ -1,0 +1,130 @@
+[
+  {
+    "name": "functional",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/full_trials4096/functional.json",
+      "--save-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/full_trials4096/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 11.992944478988647,
+    "prefill_pcc": 0.9985968470573425,
+    "decode_pcc_min": 0.9959692358970642,
+    "unfused_equivalence": null,
+    "median_traced_replay_host_us": 1512.74
+  },
+  {
+    "name": "attention_all",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/full_trials4096/attention_all.json",
+      "--decoder",
+      "fused",
+      "--fusions",
+      "norm,router,rope,cache,qkv,heads,gate",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/full_trials4096/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 12.913908243179321,
+    "prefill_pcc": 0.9985446333885193,
+    "decode_pcc_min": 0.9953045845031738,
+    "unfused_equivalence": {
+      "prefill_pcc": 0.9999545216560364,
+      "decode_pcc_min": 0.999626874923706,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/full_trials4096/functional_outputs.pt"
+    },
+    "median_traced_replay_host_us": 1362.091
+  },
+  {
+    "name": "full_fast",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/full_trials4096/full_fast.json",
+      "--decoder",
+      "fused",
+      "--fusions",
+      "moe_gate,rope,cache,qkv,heads,gate,shared_gate",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/full_trials4096/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 14.184280395507812,
+    "prefill_pcc": 0.9985954761505127,
+    "decode_pcc_min": 0.9957501292228699,
+    "unfused_equivalence": {
+      "prefill_pcc": 0.999983012676239,
+      "decode_pcc_min": 0.9996446371078491,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/full_trials4096/functional_outputs.pt"
+    },
+    "median_traced_replay_host_us": 1317.7355
+  },
+  {
+    "name": "full_minimal",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/full_trials4096/full_minimal.json",
+      "--decoder",
+      "fused",
+      "--fusions",
+      "moe_gate,rope,cache,qkv,heads,gate,shared_gate,shared_minimal",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/full_trials4096/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 11.907214164733887,
+    "prefill_pcc": 0.9985723495483398,
+    "decode_pcc_min": 0.9957634806632996,
+    "unfused_equivalence": {
+      "prefill_pcc": 0.9999816417694092,
+      "decode_pcc_min": 0.9996483325958252,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/full_trials4096/functional_outputs.pt"
+    },
+    "median_traced_replay_host_us": 1277.008
+  }
+]

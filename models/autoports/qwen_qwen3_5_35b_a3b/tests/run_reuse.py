@@ -24,6 +24,8 @@ def main():
     parser.add_argument("--batch", type=int, default=2)
     parser.add_argument("--page-size", type=int, default=32)
     parser.add_argument("--expert-precision", choices=("inherited", "bf16"), default="inherited")
+    parser.add_argument("--decoder", choices=("functional", "fused"), default="functional")
+    parser.add_argument("--fusions")
     args = parser.parse_args()
     torch.manual_seed(913)
     torch.set_num_threads(8)
@@ -65,8 +67,20 @@ def main():
         return ttnn.to_torch(x, mesh_composer=ttnn.ConcatMeshToTensor(mesh, dim=0))
 
     try:
-        model = FunctionalDecoder.from_state_dict(
-            state, hf_config=cfg, layer_idx=args.layer, mesh_device=mesh, expert_precision=args.expert_precision
+        decoder_class, fusion_kwargs = FunctionalDecoder, {}
+        if args.decoder == "fused":
+            from ..tt.fused_decoder import FusedDecoder
+
+            decoder_class = FusedDecoder
+            if args.fusions is not None:
+                fusion_kwargs["fusions"] = tuple(filter(None, args.fusions.split(",")))
+        model = decoder_class.from_state_dict(
+            state,
+            hf_config=cfg,
+            layer_idx=args.layer,
+            mesh_device=mesh,
+            expert_precision=args.expert_precision,
+            **fusion_kwargs,
         )
         slots = tuple(range(32 - args.batch, 32))
         kwargs = dict(request_slots=slots)
@@ -170,6 +184,8 @@ def main():
         args.output.write_text(
             json.dumps(
                 dict(
+                    decoder_class=type(model).__name__,
+                    fusions=getattr(model, "fusions", None),
                     cases=results,
                     captures=1,
                     request_releases=0,

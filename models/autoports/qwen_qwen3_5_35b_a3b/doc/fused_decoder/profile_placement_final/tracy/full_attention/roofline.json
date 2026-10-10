@@ -1,0 +1,46 @@
+{
+  "layer_type": "full_attention",
+  "policy": "fused",
+  "source": "single_layer",
+  "evidence": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/profile_placement_final/tracy/full_attention/measurement.json",
+  "workload": {
+    "input_tokens": 4096,
+    "output_tokens": 128,
+    "batch": 1,
+    "concurrency": 1
+  },
+  "prefill_device_us": 697717.6246781991,
+  "decode_device_us": 978.6541424188773,
+  "prefill_useful_flops": 597050785792,
+  "decode_dram_bytes": 67599360.0,
+  "peak_flops_per_s": 663552000000000.0,
+  "peak_dram_bytes_per_s": 512000000000.0,
+  "prefill_flops_pct": 0.12896047323331983,
+  "decode_dram_pct": 13.490976462192233,
+  "peak_basis": "One Blackhole ASIC:120 physical Tensix cores x4096 FLOPs/cycle x1.35GHz LoFi nominal peak;512GB/s DRAM. Actual mixed LoFi/HiFi2/HiFi4; HiFi4 peak is one quarter of this maximum.110 user cores are exposed. P300c spec is two ASICs; divided card DRAM bandwidth by2.",
+  "peak_sources": [
+    "https://docs.tenstorrent.com/aibs/blackhole/p300.html",
+    "tt_perf_report/perf_report.py ArchitectureSpec blackhole per-core phase rates"
+  ],
+  "useful_flops_components": {
+    "moe_and_shared": 231928233984,
+    "router_and_shared_gate": 4311744512,
+    "attention_projections": 223338299392,
+    "causal_qk_pv": 137472507904
+  },
+  "estimated_compulsory_dram_bytes_components": {
+    "input_output_and_norm_weights": 24576,
+    "router": 1048576,
+    "shared_gate": 4096,
+    "active_experts_and_shared_weights": 29032448.0,
+    "attention_projection_weights": 28966912.0,
+    "required_kv_reads_and_new_writes": 8522752.0
+  },
+  "assumptions": [
+    "Whole-layer firmware spans, including normalization, movement and gaps, are the denominator for both ratios.",
+    "Useful FLOPs count projections, active MoE, causal QK/PV or delta recurrence, and convolution. Small vector/transcendental operations are excluded from numerator; their full time remains in denominator.",
+    "DRAM is a compulsory-traffic lower-bound estimate: each active weight once, KV once,10 materialized FP32 state volumes for token GDN. Fused state uses addcmul into persistent storage, eliminating the outer-product intermediate and copy. Additional temporary traffic, tile padding, multicast reloads and caching are not modeled. This is not measured DRAM utilization.",
+    "Fused decode routed weights:all BFP8, gate/up preserve original BFP4 coefficients by upcasting because native FFN requires homogeneous dtype; internal activation/partials BFP8 and LoFi, output BF16. Prefill horizontal packed gate/up and shared gate/up BFP4; down BFP8. Attention projections GDN BF16 HiFi4/full BFP8 LoFi; FP32 GDN state; full KV BF16. Unselected expert work (dense fused prefill or sparse tile-union), padding and algorithmic chunk intermediates are not useful FLOPs.",
+    "No percentage is clamped. These nominal-peak ratios are not per-op utilization averages."
+  ]
+}

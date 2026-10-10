@@ -1,0 +1,65 @@
+{
+  "workload": {
+    "input_tokens": 4096,
+    "output_tokens": 128,
+    "batch": 1,
+    "concurrency": 1
+  },
+  "layer_types": {
+    "linear_attention": {
+      "baseline_prefill_device_us": 1743870.348148148,
+      "baseline_decode_device_us": 2190.2552324981334,
+      "prefill_device_us": 764671.617037037,
+      "decode_device_us": 1399.8332972531177,
+      "prefill_useful_flops": 527492448256,
+      "decode_dram_bytes": 118616064.0,
+      "peak_flops_per_s": 663552000000000.0,
+      "peak_dram_bytes_per_s": 512000000000.0,
+      "prefill_flops_pct": 0.10396001023790072,
+      "decode_dram_pct": 16.54997066112145,
+      "peak_basis": "One Blackhole ASIC:120 physical Tensix cores x4096 FLOPs/cycle x1.35GHz LoFi nominal peak;512GB/s DRAM. Actual mixed LoFi/HiFi2/HiFi4; HiFi4 peak is one quarter of this maximum.110 user cores are exposed. P300c spec is two ASICs; divided card DRAM bandwidth by2.",
+      "source": "single_layer",
+      "evidence": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/profile_final/tracy/linear_attention/roofline.json",
+      "before_prefill_pcc": 0.9997017979621887,
+      "before_decode_pcc_min": 0.997864842414856,
+      "after_prefill_pcc": 0.9996763467788696,
+      "after_decode_pcc_min": 0.9978416562080383,
+      "median_traced_replay_host_us": 1259.719,
+      "warmed_prefill_host_us": 763883.649,
+      "unfused_equivalence": {
+        "prefill_pcc": 1.0,
+        "decode_pcc_min": 0.9996641278266907,
+        "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear4096/functional_outputs.pt"
+      },
+      "headline": "headline_final/linear.json"
+    },
+    "full_attention": {
+      "baseline_prefill_device_us": 1720531.702222222,
+      "baseline_decode_device_us": 1608.7118063322434,
+      "prefill_device_us": 697717.6246781991,
+      "decode_device_us": 978.6541424188773,
+      "prefill_useful_flops": 597050785792,
+      "decode_dram_bytes": 67599360.0,
+      "peak_flops_per_s": 663552000000000.0,
+      "peak_dram_bytes_per_s": 512000000000.0,
+      "prefill_flops_pct": 0.12896047323331983,
+      "decode_dram_pct": 13.490976462192233,
+      "peak_basis": "One Blackhole ASIC:120 physical Tensix cores x4096 FLOPs/cycle x1.35GHz LoFi nominal peak;512GB/s DRAM. Actual mixed LoFi/HiFi2/HiFi4; HiFi4 peak is one quarter of this maximum.110 user cores are exposed. P300c spec is two ASICs; divided card DRAM bandwidth by2.",
+      "source": "single_layer",
+      "evidence": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/profile_placement_final/tracy/full_attention/roofline.json",
+      "before_prefill_pcc": 0.9985968470573425,
+      "before_decode_pcc_min": 0.9959692358970642,
+      "after_prefill_pcc": 0.9985915422439575,
+      "after_decode_pcc_min": 0.9957543611526489,
+      "median_traced_replay_host_us": 920.198,
+      "warmed_prefill_host_us": 697361.703,
+      "unfused_equivalence": {
+        "prefill_pcc": 0.9999408721923828,
+        "decode_pcc_min": 0.9996097087860107,
+        "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/split32_full4096/functional_outputs.pt"
+      },
+      "headline": "placement_final/full.json"
+    }
+  },
+  "source_provenance": "source_provenance.json"
+}

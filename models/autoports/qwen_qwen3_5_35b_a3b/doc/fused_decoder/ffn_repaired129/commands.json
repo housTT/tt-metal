@@ -1,0 +1,96 @@
+[
+  {
+    "name": "functional",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "3",
+      "--length",
+      "129",
+      "--steps",
+      "8",
+      "--trace",
+      "--audit",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_repaired129/functional.json",
+      "--save-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_repaired129/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 6.8180952072143555,
+    "prefill_pcc": 0.9988479614257812,
+    "decode_pcc_min": 0.9981322288513184,
+    "unfused_equivalence": null,
+    "median_traced_replay_host_us": 1479.0995
+  },
+  {
+    "name": "fused_ffn",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "3",
+      "--length",
+      "129",
+      "--steps",
+      "8",
+      "--trace",
+      "--audit",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_repaired129/fused_ffn.json",
+      "--decoder",
+      "fused",
+      "--fusions",
+      "router,fused_ffn",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_repaired129/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 8.521224737167358,
+    "prefill_pcc": 0.9988467693328857,
+    "decode_pcc_min": 0.9981077313423157,
+    "unfused_equivalence": {
+      "prefill_pcc": 0.9999900460243225,
+      "decode_pcc_min": 0.9999900460243225,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_repaired129/functional_outputs.pt"
+    },
+    "median_traced_replay_host_us": 2425.5235000000002
+  },
+  {
+    "name": "fused_ffn_grid2",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "3",
+      "--length",
+      "129",
+      "--steps",
+      "8",
+      "--trace",
+      "--audit",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_repaired129/fused_ffn_grid2.json",
+      "--decoder",
+      "fused",
+      "--fusions",
+      "router,fused_ffn_grid2",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_repaired129/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 8.299558401107788,
+    "prefill_pcc": 0.9988411068916321,
+    "decode_pcc_min": 0.9980893135070801,
+    "unfused_equivalence": {
+      "prefill_pcc": 0.9999876022338867,
+      "decode_pcc_min": 0.9999803304672241,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_repaired129/functional_outputs.pt"
+    },
+    "median_traced_replay_host_us": 1869.2775000000001
+  }
+]

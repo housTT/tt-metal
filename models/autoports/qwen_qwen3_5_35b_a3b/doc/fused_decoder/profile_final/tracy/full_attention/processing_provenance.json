@@ -1,0 +1,69 @@
+{
+  "commands": [
+    [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.summarize_perf",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/profile_final/tracy/full_attention/ops.csv",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/profile_final/tracy/full_attention/measurement.json"
+    ],
+    [
+      "tt-perf-report",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/profile_final/tracy/full_attention/ops.csv",
+      "--start-signpost",
+      "PERF_PREFILL",
+      "--end-signpost",
+      "PERF_PREFILL_END",
+      "--no-advice",
+      "--csv",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/profile_final/tracy/full_attention/prefill_perf_report.csv"
+    ],
+    [
+      "tt-perf-report",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/profile_final/tracy/full_attention/ops.csv",
+      "--start-signpost",
+      "PERF_PREFILL",
+      "--end-signpost",
+      "PERF_PREFILL_END",
+      "--no-advice",
+      "--no-summary"
+    ],
+    [
+      "tt-perf-report",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/profile_final/tracy/full_attention/ops.csv",
+      "--start-signpost",
+      "PERF_DECODE",
+      "--end-signpost",
+      "PERF_DECODE_END",
+      "--no-advice",
+      "--csv",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/profile_final/tracy/full_attention/decode_perf_report.csv"
+    ],
+    [
+      "tt-perf-report",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/profile_final/tracy/full_attention/ops.csv",
+      "--start-signpost",
+      "PERF_DECODE",
+      "--end-signpost",
+      "PERF_DECODE_END",
+      "--no-advice",
+      "--no-summary"
+    ],
+    [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.estimate_roofline",
+      "--policy",
+      "fused",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/profile_final/tracy/full_attention/measurement.json",
+      "--layer-type",
+      "full_attention",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/profile_final/tracy/full_attention/roofline.json"
+    ]
+  ],
+  "ops_csv_sha256": "f6bcb50b70627a9a67c954825b2eb665fdd89f9fdda943843dbd1ab3670aed9e",
+  "archived_csv": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/profile_final/tracy/full_attention/ops.csv.gz",
+  "tt_perf_report_version": "1.4.1"
+}

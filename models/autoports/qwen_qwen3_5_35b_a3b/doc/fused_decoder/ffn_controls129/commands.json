@@ -1,0 +1,130 @@
+[
+  {
+    "name": "functional",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "3",
+      "--length",
+      "129",
+      "--steps",
+      "8",
+      "--trace",
+      "--audit",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_controls129/functional.json",
+      "--save-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_controls129/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 6.844580173492432,
+    "prefill_pcc": 0.9988479614257812,
+    "decode_pcc_min": 0.9981322288513184,
+    "unfused_equivalence": null,
+    "median_traced_replay_host_us": 1478.8145
+  },
+  {
+    "name": "fused_ffn",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "3",
+      "--length",
+      "129",
+      "--steps",
+      "8",
+      "--trace",
+      "--audit",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_controls129/fused_ffn.json",
+      "--decoder",
+      "fused",
+      "--fusions",
+      "router,fused_ffn",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_controls129/functional_outputs.pt"
+    ],
+    "exit_code": 1,
+    "elapsed_seconds": 7.902318239212036,
+    "prefill_pcc": 0.9971864223480225,
+    "decode_pcc_min": 0.9914388060569763,
+    "unfused_equivalence": {
+      "prefill_pcc": 0.9981908798217773,
+      "decode_pcc_min": 0.9927483201026917,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_controls129/functional_outputs.pt"
+    },
+    "median_traced_replay_host_us": 2162.9210000000003
+  },
+  {
+    "name": "fused_ffn_hifi",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "3",
+      "--length",
+      "129",
+      "--steps",
+      "8",
+      "--trace",
+      "--audit",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_controls129/fused_ffn_hifi.json",
+      "--decoder",
+      "fused",
+      "--fusions",
+      "router,fused_ffn_hifi",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_controls129/functional_outputs.pt"
+    ],
+    "exit_code": 1,
+    "elapsed_seconds": 7.90527081489563,
+    "prefill_pcc": 0.9971863627433777,
+    "decode_pcc_min": 0.9914388060569763,
+    "unfused_equivalence": {
+      "prefill_pcc": 0.9981907606124878,
+      "decode_pcc_min": 0.9927483201026917,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_controls129/functional_outputs.pt"
+    },
+    "median_traced_replay_host_us": 2162.9764999999998
+  },
+  {
+    "name": "full_minimal",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "3",
+      "--length",
+      "129",
+      "--steps",
+      "8",
+      "--trace",
+      "--audit",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_controls129/full_minimal.json",
+      "--decoder",
+      "fused",
+      "--fusions",
+      "moe_gate,rope,cache,qkv,heads,gate,shared_gate,shared_minimal",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_controls129/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 6.800444602966309,
+    "prefill_pcc": 0.9988356232643127,
+    "decode_pcc_min": 0.9981219172477722,
+    "unfused_equivalence": {
+      "prefill_pcc": 0.9999623894691467,
+      "decode_pcc_min": 0.9999489784240723,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/ffn_controls129/functional_outputs.pt"
+    },
+    "median_traced_replay_host_us": 1243.8845000000001
+  }
+]

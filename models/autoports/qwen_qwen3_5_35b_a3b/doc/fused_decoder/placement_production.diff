@@ -1,0 +1,21 @@
+--- qualified_eb835_fused_decoder.py
++++ fused_decoder.py
+@@ -1248,6 +1248,10 @@
+     partial = torch.cat((torch.arange(16), torch.arange(32, 48), torch.arange(16, 32), torch.arange(48, 64)))
+     perm = torch.cat((partial, torch.arange(64, 256)))
+     attention = model.layer.attention
++    # Match the qualified packing lifetime. Releasing these earlier changes
++    # DRAM buffer placement and costs about42us per traced decode on this ASIC.
++    # They are released when construction finishes; no extra runtime state stays.
++    previous_allocations = attention.weights, attention.qkvg_weight
+     norm_weights = {}
+     for name in ("q_norm", "k_norm"):
+         old = getattr(attention.weights, name)
+@@ -1272,6 +1276,7 @@
+         layout=ttnn.TILE_LAYOUT,
+         mesh_mapper=ttnn.ReplicateTensorToMesh(mesh),
+     )
++    del previous_allocations
+ 
+ 
+ class _ResidualProjection:

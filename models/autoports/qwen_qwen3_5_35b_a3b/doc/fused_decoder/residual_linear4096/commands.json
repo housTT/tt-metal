@@ -1,0 +1,102 @@
+[
+  {
+    "name": "functional",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "0",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear4096/functional.json",
+      "--save-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear4096/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 12.432413101196289,
+    "prefill_pcc": 0.9997017979621887,
+    "decode_pcc_min": 0.997864842414856,
+    "unfused_equivalence": null,
+    "median_traced_replay_host_us": 1924.3485,
+    "warmed_prefill_host_us": 1742026.472
+  },
+  {
+    "name": "kda_tail",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "0",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear4096/kda_tail.json",
+      "--decoder",
+      "fused",
+      "--fusions",
+      "moe_gate,kda_conv,gdn_heads,gdn_norm,gdn_eltwise,gdn_grouped,gdn_state_ternary,shared_gate,shared_minimal,gdn_inplace,gdn_flat_v,gdn_head_major,gdn_fused_chunk,compact_reduce,compact_routing,prefill_split,kda_tuple,kda_norm,kda_tail",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear4096/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 14.29417896270752,
+    "prefill_pcc": 0.9996763467788696,
+    "decode_pcc_min": 0.9978416562080383,
+    "unfused_equivalence": {
+      "prefill_pcc": 1.0,
+      "decode_pcc_min": 0.9996641278266907,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear4096/functional_outputs.pt"
+    },
+    "median_traced_replay_host_us": 1259.203,
+    "warmed_prefill_host_us": 764010.552
+  },
+  {
+    "name": "linear_residual",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "0",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear4096/linear_residual.json",
+      "--decoder",
+      "fused",
+      "--fusions",
+      "moe_gate,kda_conv,gdn_heads,gdn_norm,gdn_eltwise,gdn_grouped,gdn_state_ternary,shared_gate,shared_minimal,gdn_inplace,gdn_flat_v,gdn_head_major,gdn_fused_chunk,compact_reduce,compact_routing,prefill_split,kda_tuple,kda_norm,projection_residual,kda_tail",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear4096/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 14.405943632125854,
+    "prefill_pcc": 0.9996758103370667,
+    "decode_pcc_min": 0.9978524446487427,
+    "unfused_equivalence": {
+      "prefill_pcc": 1.0,
+      "decode_pcc_min": 0.9996627569198608,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear4096/functional_outputs.pt"
+    },
+    "median_traced_replay_host_us": 1275.3995,
+    "warmed_prefill_host_us": 763742.519
+  }
+]

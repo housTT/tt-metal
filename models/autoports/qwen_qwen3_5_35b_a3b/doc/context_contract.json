@@ -54,5 +54,44 @@
       ]
     }
   },
-  "stage_review": "functional_decoder/stage_review_final.md"
+  "stage_review": "functional_decoder/stage_review_final.md",
+  "fused_decoder_validation": {
+    "capability_reduction": null,
+    "kv_dtype": "BF16",
+    "recurrent_state_dtype": "FP32",
+    "tested_layer_types": {
+      "linear_attention": {
+        "prefill_tokens": 262144,
+        "decode_context_tokens": 262144,
+        "decode_position_zero_based": 262143,
+        "nonaligned_prefill_tokens": 262143,
+        "batch": 1,
+        "prefill_pcc": 0.9995842576026917,
+        "nonaligned_prefill_pcc": 0.9994115233421326,
+        "decode_pcc": 0.9999061226844788,
+        "prefill_reference_scope": "16 selected outputs; every recurrent/KV contribution retained; full TT layer executes every token",
+        "artifacts": [
+          "fused_decoder/context_final/linear_262144.json",
+          "fused_decoder/context_final/linear_262143.json"
+        ]
+      },
+      "full_attention": {
+        "prefill_tokens": 262144,
+        "decode_context_tokens": 262144,
+        "decode_position_zero_based": 262143,
+        "nonaligned_prefill_tokens": 262143,
+        "batch": 1,
+        "prefill_pcc": 0.9982674717903137,
+        "nonaligned_prefill_pcc": 0.9982842803001404,
+        "decode_pcc": 0.9983393549919128,
+        "prefill_reference_scope": "16 selected outputs; every recurrent/KV contribution retained; full TT layer executes every token",
+        "artifacts": [
+          "fused_decoder/context_indexed_final/full_262144.json",
+          "fused_decoder/context_indexed_final/full_262143.json"
+        ]
+      }
+    },
+    "stage_review": "fused_decoder/stage_review.md",
+    "key_channel_basis": "First64 full-attention K channels use16-channel group permutation [0:16,32:48,16:32,48:64]; remaining192 unchanged. Both fused prefill/decode use this basis. Populated functional/fused K caches require conversion before interchange; allocation dtype, pages and capacity unchanged."
+  }
 }

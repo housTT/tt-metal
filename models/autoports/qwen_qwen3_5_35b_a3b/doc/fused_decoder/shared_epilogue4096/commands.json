@@ -1,0 +1,138 @@
+[
+  {
+    "name": "linear_default",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "fused",
+      "--layer",
+      "0",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear4096/functional_outputs.pt",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/shared_epilogue4096/linear_default.json"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 14.247146129608154,
+    "prefill_pcc": 0.9996763467788696,
+    "decode_pcc_min": 0.9978416562080383,
+    "unfused_equivalence": {
+      "prefill_pcc": 1.0,
+      "decode_pcc_min": 0.9996641278266907,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear4096/functional_outputs.pt"
+    },
+    "warmed_prefill_host_us": 764183.035,
+    "median_traced_replay_host_us": 1259.1370000000002
+  },
+  {
+    "name": "linear_epilogue",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_shared_epilogue_trial",
+      "--decoder",
+      "fused",
+      "--layer",
+      "0",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear4096/functional_outputs.pt",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/shared_epilogue4096/linear_epilogue.json"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 14.11084532737732,
+    "prefill_pcc": 0.9995553493499756,
+    "decode_pcc_min": 0.9972772598266602,
+    "unfused_equivalence": {
+      "prefill_pcc": 1.0,
+      "decode_pcc_min": 0.9994993805885315,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/residual_linear4096/functional_outputs.pt"
+    },
+    "warmed_prefill_host_us": 764489.322,
+    "median_traced_replay_host_us": 1279.9769999999999
+  },
+  {
+    "name": "full_default",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "fused",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/split32_full4096/functional_outputs.pt",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/shared_epilogue4096/full_default.json"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 15.201611280441284,
+    "prefill_pcc": 0.9985736608505249,
+    "decode_pcc_min": 0.9957262277603149,
+    "unfused_equivalence": {
+      "prefill_pcc": 0.9999815821647644,
+      "decode_pcc_min": 0.9996370077133179,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/split32_full4096/functional_outputs.pt"
+    },
+    "warmed_prefill_host_us": 698227.728,
+    "median_traced_replay_host_us": 924.03
+  },
+  {
+    "name": "full_epilogue",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_shared_epilogue_trial",
+      "--decoder",
+      "fused",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/split32_full4096/functional_outputs.pt",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/shared_epilogue4096/full_epilogue.json"
+    ],
+    "exit_code": 1,
+    "elapsed_seconds": 15.60746169090271,
+    "prefill_pcc": 0.9979585409164429,
+    "decode_pcc_min": 0.9945282340049744,
+    "unfused_equivalence": {
+      "prefill_pcc": 0.9997881650924683,
+      "decode_pcc_min": 0.9994933009147644,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/split32_full4096/functional_outputs.pt"
+    },
+    "warmed_prefill_host_us": 698206.798,
+    "median_traced_replay_host_us": 944.96
+  }
+]

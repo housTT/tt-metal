@@ -14,9 +14,14 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--layer-type", choices=("linear_attention", "full_attention"))
+    parser.add_argument("--decoder", choices=("functional", "fused"), default="functional")
+    parser.add_argument("--fusions")
+    parser.add_argument("--evidence-dir", type=Path)
     args = parser.parse_args()
     repo_root = Path(__file__).resolve().parents[4]
-    evidence = Path(__file__).resolve().parents[1] / "doc" / "functional_decoder"
+    evidence = args.evidence_dir or (Path(__file__).resolve().parents[1] / "doc" / (args.decoder + "_decoder"))
+    evidence = evidence.resolve()
+    evidence.mkdir(parents=True, exist_ok=True)
     records = []
     for layer, kind in ((0, "linear"), (3, "full")):
         if args.layer_type and args.layer_type != kind + "_attention":
@@ -50,7 +55,11 @@ def main():
             "--profile",
             "--output",
             str(evidence / (name + ".json")),
+            "--decoder",
+            args.decoder,
         ]
+        if args.fusions is not None:
+            command.extend(("--fusions", args.fusions))
         env = dict(os.environ)
         for key in (
             "TT_METAL_WATCHER",

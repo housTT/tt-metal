@@ -1,0 +1,62 @@
+[
+  {
+    "name": "functional",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "3",
+      "--length",
+      "129",
+      "--steps",
+      "8",
+      "--trace",
+      "--audit",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/prefill_minimal129/functional.json",
+      "--save-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/prefill_minimal129/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 6.744402170181274,
+    "prefill_pcc": 0.9988479614257812,
+    "decode_pcc_min": 0.9981322288513184,
+    "unfused_equivalence": null,
+    "median_traced_replay_host_us": 1479.0245
+  },
+  {
+    "name": "prefill_minimal",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "3",
+      "--length",
+      "129",
+      "--steps",
+      "8",
+      "--trace",
+      "--audit",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/prefill_minimal129/prefill_minimal.json",
+      "--decoder",
+      "fused",
+      "--fusions",
+      "moe_gate,rope,cache,qkv,heads,gate,shared_gate,shared_minimal,prefill_minimal",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/prefill_minimal129/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 10.97940993309021,
+    "prefill_pcc": 0.9988356232643127,
+    "decode_pcc_min": 0.9981219172477722,
+    "unfused_equivalence": {
+      "prefill_pcc": 0.9999604821205139,
+      "decode_pcc_min": 0.9999489784240723,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/prefill_minimal129/functional_outputs.pt"
+    },
+    "median_traced_replay_host_us": 1243.9795
+  }
+]

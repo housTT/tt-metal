@@ -1,0 +1,102 @@
+[
+  {
+    "name": "functional",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "0",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/split32_linear4096/functional.json",
+      "--save-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/split32_linear4096/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 12.468664646148682,
+    "prefill_pcc": 0.9997017979621887,
+    "decode_pcc_min": 0.997864842414856,
+    "unfused_equivalence": null,
+    "median_traced_replay_host_us": 1923.962,
+    "warmed_prefill_host_us": 1742224.065
+  },
+  {
+    "name": "linear_split",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "0",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/split32_linear4096/linear_split.json",
+      "--decoder",
+      "fused",
+      "--fusions",
+      "moe_gate,kda_conv,gdn_heads,gdn_norm,gdn_eltwise,gdn_grouped,gdn_state_ternary,shared_gate,shared_minimal,gdn_inplace,gdn_flat_v,gdn_head_major,gdn_fused_chunk,compact_reduce,compact_routing,prefill_split",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/split32_linear4096/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 14.218841552734375,
+    "prefill_pcc": 0.9996787309646606,
+    "decode_pcc_min": 0.9978416562080383,
+    "unfused_equivalence": {
+      "prefill_pcc": 1.0,
+      "decode_pcc_min": 0.9996641278266907,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/split32_linear4096/functional_outputs.pt"
+    },
+    "median_traced_replay_host_us": 1278.8015,
+    "warmed_prefill_host_us": 777242.846
+  },
+  {
+    "name": "linear_split32",
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--layer",
+      "0",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/split32_linear4096/linear_split32.json",
+      "--decoder",
+      "fused",
+      "--fusions",
+      "moe_gate,kda_conv,gdn_heads,gdn_norm,gdn_eltwise,gdn_grouped,gdn_state_ternary,shared_gate,shared_minimal,gdn_inplace,gdn_flat_v,gdn_head_major,gdn_fused_chunk,compact_reduce,compact_routing,prefill_split32",
+      "--compare-tensors",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/split32_linear4096/functional_outputs.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 15.598999261856079,
+    "prefill_pcc": 0.9996787309646606,
+    "decode_pcc_min": 0.9978416562080383,
+    "unfused_equivalence": {
+      "prefill_pcc": 1.0,
+      "decode_pcc_min": 0.9996641278266907,
+      "source": "models/autoports/qwen_qwen3_5_35b_a3b/doc/fused_decoder/split32_linear4096/functional_outputs.pt"
+    },
+    "median_traced_replay_host_us": 1278.9360000000001,
+    "warmed_prefill_host_us": 904160.205
+  }
+]

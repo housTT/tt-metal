@@ -15,8 +15,10 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--layer-type", choices=("linear_attention", "full_attention"), required=True)
+    parser.add_argument("--evidence-dir", type=Path)
+    parser.add_argument("--policy", choices=("functional", "fused"), default="functional")
     args = parser.parse_args()
-    evidence = Path(__file__).resolve().parents[1] / "doc" / "functional_decoder"
+    evidence = args.evidence_dir or (Path(__file__).resolve().parents[1] / "doc" / "functional_decoder")
     directory = evidence / "tracy" / args.layer_type
     csv_path = directory / "ops.csv"
     if not csv_path.exists():
@@ -68,6 +70,8 @@ def main():
             sys.executable,
             "-m",
             module + "estimate_roofline",
+            "--policy",
+            args.policy,
             str(directory / "measurement.json"),
             "--layer-type",
             args.layer_type,

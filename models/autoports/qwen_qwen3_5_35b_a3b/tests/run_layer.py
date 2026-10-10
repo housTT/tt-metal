@@ -4,6 +4,7 @@
 
 import argparse
 import json
+import time
 from pathlib import Path
 
 import torch
@@ -39,6 +40,11 @@ def main():
     p.add_argument("--weights", choices=["real", "synthetic"], default="real")
     p.add_argument("--expert-precision", choices=["inherited", "bf16"], default="inherited")
     p.add_argument("--profile", action="store_true")
+    p.add_argument("--warm-prefill", action="store_true")
+    p.add_argument("--decoder", choices=["functional", "fused"], default="functional")
+    p.add_argument("--fusions", help="Comma-separated candidates, or empty for the construction control")
+    p.add_argument("--save-tensors", type=Path)
+    p.add_argument("--compare-tensors", type=Path)
     args = p.parse_args()
     if args.minimum_cache_pages < 0 or args.cache_guard_pages < 0:
         raise ValueError("Cache page counts must be nonnegative")
@@ -97,8 +103,20 @@ def main():
             ttnn.ReadDeviceProfiler(mesh)
 
     try:
-        model = FunctionalDecoder.from_state_dict(
-            state, hf_config=cfg, layer_idx=args.layer, mesh_device=mesh, expert_precision=args.expert_precision
+        decoder_class, fusion_kwargs = FunctionalDecoder, {}
+        if args.decoder == "fused":
+            from ..tt.fused_decoder import FusedDecoder
+
+            decoder_class = FusedDecoder
+            if args.fusions is not None:
+                fusion_kwargs["fusions"] = tuple(filter(None, args.fusions.split(",")))
+        model = decoder_class.from_state_dict(
+            state,
+            hf_config=cfg,
+            layer_idx=args.layer,
+            mesh_device=mesh,
+            expert_precision=args.expert_precision,
+            **fusion_kwargs,
         )
         print("TT_LAYER_READY", flush=True)
         drain_profile()
@@ -137,16 +155,21 @@ def main():
             pf_out = model.prefill_forward(px, **kw)
         pf = get(pf_out)
         pf_out.deallocate(True)
-        if args.profile:
+        warmed_prefill_host_us = None
+        if args.profile or args.warm_prefill:
             from tracy import signpost
 
             model.reset_request_state(range(args.batch))
             ttnn.synchronize_device(mesh)
             drain_profile()
-            signpost("PERF_PREFILL")
+            if args.profile:
+                signpost("PERF_PREFILL")
+            started = time.perf_counter_ns()
             measured = model.prefill_forward(px, **kw)
             ttnn.synchronize_device(mesh)
-            signpost("PERF_PREFILL_END")
+            warmed_prefill_host_us = (time.perf_counter_ns() - started) / 1000
+            if args.profile:
+                signpost("PERF_PREFILL_END")
             drain_profile()
             pf = get(measured)
             measured.deallocate(True)
@@ -154,6 +177,7 @@ def main():
             pf = pf[:, probes]
         print("PREFILL_PCC", pcc(expected_pf, pf), flush=True)
         dec, deterministic, trace_id = None, None, None
+        replay_host_us = []
         if args.steps:
             dx = put(x[:, args.length : args.length + 1])
             # Host TTNN inputs are created before capture; copies only refresh stable inputs.
@@ -191,9 +215,17 @@ def main():
                 ttnn.synchronize_device(mesh)
                 mesh.set_program_cache_misses_allowed(False)
                 tid = ttnn.begin_trace_capture(mesh, cq_id=0)
-                with audit():
-                    out = model.decode_forward(dx, **dkw)
-                ttnn.end_trace_capture(mesh, tid, cq_id=0)
+                try:
+                    with audit():
+                        out = model.decode_forward(dx, **dkw)
+                except BaseException:
+                    # An invalid candidate must not leave an active capture
+                    # for close_mesh_device to wait on indefinitely.
+                    ttnn.end_trace_capture(mesh, tid, cq_id=0)
+                    ttnn.release_trace(mesh, tid)
+                    raise
+                else:
+                    ttnn.end_trace_capture(mesh, tid, cq_id=0)
                 drain_profile()
                 trace_id = str(tid)
                 trace_allocation_tracker.acknowledge_corruptible(out)
@@ -218,7 +250,9 @@ def main():
                         ttnn.copy_host_to_device_tensor(pos_host[i], dkw["position_tensor"])
                     if args.profile:
                         signpost(f"PERF_DECODE_STEP_{i}")
+                    started = time.perf_counter_ns()
                     ttnn.execute_trace(mesh, tid, cq_id=0, blocking=True)
+                    replay_host_us.append((time.perf_counter_ns() - started) / 1000)
                     if args.profile:
                         signpost(f"PERF_DECODE_STEP_{i}_END")
                     outputs.append(get(out))
@@ -245,15 +279,31 @@ def main():
 
         source_root = Path(__file__).resolve().parents[1] / "tt"
         result = dict(
+            decoder_class=type(model).__name__,
+            runtime_components={
+                "attention": type(model.layer.attention).__name__,
+                "router": type(model.layer.feed_forward.module.router).__name__,
+                "experts": type(model.layer.feed_forward.module.experts).__name__,
+                "decode_experts": type(getattr(model.layer.feed_forward.module.experts, "original", None)).__name__,
+                "shared": type(model.layer.feed_forward.module.shared).__name__,
+            },
+            fusions=getattr(model, "fusions", None),
             layer_type=cfg.layer_types[args.layer],
             layer_idx=args.layer,
             weights=args.weights,
             implementation_sha256={
                 p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(source_root.glob("*.py"))
             },
-            gdn_recurrence="native_exact_chunk_and_sfpu_fp32_token" if args.layer == 0 else None,
+            gdn_recurrence=(
+                "native_tf32_token"
+                if "native_recurrence" in (getattr(model, "fusions", ()) or ())
+                else "native_exact_chunk_and_sfpu_fp32_token"
+            )
+            if args.layer == 0
+            else None,
             expert_precision=args.expert_precision,
             profile=args.profile,
+            warmed_prefill_host_us=warmed_prefill_host_us,
             length=args.length,
             batch=args.batch,
             decode_steps=args.steps,
@@ -275,9 +325,25 @@ def main():
             traced=args.trace,
             repeated_identical=deterministic,
             threshold=0.995,
+            traced_replay_host_us=replay_host_us,
         )
+        if args.save_tensors:
+            torch.save({"prefill": pf, "decode": dec}, args.save_tensors)
+        if args.compare_tensors:
+            control = torch.load(args.compare_tensors, weights_only=True)
+            result["unfused_equivalence"] = {
+                "prefill_pcc": pcc(control["prefill"], pf),
+                "decode_pcc_min": min(pcc(control["decode"][:, i], dec[:, i]) for i in range(args.steps))
+                if args.steps
+                else None,
+                "source": str(args.compare_tensors),
+            }
         args.output.write_text(json.dumps(result, indent=2) + "\n")
         print(json.dumps(result), flush=True)
+        if args.compare_tensors:
+            assert result["unfused_equivalence"]["prefill_pcc"] >= 0.995
+            if args.steps:
+                assert result["unfused_equivalence"]["decode_pcc_min"] >= 0.995
         assert result["prefill_pcc_min"] >= 0.995
         if args.steps:
             assert result["decode_pcc_min"] >= 0.995

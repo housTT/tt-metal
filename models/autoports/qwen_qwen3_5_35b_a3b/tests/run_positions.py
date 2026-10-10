@@ -34,6 +34,8 @@ def parse_args():
     parser.add_argument("--page-size", type=int, default=32)
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--expert-precision", choices=("inherited", "bf16"), default="inherited")
+    parser.add_argument("--decoder", choices=("functional", "fused"), default="functional")
+    parser.add_argument("--fusions")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if not 1 <= args.batch <= 32:
@@ -193,14 +195,23 @@ def main():
     }
     trace_id, trace_ended = None, False
     try:
-        model = FunctionalDecoder.from_state_dict(
+        decoder_class, fusion_kwargs = FunctionalDecoder, {}
+        if args.decoder == "fused":
+            from ..tt.fused_decoder import FusedDecoder
+
+            decoder_class = FusedDecoder
+            if args.fusions is not None:
+                fusion_kwargs["fusions"] = tuple(filter(None, args.fusions.split(",")))
+        model = decoder_class.from_state_dict(
             state,
             hf_config=cfg,
             layer_idx=args.layer,
             mesh_device=mesh,
             max_batch_size=32,
             expert_precision=args.expert_precision,
+            **fusion_kwargs,
         )
+        result.update(decoder_class=type(model).__name__, fusions=getattr(model, "fusions", None))
         # These stable buffers and every host update tensor are constructed
         # before the first capture. Replay only refreshes their contents.
         dx = put(decode_inputs[0])
