@@ -698,3 +698,6 @@ rewrite `tt/*.py`, `tests/*.py` and evidence text, which would break byte identi
 reviewed `final_evidence15` source manifest and artifacts. Logs are stored gzip-compressed
 (`*.log.gz`); raw profiler dumps, fabric/inspector output and saved tensors are excluded
 (`.gitignore`).
+
+Stage 03 checkpoint commit: `81485827def301c3a0fe99bf2aa8931dc6bf436b` on branch `feat/qwen3-5-35b-a3b` (local, not pushed;
+parent `1d857aa3`).
