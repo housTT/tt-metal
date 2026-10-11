@@ -113,10 +113,21 @@ void MoeFusedSwiGluDeviceOperation::validate_on_program_cache_miss(
         weights.emplace_back(fmt::format("w_up[{}]", e), &tensor_arguments.w_ups[e]);
         weights.emplace_back(fmt::format("w_down[{}]", e), &tensor_arguments.w_downs[e]);
     }
+    const bool stacked = operation_arguments.stacked_intermediate != 0;
     for (const auto& [name_str, weight_ptr] : weights) {
         const char* name = name_str.c_str();
         const Tensor& weight = *weight_ptr;
-        TT_FATAL(weight.logical_shape().rank() == 2, "moe_fused_swiglu: {} must have rank 2", name);
+        if (stacked) {
+            const auto& shape = weight.logical_shape();
+            TT_FATAL(
+                shape.rank() == 4 && shape[0] == 1 && shape[1] == operation_arguments.experts_per_chip,
+                "moe_fused_swiglu: stacked {} must have shape (1, experts_per_chip, K, N), got {}",
+                name,
+                shape);
+            TT_FATAL(is_dram_interleaved(weight), "moe_fused_swiglu: stacked {} must be DRAM interleaved", name);
+        } else {
+            TT_FATAL(weight.logical_shape().rank() == 2, "moe_fused_swiglu: {} must have rank 2", name);
+        }
         TT_FATAL(weight.layout() == tt::tt_metal::Layout::TILE, "moe_fused_swiglu: {} must be TILE layout", name);
         TT_FATAL(
             weight.dtype() == tt::tt_metal::DataType::BFLOAT4_B ||
@@ -132,14 +143,13 @@ void MoeFusedSwiGluDeviceOperation::validate_on_program_cache_miss(
     }
     // One program serves every expert, so a single accessor layout descriptor per role must fit
     // them all: shape and dtype are pinned to expert 0 and only the base address varies.
-    const auto weights_dtype = tensor_arguments.w_gates[0].dtype();
-    for (const auto& [name_str, weight_ptr] : weights) {
+    for (uint32_t e = 0; e < operation_arguments.experts_per_chip; ++e) {
         TT_FATAL(
-            weight_ptr->dtype() == weights_dtype,
-            "moe_fused_swiglu: {} dtype {} must match w_gate[0] ({})",
-            name_str,
-            weight_ptr->dtype(),
-            weights_dtype);
+            tensor_arguments.w_gates[e].dtype() == tensor_arguments.w_gates[0].dtype() &&
+                tensor_arguments.w_ups[e].dtype() == tensor_arguments.w_gates[0].dtype() &&
+                tensor_arguments.w_downs[e].dtype() == tensor_arguments.w_downs[0].dtype(),
+            "moe_fused_swiglu: expert {} gate/up dtype must match w_gate[0] and down dtype must match w_down[0]",
+            e);
     }
     for (uint32_t e = 1; e < operation_arguments.experts_per_chip; ++e) {
         TT_FATAL(
@@ -163,26 +173,42 @@ void MoeFusedSwiGluDeviceOperation::validate_on_program_cache_miss(
         "moe_fused_swiglu: gate and up shapes must match (got {} and {})",
         gate_shape,
         up_shape);
+    const uint32_t hidden = stacked ? operation_arguments.stacked_intermediate : gate_shape[-1];
+    if (stacked) {
+        TT_FATAL(hidden % TILE == 0, "moe_fused_swiglu: stacked_intermediate {} must be tile-aligned", hidden);
+        for (const uint32_t offset : {operation_arguments.gate_column_offset, operation_arguments.up_column_offset}) {
+            TT_FATAL(
+                offset * TILE + hidden <= gate_shape[-1],
+                "moe_fused_swiglu: column offset {} tiles plus intermediate {} exceeds stacked gate/up width {}",
+                offset,
+                hidden,
+                gate_shape[-1]);
+        }
+    } else {
+        TT_FATAL(
+            operation_arguments.gate_column_offset == 0 && operation_arguments.up_column_offset == 0,
+            "moe_fused_swiglu: column offsets require stacked weights");
+    }
     TT_FATAL(
         gate_shape[-2] == activation_shape[-1],
         "moe_fused_swiglu: gate K ({}) must equal activation embedding ({})",
         gate_shape[-2],
         activation_shape[-1]);
     TT_FATAL(
-        down_shape[-2] == gate_shape[-1],
+        down_shape[-2] == hidden,
         "moe_fused_swiglu: down K ({}) must equal gate/up hidden ({})",
         down_shape[-2],
-        gate_shape[-1]);
+        hidden);
     TT_FATAL(
         down_shape[-1] == activation_shape[-1],
         "moe_fused_swiglu: down N ({}) must equal activation embedding ({})",
         down_shape[-1],
         activation_shape[-1]);
     TT_FATAL(
-        activation_shape[-1] % TILE == 0 && gate_shape[-1] % TILE == 0,
+        activation_shape[-1] % TILE == 0 && hidden % TILE == 0,
         "moe_fused_swiglu: embedding ({}) and hidden ({}) must be tile-aligned",
         activation_shape[-1],
-        gate_shape[-1]);
+        hidden);
 
     for (const auto& [name, aux] : std::initializer_list<std::pair<const char*, const Tensor&>>{
              {"counts", tensor_arguments.counts},
@@ -446,7 +472,10 @@ ttnn::Tensor moe_fused_swiglu(
     const std::optional<ttnn::Tensor>& optional_output,
     const std::optional<ttnn::Tensor>& expert_region_offsets,
     uint32_t min_active_tokens,
-    uint32_t max_active_tokens) {
+    uint32_t max_active_tokens,
+    uint32_t stacked_intermediate,
+    uint32_t gate_column_offset,
+    uint32_t up_column_offset) {
     using OperationType = operations::experimental::deepseek_prefill::moe_fused_swiglu::MoeFusedSwiGluDeviceOperation;
     return ttnn::device_operation::launch<OperationType>(
         OperationType::operation_attributes_t{
@@ -461,6 +490,9 @@ ttnn::Tensor moe_fused_swiglu(
             // One flag rather than three: the all-or-none invariant is validated below, so the
             // kernels only need to know whether the bias adds are compiled in at all.
             .fuse_bias = !gate_biases.empty(),
+            .stacked_intermediate = stacked_intermediate,
+            .gate_column_offset = gate_column_offset,
+            .up_column_offset = up_column_offset,
             .output_dtype = output_dtype,
             .output_memory_config = output_memory_config,
             .compute_kernel_config = compute_kernel_config},

@@ -1,0 +1,82 @@
+[
+  {
+    "name": "default",
+    "policy": null,
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "multichip",
+      "--mesh",
+      "4",
+      "--layer",
+      "3",
+      "--length",
+      "2176",
+      "--steps",
+      "4",
+      "--batch",
+      "1",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/multichip_decoder/evidence1/len_m4_full_2176_s128/default.json",
+      "--compare-tensors",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence1_tensors/len_base_full_2176_s128/default.pt",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt",
+      "--split",
+      "128"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 22.38923120906111,
+    "source_stable": true,
+    "prefill_pcc": 0.9995314478874207,
+    "decode_pcc": 0.9995589852333069,
+    "prefill_host_us": 16919.823,
+    "continuation_host_us": 11457.83,
+    "prefill_token_pcc_min": 0.9914417862892151,
+    "prefill_tokens_below_0995": 1,
+    "prefill_repeat_identical": true,
+    "prefill_repeat_difference": null,
+    "decode_host_us": 386.5655,
+    "mesh_shape": [
+      1,
+      4
+    ],
+    "device_ids": [
+      3,
+      2,
+      1,
+      0
+    ],
+    "output_replicas_identical": true,
+    "control_equivalence": {
+      "prefill_pcc": 0.9999483823776245,
+      "decode_pcc_min": 0.9999927878379822,
+      "source": "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence1_tensors/len_base_full_2176_s128/default.pt",
+      "prefill_max_abs": 0.015625,
+      "decode_max_abs": 0.0009765625,
+      "prefill_identical": false,
+      "decode_identical": false
+    },
+    "weight_memory": {
+      "after_merge": {
+        "dram": {
+          "allocated_bytes": 421732352,
+          "free_bytes": 33756998656,
+          "banks": 8,
+          "largest_free_bytes_per_bank": 4013011712
+        },
+        "l1": {
+          "allocated_bytes": 901120,
+          "free_bytes": 159822080,
+          "banks": 110,
+          "largest_free_bytes_per_bank": 1452928
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,413 @@
+{
+  "device_ids": [
+    3,
+    2,
+    1,
+    0
+  ],
+  "weight_memory": {
+    "after_merge": {
+      "dram": {
+        "allocated_bytes": 421601280,
+        "free_bytes": 33757129728,
+        "banks": 8,
+        "largest_free_bytes_per_bank": 4013099776
+      },
+      "l1": {
+        "allocated_bytes": 901120,
+        "free_bytes": 159822080,
+        "banks": 110,
+        "largest_free_bytes_per_bank": 1452928
+      }
+    }
+  },
+  "input_metadata": {
+    "kind": "random_activation",
+    "seed": 1234
+  },
+  "optimization": {
+    "expert_dtype": "bfp4",
+    "expert_grid_y": 2,
+    "expert_grid_x": 8,
+    "expert_fidelity": "LoFi",
+    "expert_input_dtype": "bf16",
+    "expert_backend": "sparse",
+    "sparse_gate_cores": 8,
+    "sparse_gate_k": 64,
+    "sparse_gate_subblock": 1,
+    "sparse_down_cores": 64,
+    "sparse_down_k": 4,
+    "sparse_down_subblock": 1,
+    "sparse_split": false,
+    "sparse_indexed": true,
+    "sparse_fused_reduce": true,
+    "compact_router_dtype": true,
+    "sparse_down_dtype": "bfp8",
+    "prefill_down_cores": 32,
+    "prefill_down_k": 16,
+    "prefill_down_subblock": 2,
+    "prefill_backend": "dispatch",
+    "dispatch_dtype": "bfp8",
+    "dispatch_input_dtype": "bf16",
+    "dispatch_grid": [
+      4,
+      4
+    ],
+    "dispatch_grid_large": [
+      2048,
+      8,
+      8
+    ],
+    "dispatch_m_tiles": 0,
+    "dispatch_ffn": "fused",
+    "dispatch_hybrid_threshold": 0,
+    "dispatch_weight_nd": false,
+    "dispatch_weights": "expert_parallel",
+    "plan_cost": [],
+    "dispatch_rank": "matmul",
+    "prefill_tail_bucket": 32,
+    "prefill_buckets": [
+      2048,
+      1024,
+      256,
+      64
+    ],
+    "decode_input_fill": true,
+    "dispatch_combine": "post_combine",
+    "dispatch_tiles_from": 2048,
+    "prefill_moe_batch": true,
+    "prefill_masked_tail": true,
+    "prefill_sparse_chunk": 32,
+    "prefill_sparse_l1": false,
+    "prefill_gate_cores": 32,
+    "prefill_gate_k": 16,
+    "prefill_gate_subblock": 1,
+    "projections": {
+      "attention_in": {
+        "dtype": "bfp8",
+        "fidelity": "LoFi",
+        "prefill_minimal": {
+          "grid": [
+            11,
+            10
+          ],
+          "M_block_size": 4,
+          "K_block_size": 8,
+          "N_block_size": 16,
+          "subblock_h": 1,
+          "subblock_w": 4
+        },
+        "decode_grid": [
+          8,
+          5
+        ],
+        "k_block": 8,
+        "per_n": 2
+      },
+      "attention_out": {
+        "dtype": "bfp8",
+        "fidelity": "LoFi",
+        "decode_grid": [
+          8,
+          4
+        ],
+        "k_block": 8,
+        "per_n": 2,
+        "prefill_minimal": {
+          "grid": [
+            8,
+            8
+          ],
+          "M_block_size": 8,
+          "K_block_size": 8,
+          "N_block_size": 8,
+          "subblock_h": 2,
+          "subblock_w": 2
+        }
+      },
+      "shared_down": {
+        "dtype": "bfp8",
+        "fidelity": "LoFi",
+        "dram": false,
+        "cores": 8,
+        "k_block": 4,
+        "readers": 1,
+        "prefill_grid": [
+          8,
+          8
+        ],
+        "prefill_k": 4,
+        "decode_grid": [
+          8,
+          1
+        ],
+        "per_n": 8
+      }
+    },
+    "sdpa": {},
+    "kv_dtype": "bfp8",
+    "residual_cores": 0,
+    "decode_norm_cores": 16,
+    "decode_norm_fp32_input": false,
+    "decode_norm_output": "dram",
+    "decode_norm_fill": true,
+    "attention_decode_memory": "l1",
+    "residual_output_sharded": false,
+    "norm_fused_weight": false,
+    "shared_split": false,
+    "gate_pack": true,
+    "gate_pack_grid": [
+      8,
+      2,
+      32
+    ],
+    "gdn_l1": false,
+    "gdn_state_l1": false,
+    "gdn_l1_slots": 32,
+    "conv_chunk": 512,
+    "gdn_heads_decode": false,
+    "conv_state_rm": false,
+    "gdn_ab_split": {},
+    "gdn_flat_qk": false,
+    "release_unused_weights": true,
+    "prefill_tiled": true,
+    "prefill_chunk": 4096,
+    "shared_minimal_config": {
+      "grid": [
+        4,
+        2
+      ],
+      "M_block_size": 1,
+      "K_block_size": 16,
+      "N_block_size": 4,
+      "subblock_h": 1,
+      "subblock_w": 2
+    },
+    "prefill_minimal_config": {}
+  },
+  "mesh_shape": [
+    1,
+    4
+  ],
+  "tensor_parallel": 4,
+  "merge_stats": {
+    "sharded": 11,
+    "replicated": 87,
+    "sharded_bytes": 0
+  },
+  "construction_memory": [
+    {
+      "step": "start",
+      "device_dram_allocated_bytes": 0,
+      "host_rss_bytes": 2419167232,
+      "host_peak_rss_bytes": 2419167232
+    },
+    {
+      "step": "replica_0",
+      "device_dram_allocated_bytes": 421601280,
+      "host_rss_bytes": 2816299008,
+      "host_peak_rss_bytes": 4853501952
+    },
+    {
+      "step": "replica_1",
+      "device_dram_allocated_bytes": 805201920,
+      "host_rss_bytes": 2863034368,
+      "host_peak_rss_bytes": 4908904448
+    },
+    {
+      "step": "replica_2",
+      "device_dram_allocated_bytes": 1188802560,
+      "host_rss_bytes": 2868305920,
+      "host_peak_rss_bytes": 4956016640
+    },
+    {
+      "step": "replica_3",
+      "device_dram_allocated_bytes": 1572403200,
+      "host_rss_bytes": 2848038912,
+      "host_peak_rss_bytes": 4956631040
+    },
+    {
+      "step": "merged_before_release",
+      "device_dram_allocated_bytes": 1572403200,
+      "host_rss_bytes": 2883739648,
+      "host_peak_rss_bytes": 4956631040
+    },
+    {
+      "step": "released",
+      "device_dram_allocated_bytes": 421601280,
+      "host_rss_bytes": 2883739648,
+      "host_peak_rss_bytes": 4956631040
+    }
+  ],
+  "output_replicas_identical": true,
+  "decoder_class": "MultichipDecoder",
+  "runtime_components": {
+    "attention": "_OptimizedAttention",
+    "attention_reduce": true,
+    "feed_forward_reduce": true,
+    "router": "_OptimizedRouter",
+    "experts": "_OptimizedPrefillExperts",
+    "decode_experts": "_OptimizedSparseExperts",
+    "shared": "_OptimizedShared"
+  },
+  "fusions": [
+    "moe_gate",
+    "shared_gate",
+    "shared_minimal",
+    "rope",
+    "cache",
+    "qkv",
+    "heads",
+    "indexed_rope",
+    "gate",
+    "compact_reduce",
+    "compact_routing",
+    "prefill_split"
+  ],
+  "layer_type": "full_attention",
+  "layer_idx": 3,
+  "weights": "real",
+  "implementation_sha256": {
+    "__init__.py": "20db980a38cc5bb36a49afaff8f9838e2c77f17e5b1ef0c42b5ed918f77a1ca9",
+    "functional_attention.py": "6718df3736404f042613670f43e184e202ece215a9f7907f6358ec18326a8638",
+    "functional_decoder.py": "e8cf95298a0a17119e98a6ef99d7b6632ed472bd247091ae0e384dc5510f4c6a",
+    "functional_gdn.py": "2a5a87d7ff4d35483a1e0103951001e8610ed12f5f4af4cb15498a6e547ad37b",
+    "fused_decoder.py": "e1c244e3d565d287f26c88d889a2d7ddf49c8fd9db71ee5ea8e700d068825602",
+    "multichip_decoder.py": "8ea35c04623bef45070f78f0d180b4c4b6f9ce106b272c8643fba393e3fc2b44",
+    "optimized_decoder.py": "55eec814924b36382b9417408f591dff2934021ae2215314e3ea5d70b123f7a5"
+  },
+  "gdn_recurrence": null,
+  "expert_precision": "inherited",
+  "profile": false,
+  "warmed_prefill_host_us": null,
+  "split": null,
+  "kv_scratch_block": 3,
+  "warmed_continuation_host_us": null,
+  "prefill_repeat_identical": null,
+  "prefill_repeat_difference": null,
+  "length": 65,
+  "batch": 1,
+  "decode_steps": 31,
+  "page_size": 32,
+  "minimum_cache_pages": 0,
+  "cache_guard_pages": 0,
+  "prefill_pcc": 0.9989382028579712,
+  "prefill_pcc_min": 0.9989382028579712,
+  "prefill_token_pcc": [
+    [
+      0.9978962540626526,
+      0,
+      59
+    ],
+    [
+      0.9982448816299438,
+      0,
+      29
+    ],
+    [
+      0.9982585906982422,
+      0,
+      57
+    ],
+    [
+      0.9984919428825378,
+      0,
+      43
+    ],
+    [
+      0.9985097646713257,
+      0,
+      53
+    ],
+    [
+      0.9985185861587524,
+      0,
+      34
+    ],
+    [
+      0.9985257387161255,
+      0,
+      30
+    ],
+    [
+      0.9985647797584534,
+      0,
+      41
+    ]
+  ],
+  "prefill_tokens_below_0995": 0,
+  "decode_pcc": 0.9984050989151001,
+  "prefill_probes": null,
+  "runtime_audit": true,
+  "trace_id": "MeshTraceId(0)",
+  "decode_pcc_min": 0.9965325593948364,
+  "decode_pcc_by_token": [
+    0.9979225993156433,
+    0.9984450340270996,
+    0.9987510442733765,
+    0.9990602135658264,
+    0.9979938864707947,
+    0.9987987875938416,
+    0.9990906715393066,
+    0.9979836940765381,
+    0.9986767768859863,
+    0.9987179040908813,
+    0.9965325593948364,
+    0.998647153377533,
+    0.9982364177703857,
+    0.9994087219238281,
+    0.9990414381027222,
+    0.9980980753898621,
+    0.9986763000488281,
+    0.9985004663467407,
+    0.9987223744392395,
+    0.996579647064209,
+    0.9988906979560852,
+    0.9973629117012024,
+    0.9989614486694336,
+    0.9987882375717163,
+    0.9989933371543884,
+    0.998099684715271,
+    0.9984413981437683,
+    0.9983450770378113,
+    0.9987253546714783,
+    0.9989970326423645,
+    0.9988301396369934
+  ],
+  "traced": true,
+  "repeated_identical": true,
+  "threshold": 0.995,
+  "traced_replay_host_us": [
+    3604.936,
+    3621.488,
+    3623.491,
+    3628.101,
+    3622.128,
+    3624.574,
+    3619.584,
+    3619.884,
+    3620.877,
+    3626.126,
+    3622.409,
+    3626.868,
+    3623.912,
+    3626.267,
+    3620.836,
+    3618.672,
+    3614.765,
+    3622.86,
+    3626.117,
+    3625.706,
+    3619.033,
+    3627.358,
+    3619.364,
+    3622.66,
+    3622.219,
+    3622.77,
+    3625.715,
+    3624.433,
+    3624.844,
+    3625.496,
+    3618.161
+  ]
+}

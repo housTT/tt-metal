@@ -38,6 +38,9 @@ struct OperationArguments {
     // tensors, and hashed below so a biased and a bias-free dispatch of the same shape cannot share
     // a cached program -- the kernels select the bias adds with a compile-time FUSE_BIAS define.
     bool fuse_bias = false;
+    uint32_t stacked_intermediate = 0;
+    uint32_t gate_column_offset = 0;
+    uint32_t up_column_offset = 0;
     tt::tt_metal::DataType output_dtype = tt::tt_metal::DataType::BFLOAT8_B;
     tt::tt_metal::MemoryConfig output_memory_config{
         tt::tt_metal::TensorMemoryLayout::INTERLEAVED, tt::tt_metal::BufferType::DRAM};
@@ -53,6 +56,9 @@ struct OperationArguments {
         "max_active_tokens",
         "activation",
         "fuse_bias",
+        "stacked_intermediate",
+        "gate_column_offset",
+        "up_column_offset",
         "output_dtype",
         "output_memory_config",
         "compute_kernel_config");
@@ -68,6 +74,9 @@ struct OperationArguments {
             max_active_tokens,
             activation,
             fuse_bias,
+            stacked_intermediate,
+            gate_column_offset,
+            up_column_offset,
             output_dtype,
             output_memory_config,
             compute_kernel_config);

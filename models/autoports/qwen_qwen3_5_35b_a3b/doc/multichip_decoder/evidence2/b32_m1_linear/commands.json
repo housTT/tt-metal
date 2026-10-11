@@ -1,0 +1,90 @@
+[
+  {
+    "name": "default",
+    "policy": null,
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "multichip",
+      "--mesh",
+      "1",
+      "--layer",
+      "0",
+      "--length",
+      "129",
+      "--steps",
+      "8",
+      "--batch",
+      "32",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/multichip_decoder/evidence2/b32_m1_linear/default.json",
+      "--compare-tensors",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence2_tensors/b32_base_linear/default.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 14.415528820012696,
+    "source_stable": true,
+    "prefill_pcc": 0.9993266463279724,
+    "decode_pcc": 0.9978830218315125,
+    "prefill_host_us": 246170.93,
+    "continuation_host_us": null,
+    "prefill_token_pcc_min": 0.9972212314605713,
+    "prefill_tokens_below_0995": 0,
+    "prefill_repeat_identical": true,
+    "prefill_repeat_difference": null,
+    "decode_host_us": 22234.2055,
+    "mesh_shape": [
+      1,
+      1
+    ],
+    "device_ids": [
+      3
+    ],
+    "output_replicas_identical": true,
+    "control_equivalence": {
+      "prefill_pcc": 1.0,
+      "decode_pcc_min": 0.9999998807907104,
+      "source": "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence2_tensors/b32_base_linear/default.pt",
+      "prefill_max_abs": 0.0,
+      "decode_max_abs": 0.0,
+      "prefill_identical": true,
+      "decode_identical": true
+    },
+    "weight_memory": {
+      "before_cleanup": {
+        "dram": {
+          "allocated_bytes": 2727423488,
+          "free_bytes": 31451307520,
+          "banks": 8,
+          "largest_free_bytes_per_bank": 3929245568
+        },
+        "l1": {
+          "allocated_bytes": 901120,
+          "free_bytes": 159822080,
+          "banks": 110,
+          "largest_free_bytes_per_bank": 1452928
+        }
+      },
+      "after_cleanup": {
+        "dram": {
+          "allocated_bytes": 814717440,
+          "free_bytes": 33364013568,
+          "banks": 8,
+          "largest_free_bytes_per_bank": 3929245568
+        },
+        "l1": {
+          "allocated_bytes": 901120,
+          "free_bytes": 159822080,
+          "banks": 110,
+          "largest_free_bytes_per_bank": 1452928
+        }
+      }
+    },
+    "construction_memory": null
+  }
+]

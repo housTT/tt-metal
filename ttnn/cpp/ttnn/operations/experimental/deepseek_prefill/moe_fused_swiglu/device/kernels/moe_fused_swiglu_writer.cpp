@@ -65,6 +65,26 @@ constexpr uint32_t SEM_HROW_FREE = CT(SEM_HROW_FREE);
 constexpr uint32_t PHASE_CB_ALIAS = CT(PHASE_CB_ALIAS);
 
 constexpr uint32_t W_TILE = CT(W_TILE_BYTES);  // weight tile stride: bfp4 576, bfp8 1088, bf16 2048
+
+#ifndef MOE_GU_PITCH
+#define MOE_GU_PITCH HID_T
+#endif
+#ifndef MOE_GATE_COL0
+#define MOE_GATE_COL0 0
+#endif
+#ifndef MOE_UP_COL0
+#define MOE_UP_COL0 0
+#endif
+#ifndef MOE_GU_EXPERT_PAGES
+#define MOE_GU_EXPERT_PAGES 0
+#endif
+#ifndef MOE_WD_EXPERT_PAGES
+#define MOE_WD_EXPERT_PAGES 0
+#endif
+#ifndef MOE_WD_TILE_BYTES
+#define MOE_WD_TILE_BYTES W_TILE
+#endif
+constexpr uint32_t WD_TILE = MOE_WD_TILE_BYTES;
 constexpr uint32_t BFP8_TILE = CT(BFP8_TILE);
 // The OUTPUT tile size, which is NOT BFP8_TILE once the caller passes `dtype=`: a bf16 output
 // tile is 2048 B, and striding the write-back by 1088 would emit partial pages from wrong offsets.
@@ -268,7 +288,9 @@ void kernel_main() {
         const auto wu_acc =
             TensorAccessor(wu_args, get_common_arg_val<uint32_t>(COMMON_WEIGHTS + local_expert_id), W_TILE);
         const auto wd_acc = TensorAccessor(
-            wd_args, get_common_arg_val<uint32_t>(COMMON_WEIGHTS + EXPERTS_PER_CHIP + local_expert_id), W_TILE);
+            wd_args, get_common_arg_val<uint32_t>(COMMON_WEIGHTS + EXPERTS_PER_CHIP + local_expert_id), WD_TILE);
+        const uint32_t gu_page_base = local_expert_id * MOE_GU_EXPERT_PAGES;
+        const uint32_t wd_page_base = local_expert_id * MOE_WD_EXPERT_PAGES;
         // The reader owns the device-resident count read and publishes it to the
         // program-local aliased mailbox CB. The FIFO event makes the raw payload
         // read safe even when L1 contains bytes from an earlier program.
@@ -360,11 +382,12 @@ void kernel_main() {
                         GU_CHUNK_W,
                         kr,
                         kstart,
-                        hstart,
+                        hstart + MOE_UP_COL0,
                         hn,
-                        HID_T,
+                        MOE_GU_PITCH,
                         wp,
-                        W_TILE);
+                        W_TILE,
+                        gu_page_base);
                     noc.async_read_barrier();
                     wu_buf.push_back(WU_CHUNK_TILES);
                 }
@@ -403,8 +426,9 @@ void kernel_main() {
                         wd_ec,
                         WD_EC_MAX,
                         EMB_T,
-                        wd_base + (WD_PACKED ? hbase * WD_EC_MAX : r * WD_BLOCK_TILES) * W_TILE,
-                        W_TILE);
+                        wd_base + (WD_PACKED ? hbase * WD_EC_MAX : r * WD_BLOCK_TILES) * WD_TILE,
+                        WD_TILE,
+                        wd_page_base);
                 }
                 noc_async_read_set_trid(0);  // back to untagged for the output write-back's cmd buf
                 // DRAIN IN BLOCK ORDER, PUBLISHING AS WE GO. Costs the writer nothing over one blanket

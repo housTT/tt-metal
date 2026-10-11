@@ -1,0 +1,560 @@
+{
+ "purpose": "Stage 4 recheck of memory-layout-handoff.json against the multichip implementation.",
+ "handoff_inspected_on": "2026-10-10",
+ "source_sha256": {
+  "__init__.py": "20db980a38cc5bb36a49afaff8f9838e2c77f17e5b1ef0c42b5ed918f77a1ca9",
+  "functional_attention.py": "6718df3736404f042613670f43e184e202ece215a9f7907f6358ec18326a8638",
+  "functional_decoder.py": "e8cf95298a0a17119e98a6ef99d7b6632ed472bd247091ae0e384dc5510f4c6a",
+  "functional_gdn.py": "2a5a87d7ff4d35483a1e0103951001e8610ed12f5f4af4cb15498a6e547ad37b",
+  "fused_decoder.py": "e1c244e3d565d287f26c88d889a2d7ddf49c8fd9db71ee5ea8e700d068825602",
+  "multichip_decoder.py": "ca1c2421166d29d05080e9fa65f302d310cd807f798723d7bcaa56dee3b32b84",
+  "optimized_decoder.py": "55eec814924b36382b9417408f591dff2934021ae2215314e3ea5d70b123f7a5"
+ },
+ "ttnn_patch_sha256": "723ed3a1c343fbd0bcd159e1ba614a034f71b80b6f715930b55f767cf12e5b72",
+ "method": "tests/weight_inventory.py --decoder multichip --mesh N: root-buffer census plus allocator samples taken during construction (start, after each replica, after merge, after release) and host VmRSS/VmHWM.",
+ "items": [
+  {
+   "item": "In the appropriate optimization/multichip/full-model stages, record post-construction allocator DRAM and per-buffer identities, host RSS and setup peaks; validate implicit reference releases.",
+   "status": "addressed",
+   "evidence": "construction_steps per profile below; release confirmed by the post-release sample"
+  },
+  {
+   "item": "Create an explicit representation/consumer/last-use ownership table. Release setup-only originals only after all actual consumers have finished; preserve live trace and cache ownership.",
+   "status": "addressed",
+   "evidence": "ownership table below"
+  },
+  {
+   "item": "Avoid retaining both monolithic packed weights and copied packed groups when the selected path uses only one. Consider offset/view-compatible kernel inputs, or deallocate the unused parent after copies are complete.",
+   "status": "addressed",
+   "evidence": "no packed monolithic or grouped copies are live; dispatch reads stacked weights"
+  },
+  {
+   "item": "Construct compact BF8 descriptors from the checkpoint/cache without keeping unused fallback representations resident. Gate any dtype or math change by real correctness/quality tests.",
+   "status": "addressed",
+   "evidence": "p150 holds one BFP4 gate/up + BFP8 down copy; dispatch BFP8 lists removed (bitwise identical outputs)"
+  },
+  {
+   "item": "Reuse a down-weight backing allocation when the kernel can accept valid views/offsets; ordinary slice currently copies.",
+   "status": "addressed",
+   "evidence": "moe_fused_swiglu reads expert offsets inside one stacked tensor (stacked_intermediate)"
+  },
+  {
+   "item": "Share identical RoPE tables across full-attention layers where ownership and indexed channel conventions permit.",
+   "status": "open_full_model",
+   "evidence": "RoPE 64 MiB per full layer in the single-layer harness; full model must share one copy per mesh"
+  },
+  {
+   "item": "Implement local-expert indexing and genuinely sharded weight representations for x2/x4; do not reuse single-chip gather/replicate adapters unchanged.",
+   "status": "addressed",
+   "evidence": "TP slices and EP slices per rank (tensor_parallel_state, expert_parallel_state); no gather/replicate adapters"
+  },
+  {
+   "item": "Allow deliberately different qualified precision/representation configurations for p150 and p150x2, while optimizing p150x4. Do not silently drop either required profile.",
+   "status": "addressed",
+   "evidence": "p150 dispatch_weights=stacked; p150x2/p150x4 expert_parallel (MESH_POLICIES)"
+  },
+  {
+   "item": "Recompute this audit on the selected full-model implementation and validate real serving capacity before setting manifest context/concurrency limits.",
+   "status": "open_full_model",
+   "evidence": "capacity_model.json is a model from single-layer measurements; full model must measure"
+  }
+ ],
+ "ownership": [
+  {
+   "representation": "decode experts gate/up BFP4 [1,256,2048,2*512/tp] and down BFP8 [1,256,512/tp,2048]",
+   "consumers": [
+    "decode indexed sparse_matmul",
+    "p150 prefill dispatch (stacked mode)"
+   ],
+   "lifetime": "layer lifetime"
+  },
+  {
+   "representation": "prefill EP experts gate/up BFP4 [1,256/tp,2048,1024] and down BFP8 [1,256/tp,512,2048] (tp>1)",
+   "consumers": [
+    "prefill moe_fused_swiglu (stacked mode)"
+   ],
+   "lifetime": "layer lifetime"
+  },
+  {
+   "representation": "replica tensors before merge (tp copies of the local layer)",
+   "consumers": [
+    "merge_replicas host readback"
+   ],
+   "lifetime": "construction only; released after merge"
+  },
+  {
+   "representation": "RoPE tables, dispatch maps, zero templates, index tables",
+   "consumers": [
+    "every layer"
+   ],
+   "lifetime": "per layer in the harness; to be shared per mesh in the full model"
+  }
+ ],
+ "profiles": {
+  "p150": {
+   "linear_attention": {
+    "allocator_after_construct_mib": 761.0,
+    "by_consumer_mib": {
+     "routed_experts_decode": 560.0,
+     "attention": 67.1,
+     "gdn_recurrent_and_conv_state_slots": 63.5,
+     "routed_experts_prefill_dispatch": 36.7,
+     "shared_expert": 4.5,
+     "router": 3.3,
+     "module_cache": 1.1,
+     "index_tables": 1.0,
+     "norms": 0.2
+    },
+    "construction_steps": [],
+    "construction_peak_device_mib": 761.0,
+    "released_after_merge": true,
+    "weight_memory": {
+     "before_cleanup": {
+      "dram": {
+       "allocated_bytes": 2727423488,
+       "free_bytes": 31451307520,
+       "banks": 8,
+       "largest_free_bytes_per_bank": 3929245568
+      },
+      "l1": {
+       "allocated_bytes": 901120,
+       "free_bytes": 159822080,
+       "banks": 110,
+       "largest_free_bytes_per_bank": 1452928
+      }
+     },
+     "after_cleanup": {
+      "dram": {
+       "allocated_bytes": 814717440,
+       "free_bytes": 33364013568,
+       "banks": 8,
+       "largest_free_bytes_per_bank": 3929245568
+      },
+      "l1": {
+       "allocated_bytes": 901120,
+       "free_bytes": 159822080,
+       "banks": 110,
+       "largest_free_bytes_per_bank": 1452928
+      }
+     }
+    }
+   },
+   "full_attention": {
+    "allocator_after_construct_mib": 720.6,
+    "by_consumer_mib": {
+     "routed_experts_decode": 560.0,
+     "rope": 64.0,
+     "routed_experts_prefill_dispatch": 36.7,
+     "attention": 27.9,
+     "shared_expert": 4.5,
+     "router": 3.3,
+     "kv_cache": 1.2,
+     "module_cache": 1.1,
+     "index_tables": 1.0,
+     "norms": 0.2
+    },
+    "construction_steps": [],
+    "construction_peak_device_mib": 720.6,
+    "released_after_merge": true,
+    "weight_memory": {
+     "before_cleanup": {
+      "dram": {
+       "allocated_bytes": 2687101952,
+       "free_bytes": 31491629056,
+       "banks": 8,
+       "largest_free_bytes_per_bank": 3936169856
+      },
+      "l1": {
+       "allocated_bytes": 901120,
+       "free_bytes": 159822080,
+       "banks": 110,
+       "largest_free_bytes_per_bank": 1452928
+      }
+     },
+     "after_cleanup": {
+      "dram": {
+       "allocated_bytes": 754341888,
+       "free_bytes": 33424389120,
+       "banks": 8,
+       "largest_free_bytes_per_bank": 3936169856
+      },
+      "l1": {
+       "allocated_bytes": 901120,
+       "free_bytes": 159822080,
+       "banks": 110,
+       "largest_free_bytes_per_bank": 1452928
+      }
+     }
+    }
+   }
+  },
+  "p150x2": {
+   "linear_attention": {
+    "allocator_after_construct_mib": 680.3,
+    "by_consumer_mib": {
+     "routed_experts_prefill_dispatch": 306.8,
+     "routed_experts_decode": 280.0,
+     "attention": 33.8,
+     "gdn_recurrent_and_conv_state_slots": 31.7,
+     "router": 3.3,
+     "shared_expert": 2.3,
+     "module_cache": 1.1,
+     "index_tables": 1.0,
+     "norms": 0.2
+    },
+    "construction_steps": [
+     {
+      "step": "start",
+      "device_dram_mib": 0.0,
+      "host_rss_gib": 0.69,
+      "host_peak_rss_gib": 0.69
+     },
+     {
+      "step": "replica_0",
+      "device_dram_mib": 680.3,
+      "host_rss_gib": 2.52,
+      "host_peak_rss_gib": 6.41
+     },
+     {
+      "step": "replica_1",
+      "device_dram_mib": 1324.2,
+      "host_rss_gib": 2.63,
+      "host_peak_rss_gib": 6.5
+     },
+     {
+      "step": "merged_before_release",
+      "device_dram_mib": 1324.2,
+      "host_rss_gib": 2.61,
+      "host_peak_rss_gib": 6.5
+     },
+     {
+      "step": "released",
+      "device_dram_mib": 680.3,
+      "host_rss_gib": 2.61,
+      "host_peak_rss_gib": 6.5
+     }
+    ],
+    "construction_peak_device_mib": 1324.2,
+    "released_after_merge": true,
+    "weight_memory": {
+     "after_merge": {
+      "dram": {
+       "allocated_bytes": 713304576,
+       "free_bytes": 33465426432,
+       "banks": 8,
+       "largest_free_bytes_per_bank": 3993259712
+      },
+      "l1": {
+       "allocated_bytes": 901120,
+       "free_bytes": 159822080,
+       "banks": 110,
+       "largest_free_bytes_per_bank": 1452928
+      }
+     }
+    }
+   },
+   "full_attention": {
+    "allocator_after_construct_mib": 691.8,
+    "by_consumer_mib": {
+     "routed_experts_prefill_dispatch": 306.8,
+     "routed_experts_decode": 280.0,
+     "rope": 64.0,
+     "attention": 14.1,
+     "router": 3.3,
+     "shared_expert": 2.3,
+     "module_cache": 1.1,
+     "index_tables": 1.0,
+     "kv_cache": 0.6,
+     "norms": 0.2
+    },
+    "construction_steps": [
+     {
+      "step": "start",
+      "device_dram_mib": 0.0,
+      "host_rss_gib": 0.69,
+      "host_peak_rss_gib": 0.69
+     },
+     {
+      "step": "replica_0",
+      "device_dram_mib": 691.2,
+      "host_rss_gib": 2.55,
+      "host_peak_rss_gib": 6.39
+     },
+     {
+      "step": "replica_1",
+      "device_dram_mib": 1346.3,
+      "host_rss_gib": 2.56,
+      "host_peak_rss_gib": 6.45
+     },
+     {
+      "step": "merged_before_release",
+      "device_dram_mib": 1346.3,
+      "host_rss_gib": 2.58,
+      "host_peak_rss_gib": 6.45
+     },
+     {
+      "step": "released",
+      "device_dram_mib": 691.2,
+      "host_rss_gib": 2.58,
+      "host_peak_rss_gib": 6.45
+     }
+    ],
+    "construction_peak_device_mib": 1346.3,
+    "released_after_merge": true,
+    "weight_memory": {
+     "after_merge": {
+      "dram": {
+       "allocated_bytes": 724756480,
+       "free_bytes": 33453974528,
+       "banks": 8,
+       "largest_free_bytes_per_bank": 4016693120
+      },
+      "l1": {
+       "allocated_bytes": 901120,
+       "free_bytes": 159822080,
+       "banks": 110,
+       "largest_free_bytes_per_bank": 1452928
+      }
+     }
+    }
+   }
+  },
+  "p150x4": {
+   "linear_attention": {
+    "allocator_after_construct_mib": 364.4,
+    "by_consumer_mib": {
+     "routed_experts_prefill_dispatch": 165.7,
+     "routed_experts_decode": 140.0,
+     "attention": 17.2,
+     "gdn_recurrent_and_conv_state_slots": 15.9,
+     "router": 3.3,
+     "shared_expert": 1.2,
+     "module_cache": 1.1,
+     "index_tables": 1.0,
+     "norms": 0.2
+    },
+    "construction_steps": [
+     {
+      "step": "start",
+      "device_dram_mib": 0.0,
+      "host_rss_gib": 0.73,
+      "host_peak_rss_gib": 0.73
+     },
+     {
+      "step": "replica_0",
+      "device_dram_mib": 364.4,
+      "host_rss_gib": 2.46,
+      "host_peak_rss_gib": 4.4
+     },
+     {
+      "step": "replica_1",
+      "device_dram_mib": 692.7,
+      "host_rss_gib": 2.53,
+      "host_peak_rss_gib": 4.47
+     },
+     {
+      "step": "replica_2",
+      "device_dram_mib": 1020.9,
+      "host_rss_gib": 2.52,
+      "host_peak_rss_gib": 4.49
+     },
+     {
+      "step": "replica_3",
+      "device_dram_mib": 1349.1,
+      "host_rss_gib": 2.53,
+      "host_peak_rss_gib": 4.5
+     },
+     {
+      "step": "merged_before_release",
+      "device_dram_mib": 1349.1,
+      "host_rss_gib": 2.53,
+      "host_peak_rss_gib": 4.5
+     },
+     {
+      "step": "released",
+      "device_dram_mib": 364.4,
+      "host_rss_gib": 2.53,
+      "host_peak_rss_gib": 4.5
+     }
+    ],
+    "construction_peak_device_mib": 1349.1,
+    "released_after_merge": true,
+    "weight_memory": {
+     "after_merge": {
+      "dram": {
+       "allocated_bytes": 382149120,
+       "free_bytes": 33796581888,
+       "banks": 8,
+       "largest_free_bytes_per_bank": 4032599808
+      },
+      "l1": {
+       "allocated_bytes": 901120,
+       "free_bytes": 159822080,
+       "banks": 110,
+       "largest_free_bytes_per_bank": 1452928
+      }
+     }
+    }
+   },
+   "full_attention": {
+    "allocator_after_construct_mib": 402.8,
+    "by_consumer_mib": {
+     "routed_experts_prefill_dispatch": 165.7,
+     "routed_experts_decode": 140.0,
+     "rope": 64.0,
+     "attention": 7.7,
+     "router": 3.3,
+     "shared_expert": 1.2,
+     "module_cache": 1.1,
+     "index_tables": 1.0,
+     "kv_cache": 0.6,
+     "norms": 0.2
+    },
+    "construction_steps": [
+     {
+      "step": "start",
+      "device_dram_mib": 0.0,
+      "host_rss_gib": 0.73,
+      "host_peak_rss_gib": 0.73
+     },
+     {
+      "step": "replica_0",
+      "device_dram_mib": 402.2,
+      "host_rss_gib": 2.5,
+      "host_peak_rss_gib": 4.4
+     },
+     {
+      "step": "replica_1",
+      "device_dram_mib": 768.3,
+      "host_rss_gib": 2.56,
+      "host_peak_rss_gib": 4.46
+     },
+     {
+      "step": "replica_2",
+      "device_dram_mib": 1134.4,
+      "host_rss_gib": 2.58,
+      "host_peak_rss_gib": 4.52
+     },
+     {
+      "step": "replica_3",
+      "device_dram_mib": 1500.5,
+      "host_rss_gib": 2.62,
+      "host_peak_rss_gib": 4.54
+     },
+     {
+      "step": "merged_before_release",
+      "device_dram_mib": 1500.5,
+      "host_rss_gib": 2.63,
+      "host_peak_rss_gib": 4.54
+     },
+     {
+      "step": "released",
+      "device_dram_mib": 402.2,
+      "host_rss_gib": 2.57,
+      "host_peak_rss_gib": 4.54
+     }
+    ],
+    "construction_peak_device_mib": 1500.5,
+    "released_after_merge": true,
+    "weight_memory": {
+     "after_merge": {
+      "dram": {
+       "allocated_bytes": 421732352,
+       "free_bytes": 33756998656,
+       "banks": 8,
+       "largest_free_bytes_per_bank": 4013011712
+      },
+      "l1": {
+       "allocated_bytes": 901120,
+       "free_bytes": 159822080,
+       "banks": 110,
+       "largest_free_bytes_per_bank": 1452928
+      }
+     }
+    }
+   }
+  }
+ },
+ "construction_transient_peaks": {
+  "method": "p150: weight_memory before_cleanup inside OptimizedDecoder.from_state_dict. p150x2/p150x4: inventory/replica_peaks/replica_peaks.py wraps MultichipDecoder._replica and records each replica's before/after-cleanup allocator total (device-wide, so later replicas include earlier ones).",
+  "peaks": {
+   "m2_layer0": {
+    "peak_before_cleanup_mib": 1976.6,
+    "per_replica_mib": [
+     {
+      "before_cleanup": 1332.4,
+      "after_cleanup": 420.3
+     },
+     {
+      "before_cleanup": 1976.6,
+      "after_cleanup": 1064.5
+     }
+    ]
+   },
+   "m2_layer3": {
+    "peak_before_cleanup_mib": 2000.3,
+    "per_replica_mib": [
+     {
+      "before_cleanup": 1345.1,
+      "after_cleanup": 423.4
+     },
+     {
+      "before_cleanup": 2000.3,
+      "after_cleanup": 1078.7
+     }
+    ]
+   },
+   "m4_layer0": {
+    "peak_before_cleanup_mib": 1683.0,
+    "per_replica_mib": [
+     {
+      "before_cleanup": 698.1,
+      "after_cleanup": 242.0
+     },
+     {
+      "before_cleanup": 1026.6,
+      "after_cleanup": 570.5
+     },
+     {
+      "before_cleanup": 1354.8,
+      "after_cleanup": 898.7
+     },
+     {
+      "before_cleanup": 1683.0,
+      "after_cleanup": 1226.9
+     }
+    ]
+   },
+   "m4_layer3": {
+    "peak_before_cleanup_mib": 1835.8,
+    "per_replica_mib": [
+     {
+      "before_cleanup": 737.3,
+      "after_cleanup": 275.9
+     },
+     {
+      "before_cleanup": 1103.6,
+      "after_cleanup": 642.2
+     },
+     {
+      "before_cleanup": 1469.7,
+      "after_cleanup": 1008.3
+     },
+     {
+      "before_cleanup": 1835.8,
+      "after_cleanup": 1374.4
+     }
+    ]
+   },
+   "m1_layer0": {
+    "peak_before_cleanup_mib": 2601.1,
+    "after_cleanup_mib": 777.0
+   },
+   "m1_layer3": {
+    "peak_before_cleanup_mib": 2562.6,
+    "after_cleanup_mib": 719.4
+   }
+  },
+  "full_model_note": "A layer-by-layer build adds at most this per-layer transient on top of the resident earlier layers; replicas and setup copies are released before the next layer starts."
+ }
+}

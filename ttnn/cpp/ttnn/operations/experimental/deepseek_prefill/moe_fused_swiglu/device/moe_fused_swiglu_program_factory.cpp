@@ -7,6 +7,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdlib>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -381,12 +382,17 @@ tt::tt_metal::ProgramDescriptor create_moe_fused_swiglu_program_descriptor(
     const CoreRangeSet all_cores{CoreRange({0, 0}, {hgroups - 1, kgroups - 1})};
 
     const uint32_t emb = tensor_arguments.activations.logical_shape()[-1];
-    const uint32_t hidden = tensor_arguments.w_gates[0].logical_shape()[-1];
+    const bool stacked = operation_arguments.stacked_intermediate != 0;
+    const uint32_t hidden =
+        stacked ? operation_arguments.stacked_intermediate : tensor_arguments.w_gates[0].logical_shape()[-1];
     const bool activations_are_row_major = tensor_arguments.activations.layout() == Layout::ROW_MAJOR;
     const DataFormat weight_format = datatype_to_dataformat_converter(tensor_arguments.w_gates[0].dtype());
+    const DataFormat down_format = datatype_to_dataformat_converter(tensor_arguments.w_downs[0].dtype());
     const DataFormat output_format = datatype_to_dataformat_converter(tensor_return_value.dtype());
     const DataFormat activation_format = datatype_to_dataformat_converter(tensor_arguments.activations.dtype());
-    const uint32_t weight_tile = tile_size(weight_format);
+    const uint32_t gate_up_tile = tile_size(weight_format);
+    const uint32_t down_tile = tile_size(down_format);
+    const uint32_t weight_tile = gate_up_tile;
     const uint32_t bfp8_tile = tile_size(DataFormat::Bfp8_b);
     const uint32_t bf16_tile = tile_size(DataFormat::Float16_b);
     const uint32_t output_tile = tile_size(output_format);
@@ -402,7 +408,7 @@ tt::tt_metal::ProgramDescriptor create_moe_fused_swiglu_program_descriptor(
         emb,
         hidden,
         operation_arguments.m_tiles,
-        weight_tile,
+        std::max(gate_up_tile, down_tile),
         bfp8_tile,
         bf16_tile,
         activation_slice,
@@ -411,6 +417,8 @@ tt::tt_metal::ProgramDescriptor create_moe_fused_swiglu_program_descriptor(
         /*enable_phase_alias_=*/true,
         activations_are_row_major,
         operation_arguments.fuse_bias);
+    blocking.gu_tile = gate_up_tile;
+    blocking.wd_tile = down_tile;
 
     const bool direct_write = tensor_arguments.expert_region_offsets.has_value();
     const Tensor& start_tensor = direct_write ? *tensor_arguments.expert_region_offsets : tensor_arguments.counts;
@@ -440,7 +448,9 @@ tt::tt_metal::ProgramDescriptor create_moe_fused_swiglu_program_descriptor(
         for (const auto& view : allocation.views) {
             cb_descriptor.format_descriptors.push_back(CBFormatDescriptor{
                 .buffer_index = static_cast<uint8_t>(view.index),
-                .data_format = format_for(view.format, weight_format, output_format, activation_format),
+                .data_format = view.index == geo::CB_W_DOWN
+                                   ? down_format
+                                   : format_for(view.format, weight_format, output_format, activation_format),
                 .page_size = view.page_size,
             });
         }
@@ -558,6 +568,20 @@ tt::tt_metal::ProgramDescriptor create_moe_fused_swiglu_program_descriptor(
     auto compute_ct = make_compute_ct(blocking, experts_per_chip, activations_are_row_major);
 
     KernelDescriptor::Defines dataflow_defines{{"H_MCAST_POSTED", geo::H_MCAST_POSTED ? "1" : "0"}};
+    if (down_tile != gate_up_tile) {
+        dataflow_defines.emplace_back("MOE_WD_TILE_BYTES", std::to_string(down_tile));
+    }
+    if (stacked) {
+        const auto& gate_up_shape = tensor_arguments.w_gates[0].padded_shape();
+        const auto& down_shape = tensor_arguments.w_downs[0].padded_shape();
+        const uint32_t pitch = gate_up_shape[-1] / geo::TILE;
+        dataflow_defines.emplace_back("MOE_GU_PITCH", std::to_string(pitch));
+        dataflow_defines.emplace_back("MOE_GATE_COL0", std::to_string(operation_arguments.gate_column_offset));
+        dataflow_defines.emplace_back("MOE_UP_COL0", std::to_string(operation_arguments.up_column_offset));
+        dataflow_defines.emplace_back("MOE_GU_EXPERT_PAGES", std::to_string((gate_up_shape[-2] / geo::TILE) * pitch));
+        dataflow_defines.emplace_back(
+            "MOE_WD_EXPERT_PAGES", std::to_string((down_shape[-2] / geo::TILE) * (down_shape[-1] / geo::TILE)));
+    }
     if (operation_arguments.fuse_bias) {
         dataflow_defines.emplace_back("FUSE_BIAS", "1");
     }

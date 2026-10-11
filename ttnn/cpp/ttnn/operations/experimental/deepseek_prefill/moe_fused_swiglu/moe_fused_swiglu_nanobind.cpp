@@ -37,9 +37,14 @@ void bind_moe_fused_swiglu(nb::module_& mod) {
         leaves the rest to another.
 
         The input activations must be BFLOAT16 ROW_MAJOR or BFLOAT8_B TILE. All weights
-        must be TILE and share BFLOAT4_B, BFLOAT8_B, or BFLOAT16 dtype, and every
-        expert's weights must share the layout of expert 0 -- one accessor layout
-        descriptor per role serves the whole loop. The default output is
+        must be TILE with BFLOAT4_B, BFLOAT8_B, or BFLOAT16 dtype. Gate and up share one
+        dtype; down may use another. Every expert's weights must share the layout of
+        expert 0 -- one accessor layout descriptor per role serves the whole loop.
+
+        ``stacked_intermediate`` selects stacked mode: each weight list holds one
+        (1, E, K, N) DRAM-interleaved tensor serving all E local experts, and gate and up
+        may be the same tensor. ``gate_column_offset`` and ``up_column_offset`` (tiles)
+        select each role's ``stacked_intermediate``-wide column range of that tensor. The default output is
         BFLOAT8_B TILE in DRAM. By default all cores in the device's
         compute-with-storage grid are used. ``core_grid=(x, y)`` is an explicit
         rectangular-prefix override.
@@ -65,7 +70,10 @@ void bind_moe_fused_swiglu(nb::module_& mod) {
         nb::arg("up_biases") = nb::none(),
         nb::arg("down_biases") = nb::none(),
         nb::arg("min_active_tokens") = 0,
-        nb::arg("max_active_tokens") = std::numeric_limits<uint32_t>::max());
+        nb::arg("max_active_tokens") = std::numeric_limits<uint32_t>::max(),
+        nb::arg("stacked_intermediate") = nb::none(),
+        nb::arg("gate_column_offset") = 0,
+        nb::arg("up_column_offset") = 0);
 }
 
 }  // namespace ttnn::operations::experimental::deepseek_prefill::moe_fused_swiglu::detail

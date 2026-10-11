@@ -1,0 +1,80 @@
+[
+  {
+    "name": "default",
+    "policy": null,
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "multichip",
+      "--mesh",
+      "2",
+      "--layer",
+      "3",
+      "--length",
+      "2176",
+      "--steps",
+      "4",
+      "--batch",
+      "1",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/multichip_decoder/evidence1/len_m2_full_2176_s128/default.json",
+      "--compare-tensors",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence1_tensors/len_base_full_2176_s128/default.pt",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt",
+      "--split",
+      "128"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 22.800614178995602,
+    "source_stable": true,
+    "prefill_pcc": 0.9995368123054504,
+    "decode_pcc": 0.9995710253715515,
+    "prefill_host_us": 18556.198,
+    "continuation_host_us": 12033.582,
+    "prefill_token_pcc_min": 0.9914198517799377,
+    "prefill_tokens_below_0995": 1,
+    "prefill_repeat_identical": true,
+    "prefill_repeat_difference": null,
+    "decode_host_us": 419.1485,
+    "mesh_shape": [
+      1,
+      2
+    ],
+    "device_ids": [
+      1,
+      0
+    ],
+    "output_replicas_identical": true,
+    "control_equivalence": {
+      "prefill_pcc": 0.9999552965164185,
+      "decode_pcc_min": 0.9999938011169434,
+      "source": "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence1_tensors/len_base_full_2176_s128/default.pt",
+      "prefill_max_abs": 0.015625,
+      "decode_max_abs": 0.001953125,
+      "prefill_identical": false,
+      "decode_identical": false
+    },
+    "weight_memory": {
+      "after_merge": {
+        "dram": {
+          "allocated_bytes": 724756480,
+          "free_bytes": 33453974528,
+          "banks": 8,
+          "largest_free_bytes_per_bank": 4016693120
+        },
+        "l1": {
+          "allocated_bytes": 901120,
+          "free_bytes": 159822080,
+          "banks": 110,
+          "largest_free_bytes_per_bank": 1452928
+        }
+      }
+    }
+  }
+]

@@ -193,6 +193,8 @@ public:
     uint32_t depth_h;
     uint32_t hack_ahead;
     uint32_t w_tile;
+    uint32_t gu_tile;
+    uint32_t wd_tile;
     uint32_t bfp8_tile;
     uint32_t bf16_tile;
     uint32_t x_stick;

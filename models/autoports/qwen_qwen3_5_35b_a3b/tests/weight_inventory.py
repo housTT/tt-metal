@@ -14,6 +14,8 @@ def main():
     p.add_argument("--layer", type=int, choices=[0, 3], required=True)
     p.add_argument("--checkpoint", type=Path, default=Path("../weights/Qwen3.5-35B-A3B"))
     p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--decoder", choices=("optimized", "multichip"), default="optimized")
+    p.add_argument("--mesh", type=int, choices=(1, 2, 4), default=1)
     args = p.parse_args()
 
     import ttnn
@@ -25,8 +27,12 @@ def main():
     cfg = AutoConfig.from_pretrained(args.checkpoint, local_files_only=True).text_config
     cfg._attn_implementation = "eager"
     state = load_layer_state_dict(args.checkpoint, args.layer)
+    from .mesh_util import decoder_class, open_mesh
+
     dev = int(os.environ.get("QDEV", "0"))
-    mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0, physical_device_ids=[dev])
+    if args.mesh == 1:
+        os.environ.setdefault("QDEV", str(dev))
+    mesh = open_mesh(args.mesh)
 
     def allocated():
         view = ttnn.get_memory_view(mesh, ttnn.BufferType.DRAM)
@@ -34,10 +40,10 @@ def main():
 
     try:
         baseline, total = allocated()
-        model = od.OptimizedDecoder.from_state_dict(state, hf_config=cfg, layer_idx=args.layer, mesh_device=mesh,
-                                                     expert_precision="inherited")
+        model = decoder_class(args.decoder).from_state_dict(state, hf_config=cfg, layer_idx=args.layer,
+                                                             mesh_device=mesh, expert_precision="inherited")
         if cfg.layer_types[args.layer] == "full_attention":
-            kc = ttnn.zeros((35, cfg.num_key_value_heads, 32, cfg.head_dim), dtype=ttnn.bfloat8_b,
+            kc = ttnn.zeros((35, model.config.n_kv_heads, 32, cfg.head_dim), dtype=ttnn.bfloat8_b,
                             layout=ttnn.TILE_LAYOUT, device=mesh, memory_config=ttnn.DRAM_MEMORY_CONFIG)
             model.bind_paged_kv_cache(kc, ttnn.zeros_like(kc))
         after, _ = allocated()
@@ -94,8 +100,10 @@ def main():
         named = sum(r["bytes"] for r in rows if r["buffer"].endswith("DRAM"))
         result = dict(
             layer_idx=args.layer, layer_type=cfg.layer_types[args.layer], device=dev,
-            optimization=od.DEFAULT_POLICIES[cfg.layer_types[args.layer]],
+            decoder=args.decoder, mesh_shape=list(mesh.shape), device_ids=list(mesh.get_device_ids()),
+            optimization=__import__("dataclasses").asdict(model.optimization),
             weight_memory=getattr(model, "weight_memory", None),
+            construction_memory=getattr(model, "construction_memory", None),
             allocator=dict(baseline_bytes=baseline, after_construct_bytes=after, delta_bytes=after - baseline,
                            total_dram_bytes=total),
             named_dram_payload_bytes=named,

@@ -52,7 +52,10 @@ ttnn::Tensor moe_fused_swiglu(
     // dropped like a zero count. Wide open by default; a hybrid dispatch narrows it so this
     // op and unified_routed_expert_moe split the experts by load over ONE counts vector.
     uint32_t min_active_tokens = 0,
-    uint32_t max_active_tokens = std::numeric_limits<uint32_t>::max());
+    uint32_t max_active_tokens = std::numeric_limits<uint32_t>::max(),
+    const std::optional<uint32_t>& stacked_intermediate = std::nullopt,
+    uint32_t gate_column_offset = 0,
+    uint32_t up_column_offset = 0);
 
 }  // namespace ttnn::operations::experimental::deepseek_prefill::moe_fused_swiglu
 

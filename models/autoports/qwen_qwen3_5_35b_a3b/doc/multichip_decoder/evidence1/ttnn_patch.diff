@@ -1,0 +1,589 @@
+diff --git a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/kernels/moe_fused_swiglu_dataflow.hpp b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/kernels/moe_fused_swiglu_dataflow.hpp
+index 485e05eb..1d149151 100644
+--- a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/kernels/moe_fused_swiglu_dataflow.hpp
++++ b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/kernels/moe_fused_swiglu_dataflow.hpp
+@@ -102,7 +102,8 @@ FORCE_INLINE void read_weight_chunk(
+     uint32_t hn_cols,
+     uint32_t hid_t,
+     uint32_t l1_base,
+-    uint32_t tile_bytes) {
++    uint32_t tile_bytes,
++    uint32_t page_base = 0) {
+     const uint32_t chunk_col0 = chunk * chunk_w;
+     uint32_t w = (chunk_col0 < hn_cols) ? (hn_cols - chunk_col0) : 0;
+     if (w > chunk_w) {
+@@ -114,7 +115,7 @@ FORCE_INLINE void read_weight_chunk(
+     for (uint32_t k = 0; k < kr_rows; ++k) {
+         Runs::read(
+             acc,
+-            (kstart + k) * hid_t,
++            page_base + (kstart + k) * hid_t,
+             hstart + chunk_col0,
+             hstart + chunk_col0 + w,
+             l1_base + k * chunk_w * tile_bytes,
+@@ -136,11 +137,12 @@ FORCE_INLINE void read_wd_rows(
+     uint32_t ec_max,
+     uint32_t emb_t,
+     uint32_t slot_base,
+-    uint32_t tile_bytes) {
++    uint32_t tile_bytes,
++    uint32_t page_base = 0) {
+     for (uint32_t k = k_lo; k < k_hi; ++k) {
+         Runs::read(
+             acc,
+-            (hbase + k) * emb_t,
++            page_base + (hbase + k) * emb_t,
+             out_col_start,
+             out_col_start + ec,
+             slot_base + k * ec_max * tile_bytes,
+diff --git a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/kernels/moe_fused_swiglu_reader.cpp b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/kernels/moe_fused_swiglu_reader.cpp
+index 0aea7d0b..fac8bab4 100644
+--- a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/kernels/moe_fused_swiglu_reader.cpp
++++ b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/kernels/moe_fused_swiglu_reader.cpp
+@@ -106,6 +106,26 @@ constexpr uint32_t NUM_GLOBAL_EXPERTS = CT(NUM_GLOBAL_EXPERTS);
+ // offsets, which are device-produced and so beyond anything the host can check.
+ constexpr uint32_t ROW_CAPACITY = CT(ROW_CAPACITY);
+ constexpr uint32_t W_TILE = CT(W_TILE_BYTES);  // weight tile stride: bfp4 576, bfp8 1088, bf16 2048
++
++#ifndef MOE_GU_PITCH
++#define MOE_GU_PITCH HID_T
++#endif
++#ifndef MOE_GATE_COL0
++#define MOE_GATE_COL0 0
++#endif
++#ifndef MOE_UP_COL0
++#define MOE_UP_COL0 0
++#endif
++#ifndef MOE_GU_EXPERT_PAGES
++#define MOE_GU_EXPERT_PAGES 0
++#endif
++#ifndef MOE_WD_EXPERT_PAGES
++#define MOE_WD_EXPERT_PAGES 0
++#endif
++#ifndef MOE_WD_TILE_BYTES
++#define MOE_WD_TILE_BYTES W_TILE
++#endif
++constexpr uint32_t WD_TILE = MOE_WD_TILE_BYTES;
+ constexpr uint32_t BFP8_TILE = CT(BFP8_TILE);
+ // h is bfp8, like x, the output and the reduce operands. It cannot be bfp4: the packer emits bfp8,
+ // so a bfp4 h CB would be decoded through the wrong format.
+@@ -428,7 +448,9 @@ void kernel_main() {
+         const auto wg_acc =
+             TensorAccessor(wg_args, get_common_arg_val<uint32_t>(COMMON_WEIGHTS + local_expert_id), W_TILE);
+         const auto wd_acc = TensorAccessor(
+-            wd_args, get_common_arg_val<uint32_t>(COMMON_WEIGHTS + EXPERTS_PER_CHIP + local_expert_id), W_TILE);
++            wd_args, get_common_arg_val<uint32_t>(COMMON_WEIGHTS + EXPERTS_PER_CHIP + local_expert_id), WD_TILE);
++        const uint32_t gu_page_base = local_expert_id * MOE_GU_EXPERT_PAGES;
++        const uint32_t wd_page_base = local_expert_id * MOE_WD_EXPERT_PAGES;
+ #ifdef FUSE_BIAS
+         // This expert's bias windows, fetched once. Gate/up take the COLUMN's whole HN_PAD window
+         // rather than a per-core slice: after the reduce-scatter a core's gate/up slice is a flat
+@@ -662,7 +684,18 @@ void kernel_main() {
+                 MaybeDeviceZoneScope("reader_wg_issue");
+                 const uint32_t wg_wp = get_write_ptr(cb_w_gate);
+                 moe_fused_swiglu::read_weight_chunk<BRG>(
+-                    wg_acc, read_wg, c, GU_CHUNK_W, kr_rows, kstart, hstart, hn_cols, HID_T, wg_wp, W_TILE);
++                    wg_acc,
++                    read_wg,
++                    c,
++                    GU_CHUNK_W,
++                    kr_rows,
++                    kstart,
++                    hstart + MOE_GATE_COL0,
++                    hn_cols,
++                    MOE_GU_PITCH,
++                    wg_wp,
++                    W_TILE,
++                    gu_page_base);
+             };
+             // WHERE the tail chunks are issued is the whole result: issuing all GU_CHUNKS here
+             // matters: the x staging prologue's read barrier is all-or-nothing, so issuing every chunk
+@@ -870,8 +903,9 @@ void kernel_main() {
+                             wd_out_width,
+                             WD_EC_MAX,
+                             EMB_T,
+-                            WD_PACKED ? wd_base + hbase * WD_EC_MAX * W_TILE : write_ptr + r * WD_BLOCK_TILES * W_TILE,
+-                            W_TILE);
++                            WD_PACKED ? wd_base + hbase * WD_EC_MAX * WD_TILE : write_ptr + r * WD_BLOCK_TILES * WD_TILE,
++                            WD_TILE,
++                            wd_page_base);
+                     }
+                 }
+             };
+@@ -1247,8 +1281,9 @@ void kernel_main() {
+                                     wd_out_width,
+                                     WD_EC_MAX,
+                                     EMB_T,
+-                                    WD_PACKED ? wd_base + hbase * WD_EC_MAX * W_TILE : write_ptr,
+-                                    W_TILE);
++                                    WD_PACKED ? wd_base + hbase * WD_EC_MAX * WD_TILE : write_ptr,
++                                    WD_TILE,
++                                    wd_page_base);
+                             }
+                             wd_pending = true;
+                         }
+diff --git a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/kernels/moe_fused_swiglu_writer.cpp b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/kernels/moe_fused_swiglu_writer.cpp
+index 990ca3ea..214bcecb 100644
+--- a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/kernels/moe_fused_swiglu_writer.cpp
++++ b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/kernels/moe_fused_swiglu_writer.cpp
+@@ -65,6 +65,26 @@ constexpr uint32_t SEM_HROW_FREE = CT(SEM_HROW_FREE);
+ constexpr uint32_t PHASE_CB_ALIAS = CT(PHASE_CB_ALIAS);
+ 
+ constexpr uint32_t W_TILE = CT(W_TILE_BYTES);  // weight tile stride: bfp4 576, bfp8 1088, bf16 2048
++
++#ifndef MOE_GU_PITCH
++#define MOE_GU_PITCH HID_T
++#endif
++#ifndef MOE_GATE_COL0
++#define MOE_GATE_COL0 0
++#endif
++#ifndef MOE_UP_COL0
++#define MOE_UP_COL0 0
++#endif
++#ifndef MOE_GU_EXPERT_PAGES
++#define MOE_GU_EXPERT_PAGES 0
++#endif
++#ifndef MOE_WD_EXPERT_PAGES
++#define MOE_WD_EXPERT_PAGES 0
++#endif
++#ifndef MOE_WD_TILE_BYTES
++#define MOE_WD_TILE_BYTES W_TILE
++#endif
++constexpr uint32_t WD_TILE = MOE_WD_TILE_BYTES;
+ constexpr uint32_t BFP8_TILE = CT(BFP8_TILE);
+ // The OUTPUT tile size, which is NOT BFP8_TILE once the caller passes `dtype=`: a bf16 output
+ // tile is 2048 B, and striding the write-back by 1088 would emit partial pages from wrong offsets.
+@@ -268,7 +288,9 @@ void kernel_main() {
+         const auto wu_acc =
+             TensorAccessor(wu_args, get_common_arg_val<uint32_t>(COMMON_WEIGHTS + local_expert_id), W_TILE);
+         const auto wd_acc = TensorAccessor(
+-            wd_args, get_common_arg_val<uint32_t>(COMMON_WEIGHTS + EXPERTS_PER_CHIP + local_expert_id), W_TILE);
++            wd_args, get_common_arg_val<uint32_t>(COMMON_WEIGHTS + EXPERTS_PER_CHIP + local_expert_id), WD_TILE);
++        const uint32_t gu_page_base = local_expert_id * MOE_GU_EXPERT_PAGES;
++        const uint32_t wd_page_base = local_expert_id * MOE_WD_EXPERT_PAGES;
+         // The reader owns the device-resident count read and publishes it to the
+         // program-local aliased mailbox CB. The FIFO event makes the raw payload
+         // read safe even when L1 contains bytes from an earlier program.
+@@ -360,11 +382,12 @@ void kernel_main() {
+                         GU_CHUNK_W,
+                         kr,
+                         kstart,
+-                        hstart,
++                        hstart + MOE_UP_COL0,
+                         hn,
+-                        HID_T,
++                        MOE_GU_PITCH,
+                         wp,
+-                        W_TILE);
++                        W_TILE,
++                        gu_page_base);
+                     noc.async_read_barrier();
+                     wu_buf.push_back(WU_CHUNK_TILES);
+                 }
+@@ -403,8 +426,9 @@ void kernel_main() {
+                         wd_ec,
+                         WD_EC_MAX,
+                         EMB_T,
+-                        wd_base + (WD_PACKED ? hbase * WD_EC_MAX : r * WD_BLOCK_TILES) * W_TILE,
+-                        W_TILE);
++                        wd_base + (WD_PACKED ? hbase * WD_EC_MAX : r * WD_BLOCK_TILES) * WD_TILE,
++                        WD_TILE,
++                        wd_page_base);
+                 }
+                 noc_async_read_set_trid(0);  // back to untagged for the output write-back's cmd buf
+                 // DRAIN IN BLOCK ORDER, PUBLISHING AS WE GO. Costs the writer nothing over one blanket
+diff --git a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_device_operation.cpp b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_device_operation.cpp
+index 4845817b..43b04652 100644
+--- a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_device_operation.cpp
++++ b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_device_operation.cpp
+@@ -113,10 +113,21 @@ void MoeFusedSwiGluDeviceOperation::validate_on_program_cache_miss(
+         weights.emplace_back(fmt::format("w_up[{}]", e), &tensor_arguments.w_ups[e]);
+         weights.emplace_back(fmt::format("w_down[{}]", e), &tensor_arguments.w_downs[e]);
+     }
++    const bool stacked = operation_arguments.stacked_intermediate != 0;
+     for (const auto& [name_str, weight_ptr] : weights) {
+         const char* name = name_str.c_str();
+         const Tensor& weight = *weight_ptr;
+-        TT_FATAL(weight.logical_shape().rank() == 2, "moe_fused_swiglu: {} must have rank 2", name);
++        if (stacked) {
++            const auto& shape = weight.logical_shape();
++            TT_FATAL(
++                shape.rank() == 4 && shape[0] == 1 && shape[1] == operation_arguments.experts_per_chip,
++                "moe_fused_swiglu: stacked {} must have shape (1, experts_per_chip, K, N), got {}",
++                name,
++                shape);
++            TT_FATAL(is_dram_interleaved(weight), "moe_fused_swiglu: stacked {} must be DRAM interleaved", name);
++        } else {
++            TT_FATAL(weight.logical_shape().rank() == 2, "moe_fused_swiglu: {} must have rank 2", name);
++        }
+         TT_FATAL(weight.layout() == tt::tt_metal::Layout::TILE, "moe_fused_swiglu: {} must be TILE layout", name);
+         TT_FATAL(
+             weight.dtype() == tt::tt_metal::DataType::BFLOAT4_B ||
+@@ -132,14 +143,13 @@ void MoeFusedSwiGluDeviceOperation::validate_on_program_cache_miss(
+     }
+     // One program serves every expert, so a single accessor layout descriptor per role must fit
+     // them all: shape and dtype are pinned to expert 0 and only the base address varies.
+-    const auto weights_dtype = tensor_arguments.w_gates[0].dtype();
+-    for (const auto& [name_str, weight_ptr] : weights) {
++    for (uint32_t e = 0; e < operation_arguments.experts_per_chip; ++e) {
+         TT_FATAL(
+-            weight_ptr->dtype() == weights_dtype,
+-            "moe_fused_swiglu: {} dtype {} must match w_gate[0] ({})",
+-            name_str,
+-            weight_ptr->dtype(),
+-            weights_dtype);
++            tensor_arguments.w_gates[e].dtype() == tensor_arguments.w_gates[0].dtype() &&
++                tensor_arguments.w_ups[e].dtype() == tensor_arguments.w_gates[0].dtype() &&
++                tensor_arguments.w_downs[e].dtype() == tensor_arguments.w_downs[0].dtype(),
++            "moe_fused_swiglu: expert {} gate/up dtype must match w_gate[0] and down dtype must match w_down[0]",
++            e);
+     }
+     for (uint32_t e = 1; e < operation_arguments.experts_per_chip; ++e) {
+         TT_FATAL(
+@@ -163,26 +173,42 @@ void MoeFusedSwiGluDeviceOperation::validate_on_program_cache_miss(
+         "moe_fused_swiglu: gate and up shapes must match (got {} and {})",
+         gate_shape,
+         up_shape);
++    const uint32_t hidden = stacked ? operation_arguments.stacked_intermediate : gate_shape[-1];
++    if (stacked) {
++        TT_FATAL(hidden % TILE == 0, "moe_fused_swiglu: stacked_intermediate {} must be tile-aligned", hidden);
++        for (const uint32_t offset : {operation_arguments.gate_column_offset, operation_arguments.up_column_offset}) {
++            TT_FATAL(
++                offset * TILE + hidden <= gate_shape[-1],
++                "moe_fused_swiglu: column offset {} tiles plus intermediate {} exceeds stacked gate/up width {}",
++                offset,
++                hidden,
++                gate_shape[-1]);
++        }
++    } else {
++        TT_FATAL(
++            operation_arguments.gate_column_offset == 0 && operation_arguments.up_column_offset == 0,
++            "moe_fused_swiglu: column offsets require stacked weights");
++    }
+     TT_FATAL(
+         gate_shape[-2] == activation_shape[-1],
+         "moe_fused_swiglu: gate K ({}) must equal activation embedding ({})",
+         gate_shape[-2],
+         activation_shape[-1]);
+     TT_FATAL(
+-        down_shape[-2] == gate_shape[-1],
++        down_shape[-2] == hidden,
+         "moe_fused_swiglu: down K ({}) must equal gate/up hidden ({})",
+         down_shape[-2],
+-        gate_shape[-1]);
++        hidden);
+     TT_FATAL(
+         down_shape[-1] == activation_shape[-1],
+         "moe_fused_swiglu: down N ({}) must equal activation embedding ({})",
+         down_shape[-1],
+         activation_shape[-1]);
+     TT_FATAL(
+-        activation_shape[-1] % TILE == 0 && gate_shape[-1] % TILE == 0,
++        activation_shape[-1] % TILE == 0 && hidden % TILE == 0,
+         "moe_fused_swiglu: embedding ({}) and hidden ({}) must be tile-aligned",
+         activation_shape[-1],
+-        gate_shape[-1]);
++        hidden);
+ 
+     for (const auto& [name, aux] : std::initializer_list<std::pair<const char*, const Tensor&>>{
+              {"counts", tensor_arguments.counts},
+@@ -446,7 +472,10 @@ ttnn::Tensor moe_fused_swiglu(
+     const std::optional<ttnn::Tensor>& optional_output,
+     const std::optional<ttnn::Tensor>& expert_region_offsets,
+     uint32_t min_active_tokens,
+-    uint32_t max_active_tokens) {
++    uint32_t max_active_tokens,
++    uint32_t stacked_intermediate,
++    uint32_t gate_column_offset,
++    uint32_t up_column_offset) {
+     using OperationType = operations::experimental::deepseek_prefill::moe_fused_swiglu::MoeFusedSwiGluDeviceOperation;
+     return ttnn::device_operation::launch<OperationType>(
+         OperationType::operation_attributes_t{
+@@ -461,6 +490,9 @@ ttnn::Tensor moe_fused_swiglu(
+             // One flag rather than three: the all-or-none invariant is validated below, so the
+             // kernels only need to know whether the bias adds are compiled in at all.
+             .fuse_bias = !gate_biases.empty(),
++            .stacked_intermediate = stacked_intermediate,
++            .gate_column_offset = gate_column_offset,
++            .up_column_offset = up_column_offset,
+             .output_dtype = output_dtype,
+             .output_memory_config = output_memory_config,
+             .compute_kernel_config = compute_kernel_config},
+diff --git a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_device_operation.hpp b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_device_operation.hpp
+index 500c4226..75355824 100644
+--- a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_device_operation.hpp
++++ b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_device_operation.hpp
+@@ -56,6 +56,9 @@ ttnn::Tensor moe_fused_swiglu(
+     const std::optional<ttnn::Tensor>& optional_output,
+     const std::optional<ttnn::Tensor>& expert_region_offsets,
+     uint32_t min_active_tokens = 0,
+-    uint32_t max_active_tokens = std::numeric_limits<uint32_t>::max());
++    uint32_t max_active_tokens = std::numeric_limits<uint32_t>::max(),
++    uint32_t stacked_intermediate = 0,
++    uint32_t gate_column_offset = 0,
++    uint32_t up_column_offset = 0);
+ 
+ }  // namespace ttnn::prim
+diff --git a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_geometry.cpp b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_geometry.cpp
+index 28ee4c95..b0fd0cba 100644
+--- a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_geometry.cpp
++++ b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_geometry.cpp
+@@ -96,6 +96,8 @@ Blocking::Blocking(
+     m_t_max(m_t_max_),
+     m_eff_min(pow2_ceil(OUT_SUBBLOCK_H_GU)),
+     w_tile(w_tile_),
++    gu_tile(w_tile_),
++    wd_tile(w_tile_),
+     bfp8_tile(bfp8_tile_),
+     bf16_tile(bf16_tile_),
+     x_stick(x_stick_ == 0 ? bfp8_tile_ : x_stick_),
+@@ -329,9 +331,9 @@ std::vector<CbView> Blocking::cb_layout(
+         {CB_X_STAGE, 1, 64, FormatKey::U32},
+         {CB_MAILBOX_WRITER, 1, 64, FormatKey::U32},
+         {CB_MAILBOX_COMPUTE, 1, 64, FormatKey::U32},
+-        {CB_W_GATE, depth_w * kr_pad * hn_pad, w_tile, FormatKey::Weight},
+-        {CB_W_UP, depth_w * kr_pad * hn_pad, w_tile, FormatKey::Weight},
+-        {CB_W_DOWN, depth_wd * hn_pad * wd_ec_max, w_tile, FormatKey::Weight},
++        {CB_W_GATE, depth_w * kr_pad * hn_pad, gu_tile, FormatKey::Weight},
++        {CB_W_UP, depth_w * kr_pad * hn_pad, gu_tile, FormatKey::Weight},
++        {CB_W_DOWN, depth_wd * hn_pad * wd_ec_max, wd_tile, FormatKey::Weight},
+         {CB_H, depth_h * h_fast, bfp8_tile, FormatKey::Bfp8},
+         {CB_IDX_SCRATCH, 1, idx_page, FormatKey::U32},
+         {CB_COUNTS_SCRATCH, 1, counts_page, FormatKey::U32},
+diff --git a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_geometry.hpp b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_geometry.hpp
+index a7eee92f..2f003227 100644
+--- a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_geometry.hpp
++++ b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_geometry.hpp
+@@ -193,6 +193,8 @@ public:
+     uint32_t depth_h;
+     uint32_t hack_ahead;
+     uint32_t w_tile;
++    uint32_t gu_tile;
++    uint32_t wd_tile;
+     uint32_t bfp8_tile;
+     uint32_t bf16_tile;
+     uint32_t x_stick;
+diff --git a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_program_factory.cpp b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_program_factory.cpp
+index b34afc04..1932b200 100644
+--- a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_program_factory.cpp
++++ b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_program_factory.cpp
+@@ -7,6 +7,7 @@
+ #include <array>
+ #include <cstdint>
+ #include <cstdlib>
++#include <string>
+ #include <string_view>
+ #include <utility>
+ #include <vector>
+@@ -381,12 +382,17 @@ tt::tt_metal::ProgramDescriptor create_moe_fused_swiglu_program_descriptor(
+     const CoreRangeSet all_cores{CoreRange({0, 0}, {hgroups - 1, kgroups - 1})};
+ 
+     const uint32_t emb = tensor_arguments.activations.logical_shape()[-1];
+-    const uint32_t hidden = tensor_arguments.w_gates[0].logical_shape()[-1];
++    const bool stacked = operation_arguments.stacked_intermediate != 0;
++    const uint32_t hidden =
++        stacked ? operation_arguments.stacked_intermediate : tensor_arguments.w_gates[0].logical_shape()[-1];
+     const bool activations_are_row_major = tensor_arguments.activations.layout() == Layout::ROW_MAJOR;
+     const DataFormat weight_format = datatype_to_dataformat_converter(tensor_arguments.w_gates[0].dtype());
++    const DataFormat down_format = datatype_to_dataformat_converter(tensor_arguments.w_downs[0].dtype());
+     const DataFormat output_format = datatype_to_dataformat_converter(tensor_return_value.dtype());
+     const DataFormat activation_format = datatype_to_dataformat_converter(tensor_arguments.activations.dtype());
+-    const uint32_t weight_tile = tile_size(weight_format);
++    const uint32_t gate_up_tile = tile_size(weight_format);
++    const uint32_t down_tile = tile_size(down_format);
++    const uint32_t weight_tile = gate_up_tile;
+     const uint32_t bfp8_tile = tile_size(DataFormat::Bfp8_b);
+     const uint32_t bf16_tile = tile_size(DataFormat::Float16_b);
+     const uint32_t output_tile = tile_size(output_format);
+@@ -402,7 +408,7 @@ tt::tt_metal::ProgramDescriptor create_moe_fused_swiglu_program_descriptor(
+         emb,
+         hidden,
+         operation_arguments.m_tiles,
+-        weight_tile,
++        std::max(gate_up_tile, down_tile),
+         bfp8_tile,
+         bf16_tile,
+         activation_slice,
+@@ -411,6 +417,8 @@ tt::tt_metal::ProgramDescriptor create_moe_fused_swiglu_program_descriptor(
+         /*enable_phase_alias_=*/true,
+         activations_are_row_major,
+         operation_arguments.fuse_bias);
++    blocking.gu_tile = gate_up_tile;
++    blocking.wd_tile = down_tile;
+ 
+     const bool direct_write = tensor_arguments.expert_region_offsets.has_value();
+     const Tensor& start_tensor = direct_write ? *tensor_arguments.expert_region_offsets : tensor_arguments.counts;
+@@ -440,7 +448,9 @@ tt::tt_metal::ProgramDescriptor create_moe_fused_swiglu_program_descriptor(
+         for (const auto& view : allocation.views) {
+             cb_descriptor.format_descriptors.push_back(CBFormatDescriptor{
+                 .buffer_index = static_cast<uint8_t>(view.index),
+-                .data_format = format_for(view.format, weight_format, output_format, activation_format),
++                .data_format = view.index == geo::CB_W_DOWN
++                                   ? down_format
++                                   : format_for(view.format, weight_format, output_format, activation_format),
+                 .page_size = view.page_size,
+             });
+         }
+@@ -558,6 +568,20 @@ tt::tt_metal::ProgramDescriptor create_moe_fused_swiglu_program_descriptor(
+     auto compute_ct = make_compute_ct(blocking, experts_per_chip, activations_are_row_major);
+ 
+     KernelDescriptor::Defines dataflow_defines{{"H_MCAST_POSTED", geo::H_MCAST_POSTED ? "1" : "0"}};
++    if (down_tile != gate_up_tile) {
++        dataflow_defines.emplace_back("MOE_WD_TILE_BYTES", std::to_string(down_tile));
++    }
++    if (stacked) {
++        const auto& gate_up_shape = tensor_arguments.w_gates[0].padded_shape();
++        const auto& down_shape = tensor_arguments.w_downs[0].padded_shape();
++        const uint32_t pitch = gate_up_shape[-1] / geo::TILE;
++        dataflow_defines.emplace_back("MOE_GU_PITCH", std::to_string(pitch));
++        dataflow_defines.emplace_back("MOE_GATE_COL0", std::to_string(operation_arguments.gate_column_offset));
++        dataflow_defines.emplace_back("MOE_UP_COL0", std::to_string(operation_arguments.up_column_offset));
++        dataflow_defines.emplace_back("MOE_GU_EXPERT_PAGES", std::to_string((gate_up_shape[-2] / geo::TILE) * pitch));
++        dataflow_defines.emplace_back(
++            "MOE_WD_EXPERT_PAGES", std::to_string((down_shape[-2] / geo::TILE) * (down_shape[-1] / geo::TILE)));
++    }
+     if (operation_arguments.fuse_bias) {
+         dataflow_defines.emplace_back("FUSE_BIAS", "1");
+     }
+diff --git a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_types.hpp b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_types.hpp
+index d27c0323..4d5ab2aa 100644
+--- a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_types.hpp
++++ b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/device/moe_fused_swiglu_types.hpp
+@@ -38,6 +38,9 @@ struct OperationArguments {
+     // tensors, and hashed below so a biased and a bias-free dispatch of the same shape cannot share
+     // a cached program -- the kernels select the bias adds with a compile-time FUSE_BIAS define.
+     bool fuse_bias = false;
++    uint32_t stacked_intermediate = 0;
++    uint32_t gate_column_offset = 0;
++    uint32_t up_column_offset = 0;
+     tt::tt_metal::DataType output_dtype = tt::tt_metal::DataType::BFLOAT8_B;
+     tt::tt_metal::MemoryConfig output_memory_config{
+         tt::tt_metal::TensorMemoryLayout::INTERLEAVED, tt::tt_metal::BufferType::DRAM};
+@@ -53,6 +56,9 @@ struct OperationArguments {
+         "max_active_tokens",
+         "activation",
+         "fuse_bias",
++        "stacked_intermediate",
++        "gate_column_offset",
++        "up_column_offset",
+         "output_dtype",
+         "output_memory_config",
+         "compute_kernel_config");
+@@ -68,6 +74,9 @@ struct OperationArguments {
+             max_active_tokens,
+             activation,
+             fuse_bias,
++            stacked_intermediate,
++            gate_column_offset,
++            up_column_offset,
+             output_dtype,
+             output_memory_config,
+             compute_kernel_config);
+diff --git a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/moe_fused_swiglu.cpp b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/moe_fused_swiglu.cpp
+index 99296e0c..520bbd27 100644
+--- a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/moe_fused_swiglu.cpp
++++ b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/moe_fused_swiglu.cpp
+@@ -28,7 +28,10 @@ ttnn::Tensor moe_fused_swiglu(
+     const std::optional<std::vector<ttnn::Tensor>>& up_biases,
+     const std::optional<std::vector<ttnn::Tensor>>& down_biases,
+     uint32_t min_active_tokens,
+-    uint32_t max_active_tokens) {
++    uint32_t max_active_tokens,
++    const std::optional<uint32_t>& stacked_intermediate,
++    uint32_t gate_column_offset,
++    uint32_t up_column_offset) {
+     constexpr uint32_t TILE = 32;
+     TT_FATAL(!w_gates.empty(), "moe_fused_swiglu: at least one local expert is required");
+     TT_FATAL(
+@@ -37,7 +40,15 @@ ttnn::Tensor moe_fused_swiglu(
+         w_gates.size(),
+         w_ups.size(),
+         w_downs.size());
+-    const uint32_t experts_per_chip = static_cast<uint32_t>(w_gates.size());
++    const bool stacked = stacked_intermediate.has_value();
++    TT_FATAL(
++        !stacked || (w_gates.size() == 1 && w_gates[0].logical_shape().rank() == 4),
++        "moe_fused_swiglu: stacked mode takes one (1, E, K, N) tensor per role");
++    const uint32_t experts_per_chip =
++        stacked ? static_cast<uint32_t>(w_gates[0].logical_shape()[1]) : static_cast<uint32_t>(w_gates.size());
++    const std::vector<ttnn::Tensor> gate_list = stacked ? std::vector<ttnn::Tensor>(experts_per_chip, w_gates[0]) : w_gates;
++    const std::vector<ttnn::Tensor> up_list = stacked ? std::vector<ttnn::Tensor>(experts_per_chip, w_ups[0]) : w_ups;
++    const std::vector<ttnn::Tensor> down_list = stacked ? std::vector<ttnn::Tensor>(experts_per_chip, w_downs[0]) : w_downs;
+     // What follows indexes the activation shape and dereferences its device, both before the device
+     // operation's validate() runs. Tensor::device() is null for host or unallocated storage, so
+     // without these a malformed public call is answered with a null dereference instead of a
+@@ -94,9 +105,9 @@ ttnn::Tensor moe_fused_swiglu(
+ 
+     return ttnn::prim::moe_fused_swiglu(
+         activations,
+-        w_gates,
+-        w_ups,
+-        w_downs,
++        gate_list,
++        up_list,
++        down_list,
+         gate_bias_list,
+         up_bias_list,
+         down_bias_list,
+@@ -114,7 +125,10 @@ ttnn::Tensor moe_fused_swiglu(
+         output,
+         expert_region_offsets,
+         min_active_tokens,
+-        max_active_tokens);
++        max_active_tokens,
++        stacked_intermediate.value_or(0),
++        gate_column_offset,
++        up_column_offset);
+ }
+ 
+ }  // namespace ttnn::operations::experimental::deepseek_prefill::moe_fused_swiglu
+diff --git a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/moe_fused_swiglu.hpp b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/moe_fused_swiglu.hpp
+index 79fcb4c5..a4a79670 100644
+--- a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/moe_fused_swiglu.hpp
++++ b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/moe_fused_swiglu.hpp
+@@ -52,7 +52,10 @@ ttnn::Tensor moe_fused_swiglu(
+     // dropped like a zero count. Wide open by default; a hybrid dispatch narrows it so this
+     // op and unified_routed_expert_moe split the experts by load over ONE counts vector.
+     uint32_t min_active_tokens = 0,
+-    uint32_t max_active_tokens = std::numeric_limits<uint32_t>::max());
++    uint32_t max_active_tokens = std::numeric_limits<uint32_t>::max(),
++    const std::optional<uint32_t>& stacked_intermediate = std::nullopt,
++    uint32_t gate_column_offset = 0,
++    uint32_t up_column_offset = 0);
+ 
+ }  // namespace ttnn::operations::experimental::deepseek_prefill::moe_fused_swiglu
+ 
+diff --git a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/moe_fused_swiglu_nanobind.cpp b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/moe_fused_swiglu_nanobind.cpp
+index bf09547e..a3b7bf22 100644
+--- a/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/moe_fused_swiglu_nanobind.cpp
++++ b/ttnn/cpp/ttnn/operations/experimental/deepseek_prefill/moe_fused_swiglu/moe_fused_swiglu_nanobind.cpp
+@@ -37,9 +37,14 @@ void bind_moe_fused_swiglu(nb::module_& mod) {
+         leaves the rest to another.
+ 
+         The input activations must be BFLOAT16 ROW_MAJOR or BFLOAT8_B TILE. All weights
+-        must be TILE and share BFLOAT4_B, BFLOAT8_B, or BFLOAT16 dtype, and every
+-        expert's weights must share the layout of expert 0 -- one accessor layout
+-        descriptor per role serves the whole loop. The default output is
++        must be TILE with BFLOAT4_B, BFLOAT8_B, or BFLOAT16 dtype. Gate and up share one
++        dtype; down may use another. Every expert's weights must share the layout of
++        expert 0 -- one accessor layout descriptor per role serves the whole loop.
++
++        ``stacked_intermediate`` selects stacked mode: each weight list holds one
++        (1, E, K, N) DRAM-interleaved tensor serving all E local experts, and gate and up
++        may be the same tensor. ``gate_column_offset`` and ``up_column_offset`` (tiles)
++        select each role's ``stacked_intermediate``-wide column range of that tensor. The default output is
+         BFLOAT8_B TILE in DRAM. By default all cores in the device's
+         compute-with-storage grid are used. ``core_grid=(x, y)`` is an explicit
+         rectangular-prefix override.
+@@ -65,7 +70,10 @@ void bind_moe_fused_swiglu(nb::module_& mod) {
+         nb::arg("up_biases") = nb::none(),
+         nb::arg("down_biases") = nb::none(),
+         nb::arg("min_active_tokens") = 0,
+-        nb::arg("max_active_tokens") = std::numeric_limits<uint32_t>::max());
++        nb::arg("max_active_tokens") = std::numeric_limits<uint32_t>::max(),
++        nb::arg("stacked_intermediate") = nb::none(),
++        nb::arg("gate_column_offset") = 0,
++        nb::arg("up_column_offset") = 0);
+ }
+ 
+ }  // namespace ttnn::operations::experimental::deepseek_prefill::moe_fused_swiglu::detail

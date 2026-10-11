@@ -14,7 +14,9 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--layer-type", choices=("linear_attention", "full_attention"))
-    parser.add_argument("--decoder", choices=("functional", "fused", "optimized"), default="functional")
+    parser.add_argument("--decoder", choices=("functional", "fused", "optimized", "multichip"), default="functional")
+    parser.add_argument("--mesh", type=int, choices=(1, 2, 4), default=1)
+    parser.add_argument("--tracy-arg", action="append", default=[])
     parser.add_argument("--fusions")
     parser.add_argument("--optimization-json", help="Omit to profile delivered optimized defaults")
     parser.add_argument("--input-activations", type=Path)
@@ -41,6 +43,7 @@ def main():
             "--op-support-count",
             "32768",
             "--dump-device-data-mid-run",
+            *args.tracy_arg,
             "-o",
             str(evidence / "tracy" / (kind + "_attention")),
             "-m",
@@ -59,6 +62,8 @@ def main():
             str(evidence / (name + ".json")),
             "--decoder",
             args.decoder,
+            "--mesh",
+            str(args.mesh),
         ]
         if args.optimization_json is not None:
             command.extend(("--optimization-json", args.optimization_json))
@@ -90,7 +95,8 @@ def main():
                 explicit_between_pass_drains=True,
                 environment={
                     key: env[key]
-                    for key in ("TT_METAL_HOME", "TT_METAL_RUNTIME_ROOT", "TT_METAL_KERNEL_PATH", "TT_METAL_CACHE")
+                    for key in ("TT_METAL_HOME", "TT_METAL_RUNTIME_ROOT", "TT_METAL_KERNEL_PATH", "TT_METAL_CACHE",
+                                "TT_VISIBLE_DEVICES", "QDEV")
                     if key in env
                 },
             )

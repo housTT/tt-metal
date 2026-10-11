@@ -35,7 +35,8 @@ def parse_args():
     parser.add_argument("--no-kv-scratch", action="store_true")
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--expert-precision", choices=("inherited", "bf16"), default="inherited")
-    parser.add_argument("--decoder", choices=("functional", "fused", "optimized"), default="functional")
+    parser.add_argument("--decoder", choices=("functional", "fused", "optimized", "multichip"), default="functional")
+    parser.add_argument("--mesh", type=int, choices=(1, 2, 4), default=1)
     parser.add_argument("--fusions")
     parser.add_argument("--optimization-json")
     parser.add_argument("--input-activations", type=Path)
@@ -155,8 +156,12 @@ def main():
 
     if not trace_allocation_tracker.TRACE_ALLOC_TRACKING:
         raise RuntimeError("TTNN reports trace allocation tracking disabled despite the required environment")
-    mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0, **(
-        {"physical_device_ids": [int(__import__("os").environ["QDEV"])]} if "QDEV" in __import__("os").environ else {}))
+    from .mesh_util import ReplicaReader, decoder_class as select_decoder, open_mesh, shards
+
+    if args.mesh != 1 and args.decoder != "multichip":
+        raise ValueError("Only the multichip decoder opens a multi-device mesh")
+    mesh = open_mesh(args.mesh)
+    replica = ReplicaReader()
 
     def put(tensor, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, *, device=True):
         placement = (
@@ -167,7 +172,7 @@ def main():
         return ttnn.from_torch(tensor.contiguous(), dtype=dtype, layout=layout, **placement)
 
     def get(tensor):
-        return ttnn.to_torch(tensor, mesh_composer=ttnn.ConcatMeshToTensor(mesh, dim=0)).clone()
+        return replica(tensor).clone()
 
     result = {
         "layer_idx": args.layer,
@@ -213,17 +218,11 @@ def main():
     }
     trace_id, trace_ended = None, False
     try:
-        decoder_class, fusion_kwargs = FunctionalDecoder, {}
-        if args.decoder in ("fused", "optimized"):
-            from ..tt.fused_decoder import FusedDecoder
-
-            decoder_class = FusedDecoder
+        decoder_class, fusion_kwargs = select_decoder(args.decoder), {}
+        if args.decoder in ("fused", "optimized", "multichip"):
             if args.fusions is not None:
                 fusion_kwargs["fusions"] = tuple(filter(None, args.fusions.split(",")))
-        if args.decoder == "optimized":
-            from ..tt.optimized_decoder import OptimizedDecoder
-
-            decoder_class = OptimizedDecoder
+        if args.decoder in ("optimized", "multichip"):
             if args.optimization_json is not None:
                 fusion_kwargs["optimization"] = json.loads(args.optimization_json)
         model = decoder_class.from_state_dict(
@@ -236,7 +235,10 @@ def main():
             **fusion_kwargs,
         )
         result.update(decoder_class=type(model).__name__, fusions=getattr(model, "fusions", None))
-        result["optimization"] = __import__("dataclasses").asdict(model.optimization) if args.decoder=="optimized" else None
+        result["optimization"] = (__import__("dataclasses").asdict(model.optimization)
+                                  if args.decoder in ("optimized", "multichip") else None)
+        result.update(mesh_shape=list(mesh.shape), device_ids=list(mesh.get_device_ids()),
+                      tensor_parallel=getattr(model, "tensor_parallel", None))
         # These stable buffers and every host update tensor are constructed
         # before the first capture. Replay only refreshes their contents.
         dx = put(decode_inputs[0])
@@ -245,7 +247,7 @@ def main():
         decode_kwargs = dict(request_slots=slots)
         row_tables = None
         if args.layer == 3:
-            cache_shape = (owned_pages + 4, cfg.num_key_value_heads, args.page_size, cfg.head_dim)
+            cache_shape = (owned_pages + 4, model.config.n_kv_heads, args.page_size, cfg.head_dim)
             key_storage = torch.zeros(cache_shape, dtype=torch.bfloat16)
             value_storage = torch.zeros_like(key_storage)
             key_storage[owned_pages:].fill_(13.0)
@@ -253,7 +255,7 @@ def main():
             kv_dtype = (ttnn.bfloat8_b if getattr(getattr(model, "optimization", None), "kv_dtype", "bf16") == "bfp8"
                         else ttnn.bfloat16)
             key_cache, value_cache = put(key_storage, kv_dtype), put(value_storage, kv_dtype)
-            if args.decoder == "optimized" and not args.no_kv_scratch:
+            if args.decoder in ("optimized", "multichip") and not args.no_kv_scratch:
                 model.bind_paged_kv_cache(key_cache, value_cache, scratch_block=owned_pages + 3)
                 result["kv_scratch_block"] = owned_pages + 3
             else:
@@ -363,8 +365,8 @@ def main():
         mesh.set_program_cache_misses_allowed(True)
         result["guards_clean"] = None
         if args.layer == 3:
-            guard_keys = get(key_cache[owned_pages : owned_pages + 3])
-            guard_values = get(value_cache[owned_pages : owned_pages + 3])
+            guard_keys = torch.stack(shards(key_cache[owned_pages : owned_pages + 3]))
+            guard_values = torch.stack(shards(value_cache[owned_pages : owned_pages + 3]))
             result["guard_key_changed_elements"] = int(torch.count_nonzero(guard_keys != 13.0))
             result["guard_value_changed_elements"] = int(torch.count_nonzero(guard_values != -7.0))
             result["guards_clean"] = not (
@@ -392,6 +394,7 @@ def main():
         raise
     finally:
         args.output.parent.mkdir(parents=True, exist_ok=True)
+        result["output_replicas_identical"] = replica.all_identical()
         args.output.write_text(json.dumps(result, indent=2, allow_nan=False) + "\n")
         if trace_id is not None and trace_ended:
             ttnn.release_trace(mesh, trace_id)

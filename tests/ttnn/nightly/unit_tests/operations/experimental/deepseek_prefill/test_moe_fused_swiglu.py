@@ -449,3 +449,57 @@ def test_moe_fused_swiglu_cached_multicast_args(device, x_row_major):
         x_row_major=x_row_major,
         check_cache=True,
     )
+
+
+@pytest.mark.parametrize("experts, width, tokens, grid", [(64, 512, 128, (4, 4)), (256, 256, 512, (4, 4)), (64, 512, 2048, (8, 8))])
+def test_moe_fused_swiglu_stacked_mixed_weights(device, experts, width, tokens, grid):
+    torch.manual_seed(0)
+    dram = ttnn.DRAM_MEMORY_CONFIG
+
+    def put(x, dtype, layout=ttnn.TILE_LAYOUT):
+        return ttnn.from_torch(x.contiguous(), device=device, dtype=dtype, layout=layout, memory_config=dram)
+
+    gate = torch.randn(experts, 2048, width) * 0.02
+    up = torch.randn(experts, 2048, width) * 0.02
+    down = torch.randn(experts, width, 2048) * 0.02
+    fused = put(torch.cat((up, gate), dim=-1).unsqueeze(0), ttnn.bfloat4_b)
+    stacked_down = put(down.unsqueeze(0), ttnn.bfloat8_b)
+    gate4 = [put(gate[e], ttnn.bfloat4_b) for e in range(experts)]
+    up4 = [put(up[e], ttnn.bfloat4_b) for e in range(experts)]
+    lists_bfp8 = ([ttnn.typecast(t, ttnn.bfloat8_b) for t in gate4], [ttnn.typecast(t, ttnn.bfloat8_b) for t in up4],
+                  [put(down[e], ttnn.bfloat8_b) for e in range(experts)])
+    generator = torch.Generator().manual_seed(tokens)
+    chosen = torch.stack([torch.randperm(256, generator=generator)[:8] for _ in range(tokens)])
+    counts = torch.bincount(chosen[chosen < experts].flatten(), minlength=experts).to(torch.int32)
+    aligned = ((counts + 31) // 32) * 32
+    offsets = (torch.cumsum(aligned, 0) - aligned).to(torch.int32)
+    capacity = int(aligned.sum()) + 32
+    rm = dict(dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT)
+    activations = put(torch.randn(1, 1, capacity, 2048).to(torch.bfloat16), ttnn.bfloat16, ttnn.ROW_MAJOR_LAYOUT)
+    counts_t, offsets_t, ids = put(counts, **rm), put(offsets, **rm), put(torch.arange(experts, dtype=torch.int32), **rm)
+    compute = ttnn.init_device_compute_kernel_config(
+        device.arch(), math_fidelity=ttnn.MathFidelity.LoFi, fp32_dest_acc_en=False, packer_l1_acc=False
+    )
+    valid = torch.zeros(capacity, dtype=torch.bool)
+    for e in range(experts):
+        valid[int(offsets[e]) : int(offsets[e]) + int(counts[e])] = True
+
+    def run(weights, **extra):
+        output = ttnn.zeros((1, 1, capacity, 2048), device=device, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT,
+                            memory_config=dram)
+        ttnn.experimental.deepseek_prefill.moe_fused_swiglu(
+            activations, *weights, counts_t, ids, input_m_tiles=tokens // 32, core_grid=ttnn.CoreCoord(*grid),
+            dtype=ttnn.bfloat16, output=output, expert_region_offsets=offsets_t, read_x_at_offset=True,
+            compute_kernel_config=compute, **extra
+        )
+        return ttnn.to_torch(output).float()[0, 0][valid]
+
+    stacked = dict(stacked_intermediate=width, gate_column_offset=width // 32, up_column_offset=0)
+    reference = run(lists_bfp8)
+    assert torch.isfinite(reference).all() and reference.abs().max() > 0
+    assert torch.equal(run((gate4, up4, lists_bfp8[2])), reference)
+    assert torch.equal(run(([fused], [fused], [stacked_down]), **stacked), reference)
+    assert torch.equal(run(([fused], [fused], [stacked_down]), **stacked), reference)
+    with pytest.raises(RuntimeError):
+        run(([fused], [fused], [stacked_down]), stacked_intermediate=width, gate_column_offset=width // 32 + 1,
+            up_column_offset=0)

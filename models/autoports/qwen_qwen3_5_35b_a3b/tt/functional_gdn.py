@@ -40,10 +40,9 @@ class FunctionalGatedDeltaNet:
         self.conv_kernel_size = self.cfg.conv_kernel_size
         self.norm_eps = self.cfg.norm_eps
         self.long_prefill_chunk_size = 32
-        expected = (16, 32, 128, 128, 4)
         actual = (self.num_heads, self.num_v_heads, self.head_k_dim, self.head_v_dim, self.conv_kernel_size)
-        if actual != expected:
-            raise ValueError(f"Qwen3.5-35B-A3B GDN dimensions {actual} != {expected}")
+        if self.num_v_heads % self.num_heads or actual[2:] != (128, 128, 4) or 32 % self.num_v_heads:
+            raise ValueError(f"Qwen3.5-35B-A3B GDN dimensions {actual} are unsupported")
         self.hidden_size = int(state_dict["qkv_proj.weight"].shape[1])
         if self.hidden_size != 2048:
             raise ValueError("This functional GDN requires the target hidden width 2048")

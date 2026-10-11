@@ -102,7 +102,8 @@ FORCE_INLINE void read_weight_chunk(
     uint32_t hn_cols,
     uint32_t hid_t,
     uint32_t l1_base,
-    uint32_t tile_bytes) {
+    uint32_t tile_bytes,
+    uint32_t page_base = 0) {
     const uint32_t chunk_col0 = chunk * chunk_w;
     uint32_t w = (chunk_col0 < hn_cols) ? (hn_cols - chunk_col0) : 0;
     if (w > chunk_w) {
@@ -114,7 +115,7 @@ FORCE_INLINE void read_weight_chunk(
     for (uint32_t k = 0; k < kr_rows; ++k) {
         Runs::read(
             acc,
-            (kstart + k) * hid_t,
+            page_base + (kstart + k) * hid_t,
             hstart + chunk_col0,
             hstart + chunk_col0 + w,
             l1_base + k * chunk_w * tile_bytes,
@@ -136,11 +137,12 @@ FORCE_INLINE void read_wd_rows(
     uint32_t ec_max,
     uint32_t emb_t,
     uint32_t slot_base,
-    uint32_t tile_bytes) {
+    uint32_t tile_bytes,
+    uint32_t page_base = 0) {
     for (uint32_t k = k_lo; k < k_hi; ++k) {
         Runs::read(
             acc,
-            (hbase + k) * emb_t,
+            page_base + (hbase + k) * emb_t,
             out_col_start,
             out_col_start + ec,
             slot_base + k * ec_max * tile_bytes,

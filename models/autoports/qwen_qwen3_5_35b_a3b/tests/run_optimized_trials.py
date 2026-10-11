@@ -35,6 +35,11 @@ def main():
     p.add_argument("--steps", type=int, default=16)
     p.add_argument("--input-activations", type=Path)
     p.add_argument("--split", type=int, default=0)
+    p.add_argument("--decoder", choices=("optimized", "multichip"), default="optimized")
+    p.add_argument("--mesh", type=int, choices=(1, 2, 4), default=1)
+    p.add_argument("--save-tensors", action="store_true")
+    p.add_argument("--compare-tensors", type=Path)
+    p.add_argument("--batch", type=int, default=1)
     a = p.parse_args()
     a.directory.mkdir(parents=True, exist_ok=False)
     frozen = source_manifest()
@@ -43,13 +48,21 @@ def main():
     inputs = {}
     if a.input_activations:
         inputs[str(a.input_activations)] = hashlib.sha256(a.input_activations.read_bytes()).hexdigest()
-    (a.directory / "provenance.json").write_text(json.dumps(dict(source=frozen, inputs=inputs), indent=2) + "\n")
+    if a.compare_tensors:
+        inputs[str(a.compare_tensors)] = hashlib.sha256(a.compare_tensors.read_bytes()).hexdigest()
+    environment = {k: os.environ[k] for k in ("QDEV", "TT_VISIBLE_DEVICES") if k in os.environ}
+    (a.directory / "provenance.json").write_text(
+        json.dumps(dict(source=frozen, inputs=inputs, environment=environment), indent=2) + "\n")
     rows = []
     for name, policy in json.loads(a.matrix.read_text()).items():
         cmd = [sys.executable, "-m", "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
-               "--decoder", "optimized", "--layer", str(a.layer), "--length", str(a.length),
-               "--steps", str(a.steps), "--trace", "--audit", "--warm-prefill",
+               "--decoder", a.decoder, "--mesh", str(a.mesh), "--layer", str(a.layer), "--length", str(a.length),
+               "--steps", str(a.steps), "--batch", str(a.batch), "--trace", "--audit", "--warm-prefill",
                "--output", str(a.directory / f"{name}.json")]
+        if a.save_tensors:
+            cmd.extend(("--save-tensors", str(a.directory / f"{name}.pt")))
+        if a.compare_tensors:
+            cmd.extend(("--compare-tensors", str(a.compare_tensors)))
         if policy is not None:
             cmd.extend(("--optimization-json", json.dumps(policy)))
         if a.input_activations:
@@ -73,7 +86,12 @@ def main():
                        prefill_tokens_below_0995=d.get("prefill_tokens_below_0995"),
                        prefill_repeat_identical=d.get("prefill_repeat_identical"),
                        prefill_repeat_difference=d.get("prefill_repeat_difference"),
-                       decode_host_us=statistics.median(d["traced_replay_host_us"]))
+                       decode_host_us=statistics.median(d["traced_replay_host_us"]),
+                       mesh_shape=d.get("mesh_shape"), device_ids=d.get("device_ids"),
+                       output_replicas_identical=d.get("output_replicas_identical"),
+                       control_equivalence=d.get("control_equivalence"),
+                       weight_memory=d.get("weight_memory"),
+                       construction_memory=d.get("construction_memory"))
         rows.append(row)
         (a.directory / "commands.json").write_text(json.dumps(rows, indent=2) + "\n")
         print("END", json.dumps(row), flush=True)

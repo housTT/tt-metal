@@ -1,495 +1,663 @@
 {
-  "model": "Qwen/Qwen3.5-35B-A3B",
-  "revision": "59d61f3ce65a6d9863b86d2e96597125219dc754",
-  "hf_advertised_context": 262144,
-  "supported_context": 262144,
-  "largest_tested_prefill_context": 262144,
-  "largest_tested_decode_context": 262144,
-  "capability_reduction": null,
-  "status": "validated",
-  "layer_types": [
-    "linear_attention",
-    "full_attention"
-  ],
-  "cache_semantics": {
-    "linear_attention": "per-request causal convolution and recurrent state",
-    "full_attention": "paged causal grouped-query KV, absolute positions"
+ "model": "Qwen/Qwen3.5-35B-A3B",
+ "revision": "59d61f3ce65a6d9863b86d2e96597125219dc754",
+ "hf_advertised_context": 262144,
+ "supported_context": 262144,
+ "largest_tested_prefill_context": 262144,
+ "largest_tested_decode_context": 262144,
+ "capability_reduction": null,
+ "status": "validated",
+ "layer_types": [
+  "linear_attention",
+  "full_attention"
+ ],
+ "cache_semantics": {
+  "linear_attention": "per-request causal convolution and recurrent state",
+  "full_attention": "paged causal grouped-query KV, absolute positions"
+ },
+ "evidence": [
+  "../weights/Qwen3.5-35B-A3B/config.json",
+  "tests/run_layer.py"
+ ],
+ "notes": [
+  "No capability reduction. Context length counts tokens; last tested decode position is 262143.",
+  "Native-context evidence uses complete target geometry and real weights, TT runtime audit, and traced final-position decode. HF selected-query/reference decomposition is controlled against dense HF at 1153 tokens.",
+  "Batch 32 is separately tested at heterogeneous prefixes 1..1006; native context is tested at batch 1. This does not assert that the full batch/context Cartesian product fits device memory."
+ ],
+ "tested_layer_types": {
+  "linear_attention": {
+   "prefill_tokens": 262144,
+   "decode_context_tokens": 262144,
+   "decode_position_zero_based": 262143,
+   "nonaligned_prefill_tokens": 262143,
+   "batch": 1,
+   "prefill_pcc": 0.999611496925354,
+   "decode_pcc": 0.9998752474784851,
+   "prefill_reference_scope": "16 selected outputs; every recurrent/KV contribution retained; full TT layer executes every token",
+   "artifacts": [
+    "functional_decoder/linear_accept_context262144.json",
+    "functional_decoder/linear_accept_context262143.json"
+   ]
   },
-  "evidence": [
-    "../weights/Qwen3.5-35B-A3B/config.json",
-    "tests/run_layer.py"
-  ],
-  "notes": [
-    "No capability reduction. Context length counts tokens; last tested decode position is 262143.",
-    "Native-context evidence uses complete target geometry and real weights, TT runtime audit, and traced final-position decode. HF selected-query/reference decomposition is controlled against dense HF at 1153 tokens.",
-    "Batch 32 is separately tested at heterogeneous prefixes 1..1006; native context is tested at batch 1. This does not assert that the full batch/context Cartesian product fits device memory."
-  ],
+  "full_attention": {
+   "prefill_tokens": 262144,
+   "decode_context_tokens": 262144,
+   "decode_position_zero_based": 262143,
+   "nonaligned_prefill_tokens": 262143,
+   "batch": 1,
+   "prefill_pcc": 0.9983735680580139,
+   "decode_pcc": 0.9983523488044739,
+   "prefill_reference_scope": "16 selected outputs; every recurrent/KV contribution retained; full TT layer executes every token",
+   "artifacts": [
+    "functional_decoder/full_accept_context262144.json",
+    "functional_decoder/full_accept_context262143.json"
+   ]
+  }
+ },
+ "stage_review": "functional_decoder/stage_review_final.md",
+ "fused_decoder_validation": {
+  "capability_reduction": null,
+  "kv_dtype": "BF16",
+  "recurrent_state_dtype": "FP32",
   "tested_layer_types": {
+   "linear_attention": {
+    "prefill_tokens": 262144,
+    "decode_context_tokens": 262144,
+    "decode_position_zero_based": 262143,
+    "nonaligned_prefill_tokens": 262143,
+    "batch": 1,
+    "prefill_pcc": 0.9995842576026917,
+    "nonaligned_prefill_pcc": 0.9994115233421326,
+    "decode_pcc": 0.9999061226844788,
+    "prefill_reference_scope": "16 selected outputs; every recurrent/KV contribution retained; full TT layer executes every token",
+    "artifacts": [
+     "fused_decoder/context_final/linear_262144.json",
+     "fused_decoder/context_final/linear_262143.json"
+    ]
+   },
+   "full_attention": {
+    "prefill_tokens": 262144,
+    "decode_context_tokens": 262144,
+    "decode_position_zero_based": 262143,
+    "nonaligned_prefill_tokens": 262143,
+    "batch": 1,
+    "prefill_pcc": 0.9982674717903137,
+    "nonaligned_prefill_pcc": 0.9982842803001404,
+    "decode_pcc": 0.9983393549919128,
+    "prefill_reference_scope": "16 selected outputs; every recurrent/KV contribution retained; full TT layer executes every token",
+    "artifacts": [
+     "fused_decoder/context_indexed_final/full_262144.json",
+     "fused_decoder/context_indexed_final/full_262143.json"
+    ]
+   }
+  },
+  "stage_review": "fused_decoder/stage_review.md",
+  "key_channel_basis": "First64 full-attention K channels use16-channel group permutation [0:16,32:48,16:32,48:64]; remaining192 unchanged. Both fused prefill/decode use this basis. Populated functional/fused K caches require conversion before interchange; allocation dtype, pages and capacity unchanged."
+ },
+ "optimized_decoder_validation": {
+  "capability_reduction": null,
+  "kv_dtype": {
+   "full_attention": "BFP8 (bfloat8_b) paged KV",
+   "linear_attention": "not applicable"
+  },
+  "kv_bytes_per_token_per_full_layer": 1088.0,
+  "kv_bytes_per_token_per_full_layer_note": "2 KV heads x 256 head_dim x (K,V) x BFP8 tile bytes 1088/1024 per element; BF16 was 2048 bytes",
+  "recurrent_state_dtype": "FP32",
+  "prefill_chunk_buckets": {
+   "planner": "OptimizedDecoder._chunk_plan: token steps until start is page/32 aligned, full 4096 chunks, then a cost-model choice (per-layer constants _PLAN_COST) between exact ladder buckets, one masked bucket for the remainder, and decode-path steps for remainders up to 8 tokens (for example full 4100 tokens: 4096 + 4 decode-path steps)",
+   "full_attention_buckets": [
+    4096,
+    2048,
+    1024,
+    512,
+    256,
+    128,
+    64,
+    32
+   ],
+   "linear_attention_buckets": [
+    4096,
+    2048,
+    1024,
+    256,
+    128,
+    64,
+    32
+   ],
+   "masked_chunk": "GDN: beta and decay zeroed on padded rows and convolution history gathered from the last valid rows, so padding never enters recurrent or convolution state. Full attention: masked chunk when the page size divides the chunk, the chunk ends at or before max_seq_len (262144), and the page table (extended by the scratch page when bound) covers the padded rows; padded K/V land in owned pages beyond the logical length or in the scratch page.",
+   "moe_grouping": "one MoE call per group of up to 4096 planned rows; groups pad to the next bucket for the dispatch maps",
+   "paths": "aligned unpadded inputs whose plan is one exact chunk per group use the tiled slicing path; all other inputs use index-gather chunk extraction (no offset-specific programs for a fixed physical bucket)"
+  },
+  "tested_layer_types": {
+   "linear_attention": {
+    "nonaligned_prefill_tokens": 262143,
+    "decode_position_zero_based": 262143,
+    "nonaligned_prefill_pcc": 0.9993875622749329,
+    "decode_pcc": 0.9998794198036194,
+    "prefill_tokens": 262144,
+    "prefill_pcc": 0.9995511174201965,
+    "batch": 1,
+    "artifacts": [
+     "optimized_decoder/final_evidence15/context_0/linear_262143.json",
+     "optimized_decoder/final_evidence15/context_0/linear_262144.json"
+    ]
+   },
+   "full_attention": {
+    "nonaligned_prefill_tokens": 262143,
+    "decode_position_zero_based": 262143,
+    "nonaligned_prefill_pcc": 0.9985280632972717,
+    "decode_pcc": 0.99836665391922,
+    "prefill_tokens": 262144,
+    "prefill_pcc": 0.9983461499214172,
+    "batch": 1,
+    "artifacts": [
+     "optimized_decoder/final_evidence15/context_3/full_262143.json",
+     "optimized_decoder/final_evidence15/context_3/full_262144.json"
+    ]
+   }
+  },
+  "prefill_reference_scope": "16 selected outputs; every recurrent/KV contribution retained; full TT layer executes every token",
+  "notes": [
+   "Context unchanged at 262144. BFP8 KV halves full-attention KV memory per token versus BF16.",
+   "Single-device layer stage. Full-model capacity per p150/p150x2/p150x4 profile is validated in later stages.",
+   "Prefill MoE dispatch weights are BFP8 (per-token prefill accuracy); decode routed experts are BFP4 gate/up and BFP8 down."
+  ],
+  "persistent_device_memory_per_layer": {
+   "linear_attention_allocator_bytes": 1653611008,
+   "full_attention_allocator_bytes_including_35_page_test_kv": 1611247616,
+   "by_consumer_mib": {
     "linear_attention": {
-      "prefill_tokens": 262144,
-      "decode_context_tokens": 262144,
-      "decode_position_zero_based": 262143,
-      "nonaligned_prefill_tokens": 262143,
-      "batch": 1,
-      "prefill_pcc": 0.999611496925354,
-      "decode_pcc": 0.9998752474784851,
-      "prefill_reference_scope": "16 selected outputs; every recurrent/KV contribution retained; full TT layer executes every token",
-      "artifacts": [
-        "functional_decoder/linear_accept_context262144.json",
-        "functional_decoder/linear_accept_context262143.json"
-      ]
+     "routed_experts_prefill_dispatch": 852.73,
+     "routed_experts_decode": 560.02,
+     "attention": 67.13,
+     "gdn_recurrent_and_conv_state_slots": 63.45,
+     "shared_expert": 4.5,
+     "router": 3.33,
+     "module_cache": 1.12,
+     "index_tables": 1.02,
+     "norms": 0.25
     },
     "full_attention": {
-      "prefill_tokens": 262144,
-      "decode_context_tokens": 262144,
-      "decode_position_zero_based": 262143,
-      "nonaligned_prefill_tokens": 262143,
-      "batch": 1,
-      "prefill_pcc": 0.9983735680580139,
-      "decode_pcc": 0.9983523488044739,
-      "prefill_reference_scope": "16 selected outputs; every recurrent/KV contribution retained; full TT layer executes every token",
-      "artifacts": [
-        "functional_decoder/full_accept_context262144.json",
-        "functional_decoder/full_accept_context262143.json"
-      ]
+     "routed_experts_prefill_dispatch": 852.73,
+     "routed_experts_decode": 560.02,
+     "rope": 64.0,
+     "attention": 27.91,
+     "shared_expert": 4.5,
+     "router": 3.33,
+     "kv_cache": 1.16,
+     "module_cache": 1.12,
+     "index_tables": 1.02,
+     "norms": 0.25
     }
+   },
+   "gdn_configured_state_slots": 32,
+   "gdn_state_slots_note": "Census class gdn_recurrent_and_conv_state_slots holds slots 1-31; slot 0 is bound to the attention object and counted under attention. 32 x (2 MiB + 48 KiB) = 65.5 MiB per linear layer.",
+   "gdn_state_bytes_per_slot": {
+    "recurrent_fp32": 2097152,
+    "conv_history_bf16_row_major": 49152
+   },
+   "forty_layer_estimate_gib": 59.73,
+   "one_chip_dram_gib": 31.83,
+   "note": "The selected single-layer footprint does not fit 40 layers on one chip. Later p150/p150x2/p150x4 profile work starts from these measured numbers. Evidence: optimized_decoder/final_evidence15/memory_handoff_recheck.json"
   },
-  "stage_review": "functional_decoder/stage_review_final.md",
-  "fused_decoder_validation": {
-    "capability_reduction": null,
-    "kv_dtype": "BF16",
-    "recurrent_state_dtype": "FP32",
-    "tested_layer_types": {
-      "linear_attention": {
-        "prefill_tokens": 262144,
-        "decode_context_tokens": 262144,
-        "decode_position_zero_based": 262143,
-        "nonaligned_prefill_tokens": 262143,
-        "batch": 1,
-        "prefill_pcc": 0.9995842576026917,
-        "nonaligned_prefill_pcc": 0.9994115233421326,
-        "decode_pcc": 0.9999061226844788,
-        "prefill_reference_scope": "16 selected outputs; every recurrent/KV contribution retained; full TT layer executes every token",
-        "artifacts": [
-          "fused_decoder/context_final/linear_262144.json",
-          "fused_decoder/context_final/linear_262143.json"
-        ]
-      },
-      "full_attention": {
-        "prefill_tokens": 262144,
-        "decode_context_tokens": 262144,
-        "decode_position_zero_based": 262143,
-        "nonaligned_prefill_tokens": 262143,
-        "batch": 1,
-        "prefill_pcc": 0.9982674717903137,
-        "nonaligned_prefill_pcc": 0.9982842803001404,
-        "decode_pcc": 0.9983393549919128,
-        "prefill_reference_scope": "16 selected outputs; every recurrent/KV contribution retained; full TT layer executes every token",
-        "artifacts": [
-          "fused_decoder/context_indexed_final/full_262144.json",
-          "fused_decoder/context_indexed_final/full_262143.json"
-        ]
-      }
-    },
-    "stage_review": "fused_decoder/stage_review.md",
-    "key_channel_basis": "First64 full-attention K channels use16-channel group permutation [0:16,32:48,16:32,48:64]; remaining192 unchanged. Both fused prefill/decode use this basis. Populated functional/fused K caches require conversion before interchange; allocation dtype, pages and capacity unchanged."
-  },
-  "optimized_decoder_validation": {
-    "capability_reduction": null,
-    "kv_dtype": {
-      "full_attention": "BFP8 (bfloat8_b) paged KV",
-      "linear_attention": "not applicable"
-    },
-    "kv_bytes_per_token_per_full_layer": 1088.0,
-    "kv_bytes_per_token_per_full_layer_note": "2 KV heads x 256 head_dim x (K,V) x BFP8 tile bytes 1088/1024 per element; BF16 was 2048 bytes",
-    "recurrent_state_dtype": "FP32",
-    "prefill_chunk_buckets": {
-      "planner": "OptimizedDecoder._chunk_plan: token steps until start is page/32 aligned, full 4096 chunks, then a cost-model choice (per-layer constants _PLAN_COST) between exact ladder buckets, one masked bucket for the remainder, and decode-path steps for remainders up to 8 tokens (for example full 4100 tokens: 4096 + 4 decode-path steps)",
-      "full_attention_buckets": [
-        4096,
-        2048,
-        1024,
+  "prefill_reproducibility": "Prefill is not bitwise reproducible. With post_combine_reduce (MoE groups below 2048 rows) a repeat differs in 1-3 32-row blocks; with the k-major tile combine (groups of 2048+ rows) a repeat can differ in most blocks (up to 61 of 64, final_evidence15/control_grid_linear_2048/default.json). Maximum absolute difference up to 0.0029 in the final chain (final_evidence15/prefill_full_2176_s128) and 0.0078 anywhere (optimized_decoder/review2/bfp8_grid/full_1024/small4x4_large11x8.json); repeat PCC at least 0.99999994 in every non-identical final-chain run. Root cause unresolved (state left by preceding ops; review2/drift covers post_combine_reduce). Traced decode replay is bitwise reproducible.",
+  "artifacts_root": "optimized_decoder/final_evidence15",
+  "serving_contract": {
+   "kv_scratch_page": "Reserve one K/V page per pool outside the serving block allocator and pass it as bind_paged_kv_cache(..., scratch_block=index). Padded rows of a masked full-attention chunk that fall beyond the request page table write there. Without it, the planner only plans masked chunks that fit inside the page table.",
+   "page_table_ownership": "Every page-table entry up to the table width must be owned by the request or point at the scratch page. The planner treats all entries as owned: padded K/V rows beyond the logical length are written to the request's own pages (overwritten before they are read).",
+   "extended_table_width": "Chunk prefill uses the page table plus 4096/page_size scratch entries; decode-path steps use the original table (paged_fused_update_cache requires width <= pool pages).",
+   "combine_modes": "post_combine_reduce for MoE groups below 2048 rows; k-major tile combine (fast_reduce_nc) from 2048 rows; 8x8 moe_fused_swiglu grid from 2048 rows, 4x4 below.",
+   "warm_up_shapes_per_physical_bucket": {
+    "full_attention": {
+     "1024": {
+      "chunk_shapes": [
+       [
+        1,
+        "exact"
+       ],
+       [
+        32,
+        "exact"
+       ],
+       [
+        32,
+        "masked"
+       ],
+       [
+        64,
+        "exact"
+       ],
+       [
+        64,
+        "masked"
+       ],
+       [
+        128,
+        "exact"
+       ],
+       [
+        128,
+        "masked"
+       ],
+       [
+        256,
+        "exact"
+       ],
+       [
+        256,
+        "masked"
+       ],
+       [
         512,
-        256,
-        128,
-        64,
-        32
-      ],
-      "linear_attention_buckets": [
-        4096,
-        2048,
+        "exact"
+       ],
+       [
+        512,
+        "masked"
+       ],
+       [
         1024,
-        256,
-        128,
-        64,
-        32
+        "exact"
+       ],
+       [
+        1024,
+        "masked"
+       ]
       ],
-      "masked_chunk": "GDN: beta and decay zeroed on padded rows and convolution history gathered from the last valid rows, so padding never enters recurrent or convolution state. Full attention: masked chunk when the page size divides the chunk, the chunk ends at or before max_seq_len (262144), and the page table (extended by the scratch page when bound) covers the padded rows; padded K/V land in owned pages beyond the logical length or in the scratch page.",
-      "moe_grouping": "one MoE call per group of up to 4096 planned rows; groups pad to the next bucket for the dispatch maps",
-      "paths": "aligned unpadded inputs whose plan is one exact chunk per group use the tiled slicing path; all other inputs use index-gather chunk extraction (no offset-specific programs for a fixed physical bucket)"
+      "moe_dispatch_buckets": [
+       32,
+       64,
+       128,
+       256,
+       512,
+       1024
+      ]
+     },
+     "4096": {
+      "chunk_shapes": [
+       [
+        1,
+        "exact"
+       ],
+       [
+        32,
+        "exact"
+       ],
+       [
+        32,
+        "masked"
+       ],
+       [
+        64,
+        "exact"
+       ],
+       [
+        64,
+        "masked"
+       ],
+       [
+        128,
+        "exact"
+       ],
+       [
+        128,
+        "masked"
+       ],
+       [
+        256,
+        "exact"
+       ],
+       [
+        256,
+        "masked"
+       ],
+       [
+        512,
+        "exact"
+       ],
+       [
+        512,
+        "masked"
+       ],
+       [
+        1024,
+        "exact"
+       ],
+       [
+        1024,
+        "masked"
+       ],
+       [
+        2048,
+        "exact"
+       ],
+       [
+        2048,
+        "masked"
+       ],
+       [
+        4096,
+        "exact"
+       ],
+       [
+        4096,
+        "masked"
+       ]
+      ],
+      "moe_dispatch_buckets": [
+       32,
+       64,
+       128,
+       256,
+       512,
+       1024,
+       2048,
+       4096
+      ]
+     }
     },
-    "tested_layer_types": {
-      "linear_attention": {
-        "nonaligned_prefill_tokens": 262143,
-        "decode_position_zero_based": 262143,
-        "nonaligned_prefill_pcc": 0.9993875622749329,
-        "decode_pcc": 0.9998794198036194,
-        "prefill_tokens": 262144,
-        "prefill_pcc": 0.9995511174201965,
-        "batch": 1,
-        "artifacts": [
-          "optimized_decoder/final_evidence15/context_0/linear_262143.json",
-          "optimized_decoder/final_evidence15/context_0/linear_262144.json"
-        ]
-      },
-      "full_attention": {
-        "nonaligned_prefill_tokens": 262143,
-        "decode_position_zero_based": 262143,
-        "nonaligned_prefill_pcc": 0.9985280632972717,
-        "decode_pcc": 0.99836665391922,
-        "prefill_tokens": 262144,
-        "prefill_pcc": 0.9983461499214172,
-        "batch": 1,
-        "artifacts": [
-          "optimized_decoder/final_evidence15/context_3/full_262143.json",
-          "optimized_decoder/final_evidence15/context_3/full_262144.json"
-        ]
-      }
-    },
-    "prefill_reference_scope": "16 selected outputs; every recurrent/KV contribution retained; full TT layer executes every token",
-    "notes": [
-      "Context unchanged at 262144. BFP8 KV halves full-attention KV memory per token versus BF16.",
-      "Single-device layer stage. Full-model capacity per p150/p150x2/p150x4 profile is validated in later stages.",
-      "Prefill MoE dispatch weights are BFP8 (per-token prefill accuracy); decode routed experts are BFP4 gate/up and BFP8 down."
-    ],
-    "persistent_device_memory_per_layer": {
-      "linear_attention_allocator_bytes": 1653611008,
-      "full_attention_allocator_bytes_including_35_page_test_kv": 1611247616,
-      "by_consumer_mib": {
-        "linear_attention": {
-          "routed_experts_prefill_dispatch": 852.73,
-          "routed_experts_decode": 560.02,
-          "attention": 67.13,
-          "gdn_recurrent_and_conv_state_slots": 63.45,
-          "shared_expert": 4.5,
-          "router": 3.33,
-          "module_cache": 1.12,
-          "index_tables": 1.02,
-          "norms": 0.25
-        },
-        "full_attention": {
-          "routed_experts_prefill_dispatch": 852.73,
-          "routed_experts_decode": 560.02,
-          "rope": 64.0,
-          "attention": 27.91,
-          "shared_expert": 4.5,
-          "router": 3.33,
-          "kv_cache": 1.16,
-          "module_cache": 1.12,
-          "index_tables": 1.02,
-          "norms": 0.25
-        }
-      },
-      "gdn_configured_state_slots": 32,
-      "gdn_state_slots_note": "Census class gdn_recurrent_and_conv_state_slots holds slots 1-31; slot 0 is bound to the attention object and counted under attention. 32 x (2 MiB + 48 KiB) = 65.5 MiB per linear layer.",
-      "gdn_state_bytes_per_slot": {
-        "recurrent_fp32": 2097152,
-        "conv_history_bf16_row_major": 49152
-      },
-      "forty_layer_estimate_gib": 59.73,
-      "one_chip_dram_gib": 31.83,
-      "note": "The selected single-layer footprint does not fit 40 layers on one chip. Later p150/p150x2/p150x4 profile work starts from these measured numbers. Evidence: optimized_decoder/final_evidence15/memory_handoff_recheck.json"
-    },
-    "prefill_reproducibility": "Prefill is not bitwise reproducible. With post_combine_reduce (MoE groups below 2048 rows) a repeat differs in 1-3 32-row blocks; with the k-major tile combine (groups of 2048+ rows) a repeat can differ in most blocks (up to 61 of 64, final_evidence15/control_grid_linear_2048/default.json). Maximum absolute difference up to 0.0029 in the final chain (final_evidence15/prefill_full_2176_s128) and 0.0078 anywhere (optimized_decoder/review2/bfp8_grid/full_1024/small4x4_large11x8.json); repeat PCC at least 0.99999994 in every non-identical final-chain run. Root cause unresolved (state left by preceding ops; review2/drift covers post_combine_reduce). Traced decode replay is bitwise reproducible.",
-    "artifacts_root": "optimized_decoder/final_evidence15",
-    "serving_contract": {
-      "kv_scratch_page": "Reserve one K/V page per pool outside the serving block allocator and pass it as bind_paged_kv_cache(..., scratch_block=index). Padded rows of a masked full-attention chunk that fall beyond the request page table write there. Without it, the planner only plans masked chunks that fit inside the page table.",
-      "page_table_ownership": "Every page-table entry up to the table width must be owned by the request or point at the scratch page. The planner treats all entries as owned: padded K/V rows beyond the logical length are written to the request's own pages (overwritten before they are read).",
-      "extended_table_width": "Chunk prefill uses the page table plus 4096/page_size scratch entries; decode-path steps use the original table (paged_fused_update_cache requires width <= pool pages).",
-      "combine_modes": "post_combine_reduce for MoE groups below 2048 rows; k-major tile combine (fast_reduce_nc) from 2048 rows; 8x8 moe_fused_swiglu grid from 2048 rows, 4x4 below.",
-      "warm_up_shapes_per_physical_bucket": {
-        "full_attention": {
-          "1024": {
-            "chunk_shapes": [
-              [
-                1,
-                "exact"
-              ],
-              [
-                32,
-                "exact"
-              ],
-              [
-                32,
-                "masked"
-              ],
-              [
-                64,
-                "exact"
-              ],
-              [
-                64,
-                "masked"
-              ],
-              [
-                128,
-                "exact"
-              ],
-              [
-                128,
-                "masked"
-              ],
-              [
-                256,
-                "exact"
-              ],
-              [
-                256,
-                "masked"
-              ],
-              [
-                512,
-                "exact"
-              ],
-              [
-                512,
-                "masked"
-              ],
-              [
-                1024,
-                "exact"
-              ],
-              [
-                1024,
-                "masked"
-              ]
-            ],
-            "moe_dispatch_buckets": [
-              32,
-              64,
-              128,
-              256,
-              512,
-              1024
-            ]
-          },
-          "4096": {
-            "chunk_shapes": [
-              [
-                1,
-                "exact"
-              ],
-              [
-                32,
-                "exact"
-              ],
-              [
-                32,
-                "masked"
-              ],
-              [
-                64,
-                "exact"
-              ],
-              [
-                64,
-                "masked"
-              ],
-              [
-                128,
-                "exact"
-              ],
-              [
-                128,
-                "masked"
-              ],
-              [
-                256,
-                "exact"
-              ],
-              [
-                256,
-                "masked"
-              ],
-              [
-                512,
-                "exact"
-              ],
-              [
-                512,
-                "masked"
-              ],
-              [
-                1024,
-                "exact"
-              ],
-              [
-                1024,
-                "masked"
-              ],
-              [
-                2048,
-                "exact"
-              ],
-              [
-                2048,
-                "masked"
-              ],
-              [
-                4096,
-                "exact"
-              ],
-              [
-                4096,
-                "masked"
-              ]
-            ],
-            "moe_dispatch_buckets": [
-              32,
-              64,
-              128,
-              256,
-              512,
-              1024,
-              2048,
-              4096
-            ]
-          }
-        },
-        "linear_attention": {
-          "1024": {
-            "chunk_shapes": [
-              [
-                1,
-                "exact"
-              ],
-              [
-                32,
-                "exact"
-              ],
-              [
-                32,
-                "masked"
-              ],
-              [
-                64,
-                "exact"
-              ],
-              [
-                64,
-                "masked"
-              ],
-              [
-                128,
-                "exact"
-              ],
-              [
-                128,
-                "masked"
-              ],
-              [
-                256,
-                "exact"
-              ],
-              [
-                256,
-                "masked"
-              ],
-              [
-                1024,
-                "exact"
-              ],
-              [
-                1024,
-                "masked"
-              ]
-            ],
-            "moe_dispatch_buckets": [
-              32,
-              64,
-              128,
-              256,
-              512,
-              1024
-            ]
-          },
-          "4096": {
-            "chunk_shapes": [
-              [
-                1,
-                "exact"
-              ],
-              [
-                32,
-                "exact"
-              ],
-              [
-                32,
-                "masked"
-              ],
-              [
-                64,
-                "exact"
-              ],
-              [
-                64,
-                "masked"
-              ],
-              [
-                128,
-                "exact"
-              ],
-              [
-                128,
-                "masked"
-              ],
-              [
-                256,
-                "exact"
-              ],
-              [
-                256,
-                "masked"
-              ],
-              [
-                1024,
-                "exact"
-              ],
-              [
-                1024,
-                "masked"
-              ],
-              [
-                2048,
-                "exact"
-              ],
-              [
-                2048,
-                "masked"
-              ],
-              [
-                4096,
-                "exact"
-              ],
-              [
-                4096,
-                "masked"
-              ]
-            ],
-            "moe_dispatch_buckets": [
-              32,
-              64,
-              128,
-              256,
-              512,
-              1024,
-              2048,
-              4096
-            ]
-          }
-        }
-      },
-      "warm_up_note": "A generator must run every listed chunk shape and MoE dispatch bucket for each physical input bucket before the first decode trace capture; prefill while a trace is alive then compiles no new programs (validated by run_reuse/run_positions with program-cache misses forbidden)."
+    "linear_attention": {
+     "1024": {
+      "chunk_shapes": [
+       [
+        1,
+        "exact"
+       ],
+       [
+        32,
+        "exact"
+       ],
+       [
+        32,
+        "masked"
+       ],
+       [
+        64,
+        "exact"
+       ],
+       [
+        64,
+        "masked"
+       ],
+       [
+        128,
+        "exact"
+       ],
+       [
+        128,
+        "masked"
+       ],
+       [
+        256,
+        "exact"
+       ],
+       [
+        256,
+        "masked"
+       ],
+       [
+        1024,
+        "exact"
+       ],
+       [
+        1024,
+        "masked"
+       ]
+      ],
+      "moe_dispatch_buckets": [
+       32,
+       64,
+       128,
+       256,
+       512,
+       1024
+      ]
+     },
+     "4096": {
+      "chunk_shapes": [
+       [
+        1,
+        "exact"
+       ],
+       [
+        32,
+        "exact"
+       ],
+       [
+        32,
+        "masked"
+       ],
+       [
+        64,
+        "exact"
+       ],
+       [
+        64,
+        "masked"
+       ],
+       [
+        128,
+        "exact"
+       ],
+       [
+        128,
+        "masked"
+       ],
+       [
+        256,
+        "exact"
+       ],
+       [
+        256,
+        "masked"
+       ],
+       [
+        1024,
+        "exact"
+       ],
+       [
+        1024,
+        "masked"
+       ],
+       [
+        2048,
+        "exact"
+       ],
+       [
+        2048,
+        "masked"
+       ],
+       [
+        4096,
+        "exact"
+       ],
+       [
+        4096,
+        "masked"
+       ]
+      ],
+      "moe_dispatch_buckets": [
+       32,
+       64,
+       128,
+       256,
+       512,
+       1024,
+       2048,
+       4096
+      ]
+     }
     }
+   },
+   "warm_up_note": "A generator must run every listed chunk shape and MoE dispatch bucket for each physical input bucket before the first decode trace capture; prefill while a trace is alive then compiles no new programs (validated by run_reuse/run_positions with program-cache misses forbidden)."
   }
+ },
+ "multichip_decoder_validation": {
+  "capability_reduction": null,
+  "supported_context": 262144,
+  "meshes": {
+   "p150": "1x1, physical device 3",
+   "p150x2": "1x2, TT_VISIBLE_DEVICES=2,3, FABRIC_1D",
+   "p150x4": "1x4 ring, FABRIC_1D_RING"
+  },
+  "kv_layout": "per-device local KV head [pages, 1, page, 256] BFP8 on meshes; device rank r holds KV head r*2//tp",
+  "recurrent_state": "per-device local value heads [1, 32/tp, 128, 128] FP32 per configured slot",
+  "native_context_tests": {
+   "m4_linear_262143": {
+    "prefill_pcc": 0.9993864297866821,
+    "decode_pcc": 0.9998701810836792,
+    "artifact": "multichip_decoder/evidence7/accept_context_m4/linear_262143.json"
+   },
+   "m4_linear_262144": {
+    "prefill_pcc": 0.9995425343513489,
+    "decode_pcc": null,
+    "artifact": "multichip_decoder/evidence7/accept_context_m4/linear_262144.json"
+   },
+   "m4_full_262143": {
+    "prefill_pcc": 0.9985121488571167,
+    "decode_pcc": 0.9983975887298584,
+    "artifact": "multichip_decoder/evidence7/accept_context_m4/full_262143.json"
+   },
+   "m4_full_262144": {
+    "prefill_pcc": 0.9983575940132141,
+    "decode_pcc": null,
+    "artifact": "multichip_decoder/evidence7/accept_context_m4/full_262144.json"
+   },
+   "m2_linear_262143": {
+    "prefill_pcc": 0.9993911981582642,
+    "decode_pcc": 0.9998741745948792,
+    "artifact": "multichip_decoder/evidence7/accept_context_m2/linear_262143.json"
+   },
+   "m2_linear_262144": {
+    "prefill_pcc": 0.9995466470718384,
+    "decode_pcc": null,
+    "artifact": "multichip_decoder/evidence7/accept_context_m2/linear_262144.json"
+   },
+   "m2_full_262143": {
+    "prefill_pcc": 0.9985100030899048,
+    "decode_pcc": 0.9983820915222168,
+    "artifact": "multichip_decoder/evidence7/accept_context_m2/full_262143.json"
+   },
+   "m2_full_262144": {
+    "prefill_pcc": 0.9983538389205933,
+    "decode_pcc": null,
+    "artifact": "multichip_decoder/evidence7/accept_context_m2/full_262144.json"
+   },
+   "m1_linear_262143": {
+    "prefill_pcc": 0.9993875622749329,
+    "decode_pcc": 0.9998794198036194,
+    "artifact": "multichip_decoder/evidence7/accept_context_m1/linear_262143.json"
+   },
+   "m1_linear_262144": {
+    "prefill_pcc": 0.9995511174201965,
+    "decode_pcc": null,
+    "artifact": "multichip_decoder/evidence7/accept_context_m1/linear_262144.json"
+   },
+   "m1_full_262143": {
+    "prefill_pcc": 0.9985280632972717,
+    "decode_pcc": 0.99836665391922,
+    "artifact": "multichip_decoder/evidence7/accept_context_m1/full_262143.json"
+   },
+   "m1_full_262144": {
+    "prefill_pcc": 0.9983461499214172,
+    "decode_pcc": null,
+    "artifact": "multichip_decoder/evidence7/accept_context_m1/full_262144.json"
+   }
+  },
+  "capacity_method": "Per-layer weights from the root-buffer inventory (DRAM payload by unique buffer). Constants that are identical in every layer (RoPE tables, dispatch maps, zero templates, index tables) are counted once. GDN state counted per configured slot. Embedding BF16 replicated; LM head BFP8 sharded by vocabulary. Reserve of 2 GiB for activations, trace and CCL buffers is an estimate until the full model measures it.",
+  "capacity": {
+   "p150": {
+    "mesh": [
+     1,
+     1
+    ],
+    "kv_heads_per_device": 2,
+    "kv_bytes_per_token_all_full_layers": 10880.0,
+    "per_layer_weight_bytes": {
+     "linear_attention": 660488704,
+     "full_attention": 623673856
+    },
+    "gdn_state_bytes_per_slot_per_layer": 2146304.0,
+    "forty_layer_weight_bytes": 26051399680,
+    "shareable_constant_bytes_counted_once": 153372292,
+    "reserve_bytes_estimate": 2147483648,
+    "kv_tokens_by_gdn_slots": {
+     "1": 386454,
+     "8": 345027,
+     "32": 202992
+    },
+    "full_context_sequences_by_gdn_slots": {
+     "1": 1.47,
+     "8": 1.32,
+     "32": 0.77
+    },
+    "fits_one_262144_sequence": true
+   },
+   "p150x2": {
+    "mesh": [
+     1,
+     2
+    ],
+    "kv_heads_per_device": 1,
+    "kv_bytes_per_token_all_full_layers": 5440.0,
+    "per_layer_weight_bytes": {
+     "linear_attention": 624869888,
+     "full_attention": 606339584
+    },
+    "gdn_state_bytes_per_slot_per_layer": 1073152.0,
+    "forty_layer_weight_bytes": 24809492480,
+    "shareable_constant_bytes_counted_once": 131533444,
+    "reserve_bytes_estimate": 2147483648,
+    "kv_tokens_by_gdn_slots": {
+     "1": 1060797,
+     "8": 1019370,
+     "32": 877335
+    },
+    "full_context_sequences_by_gdn_slots": {
+     "1": 4.05,
+     "8": 3.89,
+     "32": 3.35
+    },
+    "fits_one_262144_sequence": true
+   },
+   "p150x4": {
+    "mesh": [
+     1,
+     4
+    ],
+    "kv_heads_per_device": 1,
+    "kv_bytes_per_token_all_full_layers": 5440.0,
+    "per_layer_weight_bytes": {
+     "linear_attention": 314016256,
+     "full_attention": 305185280
+    },
+    "gdn_state_bytes_per_slot_per_layer": 536576.0,
+    "forty_layer_weight_bytes": 12472340480,
+    "shareable_constant_bytes_counted_once": 128714884,
+    "reserve_bytes_estimate": 2147483648,
+    "kv_tokens_by_gdn_slots": {
+     "1": 3356965,
+     "8": 3336251,
+     "32": 3265234
+    },
+    "full_context_sequences_by_gdn_slots": {
+     "1": 12.81,
+     "8": 12.73,
+     "32": 12.46
+    },
+    "fits_one_262144_sequence": true
+   }
+  },
+  "capacity_conditions": [
+   "RoPE tables, dispatch maps, zero templates and index tables are allocated once per mesh in the full model (the single-layer harness holds one copy per layer).",
+   "GDN recurrent slots are a configuration choice separate from active batch; table lists 1, 8 and 32 slots.",
+   "The 2 GiB reserve for activations, trace and CCL buffers is an estimate until the full model measures it.",
+   "p150 holds one native-context sequence (1.32 x 262144 tokens with 8 slots); p150 with 32 slots holds 0.77."
+  ],
+  "artifacts": [
+   "multichip_decoder/evidence7/capacity_model.json",
+   "multichip_decoder/evidence7/inventory/",
+   "multichip_decoder/evidence7/memory_handoff_recheck.json"
+  ]
+ }
 }

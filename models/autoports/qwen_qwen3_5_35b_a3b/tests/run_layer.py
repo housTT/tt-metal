@@ -41,7 +41,8 @@ def main():
     p.add_argument("--expert-precision", choices=["inherited", "bf16"], default="inherited")
     p.add_argument("--profile", action="store_true")
     p.add_argument("--warm-prefill", action="store_true")
-    p.add_argument("--decoder", choices=["functional", "fused", "optimized"], default="functional")
+    p.add_argument("--decoder", choices=["functional", "fused", "optimized", "multichip"], default="functional")
+    p.add_argument("--mesh", type=int, choices=[1, 2, 4], default=1)
     p.add_argument("--optimization-json", help="Explicit experimental policy; omitted uses delivered defaults")
     p.add_argument("--input-activations", type=Path)
     p.add_argument("--fusions", help="Comma-separated candidates, or empty for the construction control")
@@ -97,8 +98,15 @@ def main():
     print("HF_REFERENCE_READY", flush=True)
     import ttnn
 
-    mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0, **(
-        {"physical_device_ids": [int(__import__("os").environ["QDEV"])]} if "QDEV" in __import__("os").environ else {}))
+    if args.mesh != 1 and args.decoder != "multichip":
+        raise ValueError("Only the multichip decoder opens a multi-device mesh")
+    if args.mesh == 1:
+        mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0, **(
+            {"physical_device_ids": [int(__import__("os").environ["QDEV"])]} if "QDEV" in __import__("os").environ else {}))
+    else:
+        ttnn.set_fabric_config(ttnn.FabricConfig.FABRIC_1D_RING if args.mesh == 4 else ttnn.FabricConfig.FABRIC_1D)
+        mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, args.mesh), trace_region_size=0)
+    replicas_identical = []
 
     def put(t, *, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT):
         return ttnn.from_torch(
@@ -106,7 +114,9 @@ def main():
         )
 
     def get(t):
-        return ttnn.to_torch(t, mesh_composer=ttnn.ConcatMeshToTensor(mesh, dim=0))
+        shards = [ttnn.to_torch(s) for s in ttnn.get_device_tensors(t)]
+        replicas_identical.append(all(torch.equal(shards[0], s) for s in shards[1:]))
+        return shards[0]
 
     def drain_profile():
         # Drain only between complete layer passes, never inside a timed window or capture.
@@ -116,16 +126,20 @@ def main():
 
     try:
         decoder_class, fusion_kwargs = FunctionalDecoder, {}
-        if args.decoder in ("fused", "optimized"):
+        if args.decoder in ("fused", "optimized", "multichip"):
             from ..tt.fused_decoder import FusedDecoder
 
             decoder_class = FusedDecoder
             if args.fusions is not None:
                 fusion_kwargs["fusions"] = tuple(filter(None, args.fusions.split(",")))
-            if args.decoder == "optimized":
+            if args.decoder in ("optimized", "multichip"):
                 from ..tt.optimized_decoder import OptimizedDecoder
 
                 decoder_class = OptimizedDecoder
+                if args.decoder == "multichip":
+                    from ..tt.multichip_decoder import MultichipDecoder
+
+                    decoder_class = MultichipDecoder
                 if args.optimization_json is not None:
                     text = args.optimization_json
                     if text.startswith("@"):
@@ -148,13 +162,13 @@ def main():
         page_size = args.page_size
         if cfg.layer_types[args.layer] == "full_attention":
             blocks_per_row = max(args.minimum_cache_pages, (args.length + args.steps + page_size - 1) // page_size)
-            scratch = args.decoder == "optimized" and not args.no_kv_scratch
+            scratch = args.decoder in ("optimized", "multichip") and not args.no_kv_scratch
             blocks = args.batch * blocks_per_row + args.cache_guard_pages + int(scratch)
             table = torch.randperm(args.batch * blocks_per_row, dtype=torch.int32).reshape(
                 args.batch, blocks_per_row
             )
             kc = ttnn.zeros(
-                (blocks, cfg.num_key_value_heads, page_size, cfg.head_dim),
+                (blocks, model.config.n_kv_heads, page_size, cfg.head_dim),
                 dtype=ttnn.bfloat8_b if getattr(getattr(model, "optimization", None), "kv_dtype", "bf16") == "bfp8" else ttnn.bfloat16,
                 layout=ttnn.TILE_LAYOUT,
                 device=mesh,
@@ -202,6 +216,7 @@ def main():
         pf_out.deallocate(True)
         warmed_prefill_host_us = None
         prefill_repeat_identical = None
+        moe_pieces = None
         prefill_repeat_difference = None
         if args.profile or args.warm_prefill:
             from tracy import signpost
@@ -211,10 +226,12 @@ def main():
             drain_profile()
             if args.profile:
                 signpost("PERF_PREFILL")
+            model.moe_pieces_log = []
             started = time.perf_counter_ns()
             measured = prefill(continuation_us)
             ttnn.synchronize_device(mesh)
             warmed_prefill_host_us = (time.perf_counter_ns() - started) / 1000
+            moe_pieces, model.moe_pieces_log = [list(p) for p in model.moe_pieces_log], None
             if args.profile:
                 signpost("PERF_PREFILL_END")
             drain_profile()
@@ -340,15 +357,27 @@ def main():
         import hashlib
         from dataclasses import asdict
 
+        def unwrap(module):
+            if type(module).__name__ == "_AllReduceOutput":
+                return object.__getattribute__(module, "reduced_module")
+            return module
+
         source_root = Path(__file__).resolve().parents[1] / "tt"
         result = dict(
             device_ids=mesh.get_device_ids(),
             weight_memory=getattr(model,"weight_memory",None),
             input_metadata=input_metadata,
-            optimization=asdict(model.optimization) if args.decoder == "optimized" else None,
+            optimization=asdict(model.optimization) if args.decoder in ("optimized", "multichip") else None,
+            mesh_shape=list(mesh.shape),
+            tensor_parallel=getattr(model, "tensor_parallel", None),
+            merge_stats=getattr(model, "merge_stats", None),
+            construction_memory=getattr(model, "construction_memory", None),
+            output_replicas_identical=all(replicas_identical),
             decoder_class=type(model).__name__,
             runtime_components={
-                "attention": type(model.layer.attention).__name__,
+                "attention": type(unwrap(model.layer.attention)).__name__,
+                "attention_reduce": type(model.layer.attention).__name__ == "_AllReduceOutput",
+                "feed_forward_reduce": type(model.layer.feed_forward).__name__ == "_AllReduceOutput",
                 "router": type(model.layer.feed_forward.module.router).__name__,
                 "experts": type(model.layer.feed_forward.module.experts).__name__,
                 "decode_experts": type(getattr(model.layer.feed_forward.module.experts, "original", None)).__name__,
@@ -376,6 +405,7 @@ def main():
             warmed_continuation_host_us=continuation_us[-1] if continuation_us else None,
             prefill_repeat_identical=prefill_repeat_identical,
             prefill_repeat_difference=prefill_repeat_difference,
+            moe_pieces=moe_pieces,
             length=args.length,
             batch=args.batch,
             decode_steps=args.steps,
@@ -407,12 +437,16 @@ def main():
             torch.save({"prefill": pf, "decode": dec}, args.save_tensors)
         if args.compare_tensors:
             control = torch.load(args.compare_tensors, weights_only=True)
-            result["unfused_equivalence"] = {
+            result["unfused_equivalence"] = result["control_equivalence"] = {
                 "prefill_pcc": pcc(control["prefill"], pf),
                 "decode_pcc_min": min(pcc(control["decode"][:, i], dec[:, i]) for i in range(args.steps))
                 if args.steps
                 else None,
                 "source": str(args.compare_tensors),
+                "prefill_max_abs": float((control["prefill"].float() - pf.float()).abs().max()),
+                "decode_max_abs": float((control["decode"].float() - dec.float()).abs().max()) if args.steps else None,
+                "prefill_identical": bool(torch.equal(control["prefill"], pf)),
+                "decode_identical": bool(torch.equal(control["decode"], dec)) if args.steps else None,
             }
         args.output.write_text(json.dumps(result, indent=2) + "\n")
         print(json.dumps(result), flush=True)

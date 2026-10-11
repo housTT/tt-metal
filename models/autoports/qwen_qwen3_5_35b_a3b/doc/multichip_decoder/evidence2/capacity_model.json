@@ -1,0 +1,104 @@
+{
+  "method": "Per-layer weights from the root-buffer inventory (DRAM payload by unique buffer). Constants that are identical in every layer (RoPE tables, dispatch maps, zero templates, index tables) are counted once. GDN state counted per configured slot. Embedding BF16 replicated; LM head BFP8 sharded by vocabulary. Reserve of 2 GiB for activations, trace and CCL buffers is an estimate until the full model measures it.",
+  "profiles": {
+    "p150": {
+      "tensor_parallel": 1,
+      "device_capacity_bytes": 34178731008,
+      "per_layer_weight_bytes": {
+        "linear_attention": 660488704,
+        "full_attention": 623673856
+      },
+      "gdn_state_bytes_per_slot_per_layer": 2146304.0,
+      "shareable_constant_bytes_counted_once": 153372292,
+      "forty_layer_weight_bytes": 26051399680,
+      "embedding_bytes": 1017118720,
+      "lm_head_bytes": 540344320.0,
+      "reserve_bytes": 2147483648,
+      "kv_bytes_per_token_all_full_layers": 10880.0,
+      "by_gdn_slots": {
+        "1": {
+          "bytes_before_kv": 29974107780.0,
+          "kv_tokens": 386454,
+          "full_context_sequences": 1.474206317172331
+        },
+        "8": {
+          "bytes_before_kv": 30424831620.0,
+          "kv_tokens": 345027,
+          "full_context_sequences": 1.3161755267311546
+        },
+        "32": {
+          "bytes_before_kv": 31970170500.0,
+          "kv_tokens": 202992,
+          "full_context_sequences": 0.774355673789978
+        }
+      },
+      "fits_one_262144_sequence_with_8_slots": true
+    },
+    "p150x2": {
+      "tensor_parallel": 2,
+      "device_capacity_bytes": 34178731008,
+      "per_layer_weight_bytes": {
+        "linear_attention": 625426944,
+        "full_attention": 606896640
+      },
+      "gdn_state_bytes_per_slot_per_layer": 1073152.0,
+      "shareable_constant_bytes_counted_once": 131533444,
+      "forty_layer_weight_bytes": 24831774720,
+      "embedding_bytes": 1017118720,
+      "lm_head_bytes": 270172160.0,
+      "reserve_bytes": 2147483648,
+      "kv_bytes_per_token_all_full_layers": 5440.0,
+      "by_gdn_slots": {
+        "1": {
+          "bytes_before_kv": 28430277252.0,
+          "kv_tokens": 1056701,
+          "full_context_sequences": 4.030994636872236
+        },
+        "8": {
+          "bytes_before_kv": 28655639172.0,
+          "kv_tokens": 1015274,
+          "full_context_sequences": 3.872963846431059
+        },
+        "32": {
+          "bytes_before_kv": 29428308612.0,
+          "kv_tokens": 873239,
+          "full_context_sequences": 3.3311439934898823
+        }
+      },
+      "fits_one_262144_sequence_with_8_slots": true
+    },
+    "p150x4": {
+      "tensor_parallel": 4,
+      "device_capacity_bytes": 34178731008,
+      "per_layer_weight_bytes": {
+        "linear_attention": 314294784,
+        "full_attention": 305463808
+      },
+      "gdn_state_bytes_per_slot_per_layer": 536576.0,
+      "shareable_constant_bytes_counted_once": 128714884,
+      "forty_layer_weight_bytes": 12483481600,
+      "embedding_bytes": 1017118720,
+      "lm_head_bytes": 135086080.0,
+      "reserve_bytes": 2147483648,
+      "kv_bytes_per_token_all_full_layers": 5440.0,
+      "by_gdn_slots": {
+        "1": {
+          "bytes_before_kv": 15927982212.0,
+          "kv_tokens": 3354917,
+          "full_context_sequences": 12.79799292788786
+        },
+        "8": {
+          "bytes_before_kv": 16040663172.0,
+          "kv_tokens": 3334203,
+          "full_context_sequences": 12.718977532667273
+        },
+        "32": {
+          "bytes_before_kv": 16426997892.0,
+          "kv_tokens": 3263186,
+          "full_context_sequences": 12.448067606196684
+        }
+      },
+      "fits_one_262144_sequence_with_8_slots": true
+    }
+  }
+}

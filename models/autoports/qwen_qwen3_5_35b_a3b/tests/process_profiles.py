@@ -16,7 +16,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--layer-type", choices=("linear_attention", "full_attention"), required=True)
     parser.add_argument("--evidence-dir", type=Path)
-    parser.add_argument("--policy", choices=("functional", "fused", "optimized"), default="functional")
+    parser.add_argument("--policy", choices=("functional", "fused", "optimized", "multichip"), default="functional")
     parser.add_argument("--optimization-json", default="{}")
     args = parser.parse_args()
     evidence = args.evidence_dir or (Path(__file__).resolve().parents[1] / "doc" / "functional_decoder")

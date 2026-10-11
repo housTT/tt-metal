@@ -147,11 +147,12 @@ class FunctionalDecoder(LightweightModule):
         tensor_cache_path: Optional[Path] = None,
         max_batch_size: int = 32,
         expert_precision: str = "inherited",
+        replicated_mesh: bool = False,
     ) -> "FunctionalDecoder":
         config = FunctionalDecoderConfig.from_hf_config(hf_config)
         config._check_layer(layer_idx)
         device_count = mesh_device.get_num_devices() if hasattr(mesh_device, "get_num_devices") else 1
-        if device_count != 1:
+        if device_count != 1 and not replicated_mesh:
             raise NotImplementedError(
                 f"Stage-1 FunctionalDecoder supports one TT device; received {device_count} devices"
             )
@@ -182,13 +183,17 @@ class FunctionalDecoder(LightweightModule):
 
         from models.demos.blackhole.qwen36.tt.layer import Qwen36DecoderLayer
 
-        layer = Qwen36DecoderLayer(
-            mesh_device=mesh_device,
-            args=config,
-            state_dict=remapped,
-            layer_num=layer_idx,
-            tensor_cache_path=Path(tensor_cache_path) if tensor_cache_path is not None else None,
-        )
+        cache = Path(tensor_cache_path) if tensor_cache_path is not None else None
+        if replicated_mesh and config.is_deltanet_layer(layer_idx):
+            layer = _replicated_deltanet_layer(mesh_device, config, remapped, layer_idx, cache)
+        else:
+            layer = Qwen36DecoderLayer(
+                mesh_device=mesh_device,
+                args=config,
+                state_dict=remapped,
+                layer_num=layer_idx,
+                tensor_cache_path=cache,
+            )
         layer.attention_norm = _FunctionalRMSNorm(
             mesh_device, remapped[f"layers.{layer_idx}.input_layernorm.weight"], config.norm_eps
         )
@@ -477,6 +482,23 @@ class FunctionalDecoder(LightweightModule):
         if mode == "decode":
             return self.decode_forward(hidden_states, **kwargs)
         raise ValueError(f"mode must be 'prefill' or 'decode', got {mode!r}")
+
+
+def _replicated_deltanet_layer(mesh_device, config, state_dict, layer_idx, cache):
+    from types import SimpleNamespace
+
+    from models.demos.blackhole.qwen36.tt.gdn import GDNConfig
+    from models.demos.blackhole.qwen36.tt.layer import Qwen36DecoderLayer
+    from models.demos.blackhole.qwen36.tt.moe import MoEConfig, Qwen36MoE
+    from models.demos.blackhole.qwen36.utils.substate import substate
+
+    layer = Qwen36DecoderLayer.__new__(Qwen36DecoderLayer)
+    layer.layer_num, layer.device, layer.args, layer.tt_ccl = layer_idx, mesh_device, config, None
+    layer.num_devices, layer.is_full_attention = 1, False
+    layer.attention = SimpleNamespace(device=mesh_device, cfg=GDNConfig.from_args(config))
+    layer.feed_forward = Qwen36MoE(mesh_device, MoEConfig.from_args(config), substate(state_dict, f"layers.{layer_idx}.mlp"),
+                                   cache / f"layers.{layer_idx}" if cache is not None else None, args=config, tt_ccl=None)
+    return layer
 
 
 class _RankThreeMoE:

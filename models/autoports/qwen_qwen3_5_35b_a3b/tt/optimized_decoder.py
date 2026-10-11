@@ -40,6 +40,7 @@ class OptimizationPolicy:
     dispatch_ffn: str = "fused"
     dispatch_hybrid_threshold: int = 0
     dispatch_weight_nd: bool = False
+    dispatch_weights: str = "lists"
     plan_cost: tuple = ()
     dispatch_rank: str = "sort"
     prefill_tail_bucket: int = 0
@@ -48,6 +49,7 @@ class OptimizationPolicy:
     dispatch_combine: str = "post_combine"
     dispatch_tiles_from: int = 0
     prefill_moe_batch: bool = False
+    prefill_moe_pieces: int = 1
     prefill_masked_tail: bool = False
     prefill_sparse_chunk: int = 32
     prefill_sparse_l1: bool = False
@@ -80,6 +82,7 @@ class OptimizationPolicy:
     prefill_tiled: bool = False
     prefill_chunk: int = 0
     shared_minimal_config: dict = field(default_factory=dict)
+    shared_decode_minimal_config: dict = field(default_factory=dict)
     prefill_minimal_config: dict = field(default_factory=dict)
 
 
@@ -427,13 +430,29 @@ class OptimizedDecoder(FusedDecoder):
                     hs.append(self._attention_step(x, count, kw, valid))
                 residual = ttnn.concat(hs, dim=1) if len(hs) > 1 else hs[0]
                 padded = sum(count for _, count, _ in group)
-                moe_rows = next(n for n in sizes if n >= padded)
-                if moe_rows > padded:
-                    residual = ttnn.pad(residual, ((0, 0), (0, moe_rows - padded), (0, 0)), 0.0)
-                ff_input = self.layer.ffn_norm(residual, mode=Mode.PREFILL, norm_config=None)
-                result = ttnn.add(residual, self.layer.feed_forward.forward(ff_input, mode="prefill"))
-                if moe_rows > padded:
-                    result = ttnn.slice(result, (0, 0, 0), (1, padded, hidden))
+                parts, start = [], 0
+                for moe_rows in _moe_pieces(padded, sizes, self.optimization.prefill_moe_pieces):
+                    rows_here = min(moe_rows, padded - start)
+                    part = residual if rows_here == padded else ttnn.slice(residual, (0, start, 0),
+                                                                            (1, start + rows_here, hidden))
+                    if moe_rows > rows_here:
+                        part = ttnn.pad(part, ((0, 0), (0, moe_rows - rows_here), (0, 0)), 0.0)
+                    ff_input = self.layer.ffn_norm(part, mode=Mode.PREFILL, norm_config=None)
+                    dispatch = getattr(self, "expert_dispatch", None)
+                    if dispatch is not None:
+                        dispatch.valid_rows = rows_here
+                    try:
+                        part = ttnn.add(part, self.layer.feed_forward.forward(ff_input, mode="prefill"))
+                    finally:
+                        if dispatch is not None:
+                            dispatch.valid_rows = None
+                    if isinstance(getattr(self, "moe_pieces_log", None), list):
+                        self.moe_pieces_log.append((moe_rows, rows_here))
+                    if moe_rows > rows_here:
+                        part = ttnn.slice(part, (0, 0, 0), (1, rows_here, hidden))
+                    parts.append(part)
+                    start += rows_here
+                result = ttnn.concat(parts, dim=1) if len(parts) > 1 else parts[0]
                 if tiled_only:
                     pieces.append(result)
                 else:
@@ -634,9 +653,14 @@ class OptimizedDecoder(FusedDecoder):
             packer_l1_acc=True,
         )
         if policy.prefill_backend == "dispatch":
-            experts.dispatch = _LocalDispatch(packed.original,kwargs["mesh_device"],policy)
+            if policy.dispatch_weights == "lists":
+                experts.dispatch = _LocalDispatch(packed.original,kwargs["mesh_device"],policy)
+            elif policy.dispatch_weights in ("stacked", "expert_parallel") and policy.expert_backend == "sparse":
+                experts.dispatch = _StackedDispatch(compact,kwargs["mesh_device"],policy)
+            else:
+                raise ValueError("dispatch_weights must be lists, or stacked/expert_parallel with sparse decode experts")
         moe.experts = experts
-        if (policy.shared_split or policy.shared_minimal_config or policy.gate_pack
+        if (policy.shared_split or policy.shared_minimal_config or policy.shared_decode_minimal_config or policy.gate_pack
                 or any(k.startswith("shared_") for k in policy.projections)):
             shared = _OptimizedShared.__new__(_OptimizedShared)
             shared.__dict__.update(moe.shared.__dict__)
@@ -730,9 +754,8 @@ class _PackedGateMoE:
         import ttnn
 
         self.moe, self.policy = moe, policy
-        router = ttnn.to_torch(moe.router.module.original.tt_gate_weight,
-                               mesh_composer=ttnn.ConcatMeshToTensor(mesh, dim=0)).reshape(2048, -1)[:, :256]
-        shared = ttnn.to_torch(moe.shared.gate_weight, mesh_composer=ttnn.ConcatMeshToTensor(mesh, dim=0)).reshape(2048, 1)
+        router = ttnn.to_torch(ttnn.get_device_tensors(moe.router.module.original.tt_gate_weight)[0]).reshape(2048, -1)[:, :256]
+        shared = ttnn.to_torch(ttnn.get_device_tensors(moe.shared.gate_weight)[0]).reshape(2048, 1)
         packed = torch.cat((router, torch.nn.functional.pad(shared, (0, 31))), dim=-1)
         self.weight = ttnn.from_torch(packed.reshape(1, 1, 2048, 288).to(torch.bfloat16), device=mesh,
                                       dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT,
@@ -783,8 +806,11 @@ class _OptimizedShared:
             activated = ttnn.multiply(ff_gate,ff_up,input_tensor_a_activations=[ttnn.UnaryOpType.SILU],
                                      memory_config=ttnn.L1_MEMORY_CONFIG)
         else:
+            config = self.policy.shared_minimal_config
+            if x.shape[-2] == 1 and self.policy.shared_decode_minimal_config:
+                config = self.policy.shared_decode_minimal_config
             activated = ttnn.experimental.minimal_matmul(x,self.packed,fuse_swiglu=True,
-                config=_minimal_config(self.policy.shared_minimal_config),
+                config=_minimal_config(config),
                 compute_kernel_config=self.mlp.compute_kernel_config_decode,memory_config=ttnn.L1_MEMORY_CONFIG)
         if "shared_down" in self.projections:
             output = self.projections["shared_down"](activated,ttnn.L1_MEMORY_CONFIG)
@@ -1018,14 +1044,16 @@ class _OptimizedSparseExperts:
             activated = ttnn.multiply(gate,up,input_tensor_a_activations=[ttnn.UnaryOpType.SILU],
                                       memory_config=ttnn.L1_MEMORY_CONFIG)
         else:
-            both = ttnn.reshape(project(hidden,self.gate_up_weight,"gate",1024), (1,active,1,1024))
+            width = self.gate_up_weight.shape[-1]
+            both = ttnn.reshape(project(hidden,self.gate_up_weight,"gate",width), (1,active,1,width))
             activated = ttnn.swiglu(both, dim=-1, memory_config=ttnn.L1_MEMORY_CONFIG)
         down = project(activated,self.down_weight,"down",2048,True)
         if self.policy.sparse_fused_reduce:
             if not self.policy.sparse_indexed:
                 raise ValueError("Fused sparse reduction requires compact indexed output")
             return ttnn.experimental.deepseek_moe_fast_reduce_nc_fused(
-                ttnn.reshape(down[:,:,:1,:],(8,1,1,2048)),ids,self.mapping,reduce_dim=0,split_size=2048,cluster_axis=0,
+                ttnn.reshape(down[:,:,:1,:],(8,1,1,2048)),ids,self.mapping,reduce_dim=0,split_size=2048,
+                cluster_axis=getattr(self,"reduce_cluster_axis",0),
                 scores_tensor=ttnn.to_layout(values,ttnn.ROW_MAJOR_LAYOUT),
                 output_memory_config=ttnn.L1_MEMORY_CONFIG)[0]
         scores = values if self.policy.sparse_indexed else ttnn.scatter(self.zeros, dim=-1, index=indices, src=values)
@@ -1149,7 +1177,7 @@ class _Projection:
             readers, cores = options.get("readers", 1), options.get("cores", 8)
             banks = mesh.dram_grid_size().x
             padded_n = math.ceil(self.n / (32 * banks * readers)) * 32 * banks * readers
-            value = ttnn.to_torch(self.weight, mesh_composer=ttnn.ConcatMeshToTensor(mesh, dim=0)).reshape(self.k, self.n)
+            value = ttnn.to_torch(ttnn.get_device_tensors(self.weight)[0]).reshape(self.k, self.n)
             value = torch.nn.functional.pad(value, (0, padded_n - self.n))
             weight_memory = ttnn.MemoryConfig(
                 ttnn.TensorMemoryLayout.WIDTH_SHARDED, ttnn.BufferType.DRAM,
@@ -1517,7 +1545,8 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
         else:
             mega = self.project("attention_in", x, self.mega_weight, self.compute_kernel_config, mc)
         qkv_width = self.cfg.q_dim + self.cfg.k_dim + self.cfg.v_dim
-        a_start, b_start, z_start = qkv_width, qkv_width + self.num_v_heads, qkv_width + 2 * self.num_v_heads
+        stride = getattr(self, "ab_stride", self.num_v_heads)
+        a_start, b_start, z_start = qkv_width, qkv_width + stride, qkv_width + 2 * stride
 
         def columns(tensor, start, end):
             return ttnn.to_layout(tensor[:, :, start:end], ttnn.TILE_LAYOUT, memory_config=mc)
@@ -1530,9 +1559,10 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
             k = columns(qkv, self.cfg.q_dim, self.cfg.q_dim + self.cfg.k_dim)
             v = columns(qkv, self.cfg.q_dim + self.cfg.k_dim, qkv_width)
         fused_norm = "kda_norm_decode" in self.fusions or (length > 1 and "kda_norm" in self.fusions)
-        a = ttnn.typecast(columns(mega, a_start, b_start), ttnn.float32)
+        a = ttnn.typecast(columns(mega, a_start, a_start + self.num_v_heads), ttnn.float32)
         beta = ttnn.typecast(
-            ttnn.sigmoid(ttnn.typecast(columns(mega, b_start, z_start), ttnn.float32), memory_config=mc), ttnn.bfloat16
+            ttnn.sigmoid(ttnn.typecast(columns(mega, b_start, b_start + self.num_v_heads), ttnn.float32),
+                         memory_config=mc), ttnn.bfloat16
         )
         decay_log = ttnn.multiply(
             self.a_neg,
@@ -1679,6 +1709,21 @@ class _SplitColumns:
 _PLAN_COST = {"full": (0.8, 0.0014, 0.8, 3.0, 1.05), "linear": (0.5, 0.003, 1.1, 3.0, 1.6)}
 
 
+def _moe_pieces(rows, sizes, limit):
+    single = next(n for n in sizes if n >= rows)
+    pieces, remaining = [], rows
+    while remaining > 0:
+        if len(pieces) == limit - 1 or remaining < sizes[0]:
+            pieces.append(next(n for n in sizes if n >= remaining))
+            break
+        piece = max(n for n in sizes if n <= remaining)
+        pieces.append(piece)
+        remaining -= piece
+    if sum(pieces) >= single or (sum(pieces) > rows and single < sizes[-1]):
+        return [single]
+    return pieces
+
+
 def _bucket_sizes(policy):
     return tuple(sorted({policy.prefill_chunk, policy.prefill_tail_bucket, *policy.prefill_buckets} - {0}))
 
@@ -1821,6 +1866,11 @@ class _LocalDispatch:
     def tiles(self, length):
         return self.policy.dispatch_combine == "tiles" or 0 < self.policy.dispatch_tiles_from <= length
 
+    def restore_table(self, result, capacity):
+        import ttnn
+
+        return ttnn.reshape(ttnn.to_layout(result,ttnn.ROW_MAJOR_LAYOUT),(capacity,2048))
+
     def route_maps(self,routing):
         import ttnn
 
@@ -1897,7 +1947,7 @@ class _LocalDispatch:
                            layout=ttnn.TILE_LAYOUT,memory_config=ttnn.DRAM_MEMORY_CONFIG)
         if self.policy.dispatch_ffn == "fused":
             result = ttnn.experimental.deepseek_prefill.moe_fused_swiglu(
-                dispatched,self.gate,self.up,self.down,counts,self.expert_ids,
+                dispatched,self.gate,self.up,self.down,counts,self.expert_ids,**getattr(self,"weight_options",{}),
                 input_m_tiles=self.policy.dispatch_m_tiles or length//32,
                 core_grid=ttnn.CoreCoord(*(self.policy.dispatch_grid_large[1:]
                                            if self.policy.dispatch_grid_large and length >= self.policy.dispatch_grid_large[0]
@@ -1915,8 +1965,8 @@ class _LocalDispatch:
                             self.gate, self.up, self.down, length, compute_kernel_config=self.compute, **extra)
             if result.dtype != ttnn.bfloat16:
                 result = ttnn.typecast(result, ttnn.bfloat16)
-        restored = ttnn.embedding(ttnn.reshape(inverse,(1,length*8)),
-            ttnn.reshape(ttnn.to_layout(result,ttnn.ROW_MAJOR_LAYOUT),(capacity,2048)),layout=ttnn.ROW_MAJOR_LAYOUT)
+        restored = ttnn.embedding(ttnn.reshape(inverse,(1,length*8)),self.restore_table(result,capacity),
+                                  layout=ttnn.ROW_MAJOR_LAYOUT)
         if self.tiles(length):
             experts = ttnn.to_layout(ttnn.reshape(restored,(8,1,length,2048)),ttnn.TILE_LAYOUT)
             scores = ttnn.transpose(ttnn.reshape(ttnn.transpose(ttnn.to_layout(values,ttnn.TILE_LAYOUT),-2,-1),
@@ -1926,3 +1976,26 @@ class _LocalDispatch:
             ttnn.reshape(restored,(1,1,length,8,2048)),
             ttnn.reshape(ttnn.to_layout(values,ttnn.ROW_MAJOR_LAYOUT),(1,1,length,8,1)),expert_dim=3,
             output_memory_config=ttnn.DRAM_MEMORY_CONFIG)
+
+
+class _StackedDispatch(_LocalDispatch):
+
+    def __init__(self, experts, mesh, policy):
+        import torch
+        import ttnn
+
+        if policy.dispatch_ffn != "fused" or policy.dispatch_weight_nd:
+            raise ValueError("Stacked dispatch weights implement the fused-FFN interleaved policy")
+        self.policy = policy
+        self.bind_weights(experts.gate_up_weight, experts.down_weight)
+        local = experts.gate_up_weight.shape[1]
+        self.expert_ids = ttnn.from_torch(torch.arange(local, dtype=torch.int32), device=mesh, dtype=ttnn.uint32,
+                                          layout=ttnn.ROW_MAJOR_LAYOUT, mesh_mapper=ttnn.ReplicateTensorToMesh(mesh))
+        self.compute = ttnn.init_device_compute_kernel_config(mesh.arch(),math_fidelity=ttnn.MathFidelity.LoFi,
+            fp32_dest_acc_en=False,packer_l1_acc=False,math_approx_mode=False)
+        self.prepare_maps(mesh)
+
+    def bind_weights(self, gate_up, down):
+        width = down.shape[-2]
+        self.gate, self.up, self.down = [gate_up], [gate_up], [down]
+        self.weight_options = dict(stacked_intermediate=width, gate_column_offset=width // 32, up_column_offset=0)

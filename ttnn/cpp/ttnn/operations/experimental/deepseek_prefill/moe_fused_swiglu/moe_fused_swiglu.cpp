@@ -28,7 +28,10 @@ ttnn::Tensor moe_fused_swiglu(
     const std::optional<std::vector<ttnn::Tensor>>& up_biases,
     const std::optional<std::vector<ttnn::Tensor>>& down_biases,
     uint32_t min_active_tokens,
-    uint32_t max_active_tokens) {
+    uint32_t max_active_tokens,
+    const std::optional<uint32_t>& stacked_intermediate,
+    uint32_t gate_column_offset,
+    uint32_t up_column_offset) {
     constexpr uint32_t TILE = 32;
     TT_FATAL(!w_gates.empty(), "moe_fused_swiglu: at least one local expert is required");
     TT_FATAL(
@@ -37,7 +40,15 @@ ttnn::Tensor moe_fused_swiglu(
         w_gates.size(),
         w_ups.size(),
         w_downs.size());
-    const uint32_t experts_per_chip = static_cast<uint32_t>(w_gates.size());
+    const bool stacked = stacked_intermediate.has_value();
+    TT_FATAL(
+        !stacked || (w_gates.size() == 1 && w_gates[0].logical_shape().rank() == 4),
+        "moe_fused_swiglu: stacked mode takes one (1, E, K, N) tensor per role");
+    const uint32_t experts_per_chip =
+        stacked ? static_cast<uint32_t>(w_gates[0].logical_shape()[1]) : static_cast<uint32_t>(w_gates.size());
+    const std::vector<ttnn::Tensor> gate_list = stacked ? std::vector<ttnn::Tensor>(experts_per_chip, w_gates[0]) : w_gates;
+    const std::vector<ttnn::Tensor> up_list = stacked ? std::vector<ttnn::Tensor>(experts_per_chip, w_ups[0]) : w_ups;
+    const std::vector<ttnn::Tensor> down_list = stacked ? std::vector<ttnn::Tensor>(experts_per_chip, w_downs[0]) : w_downs;
     // What follows indexes the activation shape and dereferences its device, both before the device
     // operation's validate() runs. Tensor::device() is null for host or unallocated storage, so
     // without these a malformed public call is answered with a null dereference instead of a
@@ -94,9 +105,9 @@ ttnn::Tensor moe_fused_swiglu(
 
     return ttnn::prim::moe_fused_swiglu(
         activations,
-        w_gates,
-        w_ups,
-        w_downs,
+        gate_list,
+        up_list,
+        down_list,
         gate_bias_list,
         up_bias_list,
         down_bias_list,
@@ -114,7 +125,10 @@ ttnn::Tensor moe_fused_swiglu(
         output,
         expert_region_offsets,
         min_active_tokens,
-        max_active_tokens);
+        max_active_tokens,
+        stacked_intermediate.value_or(0),
+        gate_column_offset,
+        up_column_offset);
 }
 
 }  // namespace ttnn::operations::experimental::deepseek_prefill::moe_fused_swiglu

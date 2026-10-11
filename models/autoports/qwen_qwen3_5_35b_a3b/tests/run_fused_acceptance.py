@@ -16,7 +16,8 @@ def main():
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--group", choices=("positions", "reuse", "context", "watcher", "pytest"), required=True)
     parser.add_argument("--fusions")
-    parser.add_argument("--decoder", choices=("fused", "optimized"), default="fused")
+    parser.add_argument("--decoder", choices=("fused", "optimized", "multichip"), default="fused")
+    parser.add_argument("--mesh", type=int, choices=(1, 2, 4), default=1)
     parser.add_argument("--layer", type=int, choices=(0, 3))
     args = parser.parse_args()
     args.directory.mkdir(parents=True, exist_ok=False)
@@ -31,6 +32,8 @@ def main():
             module + runner,
             "--decoder",
             args.decoder,
+            "--mesh",
+            str(args.mesh),
             *arguments,
             "--output",
             str(args.directory / (name + ".json")),

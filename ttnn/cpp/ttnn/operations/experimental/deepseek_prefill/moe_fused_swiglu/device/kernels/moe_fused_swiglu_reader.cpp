@@ -106,6 +106,26 @@ constexpr uint32_t NUM_GLOBAL_EXPERTS = CT(NUM_GLOBAL_EXPERTS);
 // offsets, which are device-produced and so beyond anything the host can check.
 constexpr uint32_t ROW_CAPACITY = CT(ROW_CAPACITY);
 constexpr uint32_t W_TILE = CT(W_TILE_BYTES);  // weight tile stride: bfp4 576, bfp8 1088, bf16 2048
+
+#ifndef MOE_GU_PITCH
+#define MOE_GU_PITCH HID_T
+#endif
+#ifndef MOE_GATE_COL0
+#define MOE_GATE_COL0 0
+#endif
+#ifndef MOE_UP_COL0
+#define MOE_UP_COL0 0
+#endif
+#ifndef MOE_GU_EXPERT_PAGES
+#define MOE_GU_EXPERT_PAGES 0
+#endif
+#ifndef MOE_WD_EXPERT_PAGES
+#define MOE_WD_EXPERT_PAGES 0
+#endif
+#ifndef MOE_WD_TILE_BYTES
+#define MOE_WD_TILE_BYTES W_TILE
+#endif
+constexpr uint32_t WD_TILE = MOE_WD_TILE_BYTES;
 constexpr uint32_t BFP8_TILE = CT(BFP8_TILE);
 // h is bfp8, like x, the output and the reduce operands. It cannot be bfp4: the packer emits bfp8,
 // so a bfp4 h CB would be decoded through the wrong format.
@@ -428,7 +448,9 @@ void kernel_main() {
         const auto wg_acc =
             TensorAccessor(wg_args, get_common_arg_val<uint32_t>(COMMON_WEIGHTS + local_expert_id), W_TILE);
         const auto wd_acc = TensorAccessor(
-            wd_args, get_common_arg_val<uint32_t>(COMMON_WEIGHTS + EXPERTS_PER_CHIP + local_expert_id), W_TILE);
+            wd_args, get_common_arg_val<uint32_t>(COMMON_WEIGHTS + EXPERTS_PER_CHIP + local_expert_id), WD_TILE);
+        const uint32_t gu_page_base = local_expert_id * MOE_GU_EXPERT_PAGES;
+        const uint32_t wd_page_base = local_expert_id * MOE_WD_EXPERT_PAGES;
 #ifdef FUSE_BIAS
         // This expert's bias windows, fetched once. Gate/up take the COLUMN's whole HN_PAD window
         // rather than a per-core slice: after the reduce-scatter a core's gate/up slice is a flat
@@ -662,7 +684,18 @@ void kernel_main() {
                 MaybeDeviceZoneScope("reader_wg_issue");
                 const uint32_t wg_wp = get_write_ptr(cb_w_gate);
                 moe_fused_swiglu::read_weight_chunk<BRG>(
-                    wg_acc, read_wg, c, GU_CHUNK_W, kr_rows, kstart, hstart, hn_cols, HID_T, wg_wp, W_TILE);
+                    wg_acc,
+                    read_wg,
+                    c,
+                    GU_CHUNK_W,
+                    kr_rows,
+                    kstart,
+                    hstart + MOE_GATE_COL0,
+                    hn_cols,
+                    MOE_GU_PITCH,
+                    wg_wp,
+                    W_TILE,
+                    gu_page_base);
             };
             // WHERE the tail chunks are issued is the whole result: issuing all GU_CHUNKS here
             // matters: the x staging prologue's read barrier is all-or-nothing, so issuing every chunk
@@ -870,8 +903,9 @@ void kernel_main() {
                             wd_out_width,
                             WD_EC_MAX,
                             EMB_T,
-                            WD_PACKED ? wd_base + hbase * WD_EC_MAX * W_TILE : write_ptr + r * WD_BLOCK_TILES * W_TILE,
-                            W_TILE);
+                            WD_PACKED ? wd_base + hbase * WD_EC_MAX * WD_TILE : write_ptr + r * WD_BLOCK_TILES * WD_TILE,
+                            WD_TILE,
+                            wd_page_base);
                     }
                 }
             };
@@ -1247,8 +1281,9 @@ void kernel_main() {
                                     wd_out_width,
                                     WD_EC_MAX,
                                     EMB_T,
-                                    WD_PACKED ? wd_base + hbase * WD_EC_MAX * W_TILE : write_ptr,
-                                    W_TILE);
+                                    WD_PACKED ? wd_base + hbase * WD_EC_MAX * WD_TILE : write_ptr,
+                                    WD_TILE,
+                                    wd_page_base);
                             }
                             wd_pending = true;
                         }

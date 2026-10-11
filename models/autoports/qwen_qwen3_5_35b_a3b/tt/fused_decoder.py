@@ -367,7 +367,7 @@ class _PackedPrefillExperts:
         self.split_single = split_single
         width = self.weights.intermediate_size_per_device
         # Move complete tiles of already quantized values; preserve BFP4 groups.
-        values = ttnn.to_torch(self.weights.gate_up_proj, mesh_composer=ttnn.ConcatMeshToTensor(mesh, dim=0))[0]
+        values = ttnn.to_torch(ttnn.get_device_tensors(self.weights.gate_up_proj)[0])[0]
         experts, hidden = values.shape[:2]
         up = values[..., :width].reshape(experts, hidden, width // 32, 32)
         gate = values[..., width:].reshape(experts, hidden, width // 32, 32)
@@ -650,9 +650,9 @@ class _FusedShared:
             import torch
 
             gate, up = state["gate_proj.weight"].T, state["up_proj.weight"].T
-            packed = torch.stack((gate.reshape(2048, 16, 32), up.reshape(2048, 16, 32)), dim=2)
+            packed = torch.stack((gate.reshape(2048, -1, 32), up.reshape(2048, -1, 32)), dim=2)
             self.packed = ttnn.from_torch(
-                packed.reshape(2048, 1024).contiguous(),
+                packed.reshape(2048, -1).contiguous(),
                 device=mesh,
                 layout=ttnn.TILE_LAYOUT,
                 dtype=ttnn.bfloat4_b,
@@ -1233,7 +1233,7 @@ def _enable_indexed_rope(model, mesh):
     import ttnn
 
     def host(tensor):
-        return ttnn.to_torch(tensor, mesh_composer=ttnn.ConcatMeshToTensor(mesh, dim=0))
+        return ttnn.to_torch(ttnn.get_device_tensors(tensor)[0])
 
     def put(value, like):
         return ttnn.from_torch(
@@ -1260,7 +1260,8 @@ def _enable_indexed_rope(model, mesh):
     old = attention.qkvg_weight
     value = host(old)
     columns = torch.arange(value.shape[-1])
-    for start, heads in ((0, 16), (4096, 2)):
+    heads, kv_heads, head_dim = attention.config.num_heads, attention.config.num_kv_heads, attention.config.head_dim
+    for start, heads in ((0, heads), (heads * head_dim, kv_heads)):
         columns[start : start + heads * 256] = (start + torch.arange(heads)[:, None] * 256 + perm).reshape(-1)
     attention.qkvg_weight = put(value[..., columns], old)
     for name in ("_rope_cos", "_rope_sin"):

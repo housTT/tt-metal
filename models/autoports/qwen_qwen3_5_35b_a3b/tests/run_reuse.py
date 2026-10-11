@@ -25,7 +25,8 @@ def main():
     parser.add_argument("--page-size", type=int, default=32)
     parser.add_argument("--no-kv-scratch", action="store_true")
     parser.add_argument("--expert-precision", choices=("inherited", "bf16"), default="inherited")
-    parser.add_argument("--decoder", choices=("functional", "fused", "optimized"), default="functional")
+    parser.add_argument("--decoder", choices=("functional", "fused", "optimized", "multichip"), default="functional")
+    parser.add_argument("--mesh", type=int, choices=(1, 2, 4), default=1)
     parser.add_argument("--fusions")
     parser.add_argument("--optimization-json")
     parser.add_argument("--input-activations", type=Path)
@@ -69,28 +70,29 @@ def main():
 
     import ttnn
 
-    mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0, **(
-        {"physical_device_ids": [int(__import__("os").environ["QDEV"])]} if "QDEV" in __import__("os").environ else {}))
+    from .mesh_util import ReplicaReader, decoder_class as select_decoder, open_mesh, shards
+
+    if args.mesh != 1 and args.decoder != "multichip":
+        raise ValueError("Only the multichip decoder opens a multi-device mesh")
+    mesh = open_mesh(args.mesh)
+    replica = ReplicaReader()
 
     def put(x, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=True):
         kw = dict(device=mesh, mesh_mapper=ttnn.ReplicateTensorToMesh(mesh)) if device else {}
         return ttnn.from_torch(x.contiguous(), dtype=dtype, layout=layout, **kw)
 
     def get(x):
-        return ttnn.to_torch(x, mesh_composer=ttnn.ConcatMeshToTensor(mesh, dim=0))
+        return replica(x)
+
+    def nonzero_any_device(x, value=None):
+        return any(bool(torch.count_nonzero(s if value is None else s != value).item()) for s in shards(x))
 
     try:
-        decoder_class, fusion_kwargs = FunctionalDecoder, {}
-        if args.decoder in ("fused", "optimized"):
-            from ..tt.fused_decoder import FusedDecoder
-
-            decoder_class = FusedDecoder
+        decoder_class, fusion_kwargs = select_decoder(args.decoder), {}
+        if args.decoder in ("fused", "optimized", "multichip"):
             if args.fusions is not None:
                 fusion_kwargs["fusions"] = tuple(filter(None, args.fusions.split(",")))
-        if args.decoder == "optimized":
-            from ..tt.optimized_decoder import OptimizedDecoder
-
-            decoder_class = OptimizedDecoder
+        if args.decoder in ("optimized", "multichip"):
             if args.optimization_json is not None:
                 fusion_kwargs["optimization"] = json.loads(args.optimization_json)
         model = decoder_class.from_state_dict(
@@ -106,13 +108,13 @@ def main():
         decode_kwargs = dict(request_slots=slots)
         dx = put(cases[0]["x"][:, -1:])
         if args.layer == 3:
-            kv_host = torch.zeros((total_pages + 4, cfg.num_key_value_heads, args.page_size, cfg.head_dim),
+            kv_host = torch.zeros((total_pages + 4, model.config.n_kv_heads, args.page_size, cfg.head_dim),
                                   dtype=torch.bfloat16)
             kv_host[total_pages + 3].fill_(5.0)
             kv_dtype = (ttnn.bfloat8_b if getattr(getattr(model, "optimization", None), "kv_dtype", "bf16") == "bfp8"
                         else ttnn.bfloat16)
             kc, vc = put(kv_host, kv_dtype), put(kv_host, kv_dtype)
-            if args.decoder == "optimized" and not args.no_kv_scratch:
+            if args.decoder in ("optimized", "multichip") and not args.no_kv_scratch:
                 model.bind_paged_kv_cache(kc, vc, scratch_block=total_pages + 3)
             else:
                 model.bind_paged_kv_cache(kc, vc)
@@ -197,17 +199,20 @@ def main():
         mesh.set_program_cache_misses_allowed(True)
         guards_clean = None
         if args.layer == 3:
-            guards_clean = (
-                not torch.count_nonzero(get(kc[total_pages : total_pages + 3])).item()
-                and not torch.count_nonzero(get(vc[total_pages : total_pages + 3])).item()
-            )
+            guards_clean = (not nonzero_any_device(kc[total_pages : total_pages + 3])
+                            and not nonzero_any_device(vc[total_pages : total_pages + 3]))
             assert guards_clean
         args.output.write_text(
             json.dumps(
                 dict(
                     decoder_class=type(model).__name__,
                     input_activations=str(args.input_activations) if args.input_activations else "random_normal_0.1",
-                    optimization=__import__("dataclasses").asdict(model.optimization) if args.decoder=="optimized" else None,
+                    optimization=(__import__("dataclasses").asdict(model.optimization)
+                                  if args.decoder in ("optimized", "multichip") else None),
+                    mesh_shape=list(mesh.shape),
+                    device_ids=list(mesh.get_device_ids()),
+                    tensor_parallel=getattr(model, "tensor_parallel", None),
+                    output_replicas_identical=replica.all_identical(),
                     fusions=getattr(model, "fusions", None),
                     cases=results,
                     captures=1,
@@ -215,7 +220,7 @@ def main():
                     teardown_releases=1,
                     guards_clean=guards_clean,
                     kv_scratch_block=getattr(model, "kv_scratch_block", None),
-                    kv_scratch_written=(bool(torch.count_nonzero(get(kc[total_pages + 3 : total_pages + 4]) != 5.0).item())
+                    kv_scratch_written=(nonzero_any_device(kc[total_pages + 3 : total_pages + 4], 5.0)
                                         if args.layer == 3 and getattr(model, "kv_scratch_block", None) is not None
                                         else None),
                     runtime_audit=True,
