@@ -7,6 +7,7 @@
 - Profiles: p150 = 1x1 mesh, p150x2 = 1x2 mesh, p150x4 = 1x4 ring. Optimization target: p150x4.
 - Final evidence: `evidence7/` (chain `runs/main/stage04/evidence_chain7.sh`, log
   `runs/main/stage04/evidence_chain7.log`, start and end source manifests equal).
+- Stage commit: `dca97aa5559a70ea81538d7b677049939896b50e` (local branch `feat/qwen3-5-35b-a3b`, not pushed).
 - Superseded chains, kept: `evidence1/` (before review 1, `stage_review.md`), `evidence2/` (before the decode
   projection sweep), `evidence3/` (prefill shared-expert regression), `evidence4/` (before the MoE group split,
   review 4), `evidence5/` (before the split rule fix, review 5), `evidence6/` (L1 clash in one row, fixed).

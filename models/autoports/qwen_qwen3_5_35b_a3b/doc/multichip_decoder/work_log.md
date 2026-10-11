@@ -257,3 +257,10 @@ its route happened to avoid the error pattern; the fused reduce source
   p150x2 7 rows in chain 6 vs 1 in chain 7, which differ only in the prefill all-reduce).
 - Stale `evidence7/micro/prefill_timing/` (copy of the chain 5 sweep) removed; the chain 5 copy stays in `evidence5/`.
 - Limitations list the CCL path selection, decode semaphore timing and per-wrapper ping-pong.
+
+### Review 7 and commit
+
+- `stage_review7.md`: clean-pass. Listed documentation leftovers fixed (timing variance numbers, CCL share,
+  112.5 us, plan table wording).
+- Local commit `dca97aa5559a70ea81538d7b677049939896b50e` on `feat/qwen3-5-35b-a3b` (hooks skipped to keep bytes
+  equal to the frozen manifests; not pushed). Committed tt/ and tests/ hashes equal `evidence7/source_manifest_end.json`.
