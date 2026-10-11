@@ -1,0 +1,484 @@
+[
+  {
+    "name": "packed",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "projections": {
+        "attention_out": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        }
+      },
+      "decode_norm_cores": 16,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram"
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "4",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"projections\": {\"attention_out\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}}, \"decode_norm_cores\": 16, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\"}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/prefill4k_full/packed.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 14.093367812922224,
+    "source_stable": true,
+    "prefill_pcc": 0.9995173215866089,
+    "decode_pcc": 0.9995843768119812,
+    "prefill_host_us": 253024.959,
+    "decode_host_us": 466.73850000000004
+  },
+  {
+    "name": "disp_tiled_512",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "projections": {
+        "attention_out": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        }
+      },
+      "decode_norm_cores": 16,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram",
+      "prefill_backend": "dispatch",
+      "dispatch_dtype": "bfp4",
+      "dispatch_grid": [
+        4,
+        4
+      ],
+      "prefill_tiled": true,
+      "prefill_chunk": 512,
+      "release_unused_weights": true
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "4",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"projections\": {\"attention_out\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}}, \"decode_norm_cores\": 16, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\", \"prefill_backend\": \"dispatch\", \"dispatch_dtype\": \"bfp4\", \"dispatch_grid\": [4, 4], \"prefill_tiled\": true, \"prefill_chunk\": 512, \"release_unused_weights\": true}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/prefill4k_full/disp_tiled_512.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 12.39868106902577,
+    "source_stable": true,
+    "prefill_pcc": 0.9987945556640625,
+    "decode_pcc": 0.9995843768119812,
+    "prefill_host_us": 138995.212,
+    "decode_host_us": 466.8885
+  },
+  {
+    "name": "disp_tiled_1024",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "projections": {
+        "attention_out": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        }
+      },
+      "decode_norm_cores": 16,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram",
+      "prefill_backend": "dispatch",
+      "dispatch_dtype": "bfp4",
+      "dispatch_grid": [
+        4,
+        4
+      ],
+      "prefill_tiled": true,
+      "prefill_chunk": 1024,
+      "release_unused_weights": true
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "4",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"projections\": {\"attention_out\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}}, \"decode_norm_cores\": 16, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\", \"prefill_backend\": \"dispatch\", \"dispatch_dtype\": \"bfp4\", \"dispatch_grid\": [4, 4], \"prefill_tiled\": true, \"prefill_chunk\": 1024, \"release_unused_weights\": true}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/prefill4k_full/disp_tiled_1024.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 25.18649672495667,
+    "source_stable": true,
+    "prefill_pcc": 0.9987934827804565,
+    "decode_pcc": 0.9995843768119812,
+    "prefill_host_us": 109215.075,
+    "decode_host_us": 465.60699999999997
+  },
+  {
+    "name": "disp_tiled_2048",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "projections": {
+        "attention_out": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        }
+      },
+      "decode_norm_cores": 16,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram",
+      "prefill_backend": "dispatch",
+      "dispatch_dtype": "bfp4",
+      "dispatch_grid": [
+        4,
+        4
+      ],
+      "prefill_tiled": true,
+      "prefill_chunk": 2048,
+      "release_unused_weights": true
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "4",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"projections\": {\"attention_out\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}}, \"decode_norm_cores\": 16, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\", \"prefill_backend\": \"dispatch\", \"dispatch_dtype\": \"bfp4\", \"dispatch_grid\": [4, 4], \"prefill_tiled\": true, \"prefill_chunk\": 2048, \"release_unused_weights\": true}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/prefill4k_full/disp_tiled_2048.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 27.495704369968735,
+    "source_stable": true,
+    "prefill_pcc": 0.9987931847572327,
+    "decode_pcc": 0.9995843768119812,
+    "prefill_host_us": 93033.731,
+    "decode_host_us": 466.7885
+  },
+  {
+    "name": "disp_tiled_4096",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "projections": {
+        "attention_out": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        }
+      },
+      "decode_norm_cores": 16,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram",
+      "prefill_backend": "dispatch",
+      "dispatch_dtype": "bfp4",
+      "dispatch_grid": [
+        4,
+        4
+      ],
+      "prefill_tiled": true,
+      "prefill_chunk": 4096,
+      "release_unused_weights": true
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "4",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"projections\": {\"attention_out\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}}, \"decode_norm_cores\": 16, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\", \"prefill_backend\": \"dispatch\", \"dispatch_dtype\": \"bfp4\", \"dispatch_grid\": [4, 4], \"prefill_tiled\": true, \"prefill_chunk\": 4096, \"release_unused_weights\": true}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/prefill4k_full/disp_tiled_4096.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 28.088434829027392,
+    "source_stable": true,
+    "prefill_pcc": 0.9987943768501282,
+    "decode_pcc": 0.9995843768119812,
+    "prefill_host_us": 84504.926,
+    "decode_host_us": 466.7985
+  },
+  {
+    "name": "disp_planner_2048",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "projections": {
+        "attention_out": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        }
+      },
+      "decode_norm_cores": 16,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram",
+      "prefill_backend": "dispatch",
+      "dispatch_dtype": "bfp4",
+      "dispatch_grid": [
+        4,
+        4
+      ],
+      "prefill_tiled": false,
+      "prefill_chunk": 2048,
+      "release_unused_weights": true
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "4",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"projections\": {\"attention_out\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}}, \"decode_norm_cores\": 16, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\", \"prefill_backend\": \"dispatch\", \"dispatch_dtype\": \"bfp4\", \"dispatch_grid\": [4, 4], \"prefill_tiled\": false, \"prefill_chunk\": 2048, \"release_unused_weights\": true}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/prefill4k_full/disp_planner_2048.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 12.576649182010442,
+    "source_stable": true,
+    "prefill_pcc": 0.9987956285476685,
+    "decode_pcc": 0.9995843768119812,
+    "prefill_host_us": 93449.675,
+    "decode_host_us": 468.547
+  },
+  {
+    "name": "disp_2048_attn_dram",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "projections": {
+        "attention_out": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        }
+      },
+      "decode_norm_cores": 16,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram",
+      "prefill_backend": "dispatch",
+      "dispatch_dtype": "bfp4",
+      "dispatch_grid": [
+        4,
+        4
+      ],
+      "prefill_tiled": true,
+      "prefill_chunk": 2048,
+      "release_unused_weights": true,
+      "attention_decode_memory": "dram"
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "4",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"projections\": {\"attention_out\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}}, \"decode_norm_cores\": 16, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\", \"prefill_backend\": \"dispatch\", \"dispatch_dtype\": \"bfp4\", \"dispatch_grid\": [4, 4], \"prefill_tiled\": true, \"prefill_chunk\": 2048, \"release_unused_weights\": true, \"attention_decode_memory\": \"dram\"}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/prefill4k_full/disp_2048_attn_dram.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 13.296807929989882,
+    "source_stable": true,
+    "prefill_pcc": 0.9987949132919312,
+    "decode_pcc": 0.9995843768119812,
+    "prefill_host_us": 92988.874,
+    "decode_host_us": 473.19100000000003
+  }
+]

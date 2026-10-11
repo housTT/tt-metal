@@ -1,0 +1,91 @@
+{
+  "layer_type": "linear_attention",
+  "policy": "optimized",
+  "optimization": {
+    "expert_backend": "sparse",
+    "sparse_indexed": true,
+    "expert_dtype": "bfp4",
+    "sparse_gate_cores": 32,
+    "sparse_gate_k": 32,
+    "sparse_down_cores": 32,
+    "sparse_down_k": 16,
+    "prefill_down_cores": 32,
+    "prefill_down_k": 16,
+    "prefill_down_subblock": 2,
+    "sparse_fused_reduce": true,
+    "compact_router_dtype": true,
+    "gdn_l1": true,
+    "projections": {
+      "attention_in": {
+        "dtype": "bfp8",
+        "fidelity": "LoFi"
+      },
+      "attention_out": {
+        "dtype": "bf16",
+        "fidelity": "HiFi4",
+        "decode_grid": [
+          8,
+          4
+        ],
+        "k_block": 8,
+        "per_n": 2
+      }
+    },
+    "decode_norm_cores": 16,
+    "decode_norm_fp32_input": false,
+    "decode_norm_output": "dram",
+    "prefill_backend": "dispatch",
+    "dispatch_dtype": "bfp4",
+    "dispatch_grid": [
+      4,
+      4
+    ],
+    "prefill_tiled": true,
+    "prefill_chunk": 4096,
+    "release_unused_weights": true
+  },
+  "source": "single_layer",
+  "evidence": "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/profile_c2/tracy/linear_attention/measurement.json",
+  "workload": {
+    "input_tokens": 4096,
+    "output_tokens": 128,
+    "batch": 1,
+    "concurrency": 1
+  },
+  "prefill_device_us": 87688.5948148148,
+  "decode_device_us": 803.8558685466368,
+  "prefill_useful_flops": 527492448256,
+  "decode_dram_bytes": 71831552.0,
+  "peak_flops_per_s": 663552000000000.0,
+  "peak_dram_bytes_per_s": 512000000000.0,
+  "prefill_flops_pct": 0.9065633826575119,
+  "decode_dram_pct": 17.452879986265913,
+  "peak_basis": "One Blackhole ASIC:120 physical Tensix cores x4096 FLOPs/cycle x1.35GHz LoFi nominal peak;512GB/s DRAM. Actual mixed LoFi/HiFi2/HiFi4; HiFi4 peak is one quarter of this maximum.110 user cores are exposed. P300c spec is two ASICs; divided card DRAM bandwidth by2.",
+  "peak_sources": [
+    "https://docs.tenstorrent.com/aibs/blackhole/p300.html",
+    "tt_perf_report/perf_report.py ArchitectureSpec blackhole per-core phase rates"
+  ],
+  "useful_flops_components": {
+    "moe_and_shared": 231928233984,
+    "router_and_shared_gate": 4311744512,
+    "attention_projections": 275951648768,
+    "delta_recurrence": 15065939968,
+    "causal_convolution": 234881024
+  },
+  "estimated_compulsory_dram_bytes_components": {
+    "input_output_and_norm_weights": 24576,
+    "router": 1048576,
+    "shared_gate": 4096,
+    "active_experts_and_shared_weights": 20643840.0,
+    "attention_projection_weights": 43655168.0,
+    "convolution_weights_and_state": 163840,
+    "materialized_recurrent_state": 6291456
+  },
+  "assumptions": [
+    "Whole-layer firmware spans, including normalization, movement and gaps, are the denominator for both ratios.",
+    "Useful FLOPs count projections, active MoE, causal QK/PV or delta recurrence, and convolution. Small vector/transcendental operations are excluded from numerator; their full time remains in denominator.",
+    "DRAM is a compulsory-traffic lower-bound estimate: each active weight once, KV once,3 materialized FP32 state volumes for token GDN. Fused state uses addcmul into persistent storage, eliminating the outer-product intermediate and copy. Additional temporary traffic, tile padding, multicast reloads and caching are not modeled. This is not measured DRAM utilization.",
+    "Optimized per-role precision/fidelity is recorded in optimization; verify against matching runtime profile rows. FP32 GDN state; projection/cache precision is the supplied per-role policy. Unselected expert work (dense fused prefill or sparse tile-union), padding and algorithmic chunk intermediates are not useful FLOPs.",
+    "No percentage is clamped. These nominal-peak ratios are not per-op utilization averages."
+  ]
+}

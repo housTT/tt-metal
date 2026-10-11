@@ -1,0 +1,154 @@
+{
+  "device_ids": [
+    3
+  ],
+  "weight_memory": {
+    "before_cleanup": {
+      "dram": {
+        "allocated_bytes": 3266672128,
+        "free_bytes": 30912058880,
+        "banks": 8,
+        "largest_free_bytes_per_bank": 3863851392
+      },
+      "l1": {
+        "allocated_bytes": 901120,
+        "free_bytes": 159822080,
+        "banks": 110,
+        "largest_free_bytes_per_bank": 1452928
+      }
+    },
+    "after_cleanup": {
+      "dram": {
+        "allocated_bytes": 1655960064,
+        "free_bytes": 32522770944,
+        "banks": 8,
+        "largest_free_bytes_per_bank": 3863851392
+      },
+      "l1": {
+        "allocated_bytes": 901120,
+        "free_bytes": 159822080,
+        "banks": 110,
+        "largest_free_bytes_per_bank": 1452928
+      }
+    }
+  },
+  "input_metadata": {
+    "checkpoint_revision": "59d61f3ce65a6d9863b86d2e96597125219dc754",
+    "source": "tech_reports/LLMs/llms.md",
+    "source_sha256": "a10ad9cce360eb0d107df536434d0dd805f1adbfb5bb1e886ca6f96d3f552d00",
+    "tokens": 4352,
+    "purpose": "Layer-only real activation fixture; no full-model implementation or generation",
+    "layer": 0,
+    "path": "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer0.pt",
+    "kind": "recorded_hf_activation"
+  },
+  "optimization": {
+    "expert_backend": "sparse",
+    "sparse_indexed": true,
+    "expert_dtype": "bfp4",
+    "sparse_gate_cores": 16,
+    "sparse_gate_k": 16,
+    "sparse_down_cores": 32,
+    "sparse_down_k": 16,
+    "prefill_down_cores": 32,
+    "prefill_down_k": 16,
+    "prefill_down_subblock": 2,
+    "release_unused_weights": true
+  },
+  "decoder_class": "OptimizedDecoder",
+  "runtime_components": {
+    "attention": "_OptimizedGDN",
+    "router": "_DedicatedRouter",
+    "experts": "_OptimizedPrefillExperts",
+    "decode_experts": "_OptimizedSparseExperts",
+    "shared": "_FusedShared"
+  },
+  "fusions": [
+    "moe_gate",
+    "shared_gate",
+    "shared_minimal",
+    "kda_conv",
+    "kda_tuple",
+    "kda_tail",
+    "kda_norm",
+    "gdn_heads",
+    "gdn_norm",
+    "gdn_eltwise",
+    "gdn_grouped",
+    "gdn_state_ternary",
+    "gdn_inplace",
+    "gdn_flat_v",
+    "gdn_head_major",
+    "gdn_fused_chunk",
+    "compact_reduce",
+    "compact_routing",
+    "prefill_split"
+  ],
+  "layer_type": "linear_attention",
+  "layer_idx": 0,
+  "weights": "real",
+  "implementation_sha256": {
+    "__init__.py": "20db980a38cc5bb36a49afaff8f9838e2c77f17e5b1ef0c42b5ed918f77a1ca9",
+    "functional_attention.py": "6718df3736404f042613670f43e184e202ece215a9f7907f6358ec18326a8638",
+    "functional_decoder.py": "2e25b47139c58f5eb043f94e0fa0e8c25acda2b5875e064a47a62ce15623dc48",
+    "functional_gdn.py": "fe01dfacefd617bd1892eb9de2f5993d341eef9b6dd768cdb77aec446736c286",
+    "fused_decoder.py": "e570144c58707bb0846be80075c0b26787e2b3cff8539e9a245bca739c1a168d",
+    "optimized_decoder.py": "ba0d9d6eb492806d2c673eef089b80a4cccb0f79146f0676475edf81c43cbbf8"
+  },
+  "gdn_recurrence": "native_exact_chunk_and_sfpu_fp32_token",
+  "expert_precision": "inherited",
+  "profile": false,
+  "warmed_prefill_host_us": 11588.259,
+  "length": 128,
+  "batch": 1,
+  "decode_steps": 16,
+  "page_size": 32,
+  "minimum_cache_pages": 32,
+  "cache_guard_pages": 3,
+  "prefill_pcc": 0.9997268915176392,
+  "prefill_pcc_min": 0.9997268915176392,
+  "decode_pcc": 0.9996352791786194,
+  "prefill_probes": null,
+  "runtime_audit": true,
+  "trace_id": "MeshTraceId(0)",
+  "decode_pcc_min": 0.9969311952590942,
+  "decode_pcc_by_token": [
+    0.9998787045478821,
+    0.9999276995658875,
+    0.9998264312744141,
+    0.9999088644981384,
+    0.9997681379318237,
+    0.9996851682662964,
+    0.9998489618301392,
+    0.9998785853385925,
+    0.9969311952590942,
+    0.999176561832428,
+    0.9998161196708679,
+    0.9997979998588562,
+    0.9997453689575195,
+    0.9998750686645508,
+    0.9999340176582336,
+    0.9999191761016846
+  ],
+  "traced": true,
+  "repeated_identical": true,
+  "threshold": 0.995,
+  "traced_replay_host_us": [
+    909.654,
+    909.753,
+    912.298,
+    905.605,
+    910.556,
+    914.041,
+    912.178,
+    911.697,
+    908.692,
+    908.471,
+    911.967,
+    911.727,
+    912.238,
+    908.251,
+    910.004,
+    908.782
+  ]
+}

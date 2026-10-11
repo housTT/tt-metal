@@ -1,0 +1,356 @@
+[
+  {
+    "name": "sort",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "projections": {
+        "attention_out": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        }
+      },
+      "decode_norm_cores": 16,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram",
+      "prefill_backend": "dispatch",
+      "dispatch_dtype": "bfp4",
+      "dispatch_grid": [
+        4,
+        4
+      ],
+      "prefill_tiled": true,
+      "prefill_chunk": 4096,
+      "release_unused_weights": true
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "8",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"projections\": {\"attention_out\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}}, \"decode_norm_cores\": 16, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\", \"prefill_backend\": \"dispatch\", \"dispatch_dtype\": \"bfp4\", \"dispatch_grid\": [4, 4], \"prefill_tiled\": true, \"prefill_chunk\": 4096, \"release_unused_weights\": true}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/rank_full/sort.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 12.232282744953409,
+    "source_stable": true,
+    "prefill_pcc": 0.9987974762916565,
+    "decode_pcc": 0.9990882873535156,
+    "prefill_host_us": 84584.33,
+    "decode_host_us": 467.7505
+  },
+  {
+    "name": "cumsum",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "projections": {
+        "attention_out": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        }
+      },
+      "decode_norm_cores": 16,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram",
+      "prefill_backend": "dispatch",
+      "dispatch_dtype": "bfp4",
+      "dispatch_grid": [
+        4,
+        4
+      ],
+      "prefill_tiled": true,
+      "prefill_chunk": 4096,
+      "release_unused_weights": true,
+      "dispatch_rank": "cumsum"
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "8",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"projections\": {\"attention_out\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}}, \"decode_norm_cores\": 16, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\", \"prefill_backend\": \"dispatch\", \"dispatch_dtype\": \"bfp4\", \"dispatch_grid\": [4, 4], \"prefill_tiled\": true, \"prefill_chunk\": 4096, \"release_unused_weights\": true, \"dispatch_rank\": \"cumsum\"}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/rank_full/cumsum.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 12.173096452024765,
+    "source_stable": true,
+    "prefill_pcc": 0.9987930059432983,
+    "decode_pcc": 0.9990882873535156,
+    "prefill_host_us": 38320.974,
+    "decode_host_us": 468.0715
+  },
+  {
+    "name": "cumsum_bfp8",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "projections": {
+        "attention_out": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        }
+      },
+      "decode_norm_cores": 16,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram",
+      "prefill_backend": "dispatch",
+      "dispatch_dtype": "bfp8",
+      "dispatch_grid": [
+        4,
+        4
+      ],
+      "prefill_tiled": true,
+      "prefill_chunk": 4096,
+      "release_unused_weights": true,
+      "dispatch_rank": "cumsum"
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "8",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"projections\": {\"attention_out\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}}, \"decode_norm_cores\": 16, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\", \"prefill_backend\": \"dispatch\", \"dispatch_dtype\": \"bfp8\", \"dispatch_grid\": [4, 4], \"prefill_tiled\": true, \"prefill_chunk\": 4096, \"release_unused_weights\": true, \"dispatch_rank\": \"cumsum\"}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/rank_full/cumsum_bfp8.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 12.703404995030724,
+    "source_stable": true,
+    "prefill_pcc": 0.999509334564209,
+    "decode_pcc": 0.9990882873535156,
+    "prefill_host_us": 38694.259,
+    "decode_host_us": 467.7205
+  },
+  {
+    "name": "cumsum_8x4",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "projections": {
+        "attention_out": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        }
+      },
+      "decode_norm_cores": 16,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram",
+      "prefill_backend": "dispatch",
+      "dispatch_dtype": "bfp4",
+      "dispatch_grid": [
+        8,
+        4
+      ],
+      "prefill_tiled": true,
+      "prefill_chunk": 4096,
+      "release_unused_weights": true,
+      "dispatch_rank": "cumsum"
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "8",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"projections\": {\"attention_out\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}}, \"decode_norm_cores\": 16, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\", \"prefill_backend\": \"dispatch\", \"dispatch_dtype\": \"bfp4\", \"dispatch_grid\": [8, 4], \"prefill_tiled\": true, \"prefill_chunk\": 4096, \"release_unused_weights\": true, \"dispatch_rank\": \"cumsum\"}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/rank_full/cumsum_8x4.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 12.884117420064285,
+    "source_stable": true,
+    "prefill_pcc": 0.9987697601318359,
+    "decode_pcc": 0.9990882873535156,
+    "prefill_host_us": 37733.718,
+    "decode_host_us": 467.34000000000003
+  },
+  {
+    "name": "cumsum_8x2",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "projections": {
+        "attention_out": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        }
+      },
+      "decode_norm_cores": 16,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram",
+      "prefill_backend": "dispatch",
+      "dispatch_dtype": "bfp4",
+      "dispatch_grid": [
+        8,
+        2
+      ],
+      "prefill_tiled": true,
+      "prefill_chunk": 4096,
+      "release_unused_weights": true,
+      "dispatch_rank": "cumsum"
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "4096",
+      "--steps",
+      "8",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"projections\": {\"attention_out\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}}, \"decode_norm_cores\": 16, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\", \"prefill_backend\": \"dispatch\", \"dispatch_dtype\": \"bfp4\", \"dispatch_grid\": [8, 2], \"prefill_tiled\": true, \"prefill_chunk\": 4096, \"release_unused_weights\": true, \"dispatch_rank\": \"cumsum\"}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/rank_full/cumsum_8x2.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 12.689880639896728,
+    "source_stable": true,
+    "prefill_pcc": 0.9988086819648743,
+    "decode_pcc": 0.9990882873535156,
+    "prefill_host_us": 40291.308,
+    "decode_host_us": 467.355
+  }
+]

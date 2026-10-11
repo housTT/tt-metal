@@ -1,0 +1,481 @@
+Detected CSV format: v2.1 (with device arch and worker core count)
+Using architecture from CSV: blackhole
+Architecture: blackhole, Worker cores: 110
+Sorting CSV by 'HOST START TS' column...
+Using operations after 'PERF_PREFILL'.
+Using operations until 'PERF_PREFILL_END'.
+Detected data from 1 devices. Merging device data...
+Warning: Unclassified operation 'GatherDeviceOperation' found. Please add to OPERATION_CATEGORIES for proper classification.
+Warning: Unclassified operation 'MinimalMatmulDeviceOperation' found. Please add to OPERATION_CATEGORIES for proper classification.
+Warning: Unclassified operation 'RotaryEmbeddingIndexedDeviceOperation' found. Please add to OPERATION_CATEGORIES for proper classification.
+Warning: Unclassified operation 'PagedFillCacheDeviceOperation' found. Please add to OPERATION_CATEGORIES for proper classification.
+Warning: Unclassified operation 'GeneralizedMoeGateDeviceOperation' found. Please add to OPERATION_CATEGORIES for proper classification.
+Warning: Unclassified operation 'UntilizeCodegenDeviceOperation' found. Please add to OPERATION_CATEGORIES for proper classification.
+Warning: Unclassified operation 'ScatterDeviceOperation' found. Please add to OPERATION_CATEGORIES for proper classification.
+Warning: Unclassified operation 'MoeFusedSwiGluDeviceOperation' found. Please add to OPERATION_CATEGORIES for proper classification.
+
+🚀 Performance Report 🚀
+========================
+
+ID     Total %  Bound  OP Code                                          Device   Device Time  Op-to-Op Gap  Cores  DRAM      DRAM %  FLOPs         FLOPs %  Math Fidelity            
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 2784    0.0 %         PadDeviceOperation                                     3         1 μs                    1                                                      INT32 => INT32
+ 2785    0.8 %         BinaryNgDeviceOperation                                3         5 μs        191 μs    110                                                        FP32 => FP32
+ 2786    0.2 %         TypecastDeviceOperation                                3         4 μs         37 μs    110                                                      FP32 => UINT32
+ 2787    0.2 %         UntilizeWithUnpaddingDeviceOperation                   3         4 μs         36 μs     64                                                    UINT32 => UINT32
+ 2788    0.1 %         TypecastDeviceOperation                                3         2 μs         24 μs      1                                                    UINT32 => UINT32
+ 2789    0.3 %         EmbeddingsDeviceOperation                              3        13 μs         65 μs    110                                                UINT32, BF16 => BF16
+ 2790    0.1 %         EmbeddingsDeviceOperation                              3        12 μs         14 μs    110                                                UINT32, BF16 => BF16
+ 2791    0.2 %         BinaryNgDeviceOperation                                3         4 μs         56 μs    110                                                        FP32 => FP32
+ 2792    0.1 %         TypecastDeviceOperation                                3         1 μs         12 μs      4                                                      FP32 => UINT32
+ 2793    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3         3 μs         29 μs      1                                                    UINT32 => UINT32
+ 2794    0.2 %         GatherDeviceOperation                                  3         3 μs         42 μs      1                                              INT32, UINT32 => INT32
+ 2795    0.2 %         BinaryNgDeviceOperation                                3         4 μs         59 μs    110                                                        FP32 => FP32
+ 2796    0.0 %         TypecastDeviceOperation                                3         1 μs          9 μs      1                                                      FP32 => UINT32
+ 2797    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3         1 μs         23 μs      1                                                    UINT32 => UINT32
+ 2798    0.1 %         TypecastDeviceOperation                                3         1 μs         20 μs      1                                                     UINT32 => INT32
+ 2799    0.7 %         TypecastDeviceOperation                                3       139 μs         53 μs    110                                                        BF16 => FP32
+ 2800    0.7 %         LayerNormDeviceOperation                               3       173 μs          0 μs    110                                                        FP32 => FP32
+ 2801    0.9 %         BinaryNgDeviceOperation                                3       226 μs          0 μs    110                                                  FP32, FP32 => FP32
+ 2802    0.4 %         TypecastDeviceOperation                                3       116 μs          0 μs    110                                                        FP32 => BF16
+ 2803    2.8 %   SLOW  MinimalMatmulDeviceOperation 4096 x 2048 x 9216        3       722 μs          0 μs    110  154 GB/s  30.1 %  214.2 TFLOPs   35.2 %   LoFi BF16 x BFP8 => BF16
+ 2804    0.7 %         SliceDeviceOperation                                   3       178 μs          0 μs    110                                                        BF16 => BF16
+ 2805    0.8 %         SliceDeviceOperation                                   3       218 μs          0 μs    110                                                        BF16 => BF16
+ 2806    0.7 %         NlpCreateHeadsDeviceOperation                          3       184 μs          0 μs    110                                                        BF16 => BF16
+ 2807    0.7 %         LayerNormDeviceOperation                               3       176 μs          0 μs    110                                                  BF16, BF16 => BF16
+ 2808    0.1 %         LayerNormDeviceOperation                               3        27 μs          0 μs    110                                                  BF16, BF16 => BF16
+ 2809    0.7 %         RotaryEmbeddingIndexedDeviceOperation                  3       193 μs          0 μs    110                                                  BF16, BF16 => BF16
+ 2810    0.1 %         RotaryEmbeddingIndexedDeviceOperation                  3        30 μs          0 μs    110                                                  BF16, BF16 => BF16
+ 2811    0.1 %         TypecastDeviceOperation                                3        15 μs          0 μs    110                                                        BF16 => BFP8
+ 2812    0.1 %         PagedFillCacheDeviceOperation                          3        15 μs          0 μs    110                                                  BFP8, BFP8 => BFP8
+ 2813    0.1 %         TypecastDeviceOperation                                3        18 μs          0 μs    110                                                        BF16 => BFP8
+ 2814    0.1 %         PagedFillCacheDeviceOperation                          3        14 μs          0 μs    110                                                  BFP8, BFP8 => BFP8
+ 2815   11.7 %         SDPAOperation                                          3     3,073 μs          0 μs    110                                                  BF16, BFP8 => BF16
+ 2816    0.6 %         NLPConcatHeadsDeviceOperation                          3       155 μs          0 μs    110                                                        BF16 => BF16
+ 2817    1.0 %         BinaryNgDeviceOperation                                3       252 μs          0 μs    110                                                  BF16, BF16 => BF16
+ 2818    1.2 %   SLOW  MinimalMatmulDeviceOperation 4096 x 4096 x 2048        3       312 μs          0 μs     64  188 GB/s  36.8 %  220.4 TFLOPs   62.3 %   LoFi BF16 x BFP8 => BF16
+ 2819    0.4 %         BinaryNgDeviceOperation                                3       113 μs          0 μs    110                                                  BF16, BF16 => BF16
+ 2820    0.5 %         TypecastDeviceOperation                                3       137 μs          0 μs    110                                                        BF16 => FP32
+ 2821    0.6 %         LayerNormDeviceOperation                               3       164 μs          0 μs    110                                                        FP32 => FP32
+ 2822    0.8 %         BinaryNgDeviceOperation                                3       218 μs          0 μs    110                                                  FP32, FP32 => FP32
+ 2823    0.4 %         TypecastDeviceOperation                                3       111 μs          0 μs    110                                                        FP32 => BF16
+ 2824    0.5 %   SLOW  MatmulDeviceOperation 4096 x 2048 x 256                3       120 μs          0 μs     64  149 GB/s  29.1 %   35.9 TFLOPs   40.6 %  HiFi4 BF16 x BF16 => BF16
+ 2825    0.0 %         PadDeviceOperation                                     3        10 μs          1 μs    110                                                        BF16 => BF16
+ 2826    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2827    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                    UINT16 => UINT16
+ 2828    0.0 %         SliceDeviceOperation                                   3         1 μs          0 μs    108                                                        BF16 => BF16
+ 2829    0.0 %         SliceDeviceOperation                                   3         1 μs          2 μs    108                                                    UINT16 => UINT16
+ 2830    0.0 %         SliceDeviceOperation                                   3         1 μs          1 μs     32                                                        BF16 => BF16
+ 2831    0.0 %         ReshapeViewDeviceOperation                             3        11 μs          1 μs    108                                                        BF16 => BF16
+ 2832    0.0 %         InterleavedToShardedDeviceOperation                    3         1 μs          0 μs    108                                                        BF16 => BF16
+ 2833    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2834    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                        BF16 => BF16
+ 2835    0.0 %         ShardedToInterleavedDeviceOperation                    3         6 μs          0 μs    108                                                    UINT16 => UINT16
+ 2836    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 2837    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2838    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 2839    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 2840    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2841    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2842    0.0 %         ShardedToInterleavedDeviceOperation                    3         8 μs          1 μs    108                                                        BF16 => BF16
+ 2843    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 2844    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 2845    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2846    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 2847    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 2848    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2849    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2850    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          1 μs    108                                                        BF16 => BF16
+ 2851    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 2852    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 2853    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2854    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 2855    0.0 %         ReshapeViewDeviceOperation                             3         7 μs          0 μs    108                                                        BF16 => BF16
+ 2856    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2857    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2858    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                        BF16 => BF16
+ 2859    0.0 %         ShardedToInterleavedDeviceOperation                    3         5 μs          0 μs    108                                                    UINT16 => UINT16
+ 2860    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          1 μs     65                                                        BF16 => BF16
+ 2861    0.0 %         SliceDeviceOperation                                   3         2 μs          1 μs    108                                                        BF16 => BF16
+ 2862    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 2863    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 2864    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2865    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2866    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                        BF16 => BF16
+ 2867    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          0 μs    108                                                    UINT16 => UINT16
+ 2868    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          1 μs     65                                                        BF16 => BF16
+ 2869    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2870    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 2871    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 2872    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2873    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2874    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          1 μs    108                                                        BF16 => BF16
+ 2875    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          1 μs    108                                                    UINT16 => UINT16
+ 2876    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 2877    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2878    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 2879    0.0 %         ReshapeViewDeviceOperation                             3         7 μs          0 μs    108                                                        BF16 => BF16
+ 2880    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2881    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2882    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          1 μs    108                                                        BF16 => BF16
+ 2883    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 2884    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 2885    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2886    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 2887    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 2888    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2889    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2890    0.0 %         ShardedToInterleavedDeviceOperation                    3         8 μs          1 μs    108                                                        BF16 => BF16
+ 2891    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 2892    0.0 %         SliceDeviceOperation                                   3         1 μs          1 μs     32                                                        BF16 => BF16
+ 2893    0.0 %         ReshapeViewDeviceOperation                             3         9 μs          0 μs    108                                                        BF16 => BF16
+ 2894    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2895    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2896    0.0 %         ShardedToInterleavedDeviceOperation                    3         5 μs          0 μs    108                                                        BF16 => BF16
+ 2897    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          1 μs    108                                                    UINT16 => UINT16
+ 2898    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          1 μs     65                                                        BF16 => BF16
+ 2899    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2900    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 2901    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 2902    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2903    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2904    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          0 μs    108                                                        BF16 => BF16
+ 2905    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          0 μs    108                                                    UINT16 => UINT16
+ 2906    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 2907    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2908    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 2909    0.0 %         ReshapeViewDeviceOperation                             3         7 μs          0 μs    108                                                        BF16 => BF16
+ 2910    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2911    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2912    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                        BF16 => BF16
+ 2913    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 2914    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 2915    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2916    0.0 %         TilizeWithValPaddingDeviceOperation                    3         9 μs          1 μs      4                                                        BF16 => BF16
+ 2917    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 2918    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2919    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2920    0.0 %         ShardedToInterleavedDeviceOperation                    3         7 μs          1 μs    108                                                        BF16 => BF16
+ 2921    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 2922    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 2923    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2924    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 2925    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 2926    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2927    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2928    0.0 %         ShardedToInterleavedDeviceOperation                    3         8 μs          1 μs    108                                                        BF16 => BF16
+ 2929    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 2930    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 2931    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2932    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 2933    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 2934    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2935    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2936    0.0 %         ShardedToInterleavedDeviceOperation                    3         9 μs          1 μs    108                                                        BF16 => BF16
+ 2937    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 2938    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 2939    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2940    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 2941    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 2942    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2943    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2944    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          1 μs    108                                                        BF16 => BF16
+ 2945    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          1 μs    108                                                    UINT16 => UINT16
+ 2946    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          1 μs     65                                                        BF16 => BF16
+ 2947    0.0 %         SliceDeviceOperation                                   3         2 μs          1 μs    108                                                        BF16 => BF16
+ 2948    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 2949    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 2950    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2951    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2952    0.0 %         ShardedToInterleavedDeviceOperation                    3         6 μs          1 μs    108                                                        BF16 => BF16
+ 2953    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          1 μs    108                                                    UINT16 => UINT16
+ 2954    0.0 %         SliceDeviceOperation                                   3         2 μs          1 μs     32                                                        BF16 => BF16
+ 2955    0.0 %         ReshapeViewDeviceOperation                             3         9 μs          0 μs    108                                                        BF16 => BF16
+ 2956    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2957    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2958    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                        BF16 => BF16
+ 2959    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 2960    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        21 μs          0 μs     65                                                        BF16 => BF16
+ 2961    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2962    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 2963    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 2964    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2965    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2966    0.0 %         ShardedToInterleavedDeviceOperation                    3         8 μs          0 μs    108                                                        BF16 => BF16
+ 2967    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 2968    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 2969    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2970    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 2971    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 2972    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2973    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2974    0.0 %         ShardedToInterleavedDeviceOperation                    3         8 μs          1 μs    108                                                        BF16 => BF16
+ 2975    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 2976    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 2977    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2978    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 2979    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 2980    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2981    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2982    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                        BF16 => BF16
+ 2983    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 2984    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 2985    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2986    0.0 %         TilizeWithValPaddingDeviceOperation                    3         9 μs          1 μs      4                                                        BF16 => BF16
+ 2987    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 2988    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2989    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2990    0.0 %         ShardedToInterleavedDeviceOperation                    3         9 μs          0 μs    108                                                        BF16 => BF16
+ 2991    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 2992    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 2993    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2994    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 2995    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 2996    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 2997    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 2998    0.0 %         ShardedToInterleavedDeviceOperation                    3         9 μs          1 μs    108                                                        BF16 => BF16
+ 2999    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 3000    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 3001    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3002    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 3003    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 3004    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3005    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 3006    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                        BF16 => BF16
+ 3007    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 3008    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 3009    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3010    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 3011    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 3012    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3013    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 3014    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                        BF16 => BF16
+ 3015    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          0 μs    108                                                    UINT16 => UINT16
+ 3016    0.0 %         SliceDeviceOperation                                   3         1 μs          1 μs     32                                                        BF16 => BF16
+ 3017    0.0 %         ReshapeViewDeviceOperation                             3        12 μs          0 μs    108                                                        BF16 => BF16
+ 3018    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3019    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 3020    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                        BF16 => BF16
+ 3021    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 3022    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 3023    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3024    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 3025    0.0 %         ReshapeViewDeviceOperation                             3         7 μs          0 μs    108                                                        BF16 => BF16
+ 3026    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3027    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 3028    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                        BF16 => BF16
+ 3029    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          0 μs    108                                                    UINT16 => UINT16
+ 3030    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          1 μs     65                                                        BF16 => BF16
+ 3031    0.0 %         SliceDeviceOperation                                   3         2 μs          1 μs    108                                                        BF16 => BF16
+ 3032    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 3033    0.0 %         ReshapeViewDeviceOperation                             3         7 μs          0 μs    108                                                        BF16 => BF16
+ 3034    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3035    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 3036    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          0 μs    108                                                        BF16 => BF16
+ 3037    0.0 %         ShardedToInterleavedDeviceOperation                    3         5 μs          1 μs    108                                                    UINT16 => UINT16
+ 3038    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          1 μs     65                                                        BF16 => BF16
+ 3039    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3040    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 3041    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 3042    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3043    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 3044    0.0 %         ShardedToInterleavedDeviceOperation                    3         7 μs          1 μs    108                                                        BF16 => BF16
+ 3045    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 3046    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 3047    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3048    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 3049    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 3050    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3051    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 3052    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          0 μs    108                                                        BF16 => BF16
+ 3053    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 3054    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 3055    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3056    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 3057    0.0 %         ReshapeViewDeviceOperation                             3         7 μs          0 μs    108                                                        BF16 => BF16
+ 3058    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3059    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 3060    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                        BF16 => BF16
+ 3061    0.0 %         ShardedToInterleavedDeviceOperation                    3         5 μs          0 μs    108                                                    UINT16 => UINT16
+ 3062    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          1 μs     65                                                        BF16 => BF16
+ 3063    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3064    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 3065    0.0 %         ReshapeViewDeviceOperation                             3         7 μs          0 μs    108                                                        BF16 => BF16
+ 3066    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3067    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 3068    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          0 μs    108                                                        BF16 => BF16
+ 3069    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 3070    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 3071    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3072    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 3073    0.0 %         ReshapeViewDeviceOperation                             3         7 μs          0 μs    108                                                        BF16 => BF16
+ 3074    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3075    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 3076    0.0 %         ShardedToInterleavedDeviceOperation                    3         5 μs          0 μs    108                                                        BF16 => BF16
+ 3077    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 3078    0.0 %         SliceDeviceOperation                                   3         1 μs          1 μs     32                                                        BF16 => BF16
+ 3079    0.0 %         ReshapeViewDeviceOperation                             3        11 μs          0 μs    108                                                        BF16 => BF16
+ 3080    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3081    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 3082    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                        BF16 => BF16
+ 3083    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          1 μs    108                                                    UINT16 => UINT16
+ 3084    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          4 μs     65                                                        BF16 => BF16
+ 3085    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3086    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 3087    0.0 %         ReshapeViewDeviceOperation                             3         7 μs          0 μs    108                                                        BF16 => BF16
+ 3088    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3089    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 3090    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          1 μs    108                                                        BF16 => BF16
+ 3091    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          1 μs    108                                                    UINT16 => UINT16
+ 3092    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          1 μs     65                                                        BF16 => BF16
+ 3093    0.0 %         SliceDeviceOperation                                   3         2 μs          1 μs    108                                                        BF16 => BF16
+ 3094    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 3095    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 3096    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3097    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 3098    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          0 μs    108                                                        BF16 => BF16
+ 3099    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 3100    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 3101    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3102    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 3103    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 3104    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3105    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 3106    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          1 μs    108                                                        BF16 => BF16
+ 3107    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 3108    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 3109    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3110    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 3111    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 3112    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3113    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 3114    0.0 %         ShardedToInterleavedDeviceOperation                    3         4 μs          0 μs    108                                                        BF16 => BF16
+ 3115    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 3116    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     65                                                        BF16 => BF16
+ 3117    0.0 %         SliceDeviceOperation                                   3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3118    0.0 %         TilizeWithValPaddingDeviceOperation                    3         8 μs          1 μs      4                                                        BF16 => BF16
+ 3119    0.0 %         ReshapeViewDeviceOperation                             3         6 μs          0 μs    108                                                        BF16 => BF16
+ 3120    0.0 %         InterleavedToShardedDeviceOperation                    3         2 μs          0 μs    108                                                        BF16 => BF16
+ 3121    0.0 %         GeneralizedMoeGateDeviceOperation                      3         3 μs          0 μs    108                                                  BF16, BF16 => BF16
+ 3122    0.0 %         ShardedToInterleavedDeviceOperation                    3         9 μs          0 μs    108                                                        BF16 => BF16
+ 3123    0.0 %         ShardedToInterleavedDeviceOperation                    3         3 μs          0 μs    108                                                    UINT16 => UINT16
+ 3124    1.4 %         ConcatDeviceOperation                                  3       367 μs          0 μs    110                                                  BF16, BF16 => BF16
+ 3125    1.4 %         ConcatDeviceOperation                                  3       367 μs          0 μs    110                                            UINT16, UINT16 => UINT16
+ 3126    0.2 %         SliceDeviceOperation                                   3        61 μs          0 μs    110                                                        BF16 => BF16
+ 3127    0.2 %         SliceDeviceOperation                                   3        61 μs          0 μs    110                                                    UINT16 => UINT16
+ 3128    0.1 %         PermuteDeviceOperation                                 3        19 μs          0 μs    110                                                        BF16 => BF16
+ 3129    0.1 %         PermuteDeviceOperation                                 3        20 μs          0 μs    110                                                    UINT16 => UINT16
+ 3130    0.0 %         TilizeWithValPaddingDeviceOperation                    3         9 μs          0 μs     64                                                    UINT16 => UINT16
+ 3131    0.0 %         TypecastDeviceOperation                                3         9 μs          0 μs    110                                                    UINT16 => UINT32
+ 3132    0.0 %         UntilizeCodegenDeviceOperation                         3        12 μs          0 μs    110                                                        BF16 => BF16
+ 3133    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     64                                                    UINT32 => UINT32
+ 3134    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     64                                                        BF16 => BF16
+ 3135    0.5 %         ScatterDeviceOperation                                 3       142 μs          0 μs    110                                                BF16, UINT32 => BF16
+ 3136    0.1 %         TilizeDeviceOperation                                  3        15 μs          0 μs     64                                                        BF16 => BF16
+ 3137    0.2 %   SLOW  MatmulDeviceOperation 32 x 4096 x 256                  3        50 μs          0 μs      8   48 GB/s   9.3 %    1.3 TFLOPs    3.0 %   LoFi BF16 x BF16 => FP32
+ 3138    0.0 %         TypecastDeviceOperation                                3         2 μs          1 μs      8                                                      FP32 => UINT16
+ 3139    0.0 %         UntilizeWithUnpaddingDeviceOperation                   3         5 μs          1 μs      1                                                    UINT16 => UINT16
+ 3140    0.0 %         TypecastDeviceOperation                                3         1 μs          1 μs      1                                                    UINT16 => UINT32
+ 3141    0.0 %         BinaryNgDeviceOperation                                3         5 μs          0 μs    110                                                        FP32 => FP32
+ 3142    0.0 %         BinaryNgDeviceOperation                                3         5 μs          0 μs    110                                                        FP32 => FP32
+ 3143    0.0 %         UnaryDeviceOperation                                   3         7 μs          0 μs    110                                                        FP32 => FP32
+ 3144    0.0 %         BinaryNgDeviceOperation                                3         4 μs          0 μs    110                                                        FP32 => FP32
+ 3145    0.0 %         BinaryNgDeviceOperation                                3         4 μs          0 μs    110                                                        FP32 => FP32
+ 3146    0.0 %         TypecastDeviceOperation                                3         4 μs          1 μs      8                                                        FP32 => BF16
+ 3147    0.0 %   SLOW  MatmulDeviceOperation 32 x 256 x 256                   3         5 μs          0 μs      8   37 GB/s   7.2 %    0.9 TFLOPs    7.8 %  HiFi4 BF16 x BF16 => FP32
+ 3148    0.0 %         BinaryNgDeviceOperation                                3         5 μs          0 μs    110                                                        FP32 => FP32
+ 3149    0.8 %   SLOW  MatmulDeviceOperation 4096 x 4096 x 256                3       199 μs          0 μs     64  116 GB/s  22.6 %   43.1 TFLOPs   12.2 %   LoFi BFP8 x BF16 => FP32
+ 3150    0.1 %         BinaryNgDeviceOperation                                3        31 μs          0 μs    110                                                  FP32, FP32 => FP32
+ 3151    0.0 %         FillPadDeviceOperation                                 3         8 μs          0 μs    110                                                    UINT32 => UINT32
+ 3152    0.3 %         GatherDeviceOperation                                  3        84 μs          0 μs    110                                                FP32, UINT32 => FP32
+ 3153    0.0 %         TypecastDeviceOperation                                3         5 μs          0 μs    110                                                      FP32 => UINT16
+ 3154    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3        20 μs          0 μs     64                                                    UINT16 => UINT16
+ 3155    0.1 %         TypecastDeviceOperation                                3        20 μs          0 μs    110                                                    UINT16 => UINT32
+ 3156    6.4 %         ReshapeViewDeviceOperation                             3     1,662 μs          0 μs    110                                                    UINT32 => UINT32
+ 3157    6.2 %         ScatterDeviceOperation                                 3     1,613 μs          1 μs      1                                            UINT32, UINT32 => UINT32
+ 3158    0.0 %         TypecastDeviceOperation                                3         2 μs          1 μs      8                                                      FP32 => UINT16
+ 3159    0.0 %         UntilizeWithUnpaddingDeviceOperation                   3         4 μs          1 μs      1                                                    UINT16 => UINT16
+ 3160    0.0 %         TypecastDeviceOperation                                3         1 μs          1 μs      1                                                    UINT16 => UINT32
+ 3161    0.3 %         UntilizeCodegenDeviceOperation                         3        83 μs          0 μs    110                                                        BF16 => BF16
+ 3162    4.7 %         EmbeddingsDeviceOperation                              3     1,239 μs          0 μs    110                                                UINT32, BF16 => BF16
+ 3163   29.2 %         MoeFusedSwiGluDeviceOperation                          3     7,649 μs          0 μs     64                                                  BF16, BFP8 => BF16
+ 3164    3.0 %         UntilizeCodegenDeviceOperation                         3       789 μs          0 μs    110                                                        BF16 => BF16
+ 3165    2.6 %         EmbeddingsDeviceOperation                              3       690 μs          0 μs    110                                                UINT32, BF16 => BF16
+ 3166    0.2 %         ReshapeViewDeviceOperation                             3        50 μs          0 μs    110                                                        BF16 => BF16
+ 3167    2.1 %         PostCombineReduceDeviceOperation                       3       545 μs          0 μs    110                                                  BF16, BF16 => BF16
+ 3168    0.4 %   SLOW  MatmulDeviceOperation 4096 x 2048 x 32                 3        92 μs          1 μs     64  183 GB/s  35.8 %    5.8 TFLOPs    1.6 %   LoFi BF16 x BF16 => BF16
+ 3169    0.4 %   SLOW  MinimalMatmulDeviceOperation 4096 x 2048 x 1024        3       117 μs          0 μs    110  152 GB/s  29.7 %  146.7 TFLOPs   24.1 %   LoFi BF16 x BFP4 => BF16
+ 3170    0.2 %   SLOW  MatmulDeviceOperation 4096 x 512 x 2048                3        52 μs          0 μs     64   20 GB/s   4.0 %  166.6 TFLOPs   47.1 %   LoFi BF16 x BFP8 => BF16
+ 3171    0.2 %         BinaryNgDeviceOperation                                3        50 μs          0 μs    110                                                  BF16, BF16 => BF16
+ 3172    0.4 %         BinaryNgDeviceOperation                                3        93 μs          0 μs    110                                                  BF16, BF16 => BF16
+ 3173    0.4 %         BinaryNgDeviceOperation                                3       113 μs          0 μs    110                                                  BF16, BF16 => BF16
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+       100.0 %         390 device ops, 0 host ops, 0 signposts                     25,361 μs        800 μs          10 GB/s   1.9 %                                                  
+
+💡 Advice 💡
+============
+
+High Op-to-Op Gap
+----------------
+ 2785    0.8 %         BinaryNgDeviceOperation                                3         5 μs        191 μs    110                                                        FP32 => FP32
+ 2786    0.2 %         TypecastDeviceOperation                                3         4 μs         37 μs    110                                                      FP32 => UINT32
+ 2787    0.2 %         UntilizeWithUnpaddingDeviceOperation                   3         4 μs         36 μs     64                                                    UINT32 => UINT32
+ 2788    0.1 %         TypecastDeviceOperation                                3         2 μs         24 μs      1                                                    UINT32 => UINT32
+ 2789    0.3 %         EmbeddingsDeviceOperation                              3        13 μs         65 μs    110                                                UINT32, BF16 => BF16
+ 2790    0.1 %         EmbeddingsDeviceOperation                              3        12 μs         14 μs    110                                                UINT32, BF16 => BF16
+ 2791    0.2 %         BinaryNgDeviceOperation                                3         4 μs         56 μs    110                                                        FP32 => FP32
+ 2792    0.1 %         TypecastDeviceOperation                                3         1 μs         12 μs      4                                                      FP32 => UINT32
+ 2793    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3         3 μs         29 μs      1                                                    UINT32 => UINT32
+ 2794    0.2 %         GatherDeviceOperation                                  3         3 μs         42 μs      1                                              INT32, UINT32 => INT32
+ 2795    0.2 %         BinaryNgDeviceOperation                                3         4 μs         59 μs    110                                                        FP32 => FP32
+ 2796    0.0 %         TypecastDeviceOperation                                3         1 μs          9 μs      1                                                      FP32 => UINT32
+ 2797    0.1 %         UntilizeWithUnpaddingDeviceOperation                   3         1 μs         23 μs      1                                                    UINT32 => UINT32
+ 2798    0.1 %         TypecastDeviceOperation                                3         1 μs         20 μs      1                                                     UINT32 => INT32
+ 2799    0.7 %         TypecastDeviceOperation                                3       139 μs         53 μs    110                                                        BF16 => FP32
+
+These ops have a >6 μs gap since the previous operation. Running with tracing could save 580 μs (2.2% of overall time)
+Alternatively ensure device is not waiting for the host. Experts can try moving runtime args in the kernels to compile-time args.
+
+Matmul Optimization
+-------------------
+ 2803    2.8 %   SLOW  MinimalMatmulDeviceOperation 4096 x 2048 x 9216        3       722 μs          0 μs    110  154 GB/s  30.1 %  214.2 TFLOPs   35.2 %   LoFi BF16 x BFP8 => BF16
+- If possible place input 0 in L1 (currently in DEV_0_DRAM_INTERLEAVED)
+- No program_config specified, try using one to override in0_block_w and out_subblock_h/w
+
+ 2818    1.2 %   SLOW  MinimalMatmulDeviceOperation 4096 x 4096 x 2048        3       312 μs          0 μs     64  188 GB/s  36.8 %  220.4 TFLOPs   62.3 %   LoFi BF16 x BFP8 => BF16
+- If possible place input 0 in L1 (currently in DEV_0_DRAM_INTERLEAVED)
+- No program_config specified, try using one to override in0_block_w and out_subblock_h/w
+
+ 2824    0.5 %   SLOW  MatmulDeviceOperation 4096 x 2048 x 256                3       120 μs          0 μs     64  149 GB/s  29.1 %   35.9 TFLOPs   40.6 %  HiFi4 BF16 x BF16 => BF16
+- If possible place input 0 in L1 (currently in DEV_0_DRAM_INTERLEAVED)
+- in0_block_w=2 and output subblock 2x2 look good 🤷
+- HiFi2 may also work, it discards the lowest bit of the activations and has 2x the throughput of HiFi4
+
+ 3137    0.2 %   SLOW  MatmulDeviceOperation 32 x 4096 x 256                  3        50 μs          0 μs      8   48 GB/s   9.3 %    1.3 TFLOPs    3.0 %   LoFi BF16 x BF16 => FP32
+- If possible place input 0 in L1 (currently in DEV_0_DRAM_INTERLEAVED)
+- Output subblock 1x1 is small, try out_subblock_h * out_subblock_w >= 2 if possible
+- Use HiFi2 or HiFi4 with BF16 activations for improved accuracy
+
+ 3147    0.0 %   SLOW  MatmulDeviceOperation 32 x 256 x 256                   3         5 μs          0 μs      8   37 GB/s   7.2 %    0.9 TFLOPs    7.8 %  HiFi4 BF16 x BF16 => FP32
+- If possible place input 0 in L1 (currently in DEV_0_DRAM_INTERLEAVED)
+- Output subblock 1x1 is small, try out_subblock_h * out_subblock_w >= 2 if possible
+- HiFi2 may also work, it discards the lowest bit of the activations and has 2x the throughput of HiFi4
+
+ 3149    0.8 %   SLOW  MatmulDeviceOperation 4096 x 4096 x 256                3       199 μs          0 μs     64  116 GB/s  22.6 %   43.1 TFLOPs   12.2 %   LoFi BFP8 x BF16 => FP32
+- If possible place input 0 in L1 (currently in DEV_0_DRAM_INTERLEAVED)
+- in0_block_w=2 and output subblock 2x2 look good 🤷
+- HiFi2 is recommended for accuracy; LoFi discards the lowest 2 bits of the weights
+
+ 3168    0.4 %   SLOW  MatmulDeviceOperation 4096 x 2048 x 32                 3        92 μs          1 μs     64  183 GB/s  35.8 %    5.8 TFLOPs    1.6 %   LoFi BF16 x BF16 => BF16
+- If possible place input 0 in L1 (currently in DEV_0_DRAM_INTERLEAVED)
+- in0_block_w=2 and output subblock 2x1 look good 🤷
+- Use HiFi2 or HiFi4 with BF16 activations for improved accuracy
+
+ 3169    0.4 %   SLOW  MinimalMatmulDeviceOperation 4096 x 2048 x 1024        3       117 μs          0 μs    110  152 GB/s  29.7 %  146.7 TFLOPs   24.1 %   LoFi BF16 x BFP4 => BF16
+- If possible place input 0 in L1 (currently in DEV_0_DRAM_INTERLEAVED)
+- No program_config specified, try using one to override in0_block_w and out_subblock_h/w
+
+ 3170    0.2 %   SLOW  MatmulDeviceOperation 4096 x 512 x 2048                3        52 μs          0 μs     64   20 GB/s   4.0 %  166.6 TFLOPs   47.1 %   LoFi BF16 x BFP8 => BF16
+- in0_block_w=4 and output subblock 1x4 look good 🤷
+- Use HiFi2 or HiFi4 with BF16 activations for improved accuracy
+

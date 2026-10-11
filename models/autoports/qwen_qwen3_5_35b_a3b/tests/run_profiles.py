@@ -14,8 +14,10 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--layer-type", choices=("linear_attention", "full_attention"))
-    parser.add_argument("--decoder", choices=("functional", "fused"), default="functional")
+    parser.add_argument("--decoder", choices=("functional", "fused", "optimized"), default="functional")
     parser.add_argument("--fusions")
+    parser.add_argument("--optimization-json", help="Omit to profile delivered optimized defaults")
+    parser.add_argument("--input-activations", type=Path)
     parser.add_argument("--evidence-dir", type=Path)
     args = parser.parse_args()
     repo_root = Path(__file__).resolve().parents[4]
@@ -58,6 +60,10 @@ def main():
             "--decoder",
             args.decoder,
         ]
+        if args.optimization_json is not None:
+            command.extend(("--optimization-json", args.optimization_json))
+        if args.input_activations:
+            command.extend(("--input-activations", str(args.input_activations.resolve())))
         if args.fusions is not None:
             command.extend(("--fusions", args.fusions))
         env = dict(os.environ)

@@ -1,0 +1,608 @@
+[
+  {
+    "name": "default",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram",
+      "prefill_backend": "dispatch",
+      "dispatch_dtype": "bfp4",
+      "dispatch_grid": [
+        4,
+        4
+      ],
+      "prefill_tiled": true,
+      "prefill_chunk": 4096,
+      "release_unused_weights": true,
+      "dispatch_rank": "matmul",
+      "prefill_tail_bucket": 32,
+      "prefill_buckets": [
+        2048,
+        1024,
+        256,
+        64
+      ],
+      "decode_input_fill": true,
+      "gate_pack": true,
+      "gate_pack_grid": [
+        8,
+        2,
+        32
+      ],
+      "sparse_down_dtype": "bfp8",
+      "gdn_l1": true,
+      "projections": {
+        "attention_in": {
+          "dtype": "bf16",
+          "fidelity": "HiFi4"
+        },
+        "attention_out": {
+          "dtype": "bf16",
+          "fidelity": "HiFi4",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        },
+        "shared_down": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "dram": true,
+          "cores": 8,
+          "k_block": 8,
+          "readers": 1
+        }
+      },
+      "decode_norm_cores": 0,
+      "conv_chunk": 128,
+      "conv_state_rm": true
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "0",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/review1/p1/perf/default.json",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\", \"prefill_backend\": \"dispatch\", \"dispatch_dtype\": \"bfp4\", \"dispatch_grid\": [4, 4], \"prefill_tiled\": true, \"prefill_chunk\": 4096, \"release_unused_weights\": true, \"dispatch_rank\": \"matmul\", \"prefill_tail_bucket\": 32, \"prefill_buckets\": [2048, 1024, 256, 64], \"decode_input_fill\": true, \"gate_pack\": true, \"gate_pack_grid\": [8, 2, 32], \"sparse_down_dtype\": \"bfp8\", \"gdn_l1\": true, \"projections\": {\"attention_in\": {\"dtype\": \"bf16\", \"fidelity\": \"HiFi4\"}, \"attention_out\": {\"dtype\": \"bf16\", \"fidelity\": \"HiFi4\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}, \"shared_down\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"dram\": true, \"cores\": 8, \"k_block\": 8, \"readers\": 1}}, \"decode_norm_cores\": 0, \"conv_chunk\": 128, \"conv_state_rm\": true}",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer0.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 13.129229753045365,
+    "source_stable": true,
+    "prefill_pcc": 0.9988620281219482,
+    "decode_pcc": 0.9987553358078003,
+    "prefill_host_us": 35354.027,
+    "decode_host_us": 727.691
+  },
+  {
+    "name": "in_bfp8_lofi",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram",
+      "prefill_backend": "dispatch",
+      "dispatch_dtype": "bfp4",
+      "dispatch_grid": [
+        4,
+        4
+      ],
+      "prefill_tiled": true,
+      "prefill_chunk": 4096,
+      "release_unused_weights": true,
+      "dispatch_rank": "matmul",
+      "prefill_tail_bucket": 32,
+      "prefill_buckets": [
+        2048,
+        1024,
+        256,
+        64
+      ],
+      "decode_input_fill": true,
+      "gate_pack": true,
+      "gate_pack_grid": [
+        8,
+        2,
+        32
+      ],
+      "sparse_down_dtype": "bfp8",
+      "gdn_l1": true,
+      "projections": {
+        "attention_in": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi"
+        },
+        "attention_out": {
+          "dtype": "bf16",
+          "fidelity": "HiFi4",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        },
+        "shared_down": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "dram": true,
+          "cores": 8,
+          "k_block": 8,
+          "readers": 1
+        }
+      },
+      "decode_norm_cores": 0,
+      "conv_chunk": 128,
+      "conv_state_rm": true
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "0",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/review1/p1/perf/in_bfp8_lofi.json",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\", \"prefill_backend\": \"dispatch\", \"dispatch_dtype\": \"bfp4\", \"dispatch_grid\": [4, 4], \"prefill_tiled\": true, \"prefill_chunk\": 4096, \"release_unused_weights\": true, \"dispatch_rank\": \"matmul\", \"prefill_tail_bucket\": 32, \"prefill_buckets\": [2048, 1024, 256, 64], \"decode_input_fill\": true, \"gate_pack\": true, \"gate_pack_grid\": [8, 2, 32], \"sparse_down_dtype\": \"bfp8\", \"gdn_l1\": true, \"projections\": {\"attention_in\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\"}, \"attention_out\": {\"dtype\": \"bf16\", \"fidelity\": \"HiFi4\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}, \"shared_down\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"dram\": true, \"cores\": 8, \"k_block\": 8, \"readers\": 1}}, \"decode_norm_cores\": 0, \"conv_chunk\": 128, \"conv_state_rm\": true}",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer0.pt"
+    ],
+    "exit_code": 1,
+    "elapsed_seconds": 13.198582494980656,
+    "source_stable": true,
+    "prefill_pcc": 0.9987277388572693,
+    "decode_pcc": 0.9897971153259277,
+    "prefill_host_us": 34890.507,
+    "decode_host_us": 672.6949999999999
+  },
+  {
+    "name": "in_bfp8_hifi2",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram",
+      "prefill_backend": "dispatch",
+      "dispatch_dtype": "bfp4",
+      "dispatch_grid": [
+        4,
+        4
+      ],
+      "prefill_tiled": true,
+      "prefill_chunk": 4096,
+      "release_unused_weights": true,
+      "dispatch_rank": "matmul",
+      "prefill_tail_bucket": 32,
+      "prefill_buckets": [
+        2048,
+        1024,
+        256,
+        64
+      ],
+      "decode_input_fill": true,
+      "gate_pack": true,
+      "gate_pack_grid": [
+        8,
+        2,
+        32
+      ],
+      "sparse_down_dtype": "bfp8",
+      "gdn_l1": true,
+      "projections": {
+        "attention_in": {
+          "dtype": "bfp8",
+          "fidelity": "HiFi2"
+        },
+        "attention_out": {
+          "dtype": "bf16",
+          "fidelity": "HiFi4",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        },
+        "shared_down": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "dram": true,
+          "cores": 8,
+          "k_block": 8,
+          "readers": 1
+        }
+      },
+      "decode_norm_cores": 0,
+      "conv_chunk": 128,
+      "conv_state_rm": true
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "0",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/review1/p1/perf/in_bfp8_hifi2.json",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\", \"prefill_backend\": \"dispatch\", \"dispatch_dtype\": \"bfp4\", \"dispatch_grid\": [4, 4], \"prefill_tiled\": true, \"prefill_chunk\": 4096, \"release_unused_weights\": true, \"dispatch_rank\": \"matmul\", \"prefill_tail_bucket\": 32, \"prefill_buckets\": [2048, 1024, 256, 64], \"decode_input_fill\": true, \"gate_pack\": true, \"gate_pack_grid\": [8, 2, 32], \"sparse_down_dtype\": \"bfp8\", \"gdn_l1\": true, \"projections\": {\"attention_in\": {\"dtype\": \"bfp8\", \"fidelity\": \"HiFi2\"}, \"attention_out\": {\"dtype\": \"bf16\", \"fidelity\": \"HiFi4\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}, \"shared_down\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"dram\": true, \"cores\": 8, \"k_block\": 8, \"readers\": 1}}, \"decode_norm_cores\": 0, \"conv_chunk\": 128, \"conv_state_rm\": true}",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer0.pt"
+    ],
+    "exit_code": 1,
+    "elapsed_seconds": 13.471765664988197,
+    "source_stable": true,
+    "prefill_pcc": 0.9988629221916199,
+    "decode_pcc": 0.9897351264953613,
+    "prefill_host_us": 35027.9,
+    "decode_host_us": 673.0455
+  },
+  {
+    "name": "out_bfp8_lofi",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram",
+      "prefill_backend": "dispatch",
+      "dispatch_dtype": "bfp4",
+      "dispatch_grid": [
+        4,
+        4
+      ],
+      "prefill_tiled": true,
+      "prefill_chunk": 4096,
+      "release_unused_weights": true,
+      "dispatch_rank": "matmul",
+      "prefill_tail_bucket": 32,
+      "prefill_buckets": [
+        2048,
+        1024,
+        256,
+        64
+      ],
+      "decode_input_fill": true,
+      "gate_pack": true,
+      "gate_pack_grid": [
+        8,
+        2,
+        32
+      ],
+      "sparse_down_dtype": "bfp8",
+      "gdn_l1": true,
+      "projections": {
+        "attention_in": {
+          "dtype": "bf16",
+          "fidelity": "HiFi4"
+        },
+        "attention_out": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        },
+        "shared_down": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "dram": true,
+          "cores": 8,
+          "k_block": 8,
+          "readers": 1
+        }
+      },
+      "decode_norm_cores": 0,
+      "conv_chunk": 128,
+      "conv_state_rm": true
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "0",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/review1/p1/perf/out_bfp8_lofi.json",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\", \"prefill_backend\": \"dispatch\", \"dispatch_dtype\": \"bfp4\", \"dispatch_grid\": [4, 4], \"prefill_tiled\": true, \"prefill_chunk\": 4096, \"release_unused_weights\": true, \"dispatch_rank\": \"matmul\", \"prefill_tail_bucket\": 32, \"prefill_buckets\": [2048, 1024, 256, 64], \"decode_input_fill\": true, \"gate_pack\": true, \"gate_pack_grid\": [8, 2, 32], \"sparse_down_dtype\": \"bfp8\", \"gdn_l1\": true, \"projections\": {\"attention_in\": {\"dtype\": \"bf16\", \"fidelity\": \"HiFi4\"}, \"attention_out\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}, \"shared_down\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"dram\": true, \"cores\": 8, \"k_block\": 8, \"readers\": 1}}, \"decode_norm_cores\": 0, \"conv_chunk\": 128, \"conv_state_rm\": true}",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer0.pt"
+    ],
+    "exit_code": 1,
+    "elapsed_seconds": 12.991743860999122,
+    "source_stable": true,
+    "prefill_pcc": 0.9988340139389038,
+    "decode_pcc": 0.9888121485710144,
+    "prefill_host_us": 35124.665,
+    "decode_host_us": 709.5405000000001
+  },
+  {
+    "name": "out_bfp8_hifi2",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram",
+      "prefill_backend": "dispatch",
+      "dispatch_dtype": "bfp4",
+      "dispatch_grid": [
+        4,
+        4
+      ],
+      "prefill_tiled": true,
+      "prefill_chunk": 4096,
+      "release_unused_weights": true,
+      "dispatch_rank": "matmul",
+      "prefill_tail_bucket": 32,
+      "prefill_buckets": [
+        2048,
+        1024,
+        256,
+        64
+      ],
+      "decode_input_fill": true,
+      "gate_pack": true,
+      "gate_pack_grid": [
+        8,
+        2,
+        32
+      ],
+      "sparse_down_dtype": "bfp8",
+      "gdn_l1": true,
+      "projections": {
+        "attention_in": {
+          "dtype": "bf16",
+          "fidelity": "HiFi4"
+        },
+        "attention_out": {
+          "dtype": "bfp8",
+          "fidelity": "HiFi2",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        },
+        "shared_down": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "dram": true,
+          "cores": 8,
+          "k_block": 8,
+          "readers": 1
+        }
+      },
+      "decode_norm_cores": 0,
+      "conv_chunk": 128,
+      "conv_state_rm": true
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "0",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/review1/p1/perf/out_bfp8_hifi2.json",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\", \"prefill_backend\": \"dispatch\", \"dispatch_dtype\": \"bfp4\", \"dispatch_grid\": [4, 4], \"prefill_tiled\": true, \"prefill_chunk\": 4096, \"release_unused_weights\": true, \"dispatch_rank\": \"matmul\", \"prefill_tail_bucket\": 32, \"prefill_buckets\": [2048, 1024, 256, 64], \"decode_input_fill\": true, \"gate_pack\": true, \"gate_pack_grid\": [8, 2, 32], \"sparse_down_dtype\": \"bfp8\", \"gdn_l1\": true, \"projections\": {\"attention_in\": {\"dtype\": \"bf16\", \"fidelity\": \"HiFi4\"}, \"attention_out\": {\"dtype\": \"bfp8\", \"fidelity\": \"HiFi2\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}, \"shared_down\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"dram\": true, \"cores\": 8, \"k_block\": 8, \"readers\": 1}}, \"decode_norm_cores\": 0, \"conv_chunk\": 128, \"conv_state_rm\": true}",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer0.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 13.483672216068953,
+    "source_stable": true,
+    "prefill_pcc": 0.9988386631011963,
+    "decode_pcc": 0.9987389445304871,
+    "prefill_host_us": 35265.123,
+    "decode_host_us": 709.6355
+  },
+  {
+    "name": "both_bfp8_hifi2",
+    "policy": {
+      "expert_backend": "sparse",
+      "sparse_indexed": true,
+      "expert_dtype": "bfp4",
+      "sparse_gate_cores": 32,
+      "sparse_gate_k": 32,
+      "sparse_down_cores": 32,
+      "sparse_down_k": 16,
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "sparse_fused_reduce": true,
+      "compact_router_dtype": true,
+      "decode_norm_fp32_input": false,
+      "decode_norm_output": "dram",
+      "prefill_backend": "dispatch",
+      "dispatch_dtype": "bfp4",
+      "dispatch_grid": [
+        4,
+        4
+      ],
+      "prefill_tiled": true,
+      "prefill_chunk": 4096,
+      "release_unused_weights": true,
+      "dispatch_rank": "matmul",
+      "prefill_tail_bucket": 32,
+      "prefill_buckets": [
+        2048,
+        1024,
+        256,
+        64
+      ],
+      "decode_input_fill": true,
+      "gate_pack": true,
+      "gate_pack_grid": [
+        8,
+        2,
+        32
+      ],
+      "sparse_down_dtype": "bfp8",
+      "gdn_l1": true,
+      "projections": {
+        "attention_in": {
+          "dtype": "bfp8",
+          "fidelity": "HiFi2"
+        },
+        "attention_out": {
+          "dtype": "bfp8",
+          "fidelity": "HiFi2",
+          "decode_grid": [
+            8,
+            4
+          ],
+          "k_block": 8,
+          "per_n": 2
+        },
+        "shared_down": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "dram": true,
+          "cores": 8,
+          "k_block": 8,
+          "readers": 1
+        }
+      },
+      "decode_norm_cores": 0,
+      "conv_chunk": 128,
+      "conv_state_rm": true
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "0",
+      "--length",
+      "4096",
+      "--steps",
+      "128",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/review1/p1/perf/both_bfp8_hifi2.json",
+      "--optimization-json",
+      "{\"expert_backend\": \"sparse\", \"sparse_indexed\": true, \"expert_dtype\": \"bfp4\", \"sparse_gate_cores\": 32, \"sparse_gate_k\": 32, \"sparse_down_cores\": 32, \"sparse_down_k\": 16, \"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"sparse_fused_reduce\": true, \"compact_router_dtype\": true, \"decode_norm_fp32_input\": false, \"decode_norm_output\": \"dram\", \"prefill_backend\": \"dispatch\", \"dispatch_dtype\": \"bfp4\", \"dispatch_grid\": [4, 4], \"prefill_tiled\": true, \"prefill_chunk\": 4096, \"release_unused_weights\": true, \"dispatch_rank\": \"matmul\", \"prefill_tail_bucket\": 32, \"prefill_buckets\": [2048, 1024, 256, 64], \"decode_input_fill\": true, \"gate_pack\": true, \"gate_pack_grid\": [8, 2, 32], \"sparse_down_dtype\": \"bfp8\", \"gdn_l1\": true, \"projections\": {\"attention_in\": {\"dtype\": \"bfp8\", \"fidelity\": \"HiFi2\"}, \"attention_out\": {\"dtype\": \"bfp8\", \"fidelity\": \"HiFi2\", \"decode_grid\": [8, 4], \"k_block\": 8, \"per_n\": 2}, \"shared_down\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"dram\": true, \"cores\": 8, \"k_block\": 8, \"readers\": 1}}, \"decode_norm_cores\": 0, \"conv_chunk\": 128, \"conv_state_rm\": true}",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer0.pt"
+    ],
+    "exit_code": 1,
+    "elapsed_seconds": 13.079667789977975,
+    "source_stable": true,
+    "prefill_pcc": 0.9988400340080261,
+    "decode_pcc": 0.9896456003189087,
+    "prefill_host_us": 34758.42,
+    "decode_host_us": 655.086
+  }
+]

@@ -1,0 +1,256 @@
+[
+  {
+    "name": "attention_in_dram_c8k8r1",
+    "policy": {
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "expert_dtype": "bfp4",
+      "expert_grid_x": 4,
+      "expert_grid_y": 4,
+      "projections": {
+        "attention_in": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "dram": true,
+          "cores": 8,
+          "k_block": 8,
+          "readers": 1
+        }
+      }
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "128",
+      "--steps",
+      "16",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"expert_dtype\": \"bfp4\", \"expert_grid_x\": 4, \"expert_grid_y\": 4, \"projections\": {\"attention_in\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"dram\": true, \"cores\": 8, \"k_block\": 8, \"readers\": 1}}}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/attention_smoke/attention_in_dram_c8k8r1.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 1,
+    "elapsed_seconds": 10.61921725794673
+  },
+  {
+    "name": "attention_out_dram_c8k8r1",
+    "policy": {
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "expert_dtype": "bfp4",
+      "expert_grid_x": 4,
+      "expert_grid_y": 4,
+      "projections": {
+        "attention_out": {
+          "dtype": "bfp8",
+          "fidelity": "LoFi",
+          "dram": true,
+          "cores": 8,
+          "k_block": 8,
+          "readers": 1
+        }
+      }
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "128",
+      "--steps",
+      "16",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"expert_dtype\": \"bfp4\", \"expert_grid_x\": 4, \"expert_grid_y\": 4, \"projections\": {\"attention_out\": {\"dtype\": \"bfp8\", \"fidelity\": \"LoFi\", \"dram\": true, \"cores\": 8, \"k_block\": 8, \"readers\": 1}}}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/attention_smoke/attention_out_dram_c8k8r1.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 1,
+    "elapsed_seconds": 10.599413101910613
+  },
+  {
+    "name": "norm_c8_fFalse",
+    "policy": {
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "expert_dtype": "bfp4",
+      "expert_grid_x": 4,
+      "expert_grid_y": 4,
+      "residual_cores": 8,
+      "norm_fused_weight": false
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "128",
+      "--steps",
+      "16",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"expert_dtype\": \"bfp4\", \"expert_grid_x\": 4, \"expert_grid_y\": 4, \"residual_cores\": 8, \"norm_fused_weight\": false}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/attention_smoke/norm_c8_fFalse.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 1,
+    "elapsed_seconds": 13.499966870062053
+  },
+  {
+    "name": "norm_c8_fTrue",
+    "policy": {
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "expert_dtype": "bfp4",
+      "expert_grid_x": 4,
+      "expert_grid_y": 4,
+      "residual_cores": 8,
+      "norm_fused_weight": true
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "128",
+      "--steps",
+      "16",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"expert_dtype\": \"bfp4\", \"expert_grid_x\": 4, \"expert_grid_y\": 4, \"residual_cores\": 8, \"norm_fused_weight\": true}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/attention_smoke/norm_c8_fTrue.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 1,
+    "elapsed_seconds": 11.703647551010363
+  },
+  {
+    "name": "attention_in_bfp4_LoFi",
+    "policy": {
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "expert_dtype": "bfp4",
+      "expert_grid_x": 4,
+      "expert_grid_y": 4,
+      "projections": {
+        "attention_in": {
+          "dtype": "bfp4",
+          "fidelity": "LoFi"
+        }
+      }
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "128",
+      "--steps",
+      "16",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"expert_dtype\": \"bfp4\", \"expert_grid_x\": 4, \"expert_grid_y\": 4, \"projections\": {\"attention_in\": {\"dtype\": \"bfp4\", \"fidelity\": \"LoFi\"}}}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/attention_smoke/attention_in_bfp4_LoFi.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 1,
+    "elapsed_seconds": 11.792053951998241,
+    "prefill_pcc": 0.992137610912323,
+    "decode_pcc": 0.9893551468849182,
+    "prefill_host_us": 11263.89,
+    "decode_host_us": 867.4375
+  },
+  {
+    "name": "attention_out_bfp4_LoFi",
+    "policy": {
+      "prefill_down_cores": 32,
+      "prefill_down_k": 16,
+      "prefill_down_subblock": 2,
+      "expert_dtype": "bfp4",
+      "expert_grid_x": 4,
+      "expert_grid_y": 4,
+      "projections": {
+        "attention_out": {
+          "dtype": "bfp4",
+          "fidelity": "LoFi"
+        }
+      }
+    },
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "optimized",
+      "--layer",
+      "3",
+      "--length",
+      "128",
+      "--steps",
+      "16",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--optimization-json",
+      "{\"prefill_down_cores\": 32, \"prefill_down_k\": 16, \"prefill_down_subblock\": 2, \"expert_dtype\": \"bfp4\", \"expert_grid_x\": 4, \"expert_grid_y\": 4, \"projections\": {\"attention_out\": {\"dtype\": \"bfp4\", \"fidelity\": \"LoFi\"}}}",
+      "--output",
+      "models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/attention_smoke/attention_out_bfp4_LoFi.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 11.919286104966886,
+    "prefill_pcc": 0.9979401230812073,
+    "decode_pcc": 0.9963306188583374,
+    "prefill_host_us": 11214.376,
+    "decode_host_us": 874.19
+  }
+]

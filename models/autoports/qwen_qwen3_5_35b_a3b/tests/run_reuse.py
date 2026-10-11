@@ -23,9 +23,12 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--batch", type=int, default=2)
     parser.add_argument("--page-size", type=int, default=32)
+    parser.add_argument("--no-kv-scratch", action="store_true")
     parser.add_argument("--expert-precision", choices=("inherited", "bf16"), default="inherited")
-    parser.add_argument("--decoder", choices=("functional", "fused"), default="functional")
+    parser.add_argument("--decoder", choices=("functional", "fused", "optimized"), default="functional")
     parser.add_argument("--fusions")
+    parser.add_argument("--optimization-json")
+    parser.add_argument("--input-activations", type=Path)
     args = parser.parse_args()
     torch.manual_seed(913)
     torch.set_num_threads(8)
@@ -40,13 +43,22 @@ def main():
     hf.eval()
     rope = Qwen3_5MoeTextRotaryEmbedding(cfg)
     specifications = [(n, ()) for n in (1, 31, 32, 33, 127, 128, 129, 511, 512, 513, 1153, 33, 35, 36)]
-    specifications += [(1153, (1, 3, 127, 129, 160, 513)), (256, (35,)), (256, (36,))]
+    specifications += [(1153, (1, 3, 127, 129, 160, 513)), (256, (35,)), (256, (36,)), (2047, (1152,))]
     cases = []
     capacity = 2048
     pages = capacity // args.page_size
     total_pages = args.batch * pages
-    for length, cuts in specifications:
-        x = torch.randn(args.batch, length + 1, cfg.hidden_size, dtype=torch.bfloat16) * 0.1
+    recorded = None
+    if args.input_activations:
+        recorded = torch.load(args.input_activations, weights_only=True)
+        assert recorded["metadata"]["layer"] == args.layer
+        recorded = recorded["activations"][0]
+    for index, (length, cuts) in enumerate(specifications):
+        if recorded is not None:
+            starts = [((index * args.batch + row) * 997) % (recorded.shape[0] - length) for row in range(args.batch)]
+            x = torch.stack([recorded[start : start + length + 1] for start in starts]).contiguous()
+        else:
+            x = torch.randn(args.batch, length + 1, cfg.hidden_size, dtype=torch.bfloat16) * 0.1
         ref, cache, _ = prefill_reference(hf, cfg, rope, x[:, :length], args.layer)
         dec = decode_reference(hf, rope, cache, x[:, length:], length)
         boundaries = (0,) + cuts + (length,)
@@ -57,7 +69,8 @@ def main():
 
     import ttnn
 
-    mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0)
+    mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0, **(
+        {"physical_device_ids": [int(__import__("os").environ["QDEV"])]} if "QDEV" in __import__("os").environ else {}))
 
     def put(x, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=True):
         kw = dict(device=mesh, mesh_mapper=ttnn.ReplicateTensorToMesh(mesh)) if device else {}
@@ -68,12 +81,18 @@ def main():
 
     try:
         decoder_class, fusion_kwargs = FunctionalDecoder, {}
-        if args.decoder == "fused":
+        if args.decoder in ("fused", "optimized"):
             from ..tt.fused_decoder import FusedDecoder
 
             decoder_class = FusedDecoder
             if args.fusions is not None:
                 fusion_kwargs["fusions"] = tuple(filter(None, args.fusions.split(",")))
+        if args.decoder == "optimized":
+            from ..tt.optimized_decoder import OptimizedDecoder
+
+            decoder_class = OptimizedDecoder
+            if args.optimization_json is not None:
+                fusion_kwargs["optimization"] = json.loads(args.optimization_json)
         model = decoder_class.from_state_dict(
             state,
             hf_config=cfg,
@@ -87,14 +106,16 @@ def main():
         decode_kwargs = dict(request_slots=slots)
         dx = put(cases[0]["x"][:, -1:])
         if args.layer == 3:
-            kc = ttnn.zeros(
-                (total_pages + 3, cfg.num_key_value_heads, args.page_size, cfg.head_dim),
-                dtype=ttnn.bfloat16,
-                layout=ttnn.TILE_LAYOUT,
-                device=mesh,
-            )
-            vc = ttnn.zeros_like(kc)
-            model.bind_paged_kv_cache(kc, vc)
+            kv_host = torch.zeros((total_pages + 4, cfg.num_key_value_heads, args.page_size, cfg.head_dim),
+                                  dtype=torch.bfloat16)
+            kv_host[total_pages + 3].fill_(5.0)
+            kv_dtype = (ttnn.bfloat8_b if getattr(getattr(model, "optimization", None), "kv_dtype", "bf16") == "bfp8"
+                        else ttnn.bfloat16)
+            kc, vc = put(kv_host, kv_dtype), put(kv_host, kv_dtype)
+            if args.decoder == "optimized" and not args.no_kv_scratch:
+                model.bind_paged_kv_cache(kc, vc, scratch_block=total_pages + 3)
+            else:
+                model.bind_paged_kv_cache(kc, vc)
             pt = put(cases[0]["table"], ttnn.int32, ttnn.ROW_MAJOR_LAYOUT)
             pos = put(torch.ones(args.batch, dtype=torch.int32), ttnn.int32, ttnn.ROW_MAJOR_LAYOUT)
             kwargs["page_table"] = pt
@@ -177,20 +198,26 @@ def main():
         guards_clean = None
         if args.layer == 3:
             guards_clean = (
-                not torch.count_nonzero(get(kc[total_pages:])).item()
-                and not torch.count_nonzero(get(vc[total_pages:])).item()
+                not torch.count_nonzero(get(kc[total_pages : total_pages + 3])).item()
+                and not torch.count_nonzero(get(vc[total_pages : total_pages + 3])).item()
             )
             assert guards_clean
         args.output.write_text(
             json.dumps(
                 dict(
                     decoder_class=type(model).__name__,
+                    input_activations=str(args.input_activations) if args.input_activations else "random_normal_0.1",
+                    optimization=__import__("dataclasses").asdict(model.optimization) if args.decoder=="optimized" else None,
                     fusions=getattr(model, "fusions", None),
                     cases=results,
                     captures=1,
                     request_releases=0,
                     teardown_releases=1,
                     guards_clean=guards_clean,
+                    kv_scratch_block=getattr(model, "kv_scratch_block", None),
+                    kv_scratch_written=(bool(torch.count_nonzero(get(kc[total_pages + 3 : total_pages + 4]) != 5.0).item())
+                                        if args.layer == 3 and getattr(model, "kv_scratch_block", None) is not None
+                                        else None),
                     runtime_audit=True,
                     request_slots=slots,
                     page_size=args.page_size,

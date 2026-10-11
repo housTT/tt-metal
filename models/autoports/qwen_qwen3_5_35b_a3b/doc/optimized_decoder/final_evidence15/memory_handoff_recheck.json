@@ -1,0 +1,92 @@
+{
+ "schema_version": 1,
+ "purpose": "Recheck of /home/hous/dev/qwen3.5-35b-a3b/memory-layout-handoff.json stage_3 sections against the final Stage-3 source, using live allocator totals and a root-UID census.",
+ "final_source": {
+  "tt/optimized_decoder.py_sha256": "419ae4e66990e0d17cea366af5cecd425ad8fb3c9939b40558944418ec61f914",
+  "handoff_bound_hashes": {
+   "stage_3_indexed_sparse_recheck": "321c9328db543f20227b485fda8fbe9af5e517def92d61f6889cc6b954a77542",
+   "stage_3_gdn_state_residency_audit": "67e16210c9ce6a65d6a9c5b24735b72b56ff33396fd25af25aecf3649bd86be0"
+  },
+  "hash_match": false
+ },
+ "method": "tests/weight_inventory.py: construct the DEFAULT_POLICIES layer on one Blackhole chip (1x1 mesh), walk the Python object graph, group device tensors by buffer_unique_id, payload = buffer_num_pages * buffer_page_size, plus ttnn.get_memory_view DRAM allocator total.",
+ "evidence": [
+  "final_evidence15/inventory/layer0.json",
+  "final_evidence15/inventory/layer3.json"
+ ],
+ "per_layer": {
+  "linear_attention_layer0": {
+   "allocator_dram_bytes_after_construct": 1653611008,
+   "allocator_dram_mib": 1577.01,
+   "named_payload_bytes_lower_bound": 1629024580,
+   "by_consumer_mib": {
+    "routed_experts_prefill_dispatch": 852.73,
+    "routed_experts_decode": 560.02,
+    "attention": 67.13,
+    "gdn_recurrent_and_conv_state_slots": 63.45,
+    "shared_expert": 4.5,
+    "router": 3.33,
+    "module_cache": 1.12,
+    "index_tables": 1.02,
+    "norms": 0.25
+   },
+   "module_level_caches_shared_per_mesh_mib": 23.79
+  },
+  "full_attention_layer3": {
+   "allocator_dram_bytes_after_construct": 1611247616,
+   "allocator_dram_mib": 1536.61,
+   "named_payload_bytes_lower_bound": 1589686592,
+   "by_consumer_mib": {
+    "routed_experts_prefill_dispatch": 852.73,
+    "routed_experts_decode": 560.02,
+    "rope": 64.0,
+    "attention": 27.91,
+    "shared_expert": 4.5,
+    "router": 3.33,
+    "kv_cache": 1.16,
+    "module_cache": 1.12,
+    "index_tables": 1.02,
+    "norms": 0.25
+   },
+   "module_level_caches_shared_per_mesh_mib": 23.79
+  }
+ },
+ "findings": [
+  {
+   "handoff_item": "Outer shallow-copied BF8 per-expert lists retained (packed prefill policy)",
+   "status": "not_applicable_to_selected_policy",
+   "evidence": "Selected prefill_backend is 'dispatch', not 'packed'. Dispatch owns 768 per-expert roots of dtype ['DataType.BFLOAT8_B'] (816.0 MiB) plus maps; these are the selected prefill consumer, not stale copies."
+  },
+  {
+   "handoff_item": "Same-dtype ttnn.typecast copies of sparse decode weights (560 MiB)",
+   "status": "fixed",
+   "evidence": "_as_dtype aliases same-dtype weights. Census: one gate_up BFP4 [1,256,2048,1024] (288 MiB) and one down BFP8 [1,256,512,2048] (272 MiB) root; no second copy."
+  },
+  {
+   "handoff_item": "Two routed representations (decode stacked + prefill dispatch lists)",
+   "status": "present_both_consumed",
+   "evidence": "Decode sparse_matmul reads stacked tensors; moe_fused_swiglu reads per-expert lists and requires one dtype for gate/up/down (TT_FATAL moe_fused_swiglu_device_operation.cpp:142). Sharing needs an op change. Expert-parallel sharding in Stage 4 divides both by the expert-parallel degree."
+  },
+  {
+   "handoff_item": "Unused attention weight copies",
+   "status": "fixed",
+   "evidence": "Linear BF16 output_weight (16 MiB) and full q/k/v_proj BFP8 (19.1 MiB) are released when optimized projections own the consumers (review2/inventory/pre_release_*.json versus final)."
+  },
+  {
+   "handoff_item": "GDN recurrent state slots",
+   "status": "recorded",
+   "evidence": "32 configured slots per linear layer, independent of active batch: FP32 TILE [1,32,128,128] 2 MiB each in DRAM plus conv history BF16 ROW_MAJOR [1,3,8192] 48 KiB each. gdn_state_l1 is off; gdn_l1 only moves single-token intermediates."
+  },
+  {
+   "handoff_item": "Per-layer RoPE tables",
+   "status": "recorded_for_stage_6",
+   "evidence": "Each full-attention decoder owns cos/sin BF16 [262144,64] (64.0 MiB). Ten full layers would hold ten identical copies unless the full model shares one."
+  }
+ ],
+ "capacity_implication": {
+  "one_chip_total_dram_bytes": 34178731008,
+  "one_chip_total_dram_gib": 31.83,
+  "forty_layer_estimate_gib": 59.73,
+  "forty_layer_estimate_note": "30 linear + 10 full layers; module caches and one RoPE table counted once; test KV excluded. Excludes embedding, LM head, KV cache, trace and activation buffers. Does not fit one chip; the p150 profile needs expert placement or precision changes in later stages."
+ }
+}

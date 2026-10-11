@@ -1,0 +1,131 @@
+{
+  "device_ids": [
+    3
+  ],
+  "input_metadata": {
+    "checkpoint_revision": "59d61f3ce65a6d9863b86d2e96597125219dc754",
+    "source": "tech_reports/LLMs/llms.md",
+    "source_sha256": "a10ad9cce360eb0d107df536434d0dd805f1adbfb5bb1e886ca6f96d3f552d00",
+    "tokens": 4352,
+    "purpose": "Layer-only real activation fixture; no full-model implementation or generation",
+    "layer": 3,
+    "path": "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt",
+    "kind": "recorded_hf_activation"
+  },
+  "optimization": {
+    "prefill_down_cores": 32,
+    "prefill_down_k": 16,
+    "prefill_down_subblock": 2,
+    "expert_dtype": "bfp4",
+    "expert_grid_x": 4,
+    "expert_grid_y": 4,
+    "shared_split": true,
+    "projections": {
+      "shared_gate_proj": {
+        "dtype": "bfp4",
+        "fidelity": "LoFi",
+        "dram": true,
+        "cores": 8,
+        "k_block": 8,
+        "readers": 1
+      },
+      "shared_up_proj": {
+        "dtype": "bfp4",
+        "fidelity": "LoFi",
+        "dram": true,
+        "cores": 8,
+        "k_block": 8,
+        "readers": 1
+      }
+    }
+  },
+  "decoder_class": "OptimizedDecoder",
+  "runtime_components": {
+    "attention": "_OptimizedAttention",
+    "router": "_DedicatedRouter",
+    "experts": "_OptimizedPrefillExperts",
+    "decode_experts": "_OptimizedCompactExperts",
+    "shared": "_OptimizedShared"
+  },
+  "fusions": [
+    "moe_gate",
+    "shared_gate",
+    "shared_minimal",
+    "rope",
+    "cache",
+    "qkv",
+    "heads",
+    "indexed_rope",
+    "gate",
+    "compact_reduce",
+    "compact_routing",
+    "prefill_split"
+  ],
+  "layer_type": "full_attention",
+  "layer_idx": 3,
+  "weights": "real",
+  "implementation_sha256": {
+    "__init__.py": "20db980a38cc5bb36a49afaff8f9838e2c77f17e5b1ef0c42b5ed918f77a1ca9",
+    "functional_attention.py": "6718df3736404f042613670f43e184e202ece215a9f7907f6358ec18326a8638",
+    "functional_decoder.py": "2e25b47139c58f5eb043f94e0fa0e8c25acda2b5875e064a47a62ce15623dc48",
+    "functional_gdn.py": "fe01dfacefd617bd1892eb9de2f5993d341eef9b6dd768cdb77aec446736c286",
+    "fused_decoder.py": "e570144c58707bb0846be80075c0b26787e2b3cff8539e9a245bca739c1a168d",
+    "optimized_decoder.py": "321c9328db543f20227b485fda8fbe9af5e517def92d61f6889cc6b954a77542"
+  },
+  "gdn_recurrence": null,
+  "expert_precision": "inherited",
+  "profile": false,
+  "warmed_prefill_host_us": 11296.004,
+  "length": 128,
+  "batch": 1,
+  "decode_steps": 16,
+  "page_size": 32,
+  "minimum_cache_pages": 32,
+  "cache_guard_pages": 3,
+  "prefill_pcc": 0.9993624091148376,
+  "prefill_pcc_min": 0.9993624091148376,
+  "decode_pcc": 0.9992719292640686,
+  "prefill_probes": null,
+  "runtime_audit": true,
+  "trace_id": "MeshTraceId(0)",
+  "decode_pcc_min": 0.9988160133361816,
+  "decode_pcc_by_token": [
+    0.999294638633728,
+    0.9993115067481995,
+    0.9995139837265015,
+    0.998925507068634,
+    0.9991368651390076,
+    0.9993072748184204,
+    0.9994580149650574,
+    0.9995379447937012,
+    0.9996761083602905,
+    0.9994726181030273,
+    0.9988160133361816,
+    0.9988366961479187,
+    0.9995478391647339,
+    0.9996600151062012,
+    0.9991098642349243,
+    0.9995218515396118
+  ],
+  "traced": true,
+  "repeated_identical": true,
+  "threshold": 0.995,
+  "traced_replay_host_us": [
+    907.349,
+    909.644,
+    912.86,
+    907.65,
+    912.529,
+    909.233,
+    912.78,
+    911.167,
+    911.356,
+    914.524,
+    911.256,
+    916.076,
+    911.237,
+    916.437,
+    914.543,
+    915.856
+  ]
+}

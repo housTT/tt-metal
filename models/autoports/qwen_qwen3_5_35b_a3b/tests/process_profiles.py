@@ -16,7 +16,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--layer-type", choices=("linear_attention", "full_attention"), required=True)
     parser.add_argument("--evidence-dir", type=Path)
-    parser.add_argument("--policy", choices=("functional", "fused"), default="functional")
+    parser.add_argument("--policy", choices=("functional", "fused", "optimized"), default="functional")
+    parser.add_argument("--optimization-json", default="{}")
     args = parser.parse_args()
     evidence = args.evidence_dir or (Path(__file__).resolve().parents[1] / "doc" / "functional_decoder")
     directory = evidence / "tracy" / args.layer_type
@@ -58,7 +59,6 @@ def main():
             "PERF_" + phase.upper(),
             "--end-signpost",
             "PERF_" + phase.upper() + "_END",
-            "--no-advice",
         ]
         run(
             command + ["--csv", str(directory / (phase + "_perf_report.csv"))],
@@ -72,6 +72,8 @@ def main():
             module + "estimate_roofline",
             "--policy",
             args.policy,
+            "--optimization-json",
+            args.optimization_json,
             str(directory / "measurement.json"),
             "--layer-type",
             args.layer_type,

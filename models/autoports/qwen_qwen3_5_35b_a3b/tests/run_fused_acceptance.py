@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--group", choices=("positions", "reuse", "context", "watcher", "pytest"), required=True)
     parser.add_argument("--fusions")
+    parser.add_argument("--decoder", choices=("fused", "optimized"), default="fused")
     parser.add_argument("--layer", type=int, choices=(0, 3))
     args = parser.parse_args()
     args.directory.mkdir(parents=True, exist_ok=False)
@@ -29,7 +30,7 @@ def main():
             "-m",
             module + runner,
             "--decoder",
-            "fused",
+            args.decoder,
             *arguments,
             "--output",
             str(args.directory / (name + ".json")),
@@ -109,7 +110,7 @@ def main():
                     "pytest",
                     "-q",
                     "-s",
-                    str(Path(__file__).with_name("test_fused_decoder_device.py")),
+                    str(Path(__file__).with_name(f"test_{args.decoder}_decoder_device.py")),
                     "--basetemp",
                     str(args.directory / "pytest_artifacts"),
                 ],

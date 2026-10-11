@@ -1,0 +1,67 @@
+{
+  "commands": [
+    [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.summarize_perf",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/profile_final/tracy/full_attention/ops.csv",
+      "--output",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/profile_final/tracy/full_attention/measurement.json"
+    ],
+    [
+      "tt-perf-report",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/profile_final/tracy/full_attention/ops.csv",
+      "--start-signpost",
+      "PERF_PREFILL",
+      "--end-signpost",
+      "PERF_PREFILL_END",
+      "--csv",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/profile_final/tracy/full_attention/prefill_perf_report.csv"
+    ],
+    [
+      "tt-perf-report",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/profile_final/tracy/full_attention/ops.csv",
+      "--start-signpost",
+      "PERF_PREFILL",
+      "--end-signpost",
+      "PERF_PREFILL_END",
+      "--no-summary"
+    ],
+    [
+      "tt-perf-report",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/profile_final/tracy/full_attention/ops.csv",
+      "--start-signpost",
+      "PERF_DECODE",
+      "--end-signpost",
+      "PERF_DECODE_END",
+      "--csv",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/profile_final/tracy/full_attention/decode_perf_report.csv"
+    ],
+    [
+      "tt-perf-report",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/profile_final/tracy/full_attention/ops.csv",
+      "--start-signpost",
+      "PERF_DECODE",
+      "--end-signpost",
+      "PERF_DECODE_END",
+      "--no-summary"
+    ],
+    [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.estimate_roofline",
+      "--policy",
+      "optimized",
+      "--optimization-json",
+      "{}",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/profile_final/tracy/full_attention/measurement.json",
+      "--layer-type",
+      "full_attention",
+      "--output",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/profile_final/tracy/full_attention/roofline.json"
+    ]
+  ],
+  "ops_csv_sha256": "4a97c01a83947bfad394edb46f3ee0db51a2ffae09ffbd5ac20f0a0dcf98cc03",
+  "archived_csv": "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_decoder/profile_final/tracy/full_attention/ops.csv.gz",
+  "tt_perf_report_version": "1.4.1"
+}

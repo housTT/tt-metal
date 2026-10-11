@@ -32,10 +32,14 @@ def parse_args():
     parser.add_argument("--batch", type=int, default=32)
     parser.add_argument("--steps", type=int, default=8)
     parser.add_argument("--page-size", type=int, default=32)
+    parser.add_argument("--no-kv-scratch", action="store_true")
     parser.add_argument("--seed", type=int, default=1234)
     parser.add_argument("--expert-precision", choices=("inherited", "bf16"), default="inherited")
-    parser.add_argument("--decoder", choices=("functional", "fused"), default="functional")
+    parser.add_argument("--decoder", choices=("functional", "fused", "optimized"), default="functional")
     parser.add_argument("--fusions")
+    parser.add_argument("--optimization-json")
+    parser.add_argument("--input-activations", type=Path)
+    parser.add_argument("--window-offset", type=int, default=0)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if not 1 <= args.batch <= 32:
@@ -104,12 +108,23 @@ def main():
     rope = Qwen3_5MoeTextRotaryEmbedding(cfg)
 
     generator = torch.Generator().manual_seed(args.seed)
+    recorded = None
+    if args.input_activations:
+        recorded = torch.load(args.input_activations, weights_only=True)
+        assert recorded["metadata"]["layer"] == args.layer
+        recorded = recorded["activations"][0]
+
+    def window(row, width):
+        start = (row * 131 + args.window_offset) % (recorded.shape[0] - width + 1)
+        return recorded[None, start : start + width].contiguous()
+
     cases = [
         dict(
             row=row,
             slot=slots[row],
             length=length,
-            x=torch.randn(1, length + args.steps, cfg.hidden_size, dtype=torch.bfloat16, generator=generator) * 0.1,
+            x=(window(row, length + args.steps) if recorded is not None else
+               torch.randn(1, length + args.steps, cfg.hidden_size, dtype=torch.bfloat16, generator=generator) * 0.1),
         )
         for row, length in enumerate(lengths)
     ]
@@ -140,7 +155,8 @@ def main():
 
     if not trace_allocation_tracker.TRACE_ALLOC_TRACKING:
         raise RuntimeError("TTNN reports trace allocation tracking disabled despite the required environment")
-    mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0)
+    mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0, **(
+        {"physical_device_ids": [int(__import__("os").environ["QDEV"])]} if "QDEV" in __import__("os").environ else {}))
 
     def put(tensor, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, *, device=True):
         placement = (
@@ -162,6 +178,8 @@ def main():
         "prompt_lengths": lengths,
         "request_slots": slots,
         "seed": args.seed,
+        "input_activations": str(args.input_activations) if args.input_activations else "random_normal_0.1",
+        "window_offset": args.window_offset,
         "expert_precision": args.expert_precision,
         "page_size": args.page_size,
         "initial_positions": lengths,
@@ -196,12 +214,18 @@ def main():
     trace_id, trace_ended = None, False
     try:
         decoder_class, fusion_kwargs = FunctionalDecoder, {}
-        if args.decoder == "fused":
+        if args.decoder in ("fused", "optimized"):
             from ..tt.fused_decoder import FusedDecoder
 
             decoder_class = FusedDecoder
             if args.fusions is not None:
                 fusion_kwargs["fusions"] = tuple(filter(None, args.fusions.split(",")))
+        if args.decoder == "optimized":
+            from ..tt.optimized_decoder import OptimizedDecoder
+
+            decoder_class = OptimizedDecoder
+            if args.optimization_json is not None:
+                fusion_kwargs["optimization"] = json.loads(args.optimization_json)
         model = decoder_class.from_state_dict(
             state,
             hf_config=cfg,
@@ -212,6 +236,7 @@ def main():
             **fusion_kwargs,
         )
         result.update(decoder_class=type(model).__name__, fusions=getattr(model, "fusions", None))
+        result["optimization"] = __import__("dataclasses").asdict(model.optimization) if args.decoder=="optimized" else None
         # These stable buffers and every host update tensor are constructed
         # before the first capture. Replay only refreshes their contents.
         dx = put(decode_inputs[0])
@@ -220,13 +245,19 @@ def main():
         decode_kwargs = dict(request_slots=slots)
         row_tables = None
         if args.layer == 3:
-            cache_shape = (owned_pages + 3, cfg.num_key_value_heads, args.page_size, cfg.head_dim)
+            cache_shape = (owned_pages + 4, cfg.num_key_value_heads, args.page_size, cfg.head_dim)
             key_storage = torch.zeros(cache_shape, dtype=torch.bfloat16)
             value_storage = torch.zeros_like(key_storage)
             key_storage[owned_pages:].fill_(13.0)
             value_storage[owned_pages:].fill_(-7.0)
-            key_cache, value_cache = put(key_storage), put(value_storage)
-            model.bind_paged_kv_cache(key_cache, value_cache)
+            kv_dtype = (ttnn.bfloat8_b if getattr(getattr(model, "optimization", None), "kv_dtype", "bf16") == "bfp8"
+                        else ttnn.bfloat16)
+            key_cache, value_cache = put(key_storage, kv_dtype), put(value_storage, kv_dtype)
+            if args.decoder == "optimized" and not args.no_kv_scratch:
+                model.bind_paged_kv_cache(key_cache, value_cache, scratch_block=owned_pages + 3)
+                result["kv_scratch_block"] = owned_pages + 3
+            else:
+                model.bind_paged_kv_cache(key_cache, value_cache)
             pt = put(table, ttnn.int32, ttnn.ROW_MAJOR_LAYOUT)
             pos = put(position_inputs[0], ttnn.int32, ttnn.ROW_MAJOR_LAYOUT)
             row_tables = [put(table[row : row + 1], ttnn.int32, ttnn.ROW_MAJOR_LAYOUT) for row in range(args.batch)]
@@ -332,8 +363,8 @@ def main():
         mesh.set_program_cache_misses_allowed(True)
         result["guards_clean"] = None
         if args.layer == 3:
-            guard_keys = get(key_cache[owned_pages:])
-            guard_values = get(value_cache[owned_pages:])
+            guard_keys = get(key_cache[owned_pages : owned_pages + 3])
+            guard_values = get(value_cache[owned_pages : owned_pages + 3])
             result["guard_key_changed_elements"] = int(torch.count_nonzero(guard_keys != 13.0))
             result["guard_value_changed_elements"] = int(torch.count_nonzero(guard_values != -7.0))
             result["guards_clean"] = not (

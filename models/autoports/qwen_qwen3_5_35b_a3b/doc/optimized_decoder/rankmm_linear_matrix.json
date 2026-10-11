@@ -1,0 +1,124 @@
+{
+ "cumsum": {
+  "expert_backend": "sparse",
+  "sparse_indexed": true,
+  "expert_dtype": "bfp4",
+  "sparse_gate_cores": 32,
+  "sparse_gate_k": 32,
+  "sparse_down_cores": 32,
+  "sparse_down_k": 16,
+  "prefill_down_cores": 32,
+  "prefill_down_k": 16,
+  "prefill_down_subblock": 2,
+  "sparse_fused_reduce": true,
+  "compact_router_dtype": true,
+  "decode_norm_fp32_input": false,
+  "decode_norm_output": "dram",
+  "prefill_backend": "dispatch",
+  "dispatch_dtype": "bfp4",
+  "dispatch_grid": [
+   4,
+   4
+  ],
+  "prefill_tiled": true,
+  "prefill_chunk": 4096,
+  "release_unused_weights": true,
+  "dispatch_rank": "cumsum",
+  "gate_pack": true,
+  "gate_pack_grid": [
+   8,
+   2,
+   32
+  ],
+  "sparse_down_dtype": "bfp8",
+  "gdn_l1": true,
+  "projections": {
+   "attention_in": {
+    "dtype": "bf16",
+    "fidelity": "HiFi4"
+   },
+   "attention_out": {
+    "dtype": "bf16",
+    "fidelity": "HiFi4",
+    "decode_grid": [
+     8,
+     4
+    ],
+    "k_block": 8,
+    "per_n": 2
+   },
+   "shared_down": {
+    "dtype": "bfp8",
+    "fidelity": "LoFi",
+    "dram": true,
+    "cores": 8,
+    "k_block": 8,
+    "readers": 1
+   }
+  },
+  "decode_norm_cores": 0,
+  "conv_chunk": 128,
+  "conv_state_rm": true
+ },
+ "matmul": {
+  "expert_backend": "sparse",
+  "sparse_indexed": true,
+  "expert_dtype": "bfp4",
+  "sparse_gate_cores": 32,
+  "sparse_gate_k": 32,
+  "sparse_down_cores": 32,
+  "sparse_down_k": 16,
+  "prefill_down_cores": 32,
+  "prefill_down_k": 16,
+  "prefill_down_subblock": 2,
+  "sparse_fused_reduce": true,
+  "compact_router_dtype": true,
+  "decode_norm_fp32_input": false,
+  "decode_norm_output": "dram",
+  "prefill_backend": "dispatch",
+  "dispatch_dtype": "bfp4",
+  "dispatch_grid": [
+   4,
+   4
+  ],
+  "prefill_tiled": true,
+  "prefill_chunk": 4096,
+  "release_unused_weights": true,
+  "dispatch_rank": "matmul",
+  "gate_pack": true,
+  "gate_pack_grid": [
+   8,
+   2,
+   32
+  ],
+  "sparse_down_dtype": "bfp8",
+  "gdn_l1": true,
+  "projections": {
+   "attention_in": {
+    "dtype": "bf16",
+    "fidelity": "HiFi4"
+   },
+   "attention_out": {
+    "dtype": "bf16",
+    "fidelity": "HiFi4",
+    "decode_grid": [
+     8,
+     4
+    ],
+    "k_block": 8,
+    "per_n": 2
+   },
+   "shared_down": {
+    "dtype": "bfp8",
+    "fidelity": "LoFi",
+    "dram": true,
+    "cores": 8,
+    "k_block": 8,
+    "readers": 1
+   }
+  },
+  "decode_norm_cores": 0,
+  "conv_chunk": 128,
+  "conv_state_rm": true
+ }
+}

@@ -41,10 +41,14 @@ def main():
     p.add_argument("--expert-precision", choices=["inherited", "bf16"], default="inherited")
     p.add_argument("--profile", action="store_true")
     p.add_argument("--warm-prefill", action="store_true")
-    p.add_argument("--decoder", choices=["functional", "fused"], default="functional")
+    p.add_argument("--decoder", choices=["functional", "fused", "optimized"], default="functional")
+    p.add_argument("--optimization-json", help="Explicit experimental policy; omitted uses delivered defaults")
+    p.add_argument("--input-activations", type=Path)
     p.add_argument("--fusions", help="Comma-separated candidates, or empty for the construction control")
     p.add_argument("--save-tensors", type=Path)
     p.add_argument("--compare-tensors", type=Path)
+    p.add_argument("--split", type=int, default=0)
+    p.add_argument("--no-kv-scratch", action="store_true")
     args = p.parse_args()
     if args.minimum_cache_pages < 0 or args.cache_guard_pages < 0:
         raise ValueError("Cache page counts must be nonnegative")
@@ -79,6 +83,13 @@ def main():
     if args.length + args.steps > cfg.max_position_embeddings:
         raise ValueError("Requested workload exceeds advertised context")
     x = torch.randn(args.batch, args.length + args.steps, cfg.hidden_size, dtype=torch.bfloat16) * 0.1
+    input_metadata = {"kind": "random_activation", "seed": 1234}
+    if args.input_activations:
+        recorded = torch.load(args.input_activations, weights_only=True)
+        assert recorded["metadata"]["layer"] == args.layer
+        x = recorded["activations"][:, : args.length + args.steps].contiguous()
+        assert x.shape == (args.batch, args.length + args.steps, cfg.hidden_size)
+        input_metadata = dict(recorded["metadata"], path=str(args.input_activations), kind="recorded_hf_activation")
     expected_pf, cache, probes = prefill_reference(
         reference, cfg, rope, x[:, : args.length], args.layer, sparse=args.sparse_reference
     )
@@ -86,7 +97,8 @@ def main():
     print("HF_REFERENCE_READY", flush=True)
     import ttnn
 
-    mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0)
+    mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=0, **(
+        {"physical_device_ids": [int(__import__("os").environ["QDEV"])]} if "QDEV" in __import__("os").environ else {}))
 
     def put(t, *, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT):
         return ttnn.from_torch(
@@ -104,12 +116,21 @@ def main():
 
     try:
         decoder_class, fusion_kwargs = FunctionalDecoder, {}
-        if args.decoder == "fused":
+        if args.decoder in ("fused", "optimized"):
             from ..tt.fused_decoder import FusedDecoder
 
             decoder_class = FusedDecoder
             if args.fusions is not None:
                 fusion_kwargs["fusions"] = tuple(filter(None, args.fusions.split(",")))
+            if args.decoder == "optimized":
+                from ..tt.optimized_decoder import OptimizedDecoder
+
+                decoder_class = OptimizedDecoder
+                if args.optimization_json is not None:
+                    text = args.optimization_json
+                    if text.startswith("@"):
+                        text = Path(text[1:]).read_text()
+                    fusion_kwargs["optimization"] = json.loads(text)
         model = decoder_class.from_state_dict(
             state,
             hf_config=cfg,
@@ -125,21 +146,25 @@ def main():
         audit = device_only if args.audit else nullcontext
         kw, dkw = {}, {}
         page_size = args.page_size
-        if args.layer == 3:
+        if cfg.layer_types[args.layer] == "full_attention":
             blocks_per_row = max(args.minimum_cache_pages, (args.length + args.steps + page_size - 1) // page_size)
-            blocks = args.batch * blocks_per_row + args.cache_guard_pages
-            table = torch.randperm(blocks - args.cache_guard_pages, dtype=torch.int32).reshape(
+            scratch = args.decoder == "optimized" and not args.no_kv_scratch
+            blocks = args.batch * blocks_per_row + args.cache_guard_pages + int(scratch)
+            table = torch.randperm(args.batch * blocks_per_row, dtype=torch.int32).reshape(
                 args.batch, blocks_per_row
             )
             kc = ttnn.zeros(
                 (blocks, cfg.num_key_value_heads, page_size, cfg.head_dim),
-                dtype=ttnn.bfloat16,
+                dtype=ttnn.bfloat8_b if getattr(getattr(model, "optimization", None), "kv_dtype", "bf16") == "bfp8" else ttnn.bfloat16,
                 layout=ttnn.TILE_LAYOUT,
                 device=mesh,
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
             vc = ttnn.zeros_like(kc)
-            model.bind_paged_kv_cache(kc, vc)
+            if scratch:
+                model.bind_paged_kv_cache(kc, vc, scratch_block=blocks - 1)
+            else:
+                model.bind_paged_kv_cache(kc, vc)
             pt = put(table, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT)
             kw = dict(page_table=pt)
             dkw = dict(
@@ -151,11 +176,33 @@ def main():
                 ),
             )
         px = put(x[:, : args.length])
+        split = args.split
+        if split:
+            px_parts = (put(x[:, :split]), put(x[:, split : args.length]))
+
+        def prefill(continuation_us=None):
+            if not split:
+                return model.prefill_forward(px, **kw)
+            first_out = model.prefill_forward(px_parts[0], **kw)
+            ttnn.synchronize_device(mesh)
+            started = time.perf_counter_ns()
+            second_out = model.prefill_forward(px_parts[1], start_pos=split, **kw)
+            ttnn.synchronize_device(mesh)
+            if continuation_us is not None:
+                continuation_us.append((time.perf_counter_ns() - started) / 1000)
+            joined = ttnn.concat([first_out, second_out], dim=1)
+            first_out.deallocate(True)
+            second_out.deallocate(True)
+            return joined
+
+        continuation_us = []
         with audit():
-            pf_out = model.prefill_forward(px, **kw)
+            pf_out = prefill()
         pf = get(pf_out)
         pf_out.deallocate(True)
         warmed_prefill_host_us = None
+        prefill_repeat_identical = None
+        prefill_repeat_difference = None
         if args.profile or args.warm_prefill:
             from tracy import signpost
 
@@ -165,13 +212,27 @@ def main():
             if args.profile:
                 signpost("PERF_PREFILL")
             started = time.perf_counter_ns()
-            measured = model.prefill_forward(px, **kw)
+            measured = prefill(continuation_us)
             ttnn.synchronize_device(mesh)
             warmed_prefill_host_us = (time.perf_counter_ns() - started) / 1000
             if args.profile:
                 signpost("PERF_PREFILL_END")
             drain_profile()
-            pf = get(measured)
+            measured_host = get(measured)
+            prefill_repeat_identical = bool(torch.equal(pf, measured_host))
+            if not prefill_repeat_identical:
+                delta = (pf.float() - measured_host.float()).abs()
+                rows = torch.nonzero(delta.reshape(-1, delta.shape[-1]).amax(-1) > 0).flatten().tolist()
+                def ordered(t):
+                    bits = t.view(torch.int16).int()
+                    return torch.where(bits < 0, -(bits & 0x7FFF), bits)
+
+                ulp = (ordered(pf) - ordered(measured_host)).abs()
+                prefill_repeat_difference = dict(elements=int((delta > 0).sum()), rows=len(rows),
+                                                 first_rows=rows[:8], blocks_of_32=sorted({r // 32 for r in rows}),
+                                                 max_abs=float(delta.max()), max_bf16_ulp=int(ulp.max()),
+                                                 repeat_pcc=pcc(pf, measured_host))
+            pf = measured_host
             measured.deallocate(True)
         if probes is not None:
             pf = pf[:, probes]
@@ -197,7 +258,8 @@ def main():
                 )
                 for i in range(args.steps)
             ]
-            saved = [(t, ttnn.clone(t)) for row in model._states[: args.batch] for t in row] if args.layer == 0 else []
+            saved = ([(t, ttnn.clone(t)) for row in model._states[: args.batch] for t in row]
+                     if not cfg.layer_types[args.layer] == "full_attention" else [])
 
             def restore():
                 for tensor, snapshot in saved:
@@ -246,7 +308,7 @@ def main():
                     signpost("PERF_DECODE")
                 for i in range(args.steps):
                     ttnn.copy_host_to_device_tensor(dx_host[i], dx)
-                    if args.layer == 3:
+                    if cfg.layer_types[args.layer] == "full_attention":
                         ttnn.copy_host_to_device_tensor(pos_host[i], dkw["position_tensor"])
                     if args.profile:
                         signpost(f"PERF_DECODE_STEP_{i}")
@@ -267,7 +329,7 @@ def main():
                 outputs = [first]
                 for i in range(1, args.steps):
                     ttnn.copy_host_to_device_tensor(dx_host[i], dx)
-                    if args.layer == 3:
+                    if cfg.layer_types[args.layer] == "full_attention":
                         ttnn.copy_host_to_device_tensor(pos_host[i], dkw["position_tensor"])
                     with audit():
                         y = model.decode_forward(dx, **dkw)
@@ -276,9 +338,14 @@ def main():
                 dec = torch.cat(outputs, dim=1)
         decode_pcc_by_token = [pcc(expected_dec[:, i : i + 1], dec[:, i : i + 1]) for i in range(args.steps)]
         import hashlib
+        from dataclasses import asdict
 
         source_root = Path(__file__).resolve().parents[1] / "tt"
         result = dict(
+            device_ids=mesh.get_device_ids(),
+            weight_memory=getattr(model,"weight_memory",None),
+            input_metadata=input_metadata,
+            optimization=asdict(model.optimization) if args.decoder == "optimized" else None,
             decoder_class=type(model).__name__,
             runtime_components={
                 "attention": type(model.layer.attention).__name__,
@@ -299,11 +366,16 @@ def main():
                 if "native_recurrence" in (getattr(model, "fusions", ()) or ())
                 else "native_exact_chunk_and_sfpu_fp32_token"
             )
-            if args.layer == 0
+            if cfg.layer_types[args.layer] == "linear_attention"
             else None,
             expert_precision=args.expert_precision,
             profile=args.profile,
             warmed_prefill_host_us=warmed_prefill_host_us,
+            split=split or None,
+            kv_scratch_block=getattr(model, "kv_scratch_block", None),
+            warmed_continuation_host_us=continuation_us[-1] if continuation_us else None,
+            prefill_repeat_identical=prefill_repeat_identical,
+            prefill_repeat_difference=prefill_repeat_difference,
             length=args.length,
             batch=args.batch,
             decode_steps=args.steps,
@@ -312,6 +384,10 @@ def main():
             cache_guard_pages=args.cache_guard_pages,
             prefill_pcc=pcc(expected_pf, pf),
             prefill_pcc_min=min(pcc(expected_pf[r], pf[r]) for r in range(args.batch)),
+            prefill_token_pcc=(token_pcc := sorted(
+                (pcc(expected_pf[r, t], pf[r, t]), r, t) for r in range(args.batch) for t in range(pf.shape[1])
+            ))[:8],
+            prefill_tokens_below_0995=sum(value < 0.995 for value, _, _ in token_pcc),
             decode_pcc=pcc(expected_dec, dec) if args.steps else None,
             prefill_probes=probes,
             runtime_audit=args.audit,
