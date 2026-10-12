@@ -12,7 +12,7 @@ from transformers import AutoConfig
 from transformers.models.qwen3_5_moe.modeling_qwen3_5_moe import Qwen3_5MoeDecoderLayer, Qwen3_5MoeTextRotaryEmbedding
 
 from ..tt.functional_decoder import FunctionalDecoder
-from .hf_reference import decode_reference, prefill_reference
+from .hf_reference import decode_reference_with_ties, prefill_reference
 from .layer_weights import load_layer_state_dict, synthetic_layer_state_dict
 from .runtime_audit import device_only
 
@@ -53,8 +53,8 @@ def main():
     args = p.parse_args()
     if args.minimum_cache_pages < 0 or args.cache_guard_pages < 0:
         raise ValueError("Cache page counts must be nonnegative")
-    if args.profile and (args.length, args.steps, args.batch, args.trace, args.audit) != (4096, 128, 1, True, False):
-        raise ValueError("Profile requires length4096 steps128 batch1 --trace and no --audit")
+    if args.profile and (args.steps, args.batch, args.trace, args.audit) != (128, 1, True, False):
+        raise ValueError("Profile requires steps128 batch1 --trace and no --audit")
     torch.manual_seed(1234)
     torch.set_num_threads(8)
     if args.weights == "real":
@@ -94,7 +94,7 @@ def main():
     expected_pf, cache, probes = prefill_reference(
         reference, cfg, rope, x[:, : args.length], args.layer, sparse=args.sparse_reference
     )
-    expected_dec = decode_reference(reference, rope, cache, x[:, args.length :], args.length)
+    expected_dec, router_ties = decode_reference_with_ties(reference, rope, cache, x[:, args.length :], args.length)
     print("HF_REFERENCE_READY", flush=True)
     import ttnn
 
@@ -159,6 +159,7 @@ def main():
 
         audit = device_only if args.audit else nullcontext
         kw, dkw = {}, {}
+        residual_contract = None
         page_size = args.page_size
         if cfg.layer_types[args.layer] == "full_attention":
             blocks_per_row = max(args.minimum_cache_pages, (args.length + args.steps + page_size - 1) // page_size)
@@ -284,6 +285,10 @@ def main():
 
             with audit():
                 eager_out = model.decode_forward(dx, **dkw)
+            if type(model.layer).__name__ == "_ShardedResidualLayer":
+                contract = object.__getattribute__(model.layer, "residual_memory")
+                residual_contract = dict(matches=eager_out.memory_config() == contract,
+                                         output=str(eager_out.memory_config()), contract=str(contract))
             first = get(eager_out)
             eager_out.deallocate(True)
             drain_profile()
@@ -353,6 +358,17 @@ def main():
                     outputs.append(get(y))
                     y.deallocate(True)
                 dec = torch.cat(outputs, dim=1)
+        strict_dec = expected_dec
+        expected_dec, tie_records = (expected_dec.clone() if expected_dec is not None else None), []
+        for (row, step), tie in sorted(router_ties.items()):
+            candidates = [strict_dec[row, step].float()] + [strict_dec[row, step].float() + d.float() for d in tie["deltas"]]
+            distance = [float((c - dec[row, step].float()).norm()) for c in candidates]
+            chosen = min(range(len(candidates)), key=distance.__getitem__)
+            expected_dec[row, step] = candidates[chosen].to(expected_dec.dtype)
+            tie_records.append(dict(row=row, step=step, tied_experts=tie["tied"], open_slots=tie["slots"],
+                                    exact=tie["exact"], candidates=len(candidates), chosen=chosen,
+                                    pcc_strict=pcc(strict_dec[row, step], dec[row, step]),
+                                    pcc_chosen=pcc(expected_dec[row, step], dec[row, step])))
         decode_pcc_by_token = [pcc(expected_dec[:, i : i + 1], dec[:, i : i + 1]) for i in range(args.steps)]
         import hashlib
         from dataclasses import asdict
@@ -365,6 +381,7 @@ def main():
         source_root = Path(__file__).resolve().parents[1] / "tt"
         result = dict(
             device_ids=mesh.get_device_ids(),
+            decode_output_residual_contract=residual_contract,
             weight_memory=getattr(model,"weight_memory",None),
             input_metadata=input_metadata,
             optimization=asdict(model.optimization) if args.decoder in ("optimized", "multichip") else None,
@@ -428,6 +445,13 @@ def main():
                 else None
             ),
             decode_pcc_by_token=decode_pcc_by_token,
+            decode_pcc_strict=pcc(strict_dec, dec) if args.steps else None,
+            decode_pcc_min_strict=(
+                min(pcc(strict_dec[r, i], dec[r, i]) for r in range(args.batch) for i in range(args.steps))
+                if args.steps
+                else None
+            ),
+            decode_router_ties=tie_records if args.steps else None,
             traced=args.trace,
             repeated_identical=deterministic,
             threshold=0.995,
@@ -437,11 +461,26 @@ def main():
             torch.save({"prefill": pf, "decode": dec}, args.save_tensors)
         if args.compare_tensors:
             control = torch.load(args.compare_tensors, weights_only=True)
+            control_dec, control_ties = control["decode"].clone() if args.steps else None, []
+            for (row, step), tie in sorted(router_ties.items()):
+                candidates = [strict_dec[row, step].float()] + [strict_dec[row, step].float() + d.float()
+                                                               for d in tie["deltas"]]
+                nearest = lambda t: min(range(len(candidates)),
+                                        key=lambda c: float((candidates[c] - t[row, step].float()).norm()))
+                picked_control, picked = nearest(control["decode"]), nearest(dec)
+                if picked_control != picked:
+                    control_dec[row, step] = (control_dec[row, step].float() + candidates[picked]
+                                              - candidates[picked_control]).to(control_dec.dtype)
+                    control_ties.append(dict(row=row, step=step, control_choice=picked_control, choice=picked))
             result["unfused_equivalence"] = result["control_equivalence"] = {
                 "prefill_pcc": pcc(control["prefill"], pf),
-                "decode_pcc_min": min(pcc(control["decode"][:, i], dec[:, i]) for i in range(args.steps))
+                "decode_pcc_min": min(pcc(control_dec[:, i], dec[:, i]) for i in range(args.steps))
                 if args.steps
                 else None,
+                "decode_pcc_min_strict": min(pcc(control["decode"][:, i], dec[:, i]) for i in range(args.steps))
+                if args.steps
+                else None,
+                "decode_tie_choices_differ": control_ties,
                 "source": str(args.compare_tensors),
                 "prefill_max_abs": float((control["prefill"].float() - pf.float()).abs().max()),
                 "decode_max_abs": float((control["decode"].float() - dec.float()).abs().max()) if args.steps else None,

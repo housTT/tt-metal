@@ -1,0 +1,136 @@
+[
+  {
+    "name": "default",
+    "policy": null,
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "multichip",
+      "--mesh",
+      "1",
+      "--layer",
+      "3",
+      "--length",
+      "1300",
+      "--steps",
+      "4",
+      "--batch",
+      "1",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_multichip_decoder/evidence5/len_m1_full_1300/default.json",
+      "--compare-tensors",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence7_tensors/len_base_full_1300/default.pt",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 11.64170128700789,
+    "source_stable": true,
+    "prefill_pcc": 0.9995355010032654,
+    "decode_pcc": 0.9995999932289124,
+    "prefill_host_us": 14543.325,
+    "continuation_host_us": null,
+    "prefill_token_pcc_min": 0.9913949966430664,
+    "prefill_tokens_below_0995": 1,
+    "prefill_repeat_identical": false,
+    "prefill_repeat_difference": {
+      "elements": 2148,
+      "rows": 685,
+      "first_rows": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "blocks_of_32": [
+        0,
+        2,
+        3,
+        5,
+        7,
+        8,
+        10,
+        12,
+        14,
+        15,
+        17,
+        19,
+        20,
+        22,
+        24,
+        26,
+        27,
+        29,
+        31,
+        32,
+        34,
+        36,
+        38,
+        39
+      ],
+      "max_abs": 0.00146484375,
+      "max_bf16_ulp": 28672,
+      "repeat_pcc": 0.9999998807907104
+    },
+    "decode_host_us": 363.1655,
+    "mesh_shape": [
+      1,
+      1
+    ],
+    "device_ids": [
+      3
+    ],
+    "output_replicas_identical": true,
+    "control_equivalence": {
+      "prefill_pcc": 0.999966025352478,
+      "decode_pcc_min": 0.9999335408210754,
+      "decode_pcc_min_strict": 0.9999335408210754,
+      "decode_tie_choices_differ": [],
+      "source": "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence7_tensors/len_base_full_1300/default.pt",
+      "prefill_max_abs": 0.015625,
+      "decode_max_abs": 0.001953125,
+      "prefill_identical": false,
+      "decode_identical": false
+    },
+    "weight_memory": {
+      "before_cleanup": {
+        "dram": {
+          "allocated_bytes": 2708704256,
+          "free_bytes": 31470026752,
+          "banks": 8,
+          "largest_free_bytes_per_bank": 3933333888
+        },
+        "l1": {
+          "allocated_bytes": 901120,
+          "free_bytes": 159822080,
+          "banks": 110,
+          "largest_free_bytes_per_bank": 1452928
+        }
+      },
+      "after_cleanup": {
+        "dram": {
+          "allocated_bytes": 775944192,
+          "free_bytes": 33402786816,
+          "banks": 8,
+          "largest_free_bytes_per_bank": 3933333888
+        },
+        "l1": {
+          "allocated_bytes": 901120,
+          "free_bytes": 159822080,
+          "banks": 110,
+          "largest_free_bytes_per_bank": 1452928
+        }
+      }
+    },
+    "construction_memory": null
+  }
+]

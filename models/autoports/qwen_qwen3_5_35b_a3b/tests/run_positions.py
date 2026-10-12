@@ -86,7 +86,7 @@ def main():
     )
 
     from ..tt.functional_decoder import FunctionalDecoder
-    from .hf_reference import decode_reference, prefill_reference
+    from .hf_reference import decode_reference_with_ties, prefill_reference
     from .layer_weights import load_layer_state_dict
     from .runtime_audit import device_only
 
@@ -132,10 +132,10 @@ def main():
     for case in cases:
         length, x = case["length"], case["x"]
         expected_prefill, cache, _ = prefill_reference(reference, cfg, rope, x[:, :length], args.layer)
-        expected_decode = decode_reference(reference, rope, cache, x[:, length:], length)
+        expected_decode, ties = decode_reference_with_ties(reference, rope, cache, x[:, length:], length)
         # Each reference cache is separate; no padded shared-batch reference can
         # accidentally assign one row's length to another row.
-        case.update(expected_prefill=expected_prefill, expected_decode=expected_decode, hf_cache=cache)
+        case.update(expected_prefill=expected_prefill, expected_decode=expected_decode, hf_cache=cache, ties=ties)
     decode_inputs = [
         torch.cat([case["x"][:, case["length"] + step : case["length"] + step + 1] for case in cases], dim=0)
         for step in range(args.steps)
@@ -342,20 +342,35 @@ def main():
         actual_decode = torch.cat(actual_decode, dim=1)
         for case in cases:
             row = case["row"]
-            values = [
+            strict = [
                 pcc(case["expected_decode"][:, step : step + 1], actual_decode[row : row + 1, step : step + 1])
                 for step in range(args.steps)
             ]
+            values, tie_records = list(strict), []
+            for (_, step), tie in sorted(case["ties"].items()):
+                base = case["expected_decode"][0, step].float()
+                candidates = [base] + [base + d.float().reshape(base.shape) for d in tie["deltas"]]
+                actual = actual_decode[row, step].float()
+                distance = [float((c - actual).norm()) for c in candidates]
+                chosen = min(range(len(candidates)), key=distance.__getitem__)
+                values[step] = pcc(candidates[chosen], actual)
+                tie_records.append(dict(step=step, tied_experts=tie["tied"], open_slots=tie["slots"],
+                                        exact=tie["exact"], candidates=len(candidates), chosen=chosen,
+                                        pcc_strict=strict[step], pcc_chosen=values[step]))
             result["decode_rows"].append(
                 {
                     "row": row,
                     "slot": case["slot"],
                     "initial_position": case["length"],
                     "pcc_by_token": values,
+                    "pcc_by_token_strict": strict,
+                    "router_ties": tie_records,
                     "pcc_min": min(values),
+                    "pcc_min_strict": min(strict),
                 }
             )
         result["decode_pcc_min"] = min(row["pcc_min"] for row in result["decode_rows"])
+        result["decode_pcc_min_strict"] = min(row["pcc_min_strict"] for row in result["decode_rows"])
 
         # All unknown eager paths, including guard-page slicing, occur after
         # release. No program-cache allocation is exempted while a trace lives.

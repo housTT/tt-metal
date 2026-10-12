@@ -1,0 +1,450 @@
+{
+  "decoder_class": "MultichipDecoder",
+  "input_activations": "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer0.pt",
+  "optimization": {
+    "expert_dtype": "bfp4",
+    "expert_grid_y": 2,
+    "expert_grid_x": 8,
+    "expert_fidelity": "LoFi",
+    "expert_input_dtype": "bf16",
+    "expert_backend": "sparse",
+    "sparse_gate_cores": 16,
+    "sparse_gate_k": 64,
+    "sparse_gate_subblock": 1,
+    "sparse_down_cores": 64,
+    "sparse_down_k": 8,
+    "sparse_down_subblock": 1,
+    "sparse_split": false,
+    "sparse_indexed": true,
+    "sparse_fused_reduce": true,
+    "compact_router_dtype": true,
+    "sparse_down_dtype": "bfp8",
+    "prefill_down_cores": 32,
+    "prefill_down_k": 16,
+    "prefill_down_subblock": 2,
+    "prefill_backend": "dispatch",
+    "dispatch_dtype": "bfp8",
+    "dispatch_input_dtype": "bf16",
+    "dispatch_grid": [
+      4,
+      4
+    ],
+    "dispatch_grid_large": [
+      2048,
+      8,
+      8
+    ],
+    "dispatch_m_tiles": 0,
+    "dispatch_ffn": "fused",
+    "dispatch_hybrid_threshold": 0,
+    "dispatch_weight_nd": false,
+    "dispatch_weights": "expert_parallel",
+    "plan_cost": [],
+    "dispatch_rank": "matmul",
+    "prefill_tail_bucket": 32,
+    "prefill_buckets": [
+      2048,
+      1024,
+      256,
+      64
+    ],
+    "decode_input_fill": false,
+    "dispatch_combine": "post_combine",
+    "dispatch_tiles_from": 2048,
+    "prefill_moe_batch": true,
+    "prefill_moe_pieces": 2,
+    "prefill_masked_tail": true,
+    "prefill_sparse_chunk": 32,
+    "prefill_sparse_l1": false,
+    "prefill_gate_cores": 32,
+    "prefill_gate_k": 16,
+    "prefill_gate_subblock": 1,
+    "projections": {
+      "attention_in": {
+        "dtype": "bfp8",
+        "fidelity": "HiFi2",
+        "prefill_minimal": {
+          "grid": [
+            11,
+            10
+          ],
+          "M_block_size": 4,
+          "K_block_size": 8,
+          "N_block_size": 16,
+          "subblock_h": 1,
+          "subblock_w": 4
+        },
+        "decode_grid": [
+          10,
+          2
+        ],
+        "k_block": 4,
+        "per_n": 10
+      },
+      "attention_out": {
+        "dtype": "bfp8",
+        "fidelity": "HiFi2",
+        "decode_grid": [
+          8,
+          4
+        ],
+        "k_block": 8,
+        "per_n": 2
+      },
+      "shared_down": {
+        "dtype": "bfp8",
+        "fidelity": "LoFi",
+        "dram": false,
+        "cores": 8,
+        "k_block": 8,
+        "readers": 1,
+        "prefill_grid": [
+          8,
+          8
+        ],
+        "prefill_k": 4,
+        "decode_grid": [
+          8,
+          2
+        ],
+        "per_n": 4
+      }
+    },
+    "sdpa": {},
+    "kv_dtype": "bf16",
+    "residual_cores": 0,
+    "decode_norm_cores": 16,
+    "decode_norm_fp32_input": false,
+    "decode_norm_output": "l1",
+    "decode_norm_fill": false,
+    "attention_decode_memory": "l1",
+    "residual_output_sharded": false,
+    "norm_fused_weight": false,
+    "shared_split": false,
+    "gate_pack": true,
+    "gate_pack_grid": [
+      8,
+      2,
+      32
+    ],
+    "gdn_l1": true,
+    "gdn_state_l1": false,
+    "gdn_l1_slots": 32,
+    "conv_chunk": 128,
+    "gdn_heads_decode": false,
+    "gdn_decode_kernel": true,
+    "gdn_decode_blocks": 0,
+    "expert_decode_kernel": true,
+    "expert_decode_nper": 0,
+    "expert_decode_kb": 8,
+    "expert_decode_shared": true,
+    "residual_sharded_decode": true,
+    "router_cached_slices": true,
+    "dispatch_scatter_rows": 32,
+    "conv_state_rm": true,
+    "gdn_ab_split": {},
+    "gdn_flat_qk": false,
+    "release_unused_weights": true,
+    "prefill_tiled": true,
+    "prefill_chunk": 4096,
+    "shared_minimal_config": {},
+    "shared_decode_minimal_config": {
+      "grid": [
+        8,
+        2
+      ],
+      "M_block_size": 1,
+      "K_block_size": 16,
+      "N_block_size": 4,
+      "subblock_h": 1,
+      "subblock_w": 2
+    },
+    "prefill_minimal_config": {}
+  },
+  "mesh_shape": [
+    1,
+    2
+  ],
+  "device_ids": [
+    1,
+    0
+  ],
+  "tensor_parallel": 2,
+  "output_replicas_identical": true,
+  "fusions": [
+    "moe_gate",
+    "shared_gate",
+    "shared_minimal",
+    "kda_conv",
+    "kda_tuple",
+    "kda_tail",
+    "kda_norm",
+    "gdn_heads",
+    "gdn_norm",
+    "gdn_eltwise",
+    "gdn_grouped",
+    "gdn_state_ternary",
+    "gdn_inplace",
+    "gdn_flat_v",
+    "gdn_head_major",
+    "gdn_fused_chunk",
+    "compact_reduce",
+    "compact_routing",
+    "prefill_split"
+  ],
+  "cases": [
+    {
+      "length": 1,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9997207522392273,
+      "prefill_pcc_min": 0.999700665473938,
+      "decode_pcc": 0.9997426867485046,
+      "decode_pcc_min": 0.9997344613075256,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 31,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9992725849151611,
+      "prefill_pcc_min": 0.9990247488021851,
+      "decode_pcc": 0.9998524188995361,
+      "decode_pcc_min": 0.9998546838760376,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 32,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9996665716171265,
+      "prefill_pcc_min": 0.9996057152748108,
+      "decode_pcc": 0.9997069239616394,
+      "decode_pcc_min": 0.9996515512466431,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 33,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9992921352386475,
+      "prefill_pcc_min": 0.998906672000885,
+      "decode_pcc": 0.999805748462677,
+      "decode_pcc_min": 0.999802827835083,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 127,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9996935129165649,
+      "prefill_pcc_min": 0.9996643662452698,
+      "decode_pcc": 0.9997394680976868,
+      "decode_pcc_min": 0.9997314214706421,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 128,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9996826648712158,
+      "prefill_pcc_min": 0.9996373653411865,
+      "decode_pcc": 0.9997738599777222,
+      "decode_pcc_min": 0.9997665882110596,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 129,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9996581673622131,
+      "prefill_pcc_min": 0.9996468424797058,
+      "decode_pcc": 0.9995512366294861,
+      "decode_pcc_min": 0.9994480609893799,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 511,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9997265934944153,
+      "prefill_pcc_min": 0.999704897403717,
+      "decode_pcc": 0.999710202217102,
+      "decode_pcc_min": 0.9995471835136414,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 512,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9997217059135437,
+      "prefill_pcc_min": 0.9996854066848755,
+      "decode_pcc": 0.999862551689148,
+      "decode_pcc_min": 0.9998353719711304,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 513,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9997031688690186,
+      "prefill_pcc_min": 0.9997111558914185,
+      "decode_pcc": 0.9991365671157837,
+      "decode_pcc_min": 0.9989200830459595,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 1153,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9996970295906067,
+      "prefill_pcc_min": 0.9996775388717651,
+      "decode_pcc": 0.9998796582221985,
+      "decode_pcc_min": 0.9998800158500671,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 33,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9996218085289001,
+      "prefill_pcc_min": 0.9996111392974854,
+      "decode_pcc": 0.9998490214347839,
+      "decode_pcc_min": 0.9998272061347961,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 35,
+      "padded_input": true,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9996849298477173,
+      "prefill_pcc_min": 0.9996763467788696,
+      "decode_pcc": 0.9997462630271912,
+      "decode_pcc_min": 0.9997341632843018,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 36,
+      "padded_input": true,
+      "warmed": false,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9996219873428345,
+      "prefill_pcc_min": 0.9995839595794678,
+      "decode_pcc": 0.9997732639312744,
+      "decode_pcc_min": 0.9996806383132935,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 1153,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [
+        1,
+        3,
+        127,
+        129,
+        160,
+        513
+      ],
+      "batch": 2,
+      "prefill_pcc": 0.9996761679649353,
+      "prefill_pcc_min": 0.9996734261512756,
+      "decode_pcc": 0.9998183846473694,
+      "decode_pcc_min": 0.9997612833976746,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 256,
+      "padded_input": true,
+      "warmed": true,
+      "cuts": [
+        35
+      ],
+      "batch": 2,
+      "prefill_pcc": 0.9996500015258789,
+      "prefill_pcc_min": 0.9996503591537476,
+      "decode_pcc": 0.9995424151420593,
+      "decode_pcc_min": 0.9994750618934631,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 256,
+      "padded_input": true,
+      "warmed": false,
+      "cuts": [
+        36
+      ],
+      "batch": 2,
+      "prefill_pcc": 0.9996935725212097,
+      "prefill_pcc_min": 0.9996823668479919,
+      "decode_pcc": 0.9995850324630737,
+      "decode_pcc_min": 0.9995200037956238,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 2047,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [
+        1152
+      ],
+      "batch": 2,
+      "prefill_pcc": 0.9997199773788452,
+      "prefill_pcc_min": 0.9997200965881348,
+      "decode_pcc": 0.9997872710227966,
+      "decode_pcc_min": 0.9997656345367432,
+      "trace_id": "MeshTraceId(0)"
+    }
+  ],
+  "captures": 1,
+  "request_releases": 0,
+  "teardown_releases": 1,
+  "guards_clean": null,
+  "kv_scratch_block": null,
+  "kv_scratch_written": null,
+  "runtime_audit": true,
+  "request_slots": [
+    30,
+    31
+  ],
+  "page_size": 32,
+  "expert_precision": "inherited",
+  "source_sha256": {
+    "multichip_decoder.py": "5657ebfa7fbe1d8b22dae3d7a08406d653be16ff1123959ebae4af761155c6fc",
+    "gdn_decode.py": "471a7357ab481171e893765d1e968a0ab8f897cbac4b611d09c182ef361ad33b",
+    "functional_attention.py": "6718df3736404f042613670f43e184e202ece215a9f7907f6358ec18326a8638",
+    "functional_decoder.py": "c3597bf194086ddc39fb030d221b7fe932162b052815affd7c6c14ede135f9b0",
+    "__init__.py": "20db980a38cc5bb36a49afaff8f9838e2c77f17e5b1ef0c42b5ed918f77a1ca9",
+    "fused_decoder.py": "e1c244e3d565d287f26c88d889a2d7ddf49c8fd9db71ee5ea8e700d068825602",
+    "functional_gdn.py": "2a5a87d7ff4d35483a1e0103951001e8610ed12f5f4af4cb15498a6e547ad37b",
+    "expert_decode.py": "d4aaeba12a8889d02a8ac529922d583320b630f75116e50702586a4018fc5d9e",
+    "optimized_decoder.py": "ece4a6c3ee0f4d4abab27021e2360d8db7e7fa547af33d0993a9aa406973cc58"
+  }
+}

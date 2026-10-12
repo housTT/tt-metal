@@ -1,0 +1,1103 @@
+{
+  "device_ids": [
+    3
+  ],
+  "weight_memory": {
+    "before_cleanup": {
+      "dram": {
+        "allocated_bytes": 2762599936,
+        "free_bytes": 31416131072,
+        "banks": 8,
+        "largest_free_bytes_per_bank": 3924848512
+      },
+      "l1": {
+        "allocated_bytes": 901120,
+        "free_bytes": 159822080,
+        "banks": 110,
+        "largest_free_bytes_per_bank": 1452928
+      }
+    },
+    "after_cleanup": {
+      "dram": {
+        "allocated_bytes": 849893888,
+        "free_bytes": 33328837120,
+        "banks": 8,
+        "largest_free_bytes_per_bank": 3924848512
+      },
+      "l1": {
+        "allocated_bytes": 901120,
+        "free_bytes": 159822080,
+        "banks": 110,
+        "largest_free_bytes_per_bank": 1452928
+      }
+    }
+  },
+  "input_metadata": {
+    "checkpoint_revision": "59d61f3ce65a6d9863b86d2e96597125219dc754",
+    "source": "tech_reports/LLMs/llms.md",
+    "source_sha256": "a10ad9cce360eb0d107df536434d0dd805f1adbfb5bb1e886ca6f96d3f552d00",
+    "tokens": 4352,
+    "purpose": "Layer-only real activation fixture; no full-model implementation or generation",
+    "layer": 0,
+    "path": "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer0.pt",
+    "kind": "recorded_hf_activation"
+  },
+  "optimization": {
+    "expert_dtype": "bfp4",
+    "expert_grid_y": 2,
+    "expert_grid_x": 8,
+    "expert_fidelity": "LoFi",
+    "expert_input_dtype": "bf16",
+    "expert_backend": "sparse",
+    "sparse_gate_cores": 32,
+    "sparse_gate_k": 32,
+    "sparse_gate_subblock": 1,
+    "sparse_down_cores": 32,
+    "sparse_down_k": 16,
+    "sparse_down_subblock": 1,
+    "sparse_split": false,
+    "sparse_indexed": true,
+    "sparse_fused_reduce": true,
+    "compact_router_dtype": true,
+    "sparse_down_dtype": "bfp8",
+    "prefill_down_cores": 32,
+    "prefill_down_k": 16,
+    "prefill_down_subblock": 2,
+    "prefill_backend": "dispatch",
+    "dispatch_dtype": "bfp8",
+    "dispatch_input_dtype": "bf16",
+    "dispatch_grid": [
+      4,
+      4
+    ],
+    "dispatch_grid_large": [
+      2048,
+      8,
+      8
+    ],
+    "dispatch_m_tiles": 0,
+    "dispatch_ffn": "fused",
+    "dispatch_hybrid_threshold": 0,
+    "dispatch_weight_nd": false,
+    "dispatch_weights": "stacked",
+    "plan_cost": [],
+    "dispatch_rank": "matmul",
+    "prefill_tail_bucket": 32,
+    "prefill_buckets": [
+      2048,
+      1024,
+      256,
+      64
+    ],
+    "decode_input_fill": false,
+    "dispatch_combine": "post_combine",
+    "dispatch_tiles_from": 2048,
+    "prefill_moe_batch": true,
+    "prefill_moe_pieces": 1,
+    "prefill_masked_tail": true,
+    "prefill_sparse_chunk": 32,
+    "prefill_sparse_l1": false,
+    "prefill_gate_cores": 32,
+    "prefill_gate_k": 16,
+    "prefill_gate_subblock": 1,
+    "projections": {
+      "attention_in": {
+        "dtype": "bfp8",
+        "fidelity": "HiFi2",
+        "prefill_minimal": {
+          "grid": [
+            11,
+            10
+          ],
+          "M_block_size": 4,
+          "K_block_size": 8,
+          "N_block_size": 16,
+          "subblock_h": 1,
+          "subblock_w": 4
+        }
+      },
+      "attention_out": {
+        "dtype": "bfp8",
+        "fidelity": "HiFi2",
+        "decode_grid": [
+          8,
+          4
+        ],
+        "k_block": 8,
+        "per_n": 2
+      },
+      "shared_down": {
+        "dtype": "bfp8",
+        "fidelity": "LoFi",
+        "dram": true,
+        "cores": 8,
+        "k_block": 8,
+        "readers": 1,
+        "prefill_grid": [
+          8,
+          8
+        ],
+        "prefill_k": 4
+      }
+    },
+    "sdpa": {},
+    "kv_dtype": "bf16",
+    "residual_cores": 0,
+    "decode_norm_cores": 16,
+    "decode_norm_fp32_input": false,
+    "decode_norm_output": "l1",
+    "decode_norm_fill": false,
+    "attention_decode_memory": "l1",
+    "residual_output_sharded": false,
+    "norm_fused_weight": false,
+    "shared_split": false,
+    "gate_pack": true,
+    "gate_pack_grid": [
+      8,
+      2,
+      32
+    ],
+    "gdn_l1": true,
+    "gdn_state_l1": false,
+    "gdn_l1_slots": 32,
+    "conv_chunk": 128,
+    "gdn_heads_decode": false,
+    "gdn_decode_kernel": true,
+    "gdn_decode_blocks": 0,
+    "expert_decode_kernel": true,
+    "expert_decode_nper": 0,
+    "expert_decode_kb": 8,
+    "expert_decode_shared": true,
+    "residual_sharded_decode": false,
+    "router_cached_slices": true,
+    "dispatch_scatter_rows": 32,
+    "conv_state_rm": true,
+    "gdn_ab_split": {},
+    "gdn_flat_qk": false,
+    "release_unused_weights": true,
+    "prefill_tiled": true,
+    "prefill_chunk": 4096,
+    "shared_minimal_config": {},
+    "shared_decode_minimal_config": {},
+    "prefill_minimal_config": {}
+  },
+  "mesh_shape": [
+    1,
+    1
+  ],
+  "tensor_parallel": 1,
+  "merge_stats": null,
+  "construction_memory": null,
+  "output_replicas_identical": true,
+  "decoder_class": "MultichipDecoder",
+  "runtime_components": {
+    "attention": "_OptimizedGDN",
+    "attention_reduce": false,
+    "feed_forward_reduce": false,
+    "router": "_OptimizedRouter",
+    "experts": "_OptimizedPrefillExperts",
+    "decode_experts": "_OptimizedSparseExperts",
+    "shared": "_OptimizedShared"
+  },
+  "fusions": [
+    "moe_gate",
+    "shared_gate",
+    "shared_minimal",
+    "kda_conv",
+    "kda_tuple",
+    "kda_tail",
+    "kda_norm",
+    "gdn_heads",
+    "gdn_norm",
+    "gdn_eltwise",
+    "gdn_grouped",
+    "gdn_state_ternary",
+    "gdn_inplace",
+    "gdn_flat_v",
+    "gdn_head_major",
+    "gdn_fused_chunk",
+    "compact_reduce",
+    "compact_routing",
+    "prefill_split"
+  ],
+  "layer_type": "linear_attention",
+  "layer_idx": 0,
+  "weights": "real",
+  "implementation_sha256": {
+    "__init__.py": "20db980a38cc5bb36a49afaff8f9838e2c77f17e5b1ef0c42b5ed918f77a1ca9",
+    "expert_decode.py": "d4aaeba12a8889d02a8ac529922d583320b630f75116e50702586a4018fc5d9e",
+    "functional_attention.py": "6718df3736404f042613670f43e184e202ece215a9f7907f6358ec18326a8638",
+    "functional_decoder.py": "e8cf95298a0a17119e98a6ef99d7b6632ed472bd247091ae0e384dc5510f4c6a",
+    "functional_gdn.py": "2a5a87d7ff4d35483a1e0103951001e8610ed12f5f4af4cb15498a6e547ad37b",
+    "fused_decoder.py": "e1c244e3d565d287f26c88d889a2d7ddf49c8fd9db71ee5ea8e700d068825602",
+    "gdn_decode.py": "471a7357ab481171e893765d1e968a0ab8f897cbac4b611d09c182ef361ad33b",
+    "multichip_decoder.py": "80e9a590b9c57ced356583f1f781ed8efc22be9b3d23b7bcc637c28782504ac8",
+    "optimized_decoder.py": "ef19a8a6ef0cdd15c59ab72fa733f99711f9424483c56240672e9680e2ae500e"
+  },
+  "gdn_recurrence": "native_exact_chunk_and_sfpu_fp32_token",
+  "expert_precision": "inherited",
+  "profile": false,
+  "warmed_prefill_host_us": 30383.159,
+  "split": null,
+  "kv_scratch_block": null,
+  "warmed_continuation_host_us": null,
+  "prefill_repeat_identical": true,
+  "prefill_repeat_difference": null,
+  "moe_pieces": [],
+  "length": 4096,
+  "batch": 1,
+  "decode_steps": 128,
+  "page_size": 32,
+  "minimum_cache_pages": 32,
+  "cache_guard_pages": 3,
+  "prefill_pcc": 0.9997068047523499,
+  "prefill_pcc_min": 0.9997068047523499,
+  "prefill_token_pcc": [
+    [
+      0.9927613139152527,
+      0,
+      3188
+    ],
+    [
+      0.9928635954856873,
+      0,
+      950
+    ],
+    [
+      0.9930145144462585,
+      0,
+      849
+    ],
+    [
+      0.994001567363739,
+      0,
+      899
+    ],
+    [
+      0.9947402477264404,
+      0,
+      637
+    ],
+    [
+      0.9947627186775208,
+      0,
+      3044
+    ],
+    [
+      0.995235025882721,
+      0,
+      3515
+    ],
+    [
+      0.9952473044395447,
+      0,
+      3407
+    ]
+  ],
+  "prefill_tokens_below_0995": 6,
+  "decode_pcc": 0.9998230338096619,
+  "prefill_probes": null,
+  "runtime_audit": true,
+  "trace_id": "MeshTraceId(0)",
+  "decode_pcc_min": 0.9988075494766235,
+  "decode_pcc_by_token": [
+    0.9998751282691956,
+    0.9998804926872253,
+    0.9998405575752258,
+    0.999853789806366,
+    0.9997963905334473,
+    0.9998601675033569,
+    0.9998522400856018,
+    0.999886155128479,
+    0.9998173713684082,
+    0.9998885989189148,
+    0.9997496604919434,
+    0.9998264908790588,
+    0.9999228715896606,
+    0.999879777431488,
+    0.9998827576637268,
+    0.9999210834503174,
+    0.9998235702514648,
+    0.9998185038566589,
+    0.999792218208313,
+    0.9997640252113342,
+    0.9998297691345215,
+    0.9998842477798462,
+    0.999863862991333,
+    0.9998829364776611,
+    0.9998222589492798,
+    0.9999310374259949,
+    0.9999022483825684,
+    0.9998303055763245,
+    0.9998389482498169,
+    0.9999136924743652,
+    0.999845564365387,
+    0.9999175667762756,
+    0.9998194575309753,
+    0.9998416900634766,
+    0.9998154044151306,
+    0.9998364448547363,
+    0.9998926520347595,
+    0.9994698762893677,
+    0.999858558177948,
+    0.9999111294746399,
+    0.9998472332954407,
+    0.9998699426651001,
+    0.9998162984848022,
+    0.9998330473899841,
+    0.9998735189437866,
+    0.9997686147689819,
+    0.9997510313987732,
+    0.9997841715812683,
+    0.9998401999473572,
+    0.9999011158943176,
+    0.9997894763946533,
+    0.9998863935470581,
+    0.9998289942741394,
+    0.9999151825904846,
+    0.9998931884765625,
+    0.9998897314071655,
+    0.9999239444732666,
+    0.9998241066932678,
+    0.9997724294662476,
+    0.9998623132705688,
+    0.9998325705528259,
+    0.9993979334831238,
+    0.9998220205307007,
+    0.9999294877052307,
+    0.9998690485954285,
+    0.9997791051864624,
+    0.9998732805252075,
+    0.9998113512992859,
+    0.9997515082359314,
+    0.9997519850730896,
+    0.9998430013656616,
+    0.9998452663421631,
+    0.9998680949211121,
+    0.9997204542160034,
+    0.9998582005500793,
+    0.9998815655708313,
+    0.9998942613601685,
+    0.999818742275238,
+    0.9997592568397522,
+    0.999771773815155,
+    0.9998632073402405,
+    0.9999077916145325,
+    0.9999245405197144,
+    0.9998569488525391,
+    0.9998130798339844,
+    0.9999167323112488,
+    0.9998679757118225,
+    0.9988075494766235,
+    0.9998638033866882,
+    0.999852180480957,
+    0.9997614026069641,
+    0.9998077154159546,
+    0.9998577833175659,
+    0.9998642206192017,
+    0.9998819231987,
+    0.9997721910476685,
+    0.9998753666877747,
+    0.9998807311058044,
+    0.9999001026153564,
+    0.9998154044151306,
+    0.9997438788414001,
+    0.9998022317886353,
+    0.999882698059082,
+    0.9999184012413025,
+    0.9998068809509277,
+    0.9998050928115845,
+    0.9996004700660706,
+    0.9998898506164551,
+    0.999901294708252,
+    0.9999256134033203,
+    0.9998285174369812,
+    0.9998804330825806,
+    0.9998049139976501,
+    0.9997767210006714,
+    0.9997971057891846,
+    0.9997476935386658,
+    0.9998417496681213,
+    0.999923586845398,
+    0.999843180179596,
+    0.999758780002594,
+    0.9999074339866638,
+    0.9998081922531128,
+    0.9996643662452698,
+    0.9998515844345093,
+    0.9997683763504028,
+    0.9997970461845398,
+    0.9998588562011719,
+    0.9997985363006592
+  ],
+  "decode_pcc_strict": 0.9996143579483032,
+  "decode_pcc_min_strict": 0.9902774095535278,
+  "decode_router_ties": [
+    {
+      "row": 0,
+      "step": 8,
+      "tied_experts": [
+        0,
+        29,
+        116
+      ],
+      "open_slots": 1,
+      "candidates": 3,
+      "chosen": 2,
+      "pcc_strict": 0.9992130398750305,
+      "pcc_chosen": 0.9998173713684082
+    },
+    {
+      "row": 0,
+      "step": 12,
+      "tied_experts": [
+        30,
+        36,
+        53,
+        54,
+        76,
+        130,
+        245
+      ],
+      "open_slots": 1,
+      "candidates": 7,
+      "chosen": 6,
+      "pcc_strict": 0.9996770620346069,
+      "pcc_chosen": 0.9999228715896606
+    },
+    {
+      "row": 0,
+      "step": 14,
+      "tied_experts": [
+        43,
+        189
+      ],
+      "open_slots": 1,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9991098046302795,
+      "pcc_chosen": 0.9998827576637268
+    },
+    {
+      "row": 0,
+      "step": 18,
+      "tied_experts": [
+        207,
+        246
+      ],
+      "open_slots": 1,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9985936284065247,
+      "pcc_chosen": 0.999792218208313
+    },
+    {
+      "row": 0,
+      "step": 21,
+      "tied_experts": [
+        75,
+        83,
+        88
+      ],
+      "open_slots": 1,
+      "candidates": 3,
+      "chosen": 1,
+      "pcc_strict": 0.9988110065460205,
+      "pcc_chosen": 0.9998842477798462
+    },
+    {
+      "row": 0,
+      "step": 32,
+      "tied_experts": [
+        71,
+        232
+      ],
+      "open_slots": 1,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9902774095535278,
+      "pcc_chosen": 0.9998194575309753
+    },
+    {
+      "row": 0,
+      "step": 35,
+      "tied_experts": [
+        19,
+        26
+      ],
+      "open_slots": 1,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9998364448547363,
+      "pcc_chosen": 0.9998364448547363
+    },
+    {
+      "row": 0,
+      "step": 36,
+      "tied_experts": [
+        45,
+        180,
+        207
+      ],
+      "open_slots": 1,
+      "candidates": 3,
+      "chosen": 2,
+      "pcc_strict": 0.9997153878211975,
+      "pcc_chosen": 0.9998926520347595
+    },
+    {
+      "row": 0,
+      "step": 37,
+      "tied_experts": [
+        38,
+        248
+      ],
+      "open_slots": 1,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9994698762893677,
+      "pcc_chosen": 0.9994698762893677
+    },
+    {
+      "row": 0,
+      "step": 38,
+      "tied_experts": [
+        205,
+        215
+      ],
+      "open_slots": 1,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9996452927589417,
+      "pcc_chosen": 0.999858558177948
+    },
+    {
+      "row": 0,
+      "step": 39,
+      "tied_experts": [
+        0,
+        217
+      ],
+      "open_slots": 1,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.998865008354187,
+      "pcc_chosen": 0.9999111294746399
+    },
+    {
+      "row": 0,
+      "step": 44,
+      "tied_experts": [
+        1,
+        206
+      ],
+      "open_slots": 1,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9998735189437866,
+      "pcc_chosen": 0.9998735189437866
+    },
+    {
+      "row": 0,
+      "step": 48,
+      "tied_experts": [
+        26,
+        52,
+        243
+      ],
+      "open_slots": 2,
+      "candidates": 3,
+      "chosen": 1,
+      "pcc_strict": 0.999106764793396,
+      "pcc_chosen": 0.9998401999473572
+    },
+    {
+      "row": 0,
+      "step": 49,
+      "tied_experts": [
+        55,
+        89,
+        217
+      ],
+      "open_slots": 2,
+      "candidates": 3,
+      "chosen": 2,
+      "pcc_strict": 0.9996704459190369,
+      "pcc_chosen": 0.9999011158943176
+    },
+    {
+      "row": 0,
+      "step": 55,
+      "tied_experts": [
+        43,
+        189,
+        238
+      ],
+      "open_slots": 2,
+      "candidates": 3,
+      "chosen": 0,
+      "pcc_strict": 0.9998897314071655,
+      "pcc_chosen": 0.9998897314071655
+    },
+    {
+      "row": 0,
+      "step": 59,
+      "tied_experts": [
+        39,
+        78,
+        83
+      ],
+      "open_slots": 1,
+      "candidates": 3,
+      "chosen": 0,
+      "pcc_strict": 0.9998623132705688,
+      "pcc_chosen": 0.9998623132705688
+    },
+    {
+      "row": 0,
+      "step": 67,
+      "tied_experts": [
+        46,
+        233
+      ],
+      "open_slots": 1,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9996286034584045,
+      "pcc_chosen": 0.9998113512992859
+    },
+    {
+      "row": 0,
+      "step": 68,
+      "tied_experts": [
+        201,
+        254
+      ],
+      "open_slots": 1,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9988346099853516,
+      "pcc_chosen": 0.9997515082359314
+    },
+    {
+      "row": 0,
+      "step": 69,
+      "tied_experts": [
+        0,
+        16
+      ],
+      "open_slots": 1,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9992430210113525,
+      "pcc_chosen": 0.9997519850730896
+    },
+    {
+      "row": 0,
+      "step": 74,
+      "tied_experts": [
+        60,
+        248
+      ],
+      "open_slots": 1,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9996205568313599,
+      "pcc_chosen": 0.9998582005500793
+    },
+    {
+      "row": 0,
+      "step": 76,
+      "tied_experts": [
+        108,
+        111,
+        187
+      ],
+      "open_slots": 1,
+      "candidates": 3,
+      "chosen": 0,
+      "pcc_strict": 0.9998942613601685,
+      "pcc_chosen": 0.9998942613601685
+    },
+    {
+      "row": 0,
+      "step": 83,
+      "tied_experts": [
+        38,
+        148
+      ],
+      "open_slots": 1,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9995436668395996,
+      "pcc_chosen": 0.9998569488525391
+    },
+    {
+      "row": 0,
+      "step": 85,
+      "tied_experts": [
+        20,
+        90
+      ],
+      "open_slots": 1,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9996848702430725,
+      "pcc_chosen": 0.9999167323112488
+    },
+    {
+      "row": 0,
+      "step": 94,
+      "tied_experts": [
+        77,
+        116,
+        221
+      ],
+      "open_slots": 2,
+      "candidates": 3,
+      "chosen": 2,
+      "pcc_strict": 0.9993570446968079,
+      "pcc_chosen": 0.9998819231987
+    },
+    {
+      "row": 0,
+      "step": 96,
+      "tied_experts": [
+        137,
+        160
+      ],
+      "open_slots": 1,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9994841814041138,
+      "pcc_chosen": 0.9998753666877747
+    },
+    {
+      "row": 0,
+      "step": 97,
+      "tied_experts": [
+        59,
+        116,
+        178
+      ],
+      "open_slots": 1,
+      "candidates": 3,
+      "chosen": 2,
+      "pcc_strict": 0.9996854066848755,
+      "pcc_chosen": 0.9998807311058044
+    },
+    {
+      "row": 0,
+      "step": 98,
+      "tied_experts": [
+        59,
+        121,
+        187
+      ],
+      "open_slots": 2,
+      "candidates": 3,
+      "chosen": 2,
+      "pcc_strict": 0.9997588396072388,
+      "pcc_chosen": 0.9999001026153564
+    },
+    {
+      "row": 0,
+      "step": 102,
+      "tied_experts": [
+        9,
+        89,
+        149
+      ],
+      "open_slots": 2,
+      "candidates": 3,
+      "chosen": 1,
+      "pcc_strict": 0.9992023706436157,
+      "pcc_chosen": 0.999882698059082
+    },
+    {
+      "row": 0,
+      "step": 115,
+      "tied_experts": [
+        76,
+        231
+      ],
+      "open_slots": 1,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9994255304336548,
+      "pcc_chosen": 0.9997476935386658
+    },
+    {
+      "row": 0,
+      "step": 117,
+      "tied_experts": [
+        44,
+        72,
+        245
+      ],
+      "open_slots": 2,
+      "candidates": 3,
+      "chosen": 1,
+      "pcc_strict": 0.9996287822723389,
+      "pcc_chosen": 0.999923586845398
+    },
+    {
+      "row": 0,
+      "step": 120,
+      "tied_experts": [
+        89,
+        153,
+        183
+      ],
+      "open_slots": 2,
+      "candidates": 3,
+      "chosen": 2,
+      "pcc_strict": 0.9995861649513245,
+      "pcc_chosen": 0.9999074339866638
+    },
+    {
+      "row": 0,
+      "step": 122,
+      "tied_experts": [
+        13,
+        79
+      ],
+      "open_slots": 1,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9996076822280884,
+      "pcc_chosen": 0.9996643662452698
+    },
+    {
+      "row": 0,
+      "step": 123,
+      "tied_experts": [
+        137,
+        214,
+        243
+      ],
+      "open_slots": 2,
+      "candidates": 3,
+      "chosen": 1,
+      "pcc_strict": 0.9989384412765503,
+      "pcc_chosen": 0.9998515844345093
+    }
+  ],
+  "traced": true,
+  "repeated_identical": true,
+  "threshold": 0.995,
+  "traced_replay_host_us": [
+    394.777,
+    404.044,
+    401.479,
+    406.389,
+    403.463,
+    404.805,
+    403.373,
+    407.651,
+    402.061,
+    404.646,
+    403.363,
+    404.335,
+    404.696,
+    405.147,
+    407.521,
+    402.752,
+    406.479,
+    404.906,
+    405.638,
+    405.938,
+    406.509,
+    403.513,
+    405.107,
+    403.293,
+    408.433,
+    403.844,
+    406.078,
+    404.125,
+    393.965,
+    405.186,
+    405.718,
+    403.564,
+    406.058,
+    405.106,
+    405.918,
+    406.168,
+    406.6,
+    404.966,
+    404.766,
+    406.398,
+    402.702,
+    405.307,
+    403.203,
+    404.666,
+    404.665,
+    406.238,
+    404.916,
+    403.494,
+    405.066,
+    405.747,
+    405.898,
+    407.481,
+    406.339,
+    403.954,
+    402.291,
+    404.696,
+    404.285,
+    404.104,
+    403.904,
+    407.832,
+    405.066,
+    405.617,
+    404.144,
+    404.736,
+    403.964,
+    404.766,
+    404.445,
+    403.333,
+    405.978,
+    406.188,
+    403.674,
+    408.253,
+    404.265,
+    406.519,
+    406.539,
+    403.694,
+    408.553,
+    403.954,
+    404.355,
+    404.425,
+    406.379,
+    404.295,
+    402.542,
+    405.847,
+    402.922,
+    404.766,
+    404.445,
+    405.688,
+    407.491,
+    405.717,
+    405.847,
+    406.018,
+    404.495,
+    407.221,
+    404.625,
+    404.806,
+    403.664,
+    401.991,
+    402.722,
+    405.076,
+    406.489,
+    403.433,
+    405.888,
+    404.285,
+    404.396,
+    405.097,
+    404.977,
+    402.761,
+    406.228,
+    405.006,
+    404.355,
+    403.313,
+    402.11,
+    406.368,
+    405.187,
+    407.301,
+    405.136,
+    404.015,
+    403.774,
+    405.067,
+    405.567,
+    407.05,
+    405.197,
+    405.527,
+    404.385,
+    404.175,
+    405.737,
+    402.842
+  ],
+  "unfused_equivalence": {
+    "prefill_pcc": 0.9999524354934692,
+    "decode_pcc_min": 0.9991661310195923,
+    "decode_pcc_min_strict": 0.990418553352356,
+    "decode_tie_choices_differ": [
+      {
+        "row": 0,
+        "step": 18,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 0,
+        "step": 32,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 0,
+        "step": 35,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 0,
+        "step": 39,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 0,
+        "step": 123,
+        "control_choice": 2,
+        "choice": 1
+      }
+    ],
+    "source": "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence7_tensors/headline_base_linear/default.pt",
+    "prefill_max_abs": 0.015625,
+    "decode_max_abs": 0.013671875,
+    "prefill_identical": false,
+    "decode_identical": false
+  },
+  "control_equivalence": {
+    "prefill_pcc": 0.9999524354934692,
+    "decode_pcc_min": 0.9991661310195923,
+    "decode_pcc_min_strict": 0.990418553352356,
+    "decode_tie_choices_differ": [
+      {
+        "row": 0,
+        "step": 18,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 0,
+        "step": 32,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 0,
+        "step": 35,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 0,
+        "step": 39,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 0,
+        "step": 123,
+        "control_choice": 2,
+        "choice": 1
+      }
+    ],
+    "source": "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence7_tensors/headline_base_linear/default.pt",
+    "prefill_max_abs": 0.015625,
+    "decode_max_abs": 0.013671875,
+    "prefill_identical": false,
+    "decode_identical": false
+  }
+}

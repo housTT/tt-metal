@@ -1,0 +1,312 @@
+diff -ru -x __pycache__ -x '*.pyc' evidence10/tests/run_layer.py evidence12/tests/run_layer.py
+--- evidence10/tests/run_layer.py	2026-10-11 22:06:24.000000000 +0000
++++ evidence12/tests/run_layer.py	2026-10-12 16:28:17.000000000 +0000
+@@ -53,8 +53,8 @@
+     args = p.parse_args()
+     if args.minimum_cache_pages < 0 or args.cache_guard_pages < 0:
+         raise ValueError("Cache page counts must be nonnegative")
+-    if args.profile and (args.length, args.steps, args.batch, args.trace, args.audit) != (4096, 128, 1, True, False):
+-        raise ValueError("Profile requires length4096 steps128 batch1 --trace and no --audit")
++    if args.profile and (args.steps, args.batch, args.trace, args.audit) != (128, 1, True, False):
++        raise ValueError("Profile requires steps128 batch1 --trace and no --audit")
+     torch.manual_seed(1234)
+     torch.set_num_threads(8)
+     if args.weights == "real":
+diff -ru -x __pycache__ -x '*.pyc' evidence10/tests/test_multichip_plan.py evidence12/tests/test_multichip_plan.py
+--- evidence10/tests/test_multichip_plan.py	2026-10-12 12:34:51.000000000 +0000
++++ evidence12/tests/test_multichip_plan.py	2026-10-12 16:16:25.000000000 +0000
+@@ -208,9 +208,13 @@
+         sdpa = policy["sdpa"]
+         assert (sdpa["k_chunk_size"], sdpa["grid"]) == (512, [11, 10])
+         assert (sdpa["prefill"]["q_chunk_size"], sdpa["prefill"]["k_chunk_size"]) == (128, 256)
++        assert (policy["prefill_long_chunk"], policy["prefill_long_from"]) == (8192, 8192)
++        long_sdpa = policy["sdpa_prefill_long"]
++        assert (long_sdpa["q_chunk_size"], long_sdpa["k_chunk_size"]) == ((64, 256) if tp == 4 else (128, 512))
+     else:
+         assert policy["gdn_decode_kernel"] and policy["gdn_decode_gates"] and not policy["conv_decode_fill"]
+         assert policy["gdn_flat_qk"] and policy["gdn_gate_mixed"] and policy["gdn_decode_direct"]
++        assert policy["conv_shift"] == "gate" and policy["conv_state_rm"]
+ 
+ 
+ def test_local_hf_config():
+diff -ru -x __pycache__ -x '*.pyc' evidence10/tests/test_prefill_plan.py evidence12/tests/test_prefill_plan.py
+--- evidence10/tests/test_prefill_plan.py	2026-10-12 10:31:02.000000000 +0000
++++ evidence12/tests/test_prefill_plan.py	2026-10-12 16:20:37.000000000 +0000
+@@ -39,8 +39,11 @@
+         assert chunk_offset == offset
+         assert 0 < valid <= count
+         absolute = start + chunk_offset
++        long_chunk = full and count == model.optimization.prefill_long_chunk
++        if long_chunk:
++            assert valid == count and absolute >= model.optimization.prefill_long_from
+         if count > 1:
+-            assert count in model._planner_buckets(full)
++            assert count in model._planner_buckets(full) or long_chunk
+             assert count % block == 0 and absolute % block == 0 and absolute % min(count, 128) == 0
+         assert absolute + count <= model.config.max_seq_len
+         if valid < count:
+@@ -49,7 +52,8 @@
+         offset += valid
+     assert offset == length
+     for group in groups:
+-        assert sum(count for _, count, _ in group) <= max(model._planner_buckets(full))
++        assert (sum(count for _, count, _ in group) <= max(model._planner_buckets(full))
++                or (len(group) == 1 and group[0][1] == model.optimization.prefill_long_chunk))
+         assert len(group) == 1 or all(count > 1 for _, count, _ in group)
+ 
+ 
+@@ -104,3 +108,28 @@
+     model.optimization = od.OptimizationPolicy(**mesh_policy(od.DEFAULT_POLICIES[kind], tp, kind))
+     plan = [(count, valid) for group in model._chunk_plan(full, 0, length, None) for _, count, valid in group]
+     assert plan == expected
++
++
++@pytest.mark.parametrize("start,length,long_from,expected", [
++    (0, 16384, 0, [8192, 8192]),
++    (0, 16384, 8192, [4096, 4096, 8192]),
++    (0, 12288, 0, [8192, 4096]),
++    (4096, 8192, 0, [8192]),
++    (0, 8190, 0, [4096, 4096]),
++])
++def test_long_chunk_merge(start, length, long_from, expected):
++    model = planner("full_attention", 32)
++    policy = dict(od.DEFAULT_POLICIES["full_attention"], prefill_long_chunk=8192, prefill_long_from=long_from)
++    model.optimization = od.OptimizationPolicy(**policy)
++    groups = model._chunk_plan(True, start, length, None)
++    counts = [count for group in groups for _, count, _ in group]
++    assert counts == expected
++    assert all(len(group) == 1 for group in groups if group[0][1] == 8192)
++    assert sum(valid for group in groups for _, _, valid in group) == length
++
++
++def test_long_chunk_moe_pieces():
++    sizes = (32, 64, 128, 256, 512, 1024, 2048, 4096)
++    assert od._moe_pieces(8192, sizes, 2, 1024) == [4096, 4096]
++    with pytest.raises(ValueError):
++        od._moe_pieces(8192 + 32, sizes, 2, 1024)
+diff -ru -x __pycache__ -x '*.pyc' evidence10/tt/gdn_decode.py evidence12/tt/gdn_decode.py
+--- evidence10/tt/gdn_decode.py	2026-10-12 05:31:24.000000000 +0000
++++ evidence12/tt/gdn_decode.py	2026-10-12 15:16:36.000000000 +0000
+@@ -40,7 +40,7 @@
+ 
+ 
+ def gdn_decode(q, k, v, z, decay_log, beta, state, norm_weight, *, groups, blocks=0, l2_eps=1e-6, norm_eps=1e-6,
+-               gates=None, z_offset=0):
++               gates=None, z_offset=0, conv=None):
+     import ttnn
+ 
+     heads, head_k, head_v = state.shape[1], state.shape[-2], state.shape[-1]
+@@ -54,6 +54,8 @@
+     coords = [(i % grid.x, i // grid.x) for i in range(workers)]
+     assignment = [(i // per_head, (i % per_head) * blocks) for i in range(workers)]
+     fused = blocks == 4
++    if conv is not None and fused:
++        raise ValueError("conv state shift needs the separate gate program (blocks < 4)")
+     output = ttnn.allocate_tensor_on_device(ttnn.Shape((1, 1, 1, heads * head_v)),
+                                             ttnn.bfloat16 if fused else ttnn.float32, ttnn.TILE_LAYOUT, device,
+                                             ttnn.L1_MEMORY_CONFIG)
+@@ -99,16 +101,37 @@
+         runtime_args=[(c, [output.buffer_address(), z.buffer_address(), norm_weight.buffer_address(), h, z_offset])
+                       for h, c in enumerate(head_coords)],
+         config=ttnn.ReaderConfigDescriptor())
+-    gate_writer = ttnn.KernelDescriptor(
+-        kernel_source=f"{KERNEL_ROOT}/gate_writer.cpp", source_type=ttnn.KernelDescriptor.SourceType.FILE_PATH,
+-        core_ranges=head_cores, compile_time_args=_accessor(ttnn, gated),
+-        runtime_args=[(c, [gated.buffer_address(), h]) for h, c in enumerate(head_coords)],
+-        config=ttnn.WriterConfigDescriptor())
++    gate_cbs = _cbs(ttnn, head_cores, GATE_CBS)
++    gate_tensors = [output, z, norm_weight, gated]
++    if conv is None:
++        gate_writer = ttnn.KernelDescriptor(
++            kernel_source=f"{KERNEL_ROOT}/gate_writer.cpp", source_type=ttnn.KernelDescriptor.SourceType.FILE_PATH,
++            core_ranges=head_cores, compile_time_args=_accessor(ttnn, gated),
++            runtime_args=[(c, [gated.buffer_address(), h]) for h, c in enumerate(head_coords)],
++            config=ttnn.WriterConfigDescriptor())
++    else:
++        conv_state, current = conv
++        width = conv_state.shape[-1]
++        span = width * 2 // heads
++        if width % heads or span % 64:
++            raise ValueError(f"conv state width {width} does not split into 64-byte spans over {heads} heads")
++        gate_writer = ttnn.KernelDescriptor(
++            kernel_source=f"{KERNEL_ROOT}/gate_writer_shift.cpp",
++            source_type=ttnn.KernelDescriptor.SourceType.FILE_PATH, core_ranges=head_cores,
++            compile_time_args=_accessor(ttnn, gated) + _accessor(ttnn, conv_state) + _accessor(ttnn, current),
++            runtime_args=[(c, [gated.buffer_address(), h, conv_state.buffer_address(), current.buffer_address(),
++                               h * span, span]) for h, c in enumerate(head_coords)],
++            config=ttnn.WriterConfigDescriptor())
++        gate_cbs.append(ttnn.CBDescriptor(
++            total_size=3 * span, core_ranges=head_cores,
++            format_descriptors=[ttnn.CBFormatDescriptor(buffer_index=19, data_format=ttnn.bfloat16,
++                                                        page_size=3 * span)]))
++        gate_tensors += [conv_state, current]
+     gate_compute = ttnn.KernelDescriptor(
+         kernel_source=f"{KERNEL_ROOT}/gate_compute.cpp", source_type=ttnn.KernelDescriptor.SourceType.FILE_PATH,
+         core_ranges=head_cores, compile_time_args=[_bits(1.0 / head_v), _bits(norm_eps)],
+         runtime_args=[(c, []) for c in head_coords], config=_compute_config(ttnn))
+-    ttnn.generic_op([output, z, norm_weight, gated], ttnn.ProgramDescriptor(
+-        kernels=[gate_reader, gate_writer, gate_compute], semaphores=[], cbs=_cbs(ttnn, head_cores, GATE_CBS)))
++    ttnn.generic_op(gate_tensors, ttnn.ProgramDescriptor(
++        kernels=[gate_reader, gate_writer, gate_compute], semaphores=[], cbs=gate_cbs))
+     output.deallocate(True)
+     return gated
+Only in evidence12/tt/kernels/gdn_decode: gate_writer_shift.cpp
+diff -ru -x __pycache__ -x '*.pyc' evidence10/tt/multichip_decoder.py evidence12/tt/multichip_decoder.py
+--- evidence10/tt/multichip_decoder.py	2026-10-12 12:34:51.000000000 +0000
++++ evidence12/tt/multichip_decoder.py	2026-10-12 16:16:25.000000000 +0000
+@@ -56,6 +56,7 @@
+                                          "subblock_h": 1, "subblock_w": 2},
+         "shared_addcmul_config": {"grid": [8, 2], "M_block_size": 1, "K_block_size": 4, "N_block_size": 8,
+                                   "subblock_h": 1, "subblock_w": 2},
++        "sdpa_prefill_long": {"q_chunk_size": 64, "k_chunk_size": 256, "exp_approx_mode": False},
+         "projections": {"shared_down": {"dram": False, "decode_grid": [8, 1], "k_block": 4, "per_n": 8}},
+         "projections_by_kind": {
+             "full_attention": {"attention_in": {"decode_grid": [8, 5], "k_block": 8, "per_n": 2}},
+diff -ru -x __pycache__ -x '*.pyc' evidence10/tt/optimized_decoder.py evidence12/tt/optimized_decoder.py
+--- evidence10/tt/optimized_decoder.py	2026-10-12 12:35:13.000000000 +0000
++++ evidence12/tt/optimized_decoder.py	2026-10-12 19:00:13.000000000 +0000
+@@ -77,6 +77,10 @@
+     gate_pack_fidelity: str = "HiFi4"
+     gdn_decode_direct: bool = False
+     shared_addcmul_config: dict = None
++    conv_shift: str = "ops"
++    prefill_long_chunk: int = 0
++    prefill_long_from: int = 0
++    sdpa_prefill_long: dict = None
+     shared_split: bool = False
+     gate_pack: bool = False
+     gate_pack_grid: tuple = ()
+@@ -165,6 +169,9 @@
+         },
+         "decode_norm_cores": 16,
+         "kv_dtype": "bfp8",
++        "prefill_long_chunk": 8192,
++        "prefill_long_from": 8192,
++        "sdpa_prefill_long": {"q_chunk_size": 128, "k_chunk_size": 512, "exp_approx_mode": False},
+         "sdpa": {"grid": [11, 10], "q_chunk_size": 32, "k_chunk_size": 512, "exp_approx_mode": False,
+                  "prefill": {"q_chunk_size": 128, "k_chunk_size": 256, "exp_approx_mode": False}},
+         "decode_norm_fill": False,
+@@ -183,6 +190,7 @@
+         "gdn_decode_kernel": True,
+         "conv_chunk": 128,
+         "conv_state_rm": True,
++        "conv_shift": "gate",
+         "conv_decode_fill": False,
+         "gdn_decode_gates": True,
+         "gdn_flat_qk": True,
+@@ -241,8 +249,9 @@
+         remainder = length
+         for count in aligned_buckets:
+             remainder %= count
+-        single_chunks = all(len(group) == 1 and group[0][1] == group[0][2] > 1 for group in self._chunk_plan(
+-            full, start_pos, length, page_table.shape[1] * block if full else None))
++        single_chunks = all(len(group) == 1 and group[0][1] == group[0][2] > 1 and group[0][1] in aligned_buckets
++                            for group in self._chunk_plan(full, start_pos, length,
++                                                          page_table.shape[1] * block if full else None))
+         if not aligned_buckets or start_pos % block or remainder or not single_chunks:
+             return self._planned_prefill(hidden_states,valid_len=valid_len,page_table=page_table,
+                                          start_pos=start_pos,request_slots=request_slots)
+@@ -347,6 +356,17 @@
+                     offset += 1
+             else:
+                 plan.extend(best[offset][1])
++        half = self.optimization.prefill_long_chunk // 2
++        if full and half:
++            merged = []
++            for item in plan:
++                last = merged[-1] if merged else None
++                if (last and item[1] == item[2] == half and last[1] == last[2] == half and last[0] + half == item[0]
++                        and start_pos + last[0] >= self.optimization.prefill_long_from):
++                    merged[-1] = (last[0], 2 * half, 2 * half)
++                else:
++                    merged.append(item)
++            plan = merged
+         groups, current, tokens = [], [], 0
+         for offset, count, valid in plan:
+             if current and (tokens + count > buckets[0] or count == 1 or current[-1][1] == 1):
+@@ -649,7 +669,8 @@
+             import torch
+             import ttnn
+ 
+-            counts = {c for n in _bucket_sizes(policy) for c in (n, n // 32, n // 128) if c} | {3}
++            counts = {c for n in _bucket_sizes(policy) + (policy.prefill_long_chunk,) for c in (n, n // 32, n // 128)
++                      if c} | {3}
+             for count in counts - result._index_offsets.keys():
+                 result._index_offsets[count] = ttnn.from_torch(torch.arange(count,dtype=torch.float32)[None],
+                     device=kwargs["mesh_device"],dtype=ttnn.float32,layout=ttnn.TILE_LAYOUT,
+@@ -752,6 +773,7 @@
+         if policy.gdn_ab_split and not result.config.is_full_attention_layer(result.layer_idx):
+             attention.split_projection = _GdnSplitProjection(attention, kwargs["mesh_device"], policy.gdn_ab_split)
+         attention.sdpa_policy = policy.sdpa
++        attention.sdpa_long = policy.sdpa_prefill_long
+         attention.optimization = policy
+         if policy.gdn_state_l1 and not result.config.is_full_attention_layer(result.layer_idx):
+             result._states = [(ttnn.to_memory_config(state,ttnn.L1_MEMORY_CONFIG),conv)
+@@ -1495,7 +1517,8 @@
+                     q_chunk_size=32, k_chunk_size=32, exp_approx_mode=False) if length < 128
+                     else ttnn.SDPAProgramConfig(
+                     compute_with_storage_grid_size=self.device.compute_with_storage_grid_size(),
+-                    **self.sdpa_policy["prefill"]) if "prefill" in self.sdpa_policy
++                    **(self.sdpa_long if length > 4096 and getattr(self, "sdpa_long", None)
++                       else self.sdpa_policy["prefill"])) if "prefill" in self.sdpa_policy
+                     else _get_flexible_sdpa_program_config(self.device)),
+                 compute_kernel_config=_get_sdpa_compute_kernel_config(),
+             )
+@@ -1545,11 +1568,17 @@
+                                                layout=ttnn.ROW_MAJOR_LAYOUT), (1, 3, qkv.shape[-1]))
+         elif length >= 3 and "kda_tail" in self.fusions:
+             tail = current[:, length - 3 : length, :]
++        elif rm_state and length == 1 and self.optimization.conv_shift == "gate":
++            tail = None
++            self._conv_current = current
++        elif rm_state and length == 1 and self.optimization.conv_shift == "concat35":
++            tail = ttnn.concat((history, current), dim=1)[:, 1:4, :]
+         elif rm_state and length == 1:
+             tail = ttnn.concat((history[:, 1:3, :], current[:, :1, :]), dim=1)
+         else:
+             tail = ttnn.concat((history, current[:, :length, :]), dim=1)[:, length : length + 3, :]
+-        ttnn.copy(tail if rm_state else ttnn.to_layout(tail, ttnn.TILE_LAYOUT), self.fused_conv_state)
++        if tail is not None:
++            ttnn.copy(tail if rm_state else ttnn.to_layout(tail, ttnn.TILE_LAYOUT), self.fused_conv_state)
+         if (length == 1 and "kda_tuple" in self.fusions and self.optimization.gdn_decode_direct
+                 and self.optimization.gdn_decode_kernel and self.optimization.gdn_decode_gates):
+             return q, k, v
+@@ -1591,13 +1620,15 @@
+ 
+         from .gdn_decode import gdn_decode
+ 
++        current, self._conv_current = getattr(self, "_conv_current", None), None
+         direct = self.optimization.gdn_decode_direct and z_start % 32 == 0
+         z = mega if direct else mega[:, :, z_start : z_start + self.cfg.v_dim]
+         gated = gdn_decode(q, k, v, z, decay_log, beta, self.recurrent_state, self.norm_weight,
+                            groups=self.num_v_heads // self.num_heads, blocks=self.optimization.gdn_decode_blocks,
+                            norm_eps=self.norm_eps,
+                            gates=None if gates is None else (mega, self.dt_bias, self.a_neg, *gates),
+-                           z_offset=z_start // 32 if direct else 0)
++                           z_offset=z_start // 32 if direct else 0,
++                           conv=(self.fused_conv_state, current) if current is not None else None)
+         flat = ttnn.reshape(gated, (1, 1, self.cfg.v_dim))
+         if residual is not None:
+             return self.residual_projection(flat, residual, self.compute_kernel_config, mc)
+@@ -1606,6 +1637,10 @@
+     def _decode_heads(self, mega, q, k, v, decay_log, beta, z_start, mc, residual):
+         import ttnn
+ 
++        if getattr(self, "_conv_current", None) is not None:
++            self._conv_current = None
++            raise ValueError("conv_shift='gate' requires the GDN decode kernel path")
++
+         if not hasattr(self, "heads_mem"):
+             self.heads_mem = ttnn.MemoryConfig(
+                 ttnn.TensorMemoryLayout.HEIGHT_SHARDED, ttnn.BufferType.L1,
+@@ -1847,6 +1882,10 @@
+ 
+ 
+ def _moe_pieces(rows, sizes, limit, merge_min=0):
++    if rows > sizes[-1]:
++        if rows % sizes[-1]:
++            raise ValueError(f"{rows} MoE rows do not split into {sizes[-1]}-row pieces")
++        return [sizes[-1]] * (rows // sizes[-1])
+     single = next(n for n in sizes if n >= rows)
+     pieces, remaining = [], rows
+     while remaining > 0:

@@ -42,6 +42,9 @@ class OptimizationPolicy:
     dispatch_weight_nd: bool = False
     dispatch_weights: str = "lists"
     plan_cost: tuple = ()
+    plan_start_step_cost: float = 0.0
+    plan_chunk_cost: float = 0.0
+    plan_row_cost: float = 0.0
     dispatch_rank: str = "sort"
     prefill_tail_bucket: int = 0
     prefill_buckets: tuple = ()
@@ -50,6 +53,7 @@ class OptimizationPolicy:
     dispatch_tiles_from: int = 0
     prefill_moe_batch: bool = False
     prefill_moe_pieces: int = 1
+    prefill_moe_merge_min: int = 0
     prefill_masked_tail: bool = False
     prefill_sparse_chunk: int = 32
     prefill_sparse_l1: bool = False
@@ -67,6 +71,16 @@ class OptimizationPolicy:
     attention_decode_memory: str = "l1"
     residual_output_sharded: bool = False
     norm_fused_weight: bool = False
+    prefill_norm: str = ""
+    router_topk_prefill: bool = False
+    gdn_gate_mixed: bool = False
+    gate_pack_fidelity: str = "HiFi4"
+    gdn_decode_direct: bool = False
+    shared_addcmul_config: dict = None
+    conv_shift: str = "ops"
+    prefill_long_chunk: int = 0
+    prefill_long_from: int = 0
+    sdpa_prefill_long: dict = None
     shared_split: bool = False
     gate_pack: bool = False
     gate_pack_grid: tuple = ()
@@ -75,7 +89,19 @@ class OptimizationPolicy:
     gdn_l1_slots: int = 32
     conv_chunk: int = 512
     gdn_heads_decode: bool = False
+    gdn_decode_kernel: bool = False
+    gdn_decode_gates: bool = False
+    gdn_decode_blocks: int = 0
+    expert_decode_kernel: bool = False
+    expert_decode_nper: int = 0
+    expert_decode_kb: int = 8
+    expert_decode_shared: bool = False
+    residual_sharded_decode: bool = False
+    router_cached_slices: bool = False
+    dispatch_scatter_rows: int = 0
+    mesh_policy_keep: tuple = ()
     conv_state_rm: bool = False
+    conv_decode_fill: bool = True
     gdn_ab_split: dict = field(default_factory=dict)
     gdn_flat_qk: bool = False
     release_unused_weights: bool = False
@@ -103,7 +129,7 @@ _COMMON_DEFAULTS = {
     "sparse_fused_reduce": True,
     "compact_router_dtype": True,
     "decode_norm_fp32_input": False,
-    "decode_norm_output": "dram",
+    "decode_norm_output": "l1",
     "prefill_backend": "dispatch",
     "dispatch_dtype": "bfp8",
     "dispatch_grid": [4, 4],
@@ -115,12 +141,21 @@ _COMMON_DEFAULTS = {
     "dispatch_rank": "matmul",
     "prefill_tail_bucket": 32,
     "prefill_buckets": [2048, 1024, 256, 64],
-    "decode_input_fill": True,
+    "decode_input_fill": False,
     "prefill_moe_batch": True,
     "prefill_masked_tail": True,
     "gate_pack": True,
     "gate_pack_grid": [8, 2, 32],
     "sparse_down_dtype": "bfp8",
+    "expert_decode_kernel": True,
+    "expert_decode_shared": True,
+    "shared_addcmul_config": {"grid": [8, 2], "M_block_size": 1, "K_block_size": 16, "N_block_size": 8,
+                              "subblock_h": 1, "subblock_w": 2},
+    "router_cached_slices": True,
+    "dispatch_scatter_rows": 32,
+    "prefill_norm": "bf16",
+    "router_topk_prefill": True,
+    "gate_pack_fidelity": "HiFi2",
 }
 
 DEFAULT_POLICIES = {
@@ -130,22 +165,37 @@ DEFAULT_POLICIES = {
             "attention_in": {"dtype": "bfp8", "fidelity": "LoFi", "prefill_minimal": {"grid": [11, 10], "M_block_size": 4, "K_block_size": 8, "N_block_size": 16, "subblock_h": 1, "subblock_w": 4}},
             "attention_out": {"dtype": "bfp8", "fidelity": "LoFi", "decode_grid": [8, 4], "k_block": 8, "per_n": 2, "prefill_minimal": {"grid": [8, 8], "M_block_size": 8, "K_block_size": 8, "N_block_size": 8, "subblock_h": 2, "subblock_w": 2}},
             "shared_down": {"dtype": "bfp8", "fidelity": "LoFi", "dram": True, "cores": 8, "k_block": 8, "readers": 1, "prefill_grid": [8, 8], "prefill_k": 4},
+            "router": {"dtype": "bf16", "fidelity": "HiFi2"},
         },
         "decode_norm_cores": 16,
         "kv_dtype": "bfp8",
-        "decode_norm_fill": True,
+        "prefill_long_chunk": 8192,
+        "prefill_long_from": 8192,
+        "sdpa_prefill_long": {"q_chunk_size": 128, "k_chunk_size": 512, "exp_approx_mode": False},
+        "sdpa": {"grid": [11, 10], "q_chunk_size": 32, "k_chunk_size": 512, "exp_approx_mode": False,
+                 "prefill": {"q_chunk_size": 128, "k_chunk_size": 256, "exp_approx_mode": False}},
+        "decode_norm_fill": False,
     },
     "linear_attention": {
         **_COMMON_DEFAULTS,
         "gdn_l1": True,
         "projections": {
-            "attention_in": {"dtype": "bf16", "fidelity": "HiFi4", "prefill_minimal": {"grid": [11, 10], "M_block_size": 4, "K_block_size": 8, "N_block_size": 16, "subblock_h": 1, "subblock_w": 4}},
+            "attention_in": {"dtype": "bfp8", "fidelity": "HiFi2", "prefill_minimal": {"grid": [11, 10], "M_block_size": 4, "K_block_size": 8, "N_block_size": 16, "subblock_h": 1, "subblock_w": 4}},
             "attention_out": {"dtype": "bfp8", "fidelity": "HiFi2", "decode_grid": [8, 4], "k_block": 8, "per_n": 2},
             "shared_down": {"dtype": "bfp8", "fidelity": "LoFi", "dram": True, "cores": 8, "k_block": 8, "readers": 1, "prefill_grid": [8, 8], "prefill_k": 4},
+            "router": {"dtype": "bf16", "fidelity": "HiFi2"},
         },
-        "decode_norm_cores": 0,
+        "decode_norm_cores": 16,
+        "decode_norm_fill": False,
+        "gdn_decode_kernel": True,
         "conv_chunk": 128,
         "conv_state_rm": True,
+        "conv_shift": "gate",
+        "conv_decode_fill": False,
+        "gdn_decode_gates": True,
+        "gdn_flat_qk": True,
+        "gdn_gate_mixed": True,
+        "gdn_decode_direct": True,
     },
 }
 
@@ -199,8 +249,9 @@ class OptimizedDecoder(FusedDecoder):
         remainder = length
         for count in aligned_buckets:
             remainder %= count
-        single_chunks = all(len(group) == 1 and group[0][1] == group[0][2] > 1 for group in self._chunk_plan(
-            full, start_pos, length, page_table.shape[1] * block if full else None))
+        single_chunks = all(len(group) == 1 and group[0][1] == group[0][2] > 1 and group[0][1] in aligned_buckets
+                            for group in self._chunk_plan(full, start_pos, length,
+                                                          page_table.shape[1] * block if full else None))
         if not aligned_buckets or start_pos % block or remainder or not single_chunks:
             return self._planned_prefill(hidden_states,valid_len=valid_len,page_table=page_table,
                                          start_pos=start_pos,request_slots=request_slots)
@@ -250,7 +301,7 @@ class OptimizedDecoder(FusedDecoder):
                                 ttnn.typecast(self._indices(absolute, 1), ttnn.int32), (1,)
                             ),
                         )
-                y = self.layer.forward(x, mode="decode" if count == 1 else "prefill", chunk_size=128, **kw)
+                y = _interleaved(self.layer.forward(x, mode="decode" if count == 1 else "prefill", chunk_size=128, **kw))
                 pieces.append(y)
                 offset += count
             rows.append(ttnn.concat(pieces,dim=1) if len(pieces)>1 else pieces[0])
@@ -261,7 +312,9 @@ class OptimizedDecoder(FusedDecoder):
         buckets = self._planner_buckets(full)
         costs = tuple(self.optimization.plan_cost or _PLAN_COST["full" if full else "linear"])
         chunk_cost, row_cost, step_cost, group_cost = costs[:4]
-        whole_step_cost = costs[4] if len(costs) > 4 else step_cost
+        chunk_cost = self.optimization.plan_chunk_cost or chunk_cost
+        row_cost = self.optimization.plan_row_cost or row_cost
+        whole_step_cost = self.optimization.plan_start_step_cost or (costs[4] if len(costs) > 4 else step_cost)
 
         def fits(absolute, n):
             return n % block == 0 and absolute % block == 0 and absolute % min(n, 128) == 0
@@ -303,6 +356,17 @@ class OptimizedDecoder(FusedDecoder):
                     offset += 1
             else:
                 plan.extend(best[offset][1])
+        half = self.optimization.prefill_long_chunk // 2
+        if full and half:
+            merged = []
+            for item in plan:
+                last = merged[-1] if merged else None
+                if (last and item[1] == item[2] == half and last[1] == last[2] == half and last[0] + half == item[0]
+                        and start_pos + last[0] >= self.optimization.prefill_long_from):
+                    merged[-1] = (last[0], 2 * half, 2 * half)
+                else:
+                    merged.append(item)
+            plan = merged
         groups, current, tokens = [], [], 0
         for offset, count, valid in plan:
             if current and (tokens + count > buckets[0] or count == 1 or current[-1][1] == 1):
@@ -416,7 +480,7 @@ class OptimizedDecoder(FusedDecoder):
                 group_start = group[0][0]
                 if len(group) == 1 and group[0][1] == 1:
                     x, kw = step_input(group_start, 1)
-                    y = self.layer.forward(x, mode="decode", chunk_size=128, **kw)
+                    y = _interleaved(self.layer.forward(x, mode="decode", chunk_size=128, **kw))
                     if tiled_only:
                         tail_rows.append(ttnn.reshape(ttnn.to_layout(y, ttnn.ROW_MAJOR_LAYOUT), (1, 1, hidden)))
                     else:
@@ -430,24 +494,28 @@ class OptimizedDecoder(FusedDecoder):
                     hs.append(self._attention_step(x, count, kw, valid))
                 residual = ttnn.concat(hs, dim=1) if len(hs) > 1 else hs[0]
                 padded = sum(count for _, count, _ in group)
+                group_valid = sum(valid for _, _, valid in group)
                 parts, start = [], 0
-                for moe_rows in _moe_pieces(padded, sizes, self.optimization.prefill_moe_pieces):
+                for moe_rows in _moe_pieces(padded, sizes, self.optimization.prefill_moe_pieces,
+                                            self.optimization.prefill_moe_merge_min):
                     rows_here = min(moe_rows, padded - start)
+                    valid_here = max(0, min(rows_here, group_valid - start))
                     part = residual if rows_here == padded else ttnn.slice(residual, (0, start, 0),
                                                                             (1, start + rows_here, hidden))
                     if moe_rows > rows_here:
                         part = ttnn.pad(part, ((0, 0), (0, moe_rows - rows_here), (0, 0)), 0.0)
-                    ff_input = self.layer.ffn_norm(part, mode=Mode.PREFILL, norm_config=None)
                     dispatch = getattr(self, "expert_dispatch", None)
-                    if dispatch is not None:
-                        dispatch.valid_rows = rows_here
-                    try:
-                        part = ttnn.add(part, self.layer.feed_forward.forward(ff_input, mode="prefill"))
-                    finally:
+                    if valid_here or dispatch is None:
+                        ff_input = self.layer.ffn_norm(part, mode=Mode.PREFILL, norm_config=None)
                         if dispatch is not None:
-                            dispatch.valid_rows = None
+                            dispatch.valid_rows = valid_here
+                        try:
+                            part = ttnn.add(part, self.layer.feed_forward.forward(ff_input, mode="prefill"))
+                        finally:
+                            if dispatch is not None:
+                                dispatch.valid_rows = None
                     if isinstance(getattr(self, "moe_pieces_log", None), list):
-                        self.moe_pieces_log.append((moe_rows, rows_here))
+                        self.moe_pieces_log.append((moe_rows, rows_here, valid_here))
                     if moe_rows > rows_here:
                         part = ttnn.slice(part, (0, 0, 0), (1, rows_here, hidden))
                     parts.append(part)
@@ -555,7 +623,7 @@ class OptimizedDecoder(FusedDecoder):
                                 ttnn.typecast(self._indices(absolute, 1), ttnn.int32), (1,)
                             ),
                         )
-                y = self.layer.forward(x, mode="decode" if count == 1 else "prefill", chunk_size=128, **kw)
+                y = _interleaved(self.layer.forward(x, mode="decode" if count == 1 else "prefill", chunk_size=128, **kw))
                 ttnn.experimental.slice_write(
                     ttnn.to_layout(y, ttnn.ROW_MAJOR_LAYOUT),
                     output,
@@ -601,7 +669,8 @@ class OptimizedDecoder(FusedDecoder):
             import torch
             import ttnn
 
-            counts = {c for n in _bucket_sizes(policy) for c in (n, n // 32, n // 128) if c} | {3}
+            counts = {c for n in _bucket_sizes(policy) + (policy.prefill_long_chunk,) for c in (n, n // 32, n // 128)
+                      if c} | {3}
             for count in counts - result._index_offsets.keys():
                 result._index_offsets[count] = ttnn.from_torch(torch.arange(count,dtype=torch.float32)[None],
                     device=kwargs["mesh_device"],dtype=ttnn.float32,layout=ttnn.TILE_LAYOUT,
@@ -671,6 +740,12 @@ class OptimizedDecoder(FusedDecoder):
             for role, weight in weights.items():
                 if role in policy.projections:
                     shared.projections[role] = _Projection(weight,kwargs["mesh_device"],policy.projections[role])
+            if policy.shared_addcmul_config:
+                import torch
+
+                shared.addcmul_ones = ttnn.from_torch(torch.ones((1, 1, 1, 2048), dtype=torch.bfloat16),
+                    device=kwargs["mesh_device"], dtype=ttnn.bfloat8_b, layout=ttnn.TILE_LAYOUT,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG, mesh_mapper=ttnn.ReplicateTensorToMesh(kwargs["mesh_device"]))
             moe.shared = shared
         if policy.compact_router_dtype or policy.prefill_backend == "dispatch" or policy.gate_pack:
             router = _OptimizedRouter.__new__(_OptimizedRouter)
@@ -680,6 +755,8 @@ class OptimizedDecoder(FusedDecoder):
         if "router" in policy.projections or policy.gate_pack:
             gate = _OptimizedGateModule(moe.router.module,kwargs["mesh_device"],
                                         policy.projections.get("router",{"dtype":"bf16","fidelity":"HiFi4"}))
+            gate.cached_slices = {} if policy.router_cached_slices else None
+            gate.topk_prefill = policy.router_topk_prefill
             moe.router.module = gate
         if policy.gate_pack:
             result.layer.feed_forward.module = _PackedGateMoE(moe,kwargs["mesh_device"],policy)
@@ -696,6 +773,7 @@ class OptimizedDecoder(FusedDecoder):
         if policy.gdn_ab_split and not result.config.is_full_attention_layer(result.layer_idx):
             attention.split_projection = _GdnSplitProjection(attention, kwargs["mesh_device"], policy.gdn_ab_split)
         attention.sdpa_policy = policy.sdpa
+        attention.sdpa_long = policy.sdpa_prefill_long
         attention.optimization = policy
         if policy.gdn_state_l1 and not result.config.is_full_attention_layer(result.layer_idx):
             result._states = [(ttnn.to_memory_config(state,ttnn.L1_MEMORY_CONFIG),conv)
@@ -762,7 +840,7 @@ class _PackedGateMoE:
                                       memory_config=ttnn.DRAM_MEMORY_CONFIG,
                                       mesh_mapper=ttnn.ReplicateTensorToMesh(mesh))
         self.compute = ttnn.init_device_compute_kernel_config(
-            mesh.arch(), math_fidelity=ttnn.MathFidelity.HiFi4, math_approx_mode=False,
+            mesh.arch(), math_fidelity=getattr(ttnn.MathFidelity, policy.gate_pack_fidelity), math_approx_mode=False,
             fp32_dest_acc_en=True, packer_l1_acc=True)
         self.program = None
         if policy.gate_pack_grid:
@@ -785,12 +863,28 @@ class _PackedGateMoE:
                              memory_config=ttnn.L1_MEMORY_CONFIG)
         values, indices = self.moe.router.module.route(logits[:, :, :, :256])
         routing = (ttnn.permute(values, (1, 2, 0, 3)), ttnn.permute(indices, (1, 2, 0, 3)))
+        if self.policy.expert_decode_shared and self.policy.expert_decode_kernel:
+            out, activated = self.moe.experts(x, routing, mode=mode, shared=self.moe.shared.packed)
+            if self.policy.shared_addcmul_config:
+                return self.moe.shared.addcmul(out, activated, logits[:, :, :, 256:257])
+            return ttnn.add(out, self.moe.shared.forward(x, gate=logits[:, :, :, 256:257], activated=activated))
         out = self.moe.experts(x, routing, mode=mode)
         return ttnn.add(out, self.moe.shared.forward(x, gate=logits[:, :, :, 256:257]))
 
 
 class _OptimizedShared:
-    def forward(self, x, gate=None):
+    def addcmul(self, routed, activated, gate):
+        import ttnn
+
+        down = self.projections["shared_down"]
+        activated = ttnn.reshape(activated, (1, 1, 1, activated.shape[-1]), activated.padded_shape)
+        scaled = ttnn.multiply(gate, activated, input_tensor_a_activations=[ttnn.UnaryOpType.SIGMOID],
+                               memory_config=ttnn.L1_MEMORY_CONFIG)
+        return ttnn.experimental.dit_minimal_matmul_addcmul_fused(
+            scaled, down.weight, 1.0, routed, self.addcmul_ones, config=_minimal_config(self.policy.shared_addcmul_config),
+            memory_config=ttnn.L1_MEMORY_CONFIG, dtype=ttnn.bfloat16, compute_kernel_config=down.compute)
+
+    def forward(self, x, gate=None, activated=None):
         import ttnn
 
         def project(role, weight):
@@ -800,7 +894,9 @@ class _OptimizedShared:
                                memory_config=ttnn.L1_MEMORY_CONFIG)
         if gate is None:
             gate = project("shared_gate",self.gate_weight)
-        if self.policy.shared_split:
+        if activated is not None:
+            activated = ttnn.reshape(activated, (1, 1, 1, activated.shape[-1]), activated.padded_shape)
+        elif self.policy.shared_split:
             ff_gate = project("shared_gate_proj",self.mlp.weights.w1)
             ff_up = project("shared_up_proj",self.mlp.weights.w3)
             activated = ttnn.multiply(ff_gate,ff_up,input_tensor_a_activations=[ttnn.UnaryOpType.SILU],
@@ -837,6 +933,12 @@ class _OptimizedGateModule:
 
         base = self.original
         total = logits.shape[2]
+        if total > 1 and getattr(self, "topk_prefill", False):
+            dram = ttnn.DRAM_MEMORY_CONFIG
+            values, indices = ttnn.topk(logits, k=8, dim=-1, memory_config=dram)
+            values = ttnn.typecast(ttnn.softmax(ttnn.typecast(values, ttnn.float32), dim=-1, memory_config=dram),
+                                   ttnn.bfloat16, memory_config=dram)
+            return values, indices
         chunk = min(base.num_device_cores,base._buffer_rows)
         iterations = (total+chunk-1)//chunk
         padding = (iterations-total%iterations)%iterations
@@ -844,10 +946,16 @@ class _OptimizedGateModule:
         if padding:
             logits = ttnn.pad(logits,((0,0),(0,0),(0,padding),(0,0)),0)
         mem_in = base._sharded_mem_config(width,(32,32))
-        bias = ttnn.slice(base.tt_bias,[0,0,0],[width,16,16],memory_config=mem_in)
-        indices = ttnn.slice(base.tt_input_indices,[0,0,0],[width,16,16],memory_config=mem_in)
-        out = ttnn.slice(base.tt_output,[0,0,0],[width,32,32],memory_config=mem_in)
-        out_idx = ttnn.slice(base.tt_output_indices,[0,0,0],[width,32,32],memory_config=mem_in)
+        cache = getattr(self,"cached_slices",None)
+        if cache is not None and width in cache:
+            bias, indices, out, out_idx = cache[width]
+        else:
+            bias = ttnn.slice(base.tt_bias,[0,0,0],[width,16,16],memory_config=mem_in)
+            indices = ttnn.slice(base.tt_input_indices,[0,0,0],[width,16,16],memory_config=mem_in)
+            out = ttnn.slice(base.tt_output,[0,0,0],[width,32,32],memory_config=mem_in)
+            out_idx = ttnn.slice(base.tt_output_indices,[0,0,0],[width,32,32],memory_config=mem_in)
+            if cache is not None:
+                cache[width] = (bias, indices, out, out_idx)
         values_list, indices_list = [], []
         for start in range(0,total+padding,width):
             cur = ttnn.to_memory_config(ttnn.reshape(logits[:,:,start:start+width,:],(width,16,16)),mem_in)
@@ -892,6 +1000,8 @@ class _DecodeNorm:
         import ttnn
 
         self.original, self.policy = original, policy
+        self.prefill_weight = (ttnn.typecast(original.weight, ttnn.bfloat16) if policy.prefill_norm == "bf16"
+                               else original.weight)
         cores = policy.decode_norm_cores
         block = 64 // cores
         self.memory = ttnn.create_sharded_memory_config(
@@ -906,6 +1016,15 @@ class _DecodeNorm:
         import ttnn
 
         if x.shape[-2] != 1:
+            if self.policy.prefill_norm:
+                dram = ttnn.DRAM_MEMORY_CONFIG
+                if self.policy.prefill_norm == "fp32":
+                    y = ttnn.rms_norm(ttnn.typecast(x, ttnn.float32), epsilon=self.original.eps,
+                                      weight=self.original.weight, compute_kernel_config=self.original.compute,
+                                      memory_config=dram)
+                    return ttnn.typecast(y, ttnn.bfloat16)
+                return ttnn.rms_norm(x, epsilon=self.original.eps, weight=self.prefill_weight,
+                                     compute_kernel_config=self.original.compute, memory_config=dram)
             return self.original(x, mode=mode, norm_config=norm_config)
         if self.policy.decode_norm_fill:
             x = ttnn.fill_implicit_tile_padding(x, 0.0)
@@ -1019,7 +1138,7 @@ class _OptimizedSparseExperts:
             fuse_batch=False, fused_activation=activation, mcast_in0=True,
         )
 
-    def __call__(self, hidden, routing, mode="decode"):
+    def __call__(self, hidden, routing, mode="decode", shared=None):
         import ttnn
 
         values, indices = routing
@@ -1034,9 +1153,18 @@ class _OptimizedSparseExperts:
         def project(x, weight, role, n, sparse_input=False, activation=None):
             return ttnn.sparse_matmul(x, weight, sparsity=sparsity, nnz=nnz, indices=ids,
                 program_config=self.program_config(role,n,activation), compute_kernel_config=self.compute,
-                memory_config=ttnn.L1_MEMORY_CONFIG, dtype=ttnn.bfloat16,
+                memory_config=ttnn.L1_MEMORY_CONFIG,
+                dtype=ttnn.bfloat8_b if role == "down" and shared is not None and self.policy.shared_addcmul_config else ttnn.bfloat16,
                 is_input_a_sparse=sparse_input, output_tile=ttnn.Tile([32,32]))
-        if self.policy.sparse_split:
+        if self.policy.expert_decode_kernel and self.policy.sparse_indexed and mode == "decode":
+            from models.autoports.qwen_qwen3_5_35b_a3b.tt.expert_decode import expert_swiglu_decode
+
+            fused = expert_swiglu_decode(hidden, ids, self.gate_up_weight, shared=shared,
+                                         nper=self.policy.expert_decode_nper, kb=self.policy.expert_decode_kb)
+            if shared is not None:
+                fused, shared = fused
+            activated = ttnn.reshape(fused, (1, active, 1, fused.shape[-1]), fused.padded_shape)
+        elif self.policy.sparse_split:
             up = ttnn.reshape(project(hidden,self.up_weight,"gate",512), (1,active,1,512))
             gate = ttnn.reshape(project(hidden,self.gate_weight,"gate",512), (1,active,1,512))
             # The sparse factory does not emit SFPU_ACTIVATION from the program config.
@@ -1051,14 +1179,16 @@ class _OptimizedSparseExperts:
         if self.policy.sparse_fused_reduce:
             if not self.policy.sparse_indexed:
                 raise ValueError("Fused sparse reduction requires compact indexed output")
-            return ttnn.experimental.deepseek_moe_fast_reduce_nc_fused(
+            reduced = ttnn.experimental.deepseek_moe_fast_reduce_nc_fused(
                 ttnn.reshape(down[:,:,:1,:],(8,1,1,2048)),ids,self.mapping,reduce_dim=0,split_size=2048,
                 cluster_axis=getattr(self,"reduce_cluster_axis",0),
                 scores_tensor=ttnn.to_layout(values,ttnn.ROW_MAJOR_LAYOUT),
                 output_memory_config=ttnn.L1_MEMORY_CONFIG)[0]
-        scores = values if self.policy.sparse_indexed else ttnn.scatter(self.zeros, dim=-1, index=indices, src=values)
-        weighted = ttnn.multiply(down,ttnn.permute(scores,(0,3,2,1)),memory_config=ttnn.L1_MEMORY_CONFIG)
-        return ttnn.experimental.fast_reduce_nc(weighted,dims=[1],memory_config=ttnn.L1_MEMORY_CONFIG)[:,:,:1,:]
+        else:
+            scores = values if self.policy.sparse_indexed else ttnn.scatter(self.zeros, dim=-1, index=indices, src=values)
+            weighted = ttnn.multiply(down,ttnn.permute(scores,(0,3,2,1)),memory_config=ttnn.L1_MEMORY_CONFIG)
+            reduced = ttnn.experimental.fast_reduce_nc(weighted,dims=[1],memory_config=ttnn.L1_MEMORY_CONFIG)[:,:,:1,:]
+        return reduced if shared is None else (reduced, shared)
 
 
 class _OptimizedPrefillExperts(_PackedPrefillExperts):
@@ -1098,9 +1228,9 @@ class _OptimizedPrefillExperts(_PackedPrefillExperts):
             del weighted
         return ttnn.concat(pieces,dim=2) if len(pieces)>1 else pieces[0]
 
-    def __call__(self, hidden, routing, mode="decode"):
+    def __call__(self, hidden, routing, mode="decode", **kwargs):
         if mode == "decode":
-            return self.original(hidden, routing, mode=mode)
+            return self.original(hidden, routing, mode=mode, **kwargs)
         if self.policy.prefill_backend == "dispatch":
             return self.dispatch(hidden,routing)
         if self.policy.prefill_backend == "sparse":
@@ -1387,7 +1517,8 @@ class _OptimizedAttention(_ProjectionMixin, _FusedAttention):
                     q_chunk_size=32, k_chunk_size=32, exp_approx_mode=False) if length < 128
                     else ttnn.SDPAProgramConfig(
                     compute_with_storage_grid_size=self.device.compute_with_storage_grid_size(),
-                    **self.sdpa_policy["prefill"]) if "prefill" in self.sdpa_policy
+                    **(self.sdpa_long if length > 4096 and getattr(self, "sdpa_long", None)
+                       else self.sdpa_policy["prefill"])) if "prefill" in self.sdpa_policy
                     else _get_flexible_sdpa_program_config(self.device)),
                 compute_kernel_config=_get_sdpa_compute_kernel_config(),
             )
@@ -1418,7 +1549,8 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
         rm_state = self.optimization.conv_state_rm
         history = self.fused_conv_state if rm_state else ttnn.to_layout(self.fused_conv_state, ttnn.ROW_MAJOR_LAYOUT)
         if length == 1 and rm_state:
-            qkv = ttnn.fill_implicit_tile_padding(qkv, 0.0)
+            if self.optimization.conv_decode_fill:
+                qkv = ttnn.fill_implicit_tile_padding(qkv, 0.0)
             current = ttnn.to_layout(ttnn.reshape(qkv, (1, 32, qkv.shape[-1]), (1, 32, qkv.shape[-1])),
                                      ttnn.ROW_MAJOR_LAYOUT)
         else:
@@ -1436,11 +1568,20 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
                                                layout=ttnn.ROW_MAJOR_LAYOUT), (1, 3, qkv.shape[-1]))
         elif length >= 3 and "kda_tail" in self.fusions:
             tail = current[:, length - 3 : length, :]
+        elif rm_state and length == 1 and self.optimization.conv_shift == "gate":
+            tail = None
+            self._conv_current = current
+        elif rm_state and length == 1 and self.optimization.conv_shift == "concat35":
+            tail = ttnn.concat((history, current), dim=1)[:, 1:4, :]
         elif rm_state and length == 1:
             tail = ttnn.concat((history[:, 1:3, :], current[:, :1, :]), dim=1)
         else:
             tail = ttnn.concat((history, current[:, :length, :]), dim=1)[:, length : length + 3, :]
-        ttnn.copy(tail if rm_state else ttnn.to_layout(tail, ttnn.TILE_LAYOUT), self.fused_conv_state)
+        if tail is not None:
+            ttnn.copy(tail if rm_state else ttnn.to_layout(tail, ttnn.TILE_LAYOUT), self.fused_conv_state)
+        if (length == 1 and "kda_tuple" in self.fusions and self.optimization.gdn_decode_direct
+                and self.optimization.gdn_decode_kernel and self.optimization.gdn_decode_gates):
+            return q, k, v
         parts = (q[:, :length, :], k[:, :length, :], v[:, :length, :])
         return parts if "kda_tuple" in self.fusions else ttnn.concat(parts, dim=-1)
 
@@ -1474,8 +1615,31 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
         return (ttnn.reshape(output,(1,1,self.num_v_heads,self.head_v_dim)),
                 ttnn.reshape(updated,(1,self.num_v_heads,self.head_k_dim,self.head_v_dim)))
 
+    def _decode_kernel(self, mega, q, k, v, decay_log, beta, z_start, mc, residual, gates=None):
+        import ttnn
+
+        from .gdn_decode import gdn_decode
+
+        current, self._conv_current = getattr(self, "_conv_current", None), None
+        direct = self.optimization.gdn_decode_direct and z_start % 32 == 0
+        z = mega if direct else mega[:, :, z_start : z_start + self.cfg.v_dim]
+        gated = gdn_decode(q, k, v, z, decay_log, beta, self.recurrent_state, self.norm_weight,
+                           groups=self.num_v_heads // self.num_heads, blocks=self.optimization.gdn_decode_blocks,
+                           norm_eps=self.norm_eps,
+                           gates=None if gates is None else (mega, self.dt_bias, self.a_neg, *gates),
+                           z_offset=z_start // 32 if direct else 0,
+                           conv=(self.fused_conv_state, current) if current is not None else None)
+        flat = ttnn.reshape(gated, (1, 1, self.cfg.v_dim))
+        if residual is not None:
+            return self.residual_projection(flat, residual, self.compute_kernel_config, mc)
+        return self.project("attention_out", flat, self.output_weight, self.compute_kernel_config, mc)
+
     def _decode_heads(self, mega, q, k, v, decay_log, beta, z_start, mc, residual):
         import ttnn
+
+        if getattr(self, "_conv_current", None) is not None:
+            self._conv_current = None
+            raise ValueError("conv_shift='gate' requires the GDN decode kernel path")
 
         if not hasattr(self, "heads_mem"):
             self.heads_mem = ttnn.MemoryConfig(
@@ -1559,6 +1723,9 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
             k = columns(qkv, self.cfg.q_dim, self.cfg.q_dim + self.cfg.k_dim)
             v = columns(qkv, self.cfg.q_dim + self.cfg.k_dim, qkv_width)
         fused_norm = "kda_norm_decode" in self.fusions or (length > 1 and "kda_norm" in self.fusions)
+        if (length == 1 and self.optimization.gdn_decode_kernel and self.optimization.gdn_decode_gates
+                and isinstance(qkv, tuple) and not masked):
+            return self._decode_kernel(mega, q, k, v, None, None, z_start, mc, residual, gates=(a_start, b_start))
         a = ttnn.typecast(columns(mega, a_start, a_start + self.num_v_heads), ttnn.float32)
         beta = ttnn.typecast(
             ttnn.sigmoid(ttnn.typecast(columns(mega, b_start, b_start + self.num_v_heads), ttnn.float32),
@@ -1576,6 +1743,8 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
         if masked:
             decay_log = ttnn.multiply(decay_log, ttnn.typecast(self._tail_mask, decay_log.dtype))
             beta = ttnn.multiply(beta, ttnn.typecast(self._tail_mask, beta.dtype))
+        if length == 1 and self.optimization.gdn_decode_kernel and isinstance(qkv, tuple):
+            return self._decode_kernel(mega, q, k, v, decay_log, beta, z_start, mc, residual)
         if length == 1 and self.optimization.gdn_heads_decode and isinstance(qkv, tuple):
             return self._decode_heads(mega, q, k, v, decay_log, beta, z_start, mc, residual)
         if length > 1:
@@ -1640,8 +1809,11 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
                 memory_config=mc,
                 output_dtype=ttnn.float32,
             )
-            gated = ttnn.multiply(gated[:, :length, :], ttnn.typecast(gate_flat, ttnn.float32))
-            gated = ttnn.typecast(gated, ttnn.bfloat16)
+            if self.optimization.gdn_gate_mixed:
+                gated = ttnn.multiply(gated[:, :length, :], gate_flat, dtype=ttnn.bfloat16)
+            else:
+                gated = ttnn.multiply(gated[:, :length, :], ttnn.typecast(gate_flat, ttnn.float32))
+                gated = ttnn.typecast(gated, ttnn.bfloat16)
             if residual is not None:
                 return self.residual_projection(gated, residual, self.compute_kernel_config, mc)
             return self.project("attention_out", gated, self.output_weight, self.compute_kernel_config, mc)
@@ -1706,10 +1878,14 @@ class _SplitColumns:
         return self.main[:, :, start:stop]
 
 
-_PLAN_COST = {"full": (0.8, 0.0014, 0.8, 3.0, 1.05), "linear": (0.5, 0.003, 1.1, 3.0, 1.6)}
+_PLAN_COST = {"full": (0.8, 0.0014, 0.8, 3.0, 1.6), "linear": (0.5, 0.003, 0.85, 3.0, 1.6)}
 
 
-def _moe_pieces(rows, sizes, limit):
+def _moe_pieces(rows, sizes, limit, merge_min=0):
+    if rows > sizes[-1]:
+        if rows % sizes[-1]:
+            raise ValueError(f"{rows} MoE rows do not split into {sizes[-1]}-row pieces")
+        return [sizes[-1]] * (rows // sizes[-1])
     single = next(n for n in sizes if n >= rows)
     pieces, remaining = [], rows
     while remaining > 0:
@@ -1720,6 +1896,8 @@ def _moe_pieces(rows, sizes, limit):
         pieces.append(piece)
         remaining -= piece
     if sum(pieces) >= single or (sum(pieces) > rows and single < sizes[-1]):
+        return [single]
+    if merge_min and len(pieces) > 1 and pieces[-1] >= merge_min:
         return [single]
     return pieces
 
@@ -1744,6 +1922,12 @@ class _ZeroPaddedDecodeLayer:
         if mode == "decode":
             x = ttnn.fill_implicit_tile_padding(x, 0.0)
         return object.__getattribute__(self, "original").forward(x, *args, mode=mode, **kwargs)
+
+
+def _interleaved(tensor):
+    import ttnn
+
+    return ttnn.to_memory_config(tensor, ttnn.DRAM_MEMORY_CONFIG) if tensor.is_sharded() else tensor
 
 
 def _as_dtype(tensor, dtype):
@@ -1780,14 +1964,57 @@ class _OptimizedRouter:
         import ttnn
 
         values,indices = self.module.forward(x)
-        values = ttnn.permute(values,(1,2,0,3))
+        token_major = x.shape[2] > 1 and values.shape[2] == x.shape[2]
+        if not token_major:
+            values = ttnn.permute(values,(1,2,0,3))
         if x.shape[2]==1 or self.tuple_prefill:
-            return values,ttnn.permute(indices,(1,2,0,3))
-        indices = ttnn.permute(ttnn.typecast(indices,ttnn.uint32),(1,2,0,3))
+            return values,indices if token_major else ttnn.permute(indices,(1,2,0,3))
+        indices = (ttnn.typecast(indices,ttnn.uint32) if token_major
+                   else ttnn.permute(ttnn.typecast(indices,ttnn.uint32),(1,2,0,3)))
         return ttnn.scatter(ttnn.zeros_like(self.zero_templates[x.shape[2]]),dim=-1,index=indices,src=values)
 
 
 _PREFIX_MATRICES = {}
+_SCATTER_BUFFERS = {}
+
+
+def _scatter_rows(routes, rows):
+    rows = min(rows, routes // 1024)
+    while rows > 1 and routes % rows:
+        rows //= 2
+    return max(rows, 1)
+
+
+def _scatter_buffers(mesh, capacity, length, tiled, rows):
+    import torch
+    import ttnn
+
+    routes = length * 8
+    rows = _scatter_rows(routes, rows)
+    key = (mesh, capacity, length, tiled, rows)
+    if rows > 1 and key not in _SCATTER_BUFFERS:
+        tokens = torch.arange(routes) % length if tiled else torch.arange(routes) // 8
+        put = lambda x: ttnn.from_torch(x, device=mesh, dtype=ttnn.float32, layout=ttnn.ROW_MAJOR_LAYOUT,
+                                        mesh_mapper=ttnn.ReplicateTensorToMesh(mesh))
+        _SCATTER_BUFFERS[key] = (put(torch.zeros(1, 1, rows, capacity)),
+                                 put((tokens + 1).float().reshape(1, 1, rows, routes // rows)),
+                                 ttnn.from_torch((torch.arange(capacity) % length).float().reshape(1, 1, 1, capacity),
+                                                 device=mesh, dtype=ttnn.float32, layout=ttnn.TILE_LAYOUT,
+                                                 mesh_mapper=ttnn.ReplicateTensorToMesh(mesh)))
+    return rows, _SCATTER_BUFFERS.get(key)
+
+
+def _dispatch_scatter(map_zeros, target, tokens, capacity, length, tiled, rows, mesh):
+    import ttnn
+
+    rows, buffers = _scatter_buffers(mesh, capacity, length, tiled, rows) if rows else (1, None)
+    if buffers is None:
+        return ttnn.scatter(map_zeros, dim=-1, index=target, src=tokens)
+    zeros, src, spread = buffers
+    scattered = ttnn.scatter(zeros, dim=-1, index=ttnn.reshape(target, (1, 1, rows, length * 8 // rows)), src=src)
+    summed = ttnn.sum(ttnn.to_layout(scattered, ttnn.TILE_LAYOUT), dim=2, keepdim=True)
+    clamped = ttnn.where(ttnn.gtz(summed), ttnn.clamp(ttnn.subtract(summed, 1.0), 0.0, float(length - 1)), spread)
+    return ttnn.reshape(ttnn.to_layout(ttnn.typecast(clamped, ttnn.uint32), ttnn.ROW_MAJOR_LAYOUT), (1, 1, 1, capacity))
 
 
 class _LocalDispatch:
@@ -1824,6 +2051,7 @@ class _LocalDispatch:
         import ttnn
 
         policy = self.policy
+        self.mesh = mesh
         self.prefix_compute = ttnn.init_device_compute_kernel_config(mesh.arch(),
             math_fidelity=ttnn.MathFidelity.LoFi,fp32_dest_acc_en=True,packer_l1_acc=False,math_approx_mode=False)
         def put(x,dtype,layout):
@@ -1842,9 +2070,12 @@ class _LocalDispatch:
                 raise ValueError("Internal local-dispatch chunk must fit UINT16 route maps")
             self.buffers[length] = (
                 put(torch.arange(routes,dtype=torch.float32).reshape(1,1,1,routes),ttnn.float32,ttnn.TILE_LAYOUT),
-                put(torch.zeros((1,1,1,capacity),dtype=torch.int32),ttnn.uint32,ttnn.ROW_MAJOR_LAYOUT),
+                put((torch.arange(capacity,dtype=torch.int32) % length).reshape(1,1,1,capacity),ttnn.uint32,
+                    ttnn.ROW_MAJOR_LAYOUT),
                 put(torch.zeros((1,1,1,routes),dtype=torch.int32),ttnn.uint32,ttnn.ROW_MAJOR_LAYOUT),capacity)
             if policy.dispatch_rank == "matmul":
+                if policy.dispatch_scatter_rows:
+                    _scatter_buffers(mesh, capacity, length, self.tiles(length), policy.dispatch_scatter_rows)
                 key = (mesh, length)
                 if key not in _PREFIX_MATRICES:
                     _PREFIX_MATRICES[key] = put(torch.ones((length,length)).tril(-1).reshape(1,1,length,length),
@@ -1899,7 +2130,8 @@ class _LocalDispatch:
             if self.tiles(length):
                 slots = ttnn.transpose(slots,-2,-1)
             target = ttnn.reshape(rm_uint32(slots),(1,1,1,length*8))
-            dispatch_map = ttnn.scatter(map_zeros,dim=-1,index=target,src=tokens)
+            dispatch_map = _dispatch_scatter(map_zeros,target,tokens,capacity,length,self.tiles(length),
+                                             self.policy.dispatch_scatter_rows,self.mesh)
             offsets = ttnn.reshape(rm_uint32(region_start),(256,))
             return counts,offsets,dispatch_map,target,capacity
         counts = ttnn.experimental.deepseek_prefill.masked_bincount(

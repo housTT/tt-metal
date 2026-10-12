@@ -7,6 +7,8 @@ It avoids an O(context²) host attention matrix and MoE work on unobserved outpu
 TT still executes the complete layer for every input token.
 """
 
+import itertools
+
 import torch
 from transformers.cache_utils import DynamicCache
 from transformers.models.qwen3_5_moe.modeling_qwen3_5_moe import apply_rotary_pos_emb, eager_attention_forward
@@ -97,3 +99,54 @@ def decode_reference(layer, rope, cache, x, start):
         token = x[:, i : i + 1]
         outputs.append(layer(token, position_embeddings=rope(token, pos), position_ids=pos, past_key_values=cache))
     return torch.cat(outputs, dim=1) if outputs else None
+
+
+@torch.no_grad()
+def decode_reference_with_ties(layer, rope, cache, x, start):
+    mlp = layer.mlp
+    captured = {}
+    gate_forward, experts_forward = mlp.gate.forward, mlp.experts.forward
+
+    def gate(hidden):
+        result = gate_forward(hidden)
+        captured["route"] = result
+        return result
+
+    def experts(hidden, selected, weights):
+        captured["hidden"] = hidden
+        return experts_forward(hidden, selected, weights)
+
+    mlp.gate.forward, mlp.experts.forward = gate, experts
+    outputs, alternatives = [], {}
+    try:
+        for i in range(x.shape[1]):
+            pos = torch.full((x.shape[0], 1), start + i, dtype=torch.long)
+            token = x[:, i : i + 1]
+            outputs.append(layer(token, position_embeddings=rope(token, pos), position_ids=pos, past_key_values=cache))
+            logits, weights, selected = captured["route"]
+            probs = torch.softmax(logits, dtype=torch.float, dim=-1)
+            hidden = captured["hidden"]
+            for row in range(probs.shape[0]):
+                boundary = logits[row, selected[row, -1]].float()
+                ulp = 2.0 ** (torch.floor(torch.log2(boundary.abs().clamp_min(1e-30))) - 7)
+                near = (logits[row].float() - boundary).abs() <= ulp
+                tied = torch.nonzero(near).flatten().tolist()
+                keep = [e for e in selected[row].tolist() if not near[e]]
+                slots = len(selected[row]) - len(keep)
+                if len(tied) <= slots:
+                    continue
+                exact = bool((probs[row, tied] == probs[row, selected[row, -1]]).all())
+                base = experts_forward(hidden[row : row + 1], selected[row : row + 1], weights[row : row + 1])
+                deltas = []
+                for choice in itertools.combinations(tied, slots):
+                    alternative = torch.tensor([keep + list(choice)], dtype=selected.dtype)
+                    if sorted(alternative[0].tolist()) == sorted(selected[row].tolist()):
+                        continue
+                    chosen_probs = probs[row, alternative[0]]
+                    alt_weights = (chosen_probs / chosen_probs.sum()).to(weights.dtype)
+                    delta = experts_forward(hidden[row : row + 1], alternative, alt_weights[None]) - base
+                    deltas.append(delta.reshape(-1))
+                alternatives[(row, i)] = dict(tied=tied, slots=slots, deltas=deltas, exact=exact)
+    finally:
+        mlp.gate.forward, mlp.experts.forward = gate_forward, experts_forward
+    return (torch.cat(outputs, dim=1) if outputs else None), alternatives

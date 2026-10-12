@@ -1,0 +1,114 @@
+[
+  {
+    "name": "default",
+    "policy": null,
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "multichip",
+      "--mesh",
+      "4",
+      "--layer",
+      "3",
+      "--length",
+      "4103",
+      "--steps",
+      "4",
+      "--batch",
+      "1",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_multichip_decoder/evidence11/len_m4_full_4103/default.json",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 19.41410091193393,
+    "source_stable": true,
+    "prefill_pcc": 0.9994945526123047,
+    "decode_pcc": 0.9993454217910767,
+    "prefill_host_us": 13644.335,
+    "continuation_host_us": null,
+    "prefill_token_pcc_min": 0.991373598575592,
+    "prefill_tokens_below_0995": 1,
+    "prefill_repeat_identical": true,
+    "prefill_repeat_difference": null,
+    "decode_host_us": 273.519,
+    "mesh_shape": [
+      1,
+      4
+    ],
+    "device_ids": [
+      3,
+      2,
+      1,
+      0
+    ],
+    "output_replicas_identical": true,
+    "control_equivalence": null,
+    "weight_memory": {
+      "after_merge": {
+        "dram": {
+          "allocated_bytes": 463186944,
+          "free_bytes": 33715544064,
+          "banks": 8,
+          "largest_free_bytes_per_bank": 4015967488
+        },
+        "l1": {
+          "allocated_bytes": 901120,
+          "free_bytes": 159822080,
+          "banks": 110,
+          "largest_free_bytes_per_bank": 1452928
+        }
+      }
+    },
+    "construction_memory": [
+      {
+        "step": "start",
+        "device_dram_allocated_bytes": 0,
+        "host_rss_bytes": 2764828672,
+        "host_peak_rss_bytes": 3605831680
+      },
+      {
+        "step": "replica_0",
+        "device_dram_allocated_bytes": 463186944,
+        "host_rss_bytes": 2984349696,
+        "host_peak_rss_bytes": 5018828800
+      },
+      {
+        "step": "replica_1",
+        "device_dram_allocated_bytes": 849380352,
+        "host_rss_bytes": 3037876224,
+        "host_peak_rss_bytes": 5072846848
+      },
+      {
+        "step": "replica_2",
+        "device_dram_allocated_bytes": 1235573760,
+        "host_rss_bytes": 3017596928,
+        "host_peak_rss_bytes": 5126078464
+      },
+      {
+        "step": "replica_3",
+        "device_dram_allocated_bytes": 1621767168,
+        "host_rss_bytes": 3049287680,
+        "host_peak_rss_bytes": 5126078464
+      },
+      {
+        "step": "merged_before_release",
+        "device_dram_allocated_bytes": 1621767168,
+        "host_rss_bytes": 3058577408,
+        "host_peak_rss_bytes": 5126078464
+      },
+      {
+        "step": "released",
+        "device_dram_allocated_bytes": 463186944,
+        "host_rss_bytes": 3058577408,
+        "host_peak_rss_bytes": 5126078464
+      }
+    ]
+  }
+]

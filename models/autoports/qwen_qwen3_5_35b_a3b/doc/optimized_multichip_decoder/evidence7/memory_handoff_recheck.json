@@ -1,0 +1,529 @@
+{
+ "purpose": "Stage 5 recheck of memory-layout-handoff.json against the optimized multichip implementation.",
+ "handoff_inspected_on": "2026-10-10",
+ "source_sha256": {
+  "__init__.py": "20db980a38cc5bb36a49afaff8f9838e2c77f17e5b1ef0c42b5ed918f77a1ca9",
+  "expert_decode.py": "d4aaeba12a8889d02a8ac529922d583320b630f75116e50702586a4018fc5d9e",
+  "functional_attention.py": "6718df3736404f042613670f43e184e202ece215a9f7907f6358ec18326a8638",
+  "functional_decoder.py": "c3597bf194086ddc39fb030d221b7fe932162b052815affd7c6c14ede135f9b0",
+  "functional_gdn.py": "2a5a87d7ff4d35483a1e0103951001e8610ed12f5f4af4cb15498a6e547ad37b",
+  "fused_decoder.py": "e1c244e3d565d287f26c88d889a2d7ddf49c8fd9db71ee5ea8e700d068825602",
+  "gdn_decode.py": "760aec1cf660dbd328c0929ed8dd1b9ef7222030a439a565a37622322a2f90e1",
+  "multichip_decoder.py": "76862d51ec5409177dee18cd214f08409034f1fa6405eb1f0feb2b3a359e5caf",
+  "optimized_decoder.py": "630f73beec7699b58f1bdd390d328e5fb48b679f49a89106ec8c30e5c6fa876a"
+ },
+ "ttnn_patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+ "method": "tests/weight_inventory.py --decoder multichip --mesh N: root-buffer census plus allocator samples taken during construction (start, after each replica, after merge, after release) and host VmRSS/VmHWM.",
+ "items": [
+  {
+   "item": "In the appropriate optimization/multichip/full-model stages, record post-construction allocator DRAM and per-buffer identities, host RSS and setup peaks; validate implicit reference releases.",
+   "status": "addressed",
+   "evidence": "construction_steps per profile below; release confirmed by the post-release sample"
+  },
+  {
+   "item": "Create an explicit representation/consumer/last-use ownership table. Release setup-only originals only after all actual consumers have finished; preserve live trace and cache ownership.",
+   "status": "addressed",
+   "evidence": "ownership table below"
+  },
+  {
+   "item": "Avoid retaining both monolithic packed weights and copied packed groups when the selected path uses only one. Consider offset/view-compatible kernel inputs, or deallocate the unused parent after copies are complete.",
+   "status": "addressed",
+   "evidence": "no packed monolithic or grouped copies are live; dispatch reads stacked weights"
+  },
+  {
+   "item": "Construct compact BF8 descriptors from the checkpoint/cache without keeping unused fallback representations resident. Gate any dtype or math change by real correctness/quality tests.",
+   "status": "addressed",
+   "evidence": "p150 holds one BFP4 gate/up + BFP8 down copy; dispatch BFP8 lists removed (bitwise identical outputs)"
+  },
+  {
+   "item": "Reuse a down-weight backing allocation when the kernel can accept valid views/offsets; ordinary slice currently copies.",
+   "status": "addressed",
+   "evidence": "moe_fused_swiglu reads expert offsets inside one stacked tensor (stacked_intermediate)"
+  },
+  {
+   "item": "Share identical RoPE tables across full-attention layers where ownership and indexed channel conventions permit.",
+   "status": "open_full_model",
+   "evidence": "RoPE 64 MiB per full layer in the single-layer harness; full model must share one copy per mesh"
+  },
+  {
+   "item": "Implement local-expert indexing and genuinely sharded weight representations for x2/x4; do not reuse single-chip gather/replicate adapters unchanged.",
+   "status": "addressed",
+   "evidence": "TP slices and EP slices per rank (tensor_parallel_state, expert_parallel_state); no gather/replicate adapters"
+  },
+  {
+   "item": "Allow deliberately different qualified precision/representation configurations for p150 and p150x2, while optimizing p150x4. Do not silently drop either required profile.",
+   "status": "addressed",
+   "evidence": "p150 dispatch_weights=stacked; p150x2/p150x4 expert_parallel (MESH_POLICIES)"
+  },
+  {
+   "item": "Recompute this audit on the selected full-model implementation and validate real serving capacity before setting manifest context/concurrency limits.",
+   "status": "open_full_model",
+   "evidence": "capacity_model.json is a model from single-layer measurements; full model must measure"
+  }
+ ],
+ "ownership": [
+  {
+   "representation": "decode experts gate/up BFP4 [1,256,2048,2*512/tp] and down BFP8 [1,256,512/tp,2048]",
+   "consumers": [
+    "decode expert_swiglu_decode kernel (gate/up)",
+    "decode indexed sparse_matmul (down)",
+    "p150 prefill dispatch (stacked mode)"
+   ],
+   "lifetime": "layer lifetime"
+  },
+  {
+   "representation": "shared expert packed gate/up BFP4 [2048, 2*512/tp]",
+   "consumers": [
+    "decode expert_swiglu_decode shared slot",
+    "prefill shared minimal_matmul"
+   ],
+   "lifetime": "layer lifetime; no new copy in Stage 5"
+  },
+  {
+   "representation": "GDN in-projection BFP8 (attention_in projection weight)",
+   "consumers": [
+    "GDN prefill and decode in-projection"
+   ],
+   "lifetime": "layer lifetime; the BF16 mega_weight source is released after padding and merge"
+  },
+  {
+   "representation": "decode all-reduce persistent buffer [1,1,32,2048*tp] BF16 width-sharded L1 and 2 semaphores",
+   "consumers": [
+    "decode all_reduce_async (both per-layer all-reduces)"
+   ],
+   "lifetime": "one per (mesh, core count), module level"
+  },
+  {
+   "representation": "dispatch scatter buffers (FP32 zeros [1,1,R,capacity] and token+1 rows)",
+   "consumers": [
+    "prefill dispatch map scatter"
+   ],
+   "lifetime": "one per (mesh, capacity, length, rows), module level; constant"
+  },
+  {
+   "representation": "router cached slices (bias, indices, outputs) per width",
+   "consumers": [
+    "decode generalized_moe_gate"
+   ],
+   "lifetime": "per layer, created on the eager warmup decode"
+  },
+  {
+   "representation": "prefill EP experts gate/up BFP4 [1,256/tp,2048,1024] and down BFP8 [1,256/tp,512,2048] (tp>1)",
+   "consumers": [
+    "prefill moe_fused_swiglu (stacked mode)"
+   ],
+   "lifetime": "layer lifetime"
+  },
+  {
+   "representation": "replica tensors before merge (tp copies of the local layer)",
+   "consumers": [
+    "merge_replicas host readback"
+   ],
+   "lifetime": "construction only; released after merge"
+  },
+  {
+   "representation": "RoPE tables, dispatch maps, zero templates, index tables",
+   "consumers": [
+    "every layer"
+   ],
+   "lifetime": "per layer in the harness; to be shared per mesh in the full model"
+  }
+ ],
+ "field_notes": {
+  "replica_merge_peak_device_mib": "largest construction sample, taken after each replica's own setup cleanup (meshes only)",
+  "setup_peak_before_cleanup_mib": "p150 setup transient inside OptimizedDecoder.from_state_dict before cleanup",
+  "construction_transient_peaks": "largest allocator total inside replica setup, before that replica's cleanup; the per-layer build peak",
+  "released_after_merge": "null on p150: p150 builds no replicas"
+ },
+ "profiles": {
+  "p150": {
+   "linear_attention": {
+    "allocator_after_construct_mib": 773.3,
+    "by_consumer_mib": {
+     "routed_experts_decode": 560.0,
+     "gdn_recurrent_and_conv_state_slots": 63.5,
+     "attention": 44.6,
+     "routed_experts_prefill_dispatch": 30.2,
+     "shared_expert": 4.5,
+     "router": 3.3,
+     "module_cache": 1.1,
+     "index_tables": 1.0,
+     "norms": 0.4
+    },
+    "construction_steps": [],
+    "replica_merge_peak_device_mib": null,
+    "setup_peak_before_cleanup_mib": 2647.6,
+    "released_after_merge": null,
+    "weight_memory": {
+     "before_cleanup": {
+      "dram": {
+       "allocated_bytes": 2776198656,
+       "free_bytes": 31402532352,
+       "banks": 8,
+       "largest_free_bytes_per_bank": 3923156352
+      },
+      "l1": {
+       "allocated_bytes": 901120,
+       "free_bytes": 159822080,
+       "banks": 110,
+       "largest_free_bytes_per_bank": 1452928
+      }
+     },
+     "after_cleanup": {
+      "dram": {
+       "allocated_bytes": 863492608,
+       "free_bytes": 33315238400,
+       "banks": 8,
+       "largest_free_bytes_per_bank": 3923156352
+      },
+      "l1": {
+       "allocated_bytes": 901120,
+       "free_bytes": 159822080,
+       "banks": 110,
+       "largest_free_bytes_per_bank": 1452928
+      }
+     }
+    }
+   },
+   "full_attention": {
+    "allocator_after_construct_mib": 755.5,
+    "by_consumer_mib": {
+     "routed_experts_decode": 560.0,
+     "rope": 64.0,
+     "routed_experts_prefill_dispatch": 30.2,
+     "attention": 28.0,
+     "shared_expert": 4.5,
+     "router": 3.3,
+     "kv_cache": 1.2,
+     "module_cache": 1.1,
+     "index_tables": 1.0,
+     "norms": 0.4
+    },
+    "construction_steps": [],
+    "replica_merge_peak_device_mib": null,
+    "setup_peak_before_cleanup_mib": 2583.5,
+    "released_after_merge": null,
+    "weight_memory": {
+     "before_cleanup": {
+      "dram": {
+       "allocated_bytes": 2708982784,
+       "free_bytes": 31469748224,
+       "banks": 8,
+       "largest_free_bytes_per_bank": 3933331840
+      },
+      "l1": {
+       "allocated_bytes": 901120,
+       "free_bytes": 159822080,
+       "banks": 110,
+       "largest_free_bytes_per_bank": 1452928
+      }
+     },
+     "after_cleanup": {
+      "dram": {
+       "allocated_bytes": 776222720,
+       "free_bytes": 33402508288,
+       "banks": 8,
+       "largest_free_bytes_per_bank": 3933331840
+      },
+      "l1": {
+       "allocated_bytes": 901120,
+       "free_bytes": 159822080,
+       "banks": 110,
+       "largest_free_bytes_per_bank": 1452928
+      }
+     }
+    }
+   }
+  },
+  "p150x2": {
+   "linear_attention": {
+    "allocator_after_construct_mib": 708.9,
+    "by_consumer_mib": {
+     "routed_experts_prefill_dispatch": 307.9,
+     "routed_experts_decode": 280.0,
+     "gdn_recurrent_and_conv_state_slots": 31.7,
+     "attention": 22.6,
+     "router": 3.3,
+     "shared_expert": 1.8,
+     "module_cache": 1.1,
+     "index_tables": 1.0,
+     "norms": 0.4
+    },
+    "construction_steps": [
+     {
+      "step": "start",
+      "device_dram_mib": 0.0,
+      "host_rss_gib": 0.68,
+      "host_peak_rss_gib": 0.68
+     },
+     {
+      "step": "replica_0",
+      "device_dram_mib": 733.1,
+      "host_rss_gib": 2.5,
+      "host_peak_rss_gib": 6.39
+     },
+     {
+      "step": "replica_1",
+      "device_dram_mib": 1390.9,
+      "host_rss_gib": 2.56,
+      "host_peak_rss_gib": 6.49
+     },
+     {
+      "step": "merged_before_release",
+      "device_dram_mib": 1390.9,
+      "host_rss_gib": 2.6,
+      "host_peak_rss_gib": 6.49
+     },
+     {
+      "step": "released",
+      "device_dram_mib": 733.1,
+      "host_rss_gib": 2.6,
+      "host_peak_rss_gib": 6.49
+     }
+    ],
+    "replica_merge_peak_device_mib": 1390.9,
+    "setup_peak_before_cleanup_mib": null,
+    "released_after_merge": true,
+    "weight_memory": {
+     "after_merge": {
+      "dram": {
+       "allocated_bytes": 768720384,
+       "free_bytes": 33410010624,
+       "banks": 8,
+       "largest_free_bytes_per_bank": 4017608384
+      },
+      "l1": {
+       "allocated_bytes": 901120,
+       "free_bytes": 159822080,
+       "banks": 110,
+       "largest_free_bytes_per_bank": 1452928
+      }
+     }
+    }
+   },
+   "full_attention": {
+    "allocator_after_construct_mib": 731.7,
+    "by_consumer_mib": {
+     "routed_experts_prefill_dispatch": 307.9,
+     "routed_experts_decode": 280.0,
+     "rope": 64.0,
+     "attention": 14.2,
+     "router": 3.3,
+     "shared_expert": 1.8,
+     "module_cache": 1.1,
+     "index_tables": 1.0,
+     "kv_cache": 0.6,
+     "norms": 0.4
+    },
+    "construction_steps": [
+     {
+      "step": "start",
+      "device_dram_mib": 0.0,
+      "host_rss_gib": 0.68,
+      "host_peak_rss_gib": 0.68
+     },
+     {
+      "step": "replica_0",
+      "device_dram_mib": 731.1,
+      "host_rss_gib": 2.51,
+      "host_peak_rss_gib": 6.38
+     },
+     {
+      "step": "replica_1",
+      "device_dram_mib": 1387.1,
+      "host_rss_gib": 2.54,
+      "host_peak_rss_gib": 6.44
+     },
+     {
+      "step": "merged_before_release",
+      "device_dram_mib": 1387.1,
+      "host_rss_gib": 2.57,
+      "host_peak_rss_gib": 6.44
+     },
+     {
+      "step": "released",
+      "device_dram_mib": 731.1,
+      "host_rss_gib": 2.57,
+      "host_peak_rss_gib": 6.44
+     }
+    ],
+    "replica_merge_peak_device_mib": 1387.1,
+    "setup_peak_before_cleanup_mib": null,
+    "released_after_merge": true,
+    "weight_memory": {
+     "after_merge": {
+      "dram": {
+       "allocated_bytes": 766630912,
+       "free_bytes": 33412100096,
+       "banks": 8,
+       "largest_free_bytes_per_bank": 4011176320
+      },
+      "l1": {
+       "allocated_bytes": 901120,
+       "free_bytes": 159822080,
+       "banks": 110,
+       "largest_free_bytes_per_bank": 1452928
+      }
+     }
+    }
+   }
+  },
+  "p150x4": {
+   "linear_attention": {
+    "allocator_after_construct_mib": 397.2,
+    "by_consumer_mib": {
+     "routed_experts_prefill_dispatch": 166.9,
+     "routed_experts_decode": 140.0,
+     "gdn_recurrent_and_conv_state_slots": 15.9,
+     "attention": 11.6,
+     "router": 3.3,
+     "module_cache": 1.1,
+     "index_tables": 1.0,
+     "shared_expert": 1.0,
+     "norms": 0.4
+    },
+    "construction_steps": [
+     {
+      "step": "start",
+      "device_dram_mib": 0.0,
+      "host_rss_gib": 0.71,
+      "host_peak_rss_gib": 0.71
+     },
+     {
+      "step": "replica_0",
+      "device_dram_mib": 409.4,
+      "host_rss_gib": 2.45,
+      "host_peak_rss_gib": 4.38
+     },
+     {
+      "step": "replica_1",
+      "device_dram_mib": 745.3,
+      "host_rss_gib": 2.49,
+      "host_peak_rss_gib": 4.45
+     },
+     {
+      "step": "replica_2",
+      "device_dram_mib": 1081.1,
+      "host_rss_gib": 2.51,
+      "host_peak_rss_gib": 4.48
+     },
+     {
+      "step": "replica_3",
+      "device_dram_mib": 1417.0,
+      "host_rss_gib": 2.53,
+      "host_peak_rss_gib": 4.49
+     },
+     {
+      "step": "merged_before_release",
+      "device_dram_mib": 1417.0,
+      "host_rss_gib": 2.54,
+      "host_peak_rss_gib": 4.49
+     },
+     {
+      "step": "released",
+      "device_dram_mib": 409.4,
+      "host_rss_gib": 2.54,
+      "host_peak_rss_gib": 4.49
+     }
+    ],
+    "replica_merge_peak_device_mib": 1417.0,
+    "setup_peak_before_cleanup_mib": null,
+    "released_after_merge": true,
+    "weight_memory": {
+     "after_merge": {
+      "dram": {
+       "allocated_bytes": 429293056,
+       "free_bytes": 33749437952,
+       "banks": 8,
+       "largest_free_bytes_per_bank": 4032798976
+      },
+      "l1": {
+       "allocated_bytes": 901120,
+       "free_bytes": 159822080,
+       "banks": 110,
+       "largest_free_bytes_per_bank": 1452928
+      }
+     }
+    }
+   },
+   "full_attention": {
+    "allocator_after_construct_mib": 441.2,
+    "by_consumer_mib": {
+     "routed_experts_prefill_dispatch": 166.9,
+     "routed_experts_decode": 140.0,
+     "rope": 64.0,
+     "attention": 7.8,
+     "router": 3.3,
+     "module_cache": 1.1,
+     "index_tables": 1.0,
+     "shared_expert": 1.0,
+     "kv_cache": 0.6,
+     "norms": 0.4
+    },
+    "construction_steps": [
+     {
+      "step": "start",
+      "device_dram_mib": 0.0,
+      "host_rss_gib": 0.72,
+      "host_peak_rss_gib": 0.72
+     },
+     {
+      "step": "replica_0",
+      "device_dram_mib": 440.6,
+      "host_rss_gib": 2.49,
+      "host_peak_rss_gib": 4.38
+     },
+     {
+      "step": "replica_1",
+      "device_dram_mib": 807.9,
+      "host_rss_gib": 2.55,
+      "host_peak_rss_gib": 4.45
+     },
+     {
+      "step": "replica_2",
+      "device_dram_mib": 1175.1,
+      "host_rss_gib": 2.54,
+      "host_peak_rss_gib": 4.51
+     },
+     {
+      "step": "replica_3",
+      "device_dram_mib": 1542.3,
+      "host_rss_gib": 2.55,
+      "host_peak_rss_gib": 4.51
+     },
+     {
+      "step": "merged_before_release",
+      "device_dram_mib": 1542.3,
+      "host_rss_gib": 2.59,
+      "host_peak_rss_gib": 4.51
+     },
+     {
+      "step": "released",
+      "device_dram_mib": 440.6,
+      "host_rss_gib": 2.59,
+      "host_peak_rss_gib": 4.51
+     }
+    ],
+    "replica_merge_peak_device_mib": 1542.3,
+    "setup_peak_before_cleanup_mib": null,
+    "released_after_merge": true,
+    "weight_memory": {
+     "after_merge": {
+      "dram": {
+       "allocated_bytes": 462035968,
+       "free_bytes": 33716695040,
+       "banks": 8,
+       "largest_free_bytes_per_bank": 3998690560
+      },
+      "l1": {
+       "allocated_bytes": 901120,
+       "free_bytes": 159822080,
+       "banks": 110,
+       "largest_free_bytes_per_bank": 1452928
+      }
+     }
+    }
+   }
+  }
+ }
+}

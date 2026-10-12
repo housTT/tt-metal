@@ -12,6 +12,8 @@ from .optimized_decoder import (
     _bucket_sizes,
     _memory_bytes,
     _PREFIX_MATRICES,
+    _dispatch_scatter,
+    _scatter_buffers,
 )
 
 MESH_POLICIES = {
@@ -19,30 +21,46 @@ MESH_POLICIES = {
     2: {
         "dispatch_weights": "expert_parallel",
         "prefill_moe_pieces": 2,
+        "prefill_moe_merge_min": 1024,
+        "plan_start_step_cost": 3.0,
+        "plan_chunk_cost": 2.5,
+        "plan_row_cost": 0.002,
+        "residual_sharded_decode": True,
         "sparse_gate_cores": 16,
         "sparse_gate_k": 64,
         "sparse_down_cores": 64,
         "sparse_down_k": 8,
         "shared_decode_minimal_config": {"grid": [8, 2], "M_block_size": 1, "K_block_size": 16, "N_block_size": 4,
                                          "subblock_h": 1, "subblock_w": 2},
+        "shared_addcmul_config": {"grid": [8, 2], "M_block_size": 1, "K_block_size": 8, "N_block_size": 8,
+                                  "subblock_h": 1, "subblock_w": 2},
         "projections": {"shared_down": {"dram": False, "decode_grid": [8, 2], "k_block": 8, "per_n": 4}},
         "projections_by_kind": {
             "full_attention": {"attention_in": {"decode_grid": [8, 2], "k_block": 8, "per_n": 9}},
+            "linear_attention": {"attention_in": {"decode_grid": [10, 2], "k_block": 4, "per_n": 10}},
         },
     },
     4: {
         "dispatch_weights": "expert_parallel",
         "prefill_moe_pieces": 2,
+        "prefill_moe_merge_min": 1024,
+        "plan_start_step_cost": 3.0,
+        "plan_chunk_cost": 2.5,
+        "plan_row_cost": 0.002,
+        "residual_sharded_decode": True,
         "sparse_gate_cores": 8,
         "sparse_gate_k": 64,
         "sparse_down_cores": 64,
         "sparse_down_k": 4,
         "shared_decode_minimal_config": {"grid": [4, 2], "M_block_size": 1, "K_block_size": 16, "N_block_size": 4,
                                          "subblock_h": 1, "subblock_w": 2},
+        "shared_addcmul_config": {"grid": [8, 2], "M_block_size": 1, "K_block_size": 4, "N_block_size": 8,
+                                  "subblock_h": 1, "subblock_w": 2},
+        "sdpa_prefill_long": {"q_chunk_size": 64, "k_chunk_size": 256, "exp_approx_mode": False},
         "projections": {"shared_down": {"dram": False, "decode_grid": [8, 1], "k_block": 4, "per_n": 8}},
         "projections_by_kind": {
             "full_attention": {"attention_in": {"decode_grid": [8, 5], "k_block": 8, "per_n": 2}},
-            "linear_attention": {"attention_in": {"decode_grid": [10, 2], "k_block": 2, "per_n": 5}},
+            "linear_attention": {"attention_in": {"decode_grid": [10, 2], "k_block": 8, "per_n": 5}},
         },
     },
 }
@@ -68,7 +86,8 @@ def mesh_policy(policy, tp, kind=None):
     by_kind = override.pop("projections_by_kind", {})
     for role, options in by_kind.get(kind, {}).items():
         projections[role] = {**projections.get(role, {}), **options}
-    result.update(override)
+    keep = set(result.get("mesh_policy_keep", ()))
+    result.update({key: value for key, value in override.items() if key not in keep})
     merged = copy.deepcopy(result.get("projections", {}))
     for role, options in projections.items():
         merged[role] = {**merged.get(role, {}), **options}
@@ -163,6 +182,9 @@ def expert_parallel_state(state, layer_idx, tp, rank, config):
     return gate_up, down, rank * experts
 
 
+_SCRATCH_ROWS = 32
+
+
 class _ExpertParallelDispatch(_StackedDispatch):
 
     def __init__(self, gate_up, down, mesh, policy, offset):
@@ -184,12 +206,34 @@ class _ExpertParallelDispatch(_StackedDispatch):
                           put(down.transpose(1, 2).unsqueeze(0), ttnn.bfloat8_b))
         self.expert_ids = put(torch.arange(self.local_experts, dtype=torch.int32), ttnn.uint32, ttnn.ROW_MAJOR_LAYOUT)
         self.offset = put(torch.full((1, 1, 1, 1), float(offset)), ttnn.float32)
-        self.zero_row = put(torch.zeros(1, 1, 1, 2048), ttnn.bfloat16, ttnn.ROW_MAJOR_LAYOUT)
+        self.zero_row = put(torch.zeros(1, 1, _SCRATCH_ROWS, 2048), ttnn.bfloat16, ttnn.ROW_MAJOR_LAYOUT)
         self.compute = ttnn.init_device_compute_kernel_config(mesh.arch(), math_fidelity=ttnn.MathFidelity.LoFi,
                                                               fp32_dest_acc_en=False, packer_l1_acc=False,
                                                               math_approx_mode=False)
         self.valid_rows = None
         self.prepare_maps(mesh)
+
+    @classmethod
+    def masking(cls, stacked, mesh, policy):
+        import torch
+        import ttnn
+
+        self = cls.__new__(cls)
+        self.policy = policy
+        self.bind_weights(stacked.gate[0], stacked.down[0])
+        self.local_experts = stacked.down[0].shape[1]
+
+        def put(x, dtype, layout=ttnn.TILE_LAYOUT):
+            return ttnn.from_torch(x.contiguous(), device=mesh, dtype=dtype, layout=layout,
+                                   memory_config=ttnn.DRAM_MEMORY_CONFIG, mesh_mapper=ttnn.ReplicateTensorToMesh(mesh))
+
+        self.expert_ids = stacked.expert_ids
+        self.offset = put(torch.zeros(1, 1, 1, 1), ttnn.float32)
+        self.zero_row = put(torch.zeros(1, 1, _SCRATCH_ROWS, 2048), ttnn.bfloat16, ttnn.ROW_MAJOR_LAYOUT)
+        self.compute = stacked.compute
+        self.valid_rows = None
+        self.prepare_maps(mesh)
+        return self
 
     def prepare_maps(self, mesh):
         import torch
@@ -211,16 +255,20 @@ class _ExpertParallelDispatch(_StackedDispatch):
 
         self.region_matrix = put(torch.ones((width, width)).triu(1).reshape(1, 1, width, width), ttnn.bfloat16,
                                  ttnn.TILE_LAYOUT)
-        self.buffers, self.rank_buffers = {}, {}
+        self.buffers, self.rank_buffers, self.scratch = {}, {}, {}
         for length in sorted(set(_bucket_sizes(policy)) | {128, 512}):
             routes = length * 8
-            capacity = ((routes + local * 31 + 32 + 31) // 32) * 32
+            capacity = ((routes + local * 31 + _SCRATCH_ROWS + 31) // 32) * 32
             if capacity >= 65536:
                 raise ValueError("Internal local-dispatch chunk must fit UINT16 route maps")
-            self.buffers[length] = (None, put(torch.zeros((1, 1, 1, capacity), dtype=torch.int32), ttnn.uint32,
-                                              ttnn.ROW_MAJOR_LAYOUT), None, capacity)
+            self.buffers[length] = (None, put((torch.arange(capacity, dtype=torch.int32) % length).reshape(
+                1, 1, 1, capacity), ttnn.uint32, ttnn.ROW_MAJOR_LAYOUT), None, capacity)
+            self.scratch[length] = put((capacity - _SCRATCH_ROWS + torch.arange(routes) % _SCRATCH_ROWS).float()
+                                       .reshape(1, 1, length, 8), ttnn.float32, ttnn.TILE_LAYOUT)
             key = (mesh, length)
             self.mesh_key = mesh
+            if policy.dispatch_scatter_rows:
+                _scatter_buffers(mesh, capacity, length, self.tiles(length), policy.dispatch_scatter_rows)
             if key not in _PREFIX_MATRICES:
                 _PREFIX_MATRICES[key] = put(torch.ones((length, length)).tril(-1).reshape(1, 1, length, length),
                                             ttnn.bfloat8_b, ttnn.TILE_LAYOUT)
@@ -263,11 +311,12 @@ class _ExpertParallelDispatch(_StackedDispatch):
                                                  compute_kernel_config=self.region_compute), 32.0)
         earlier = ttnn.matmul(prefix, chosen, dtype=ttnn.float32, compute_kernel_config=self.prefix_compute)
         slots = ttnn.gather(ttnn.add(earlier, region_start), dim=-1, index=index)
-        slots = ttnn.where(inside, slots, float(capacity - 1))
+        slots = ttnn.where(inside, slots, self.scratch[length])
         if self.tiles(length):
             slots = ttnn.transpose(slots, -2, -1)
         target = ttnn.reshape(rm_uint32(slots), (1, 1, 1, length * 8))
-        dispatch_map = ttnn.scatter(map_zeros, dim=-1, index=target, src=tokens)
+        dispatch_map = _dispatch_scatter(map_zeros, target, tokens, capacity, length, self.tiles(length),
+                                         self.policy.dispatch_scatter_rows, self.mesh_key)
         offsets = ttnn.reshape(rm_uint32(region_start[:, :, :, :local]), (local,))
         return counts, offsets, dispatch_map, target, capacity
 
@@ -275,12 +324,38 @@ class _ExpertParallelDispatch(_StackedDispatch):
         import ttnn
 
         table = ttnn.to_layout(result, ttnn.ROW_MAJOR_LAYOUT)
-        ttnn.experimental.slice_write(self.zero_row, table, (0, 0, capacity - 1, 0), (1, 1, capacity, 2048),
-                                      (1, 1, 1, 1))
+        ttnn.experimental.slice_write(self.zero_row, table, (0, 0, capacity - _SCRATCH_ROWS, 0),
+                                      (1, 1, capacity, 2048), (1, 1, 1, 1))
         return ttnn.reshape(table, (capacity, 2048))
 
 
 _CCL_SEMAPHORES = {}
+_DECODE_ALLREDUCE = {}
+DECODE_ALLREDUCE_CORES = {2: 8, 4: 16}
+
+
+def _decode_allreduce(mesh, tp, rect_cores=0):
+    import ttnn
+
+    key = (mesh, rect_cores)
+    if key not in _DECODE_ALLREDUCE:
+        grid = mesh.compute_with_storage_grid_size()
+        cores = rect_cores or DECODE_ALLREDUCE_CORES[tp]
+        shard = (ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0),
+                                                   ttnn.CoreCoord(min(8, cores) - 1, (cores + 7) // 8 - 1))})
+                 if rect_cores else ttnn.num_cores_to_corerangeset(cores, grid, row_wise=True))
+
+        def width(columns):
+            return ttnn.MemoryConfig(ttnn.TensorMemoryLayout.WIDTH_SHARDED, ttnn.BufferType.L1,
+                                     ttnn.ShardSpec(shard, [32, columns], ttnn.ShardOrientation.ROW_MAJOR))
+
+        everywhere = ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(grid.x - 1, grid.y - 1))})
+        buffer = ttnn.empty([1, 1, 32, 2048 * tp], dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=mesh,
+                            memory_config=width(2048 * tp // cores))
+        _DECODE_ALLREDUCE[key] = dict(memory=width(2048 // cores), buffer=buffer,
+                                      semaphores=[ttnn.create_global_semaphore(mesh, everywhere, 0) for _ in range(2)],
+                                      index=[0])
+    return _DECODE_ALLREDUCE[key]
 
 
 def _prefill_semaphores(mesh):
@@ -290,18 +365,49 @@ def _prefill_semaphores(mesh):
         grid = mesh.compute_with_storage_grid_size()
         cores = ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(grid.x - 1, grid.y - 1))})
         make = lambda n: [ttnn.create_global_semaphore(mesh, cores, 0) for _ in range(n)]
-        _CCL_SEMAPHORES[mesh] = [dict(barrier=make(2), rs=make(3), ag=make(2)) for _ in range(2)]
+        _CCL_SEMAPHORES[mesh] = ([dict(barrier=make(2), rs=make(3), ag=make(2)) for _ in range(2)], [0])
     return _CCL_SEMAPHORES[mesh]
+
+
+def _release_gdn_input_weight(decoder):
+    attention = decoder.layer.attention
+    if type(attention).__name__ == "_AllReduceOutput":
+        attention = object.__getattribute__(attention, "reduced_module")
+    projection = getattr(attention, "optimized_projections", {}).get("attention_in")
+    if (getattr(attention, "mega_weight", None) is not None and projection is not None and not projection.parts
+            and projection.weight is not attention.mega_weight and not decoder.optimization.gdn_ab_split):
+        attention.mega_weight = None
+
+
+class _ShardedResidualLayer:
+
+    def __init__(self, original, memory):
+        object.__setattr__(self, "original", original)
+        object.__setattr__(self, "residual_memory", memory)
+
+    def __getattr__(self, name):
+        return getattr(object.__getattribute__(self, "original"), name)
+
+    def __setattr__(self, name, value):
+        setattr(object.__getattribute__(self, "original"), name, value)
+
+    def forward(self, x, *args, mode="decode", **kwargs):
+        import ttnn
+
+        if mode == "decode":
+            x = ttnn.to_memory_config(x, object.__getattribute__(self, "residual_memory"))
+        return object.__getattribute__(self, "original").forward(x, *args, mode=mode, **kwargs)
 
 
 class _AllReduceOutput:
 
-    def __init__(self, module, topology, mesh):
+    def __init__(self, module, topology, mesh, sharded_cores=0):
         object.__setattr__(self, "reduced_module", module)
         object.__setattr__(self, "topology", topology)
         object.__setattr__(self, "mesh", mesh)
         object.__setattr__(self, "semaphores", _prefill_semaphores(mesh))
-        object.__setattr__(self, "semaphore_index", 0)
+        object.__setattr__(self, "sharded", bool(sharded_cores))
+        object.__setattr__(self, "decode", _decode_allreduce(mesh, mesh.get_num_devices(), sharded_cores))
 
     def __getattr__(self, name):
         return getattr(object.__getattribute__(self, "reduced_module"), name)
@@ -315,11 +421,19 @@ class _AllReduceOutput:
         partial = object.__getattribute__(self, "reduced_module").forward(*args, **kwargs)
         topology = object.__getattribute__(self, "topology")
         if partial.shape[-2] == 1:
-            return ttnn.all_reduce(partial, cluster_axis=1, topology=topology, num_links=CCL_LINKS,
-                                   memory_config=partial.memory_config())
-        index = object.__getattribute__(self, "semaphore_index")
-        object.__setattr__(self, "semaphore_index", index ^ 1)
-        semaphores = object.__getattribute__(self, "semaphores")[index]
+            decode = object.__getattribute__(self, "decode")
+            semaphore = decode["semaphores"][decode["index"][0]]
+            decode["index"][0] ^= 1
+            reduced = ttnn.experimental.all_reduce_async(
+                ttnn.to_memory_config(partial, decode["memory"]), decode["buffer"], cluster_axis=1,
+                mesh_device=object.__getattribute__(self, "mesh"), multi_device_global_semaphore=semaphore,
+                topology=topology, num_links=CCL_LINKS, memory_config=decode["memory"])
+            if object.__getattribute__(self, "sharded"):
+                return reduced
+            return ttnn.to_memory_config(reduced, partial.memory_config())
+        sets, index = object.__getattribute__(self, "semaphores")
+        semaphores = sets[index[0]]
+        index[0] ^= 1
         return ttnn.experimental.all_reduce_async(
             partial, cluster_axis=1, mesh_device=object.__getattribute__(self, "mesh"),
             barrier_semaphores=semaphores["barrier"], rs_global_semaphores=semaphores["rs"],
@@ -420,6 +534,11 @@ class MultichipDecoder(OptimizedDecoder):
                                              tensor_cache_path=tensor_cache_path, **kwargs)
             result.tensor_parallel = 1
             result.global_config = config
+            experts = result.layer.feed_forward.module.experts
+            if result.optimization.dispatch_weights == "stacked":
+                experts.dispatch = _ExpertParallelDispatch.masking(experts.dispatch, mesh_device, result.optimization)
+            result.expert_dispatch = experts.dispatch
+            _release_gdn_input_weight(result)
             return result
         if tuple(mesh_device.shape) != (1, tp):
             raise ValueError("The tensor-parallel decoder uses a 1xN mesh")
@@ -443,8 +562,12 @@ class MultichipDecoder(OptimizedDecoder):
         result.weight_memory = {"after_merge": _memory_bytes(mesh_device)}
         result.expert_dispatch = result.layer.feed_forward.module.experts.dispatch
         topology = ttnn.Topology.Ring if tp > 2 else ttnn.Topology.Linear
-        result.layer.attention = _AllReduceOutput(result.layer.attention, topology, mesh_device)
-        result.layer.feed_forward = _AllReduceOutput(result.layer.feed_forward, topology, mesh_device)
+        sharded = policy.get("decode_norm_cores", 0) if policy.get("residual_sharded_decode") else 0
+        result.layer.attention = _AllReduceOutput(result.layer.attention, topology, mesh_device, sharded)
+        result.layer.feed_forward = _AllReduceOutput(result.layer.feed_forward, topology, mesh_device, sharded)
+        if sharded:
+            result.layer = _ShardedResidualLayer(result.layer, _decode_allreduce(mesh_device, tp, sharded)["memory"])
+        _release_gdn_input_weight(result)
         return result
 
     @classmethod
@@ -459,8 +582,9 @@ class MultichipDecoder(OptimizedDecoder):
             raise ValueError("The tensor-parallel decoder requires the dispatch prefill backend")
         experts = replica.layer.feed_forward.module.experts
         experts.original.reduce_cluster_axis = 1
-        gate_up, down, offset = expert_parallel_state(state, layer_idx, tp, rank, config)
-        experts.dispatch = _ExpertParallelDispatch(gate_up, down, mesh_device, replica.optimization, offset)
+        if replica.optimization.dispatch_weights == "expert_parallel":
+            gate_up, down, offset = expert_parallel_state(state, layer_idx, tp, rank, config)
+            experts.dispatch = _ExpertParallelDispatch(gate_up, down, mesh_device, replica.optimization, offset)
         if config.is_deltanet_layer(layer_idx):
             _pad_gdn_columns(replica.layer.attention, mesh_device, replica.optimization.projections["attention_in"])
         gc.collect()

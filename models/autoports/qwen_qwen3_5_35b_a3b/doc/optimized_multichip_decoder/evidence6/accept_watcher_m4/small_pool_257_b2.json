@@ -1,0 +1,597 @@
+{
+  "device_ids": [
+    3,
+    2,
+    1,
+    0
+  ],
+  "decode_output_residual_contract": {
+    "matches": false,
+    "output": "MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED,buffer_type=BufferType::DRAM,shard_spec=std::nullopt,nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0,range_lockstep_allocation=0)",
+    "contract": "MemoryConfig(memory_layout=TensorMemoryLayout::WIDTH_SHARDED,buffer_type=BufferType::L1,shard_spec=ShardSpec{grid=[{\"start\":{\"x\":0,\"y\":0},\"end\":{\"x\":7,\"y\":1}], shape=[32, 128], orientation=ShardOrientation::ROW_MAJOR},nd_shard_spec=std::nullopt,created_with_nd_shard_spec=0,per_core_allocation=0,range_lockstep_allocation=0)"
+  },
+  "weight_memory": {
+    "after_merge": {
+      "dram": {
+        "allocated_bytes": 462298112,
+        "free_bytes": 33716432896,
+        "banks": 8,
+        "largest_free_bytes_per_bank": 3998657792
+      },
+      "l1": {
+        "allocated_bytes": 901120,
+        "free_bytes": 159822080,
+        "banks": 110,
+        "largest_free_bytes_per_bank": 1452928
+      }
+    }
+  },
+  "input_metadata": {
+    "kind": "random_activation",
+    "seed": 1234
+  },
+  "optimization": {
+    "expert_dtype": "bfp4",
+    "expert_grid_y": 2,
+    "expert_grid_x": 8,
+    "expert_fidelity": "LoFi",
+    "expert_input_dtype": "bf16",
+    "expert_backend": "sparse",
+    "sparse_gate_cores": 8,
+    "sparse_gate_k": 64,
+    "sparse_gate_subblock": 1,
+    "sparse_down_cores": 64,
+    "sparse_down_k": 4,
+    "sparse_down_subblock": 1,
+    "sparse_split": false,
+    "sparse_indexed": true,
+    "sparse_fused_reduce": true,
+    "compact_router_dtype": true,
+    "sparse_down_dtype": "bfp8",
+    "prefill_down_cores": 32,
+    "prefill_down_k": 16,
+    "prefill_down_subblock": 2,
+    "prefill_backend": "dispatch",
+    "dispatch_dtype": "bfp8",
+    "dispatch_input_dtype": "bf16",
+    "dispatch_grid": [
+      4,
+      4
+    ],
+    "dispatch_grid_large": [
+      2048,
+      8,
+      8
+    ],
+    "dispatch_m_tiles": 0,
+    "dispatch_ffn": "fused",
+    "dispatch_hybrid_threshold": 0,
+    "dispatch_weight_nd": false,
+    "dispatch_weights": "expert_parallel",
+    "plan_cost": [],
+    "dispatch_rank": "matmul",
+    "prefill_tail_bucket": 32,
+    "prefill_buckets": [
+      2048,
+      1024,
+      256,
+      64
+    ],
+    "decode_input_fill": false,
+    "dispatch_combine": "post_combine",
+    "dispatch_tiles_from": 2048,
+    "prefill_moe_batch": true,
+    "prefill_moe_pieces": 2,
+    "prefill_masked_tail": true,
+    "prefill_sparse_chunk": 32,
+    "prefill_sparse_l1": false,
+    "prefill_gate_cores": 32,
+    "prefill_gate_k": 16,
+    "prefill_gate_subblock": 1,
+    "projections": {
+      "attention_in": {
+        "dtype": "bfp8",
+        "fidelity": "LoFi",
+        "prefill_minimal": {
+          "grid": [
+            11,
+            10
+          ],
+          "M_block_size": 4,
+          "K_block_size": 8,
+          "N_block_size": 16,
+          "subblock_h": 1,
+          "subblock_w": 4
+        },
+        "decode_grid": [
+          8,
+          5
+        ],
+        "k_block": 8,
+        "per_n": 2
+      },
+      "attention_out": {
+        "dtype": "bfp8",
+        "fidelity": "LoFi",
+        "decode_grid": [
+          8,
+          4
+        ],
+        "k_block": 8,
+        "per_n": 2,
+        "prefill_minimal": {
+          "grid": [
+            8,
+            8
+          ],
+          "M_block_size": 8,
+          "K_block_size": 8,
+          "N_block_size": 8,
+          "subblock_h": 2,
+          "subblock_w": 2
+        }
+      },
+      "shared_down": {
+        "dtype": "bfp8",
+        "fidelity": "LoFi",
+        "dram": false,
+        "cores": 8,
+        "k_block": 4,
+        "readers": 1,
+        "prefill_grid": [
+          8,
+          8
+        ],
+        "prefill_k": 4,
+        "decode_grid": [
+          8,
+          1
+        ],
+        "per_n": 8
+      }
+    },
+    "sdpa": {
+      "grid": [
+        11,
+        10
+      ],
+      "q_chunk_size": 32,
+      "k_chunk_size": 512,
+      "exp_approx_mode": false,
+      "prefill": {
+        "q_chunk_size": 128,
+        "k_chunk_size": 256,
+        "exp_approx_mode": false
+      }
+    },
+    "kv_dtype": "bfp8",
+    "residual_cores": 0,
+    "decode_norm_cores": 16,
+    "decode_norm_fp32_input": false,
+    "decode_norm_output": "l1",
+    "decode_norm_fill": false,
+    "attention_decode_memory": "l1",
+    "residual_output_sharded": false,
+    "norm_fused_weight": false,
+    "prefill_norm": "bf16",
+    "router_topk_prefill": true,
+    "gdn_gate_mixed": false,
+    "shared_split": false,
+    "gate_pack": true,
+    "gate_pack_grid": [
+      8,
+      2,
+      32
+    ],
+    "gdn_l1": false,
+    "gdn_state_l1": false,
+    "gdn_l1_slots": 32,
+    "conv_chunk": 512,
+    "gdn_heads_decode": false,
+    "gdn_decode_kernel": false,
+    "gdn_decode_gates": false,
+    "gdn_decode_blocks": 0,
+    "expert_decode_kernel": true,
+    "expert_decode_nper": 0,
+    "expert_decode_kb": 8,
+    "expert_decode_shared": true,
+    "residual_sharded_decode": true,
+    "router_cached_slices": true,
+    "dispatch_scatter_rows": 32,
+    "mesh_policy_keep": [],
+    "conv_state_rm": false,
+    "conv_decode_fill": true,
+    "gdn_ab_split": {},
+    "gdn_flat_qk": false,
+    "release_unused_weights": true,
+    "prefill_tiled": true,
+    "prefill_chunk": 4096,
+    "shared_minimal_config": {},
+    "shared_decode_minimal_config": {
+      "grid": [
+        4,
+        2
+      ],
+      "M_block_size": 1,
+      "K_block_size": 16,
+      "N_block_size": 4,
+      "subblock_h": 1,
+      "subblock_w": 2
+    },
+    "prefill_minimal_config": {}
+  },
+  "mesh_shape": [
+    1,
+    4
+  ],
+  "tensor_parallel": 4,
+  "merge_stats": {
+    "sharded": 11,
+    "replicated": 97,
+    "sharded_bytes": 0
+  },
+  "construction_memory": [
+    {
+      "step": "start",
+      "device_dram_allocated_bytes": 0,
+      "host_rss_bytes": 2608033792,
+      "host_peak_rss_bytes": 2608033792
+    },
+    {
+      "step": "replica_0",
+      "device_dram_allocated_bytes": 462298112,
+      "host_rss_bytes": 2854174720,
+      "host_peak_rss_bytes": 4889952256
+    },
+    {
+      "step": "replica_1",
+      "device_dram_allocated_bytes": 847373312,
+      "host_rss_bytes": 2911158272,
+      "host_peak_rss_bytes": 4942958592
+    },
+    {
+      "step": "replica_2",
+      "device_dram_allocated_bytes": 1232448512,
+      "host_rss_bytes": 2890887168,
+      "host_peak_rss_bytes": 4999213056
+    },
+    {
+      "step": "replica_3",
+      "device_dram_allocated_bytes": 1617523712,
+      "host_rss_bytes": 2891452416,
+      "host_peak_rss_bytes": 4999213056
+    },
+    {
+      "step": "merged_before_release",
+      "device_dram_allocated_bytes": 1617523712,
+      "host_rss_bytes": 2927153152,
+      "host_peak_rss_bytes": 4999213056
+    },
+    {
+      "step": "released",
+      "device_dram_allocated_bytes": 462298112,
+      "host_rss_bytes": 2927153152,
+      "host_peak_rss_bytes": 4999213056
+    }
+  ],
+  "output_replicas_identical": true,
+  "decoder_class": "MultichipDecoder",
+  "runtime_components": {
+    "attention": "_OptimizedAttention",
+    "attention_reduce": true,
+    "feed_forward_reduce": true,
+    "router": "_OptimizedRouter",
+    "experts": "_OptimizedPrefillExperts",
+    "decode_experts": "_OptimizedSparseExperts",
+    "shared": "_OptimizedShared"
+  },
+  "fusions": [
+    "moe_gate",
+    "shared_gate",
+    "shared_minimal",
+    "rope",
+    "cache",
+    "qkv",
+    "heads",
+    "indexed_rope",
+    "gate",
+    "compact_reduce",
+    "compact_routing",
+    "prefill_split"
+  ],
+  "layer_type": "full_attention",
+  "layer_idx": 3,
+  "weights": "real",
+  "implementation_sha256": {
+    "__init__.py": "20db980a38cc5bb36a49afaff8f9838e2c77f17e5b1ef0c42b5ed918f77a1ca9",
+    "expert_decode.py": "d4aaeba12a8889d02a8ac529922d583320b630f75116e50702586a4018fc5d9e",
+    "functional_attention.py": "6718df3736404f042613670f43e184e202ece215a9f7907f6358ec18326a8638",
+    "functional_decoder.py": "c3597bf194086ddc39fb030d221b7fe932162b052815affd7c6c14ede135f9b0",
+    "functional_gdn.py": "2a5a87d7ff4d35483a1e0103951001e8610ed12f5f4af4cb15498a6e547ad37b",
+    "fused_decoder.py": "e1c244e3d565d287f26c88d889a2d7ddf49c8fd9db71ee5ea8e700d068825602",
+    "gdn_decode.py": "2aa5bcc6ddaf37a8b6a80a027182bfeec6b33f45479467a17b4abd8179db0f7b",
+    "multichip_decoder.py": "19da16d4e8e5dec0880651387ab81c280a18715bb58fb440ba566eb107b87c65",
+    "optimized_decoder.py": "09cb3ed0d7b300e761f253313a61c0ab270769b39f166e88dbf43f63761020f8"
+  },
+  "gdn_recurrence": null,
+  "expert_precision": "inherited",
+  "profile": false,
+  "warmed_prefill_host_us": null,
+  "split": null,
+  "kv_scratch_block": 18,
+  "warmed_continuation_host_us": null,
+  "prefill_repeat_identical": null,
+  "prefill_repeat_difference": null,
+  "moe_pieces": null,
+  "length": 257,
+  "batch": 2,
+  "decode_steps": 31,
+  "page_size": 32,
+  "minimum_cache_pages": 0,
+  "cache_guard_pages": 0,
+  "prefill_pcc": 0.9987150430679321,
+  "prefill_pcc_min": 0.9987066388130188,
+  "prefill_token_pcc": [
+    [
+      0.9942342638969421,
+      0,
+      190
+    ],
+    [
+      0.9969226121902466,
+      0,
+      75
+    ],
+    [
+      0.9970409274101257,
+      0,
+      84
+    ],
+    [
+      0.9971902966499329,
+      0,
+      193
+    ],
+    [
+      0.9972181916236877,
+      0,
+      233
+    ],
+    [
+      0.9972437620162964,
+      1,
+      208
+    ],
+    [
+      0.9974704384803772,
+      1,
+      234
+    ],
+    [
+      0.9975033402442932,
+      1,
+      180
+    ]
+  ],
+  "prefill_tokens_below_0995": 1,
+  "decode_pcc": 0.9984435439109802,
+  "prefill_probes": null,
+  "runtime_audit": true,
+  "trace_id": "MeshTraceId(0)",
+  "decode_pcc_min": 0.9973121881484985,
+  "decode_pcc_by_token": [
+    0.9982832074165344,
+    0.998436450958252,
+    0.9985741376876831,
+    0.998630940914154,
+    0.9986048340797424,
+    0.997856080532074,
+    0.9979369640350342,
+    0.9990952014923096,
+    0.9985836744308472,
+    0.9981821775436401,
+    0.9984539747238159,
+    0.9978223443031311,
+    0.998238205909729,
+    0.9985148310661316,
+    0.9979326128959656,
+    0.9986400008201599,
+    0.9986896514892578,
+    0.9989292621612549,
+    0.9986289143562317,
+    0.9981430172920227,
+    0.9984855055809021,
+    0.9989706873893738,
+    0.9982011318206787,
+    0.9982389807701111,
+    0.9980013966560364,
+    0.9986385703086853,
+    0.9986045956611633,
+    0.9984520673751831,
+    0.9983257055282593,
+    0.9991458058357239,
+    0.9981895089149475
+  ],
+  "decode_pcc_strict": 0.9984278082847595,
+  "decode_pcc_min_strict": 0.9973121881484985,
+  "decode_router_ties": [
+    {
+      "row": 0,
+      "step": 0,
+      "tied_experts": [
+        88,
+        141,
+        171
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 0,
+      "pcc_strict": 0.9981751441955566,
+      "pcc_chosen": 0.9981751441955566
+    },
+    {
+      "row": 0,
+      "step": 3,
+      "tied_experts": [
+        213,
+        233
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9984013438224792,
+      "pcc_chosen": 0.9988681674003601
+    },
+    {
+      "row": 0,
+      "step": 12,
+      "tied_experts": [
+        174,
+        226
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9985246062278748,
+      "pcc_chosen": 0.9985246062278748
+    },
+    {
+      "row": 0,
+      "step": 24,
+      "tied_experts": [
+        49,
+        184
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9978964924812317,
+      "pcc_chosen": 0.9978964924812317
+    },
+    {
+      "row": 0,
+      "step": 26,
+      "tied_experts": [
+        59,
+        178
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9991422891616821,
+      "pcc_chosen": 0.9993018507957458
+    },
+    {
+      "row": 1,
+      "step": 4,
+      "tied_experts": [
+        166,
+        177
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9982626438140869,
+      "pcc_chosen": 0.9982626438140869
+    },
+    {
+      "row": 1,
+      "step": 11,
+      "tied_experts": [
+        68,
+        99
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9976933598518372,
+      "pcc_chosen": 0.9976933598518372
+    },
+    {
+      "row": 1,
+      "step": 15,
+      "tied_experts": [
+        107,
+        189
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9982355833053589,
+      "pcc_chosen": 0.9983295798301697
+    },
+    {
+      "row": 1,
+      "step": 16,
+      "tied_experts": [
+        65,
+        161,
+        178
+      ],
+      "open_slots": 2,
+      "exact": true,
+      "candidates": 3,
+      "chosen": 1,
+      "pcc_strict": 0.9988216161727905,
+      "pcc_chosen": 0.9989758729934692
+    },
+    {
+      "row": 1,
+      "step": 30,
+      "tied_experts": [
+        17,
+        31
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9980229735374451,
+      "pcc_chosen": 0.9980229735374451
+    }
+  ],
+  "traced": true,
+  "repeated_identical": true,
+  "threshold": 0.995,
+  "traced_replay_host_us": [
+    5388.008,
+    5414.428,
+    5399.649,
+    5404.979,
+    5391.414,
+    5414.007,
+    5402.475,
+    5409.488,
+    5398.818,
+    5413.236,
+    5393.639,
+    5405.621,
+    5387.847,
+    5410.38,
+    5398.237,
+    5414.589,
+    5411.091,
+    5415.881,
+    5403.697,
+    5409.398,
+    5398.267,
+    5410.55,
+    5398.367,
+    5409.409,
+    5392.946,
+    5412.404,
+    5399.981,
+    5417.194,
+    5403.187,
+    5410.991,
+    5399.579
+  ]
+}

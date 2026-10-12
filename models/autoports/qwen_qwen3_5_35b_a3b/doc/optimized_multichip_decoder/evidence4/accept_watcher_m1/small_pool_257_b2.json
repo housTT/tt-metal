@@ -1,0 +1,531 @@
+{
+  "device_ids": [
+    3
+  ],
+  "decode_output_residual_contract": null,
+  "weight_memory": {
+    "before_cleanup": {
+      "dram": {
+        "allocated_bytes": 2708982784,
+        "free_bytes": 31469748224,
+        "banks": 8,
+        "largest_free_bytes_per_bank": 3933299072
+      },
+      "l1": {
+        "allocated_bytes": 901120,
+        "free_bytes": 159822080,
+        "banks": 110,
+        "largest_free_bytes_per_bank": 1452928
+      }
+    },
+    "after_cleanup": {
+      "dram": {
+        "allocated_bytes": 776222720,
+        "free_bytes": 33402508288,
+        "banks": 8,
+        "largest_free_bytes_per_bank": 3933299072
+      },
+      "l1": {
+        "allocated_bytes": 901120,
+        "free_bytes": 159822080,
+        "banks": 110,
+        "largest_free_bytes_per_bank": 1452928
+      }
+    }
+  },
+  "input_metadata": {
+    "kind": "random_activation",
+    "seed": 1234
+  },
+  "optimization": {
+    "expert_dtype": "bfp4",
+    "expert_grid_y": 2,
+    "expert_grid_x": 8,
+    "expert_fidelity": "LoFi",
+    "expert_input_dtype": "bf16",
+    "expert_backend": "sparse",
+    "sparse_gate_cores": 32,
+    "sparse_gate_k": 32,
+    "sparse_gate_subblock": 1,
+    "sparse_down_cores": 32,
+    "sparse_down_k": 16,
+    "sparse_down_subblock": 1,
+    "sparse_split": false,
+    "sparse_indexed": true,
+    "sparse_fused_reduce": true,
+    "compact_router_dtype": true,
+    "sparse_down_dtype": "bfp8",
+    "prefill_down_cores": 32,
+    "prefill_down_k": 16,
+    "prefill_down_subblock": 2,
+    "prefill_backend": "dispatch",
+    "dispatch_dtype": "bfp8",
+    "dispatch_input_dtype": "bf16",
+    "dispatch_grid": [
+      4,
+      4
+    ],
+    "dispatch_grid_large": [
+      2048,
+      8,
+      8
+    ],
+    "dispatch_m_tiles": 0,
+    "dispatch_ffn": "fused",
+    "dispatch_hybrid_threshold": 0,
+    "dispatch_weight_nd": false,
+    "dispatch_weights": "stacked",
+    "plan_cost": [],
+    "dispatch_rank": "matmul",
+    "prefill_tail_bucket": 32,
+    "prefill_buckets": [
+      2048,
+      1024,
+      256,
+      64
+    ],
+    "decode_input_fill": false,
+    "dispatch_combine": "post_combine",
+    "dispatch_tiles_from": 2048,
+    "prefill_moe_batch": true,
+    "prefill_moe_pieces": 1,
+    "prefill_masked_tail": true,
+    "prefill_sparse_chunk": 32,
+    "prefill_sparse_l1": false,
+    "prefill_gate_cores": 32,
+    "prefill_gate_k": 16,
+    "prefill_gate_subblock": 1,
+    "projections": {
+      "attention_in": {
+        "dtype": "bfp8",
+        "fidelity": "LoFi",
+        "prefill_minimal": {
+          "grid": [
+            11,
+            10
+          ],
+          "M_block_size": 4,
+          "K_block_size": 8,
+          "N_block_size": 16,
+          "subblock_h": 1,
+          "subblock_w": 4
+        }
+      },
+      "attention_out": {
+        "dtype": "bfp8",
+        "fidelity": "LoFi",
+        "decode_grid": [
+          8,
+          4
+        ],
+        "k_block": 8,
+        "per_n": 2,
+        "prefill_minimal": {
+          "grid": [
+            8,
+            8
+          ],
+          "M_block_size": 8,
+          "K_block_size": 8,
+          "N_block_size": 8,
+          "subblock_h": 2,
+          "subblock_w": 2
+        }
+      },
+      "shared_down": {
+        "dtype": "bfp8",
+        "fidelity": "LoFi",
+        "dram": true,
+        "cores": 8,
+        "k_block": 8,
+        "readers": 1,
+        "prefill_grid": [
+          8,
+          8
+        ],
+        "prefill_k": 4
+      }
+    },
+    "sdpa": {
+      "grid": [
+        11,
+        10
+      ],
+      "q_chunk_size": 32,
+      "k_chunk_size": 512,
+      "exp_approx_mode": false,
+      "prefill": {
+        "q_chunk_size": 128,
+        "k_chunk_size": 256,
+        "exp_approx_mode": false
+      }
+    },
+    "kv_dtype": "bfp8",
+    "residual_cores": 0,
+    "decode_norm_cores": 16,
+    "decode_norm_fp32_input": false,
+    "decode_norm_output": "l1",
+    "decode_norm_fill": false,
+    "attention_decode_memory": "l1",
+    "residual_output_sharded": false,
+    "norm_fused_weight": false,
+    "shared_split": false,
+    "gate_pack": true,
+    "gate_pack_grid": [
+      8,
+      2,
+      32
+    ],
+    "gdn_l1": false,
+    "gdn_state_l1": false,
+    "gdn_l1_slots": 32,
+    "conv_chunk": 512,
+    "gdn_heads_decode": false,
+    "gdn_decode_kernel": false,
+    "gdn_decode_blocks": 0,
+    "expert_decode_kernel": true,
+    "expert_decode_nper": 0,
+    "expert_decode_kb": 8,
+    "expert_decode_shared": true,
+    "residual_sharded_decode": false,
+    "router_cached_slices": true,
+    "dispatch_scatter_rows": 32,
+    "mesh_policy_keep": [],
+    "conv_state_rm": false,
+    "gdn_ab_split": {},
+    "gdn_flat_qk": false,
+    "release_unused_weights": true,
+    "prefill_tiled": true,
+    "prefill_chunk": 4096,
+    "shared_minimal_config": {},
+    "shared_decode_minimal_config": {},
+    "prefill_minimal_config": {}
+  },
+  "mesh_shape": [
+    1,
+    1
+  ],
+  "tensor_parallel": 1,
+  "merge_stats": null,
+  "construction_memory": null,
+  "output_replicas_identical": true,
+  "decoder_class": "MultichipDecoder",
+  "runtime_components": {
+    "attention": "_OptimizedAttention",
+    "attention_reduce": false,
+    "feed_forward_reduce": false,
+    "router": "_OptimizedRouter",
+    "experts": "_OptimizedPrefillExperts",
+    "decode_experts": "_OptimizedSparseExperts",
+    "shared": "_OptimizedShared"
+  },
+  "fusions": [
+    "moe_gate",
+    "shared_gate",
+    "shared_minimal",
+    "rope",
+    "cache",
+    "qkv",
+    "heads",
+    "indexed_rope",
+    "gate",
+    "compact_reduce",
+    "compact_routing",
+    "prefill_split"
+  ],
+  "layer_type": "full_attention",
+  "layer_idx": 3,
+  "weights": "real",
+  "implementation_sha256": {
+    "__init__.py": "20db980a38cc5bb36a49afaff8f9838e2c77f17e5b1ef0c42b5ed918f77a1ca9",
+    "expert_decode.py": "d4aaeba12a8889d02a8ac529922d583320b630f75116e50702586a4018fc5d9e",
+    "functional_attention.py": "6718df3736404f042613670f43e184e202ece215a9f7907f6358ec18326a8638",
+    "functional_decoder.py": "c3597bf194086ddc39fb030d221b7fe932162b052815affd7c6c14ede135f9b0",
+    "functional_gdn.py": "2a5a87d7ff4d35483a1e0103951001e8610ed12f5f4af4cb15498a6e547ad37b",
+    "fused_decoder.py": "e1c244e3d565d287f26c88d889a2d7ddf49c8fd9db71ee5ea8e700d068825602",
+    "gdn_decode.py": "471a7357ab481171e893765d1e968a0ab8f897cbac4b611d09c182ef361ad33b",
+    "multichip_decoder.py": "19da16d4e8e5dec0880651387ab81c280a18715bb58fb440ba566eb107b87c65",
+    "optimized_decoder.py": "aca635de52b77582b9cf60e45bae6adac6f70daeecf097d62093ef5d4f0f8e4a"
+  },
+  "gdn_recurrence": null,
+  "expert_precision": "inherited",
+  "profile": false,
+  "warmed_prefill_host_us": null,
+  "split": null,
+  "kv_scratch_block": 18,
+  "warmed_continuation_host_us": null,
+  "prefill_repeat_identical": null,
+  "prefill_repeat_difference": null,
+  "moe_pieces": null,
+  "length": 257,
+  "batch": 2,
+  "decode_steps": 31,
+  "page_size": 32,
+  "minimum_cache_pages": 0,
+  "cache_guard_pages": 0,
+  "prefill_pcc": 0.9987548589706421,
+  "prefill_pcc_min": 0.9987504482269287,
+  "prefill_token_pcc": [
+    [
+      0.9970418214797974,
+      0,
+      75
+    ],
+    [
+      0.9970754384994507,
+      0,
+      233
+    ],
+    [
+      0.9970958232879639,
+      0,
+      84
+    ],
+    [
+      0.9973536729812622,
+      0,
+      193
+    ],
+    [
+      0.9974923729896545,
+      1,
+      208
+    ],
+    [
+      0.997539222240448,
+      0,
+      243
+    ],
+    [
+      0.9975578784942627,
+      1,
+      81
+    ],
+    [
+      0.9976467490196228,
+      1,
+      155
+    ]
+  ],
+  "prefill_tokens_below_0995": 0,
+  "decode_pcc": 0.9984254240989685,
+  "prefill_probes": null,
+  "runtime_audit": true,
+  "trace_id": "MeshTraceId(0)",
+  "decode_pcc_min": 0.9972791075706482,
+  "decode_pcc_by_token": [
+    0.9982476234436035,
+    0.9984615445137024,
+    0.9986127614974976,
+    0.9987554550170898,
+    0.9984315633773804,
+    0.9978274703025818,
+    0.9980618357658386,
+    0.999033510684967,
+    0.9983876943588257,
+    0.9981973767280579,
+    0.9982825517654419,
+    0.9977667331695557,
+    0.9983674883842468,
+    0.998589813709259,
+    0.9980617165565491,
+    0.9986019134521484,
+    0.9987072348594666,
+    0.9988642334938049,
+    0.9986873269081116,
+    0.9980102777481079,
+    0.9985179305076599,
+    0.9988749623298645,
+    0.998037576675415,
+    0.9982242584228516,
+    0.9979207515716553,
+    0.9985816478729248,
+    0.99868243932724,
+    0.9982538819313049,
+    0.9984713196754456,
+    0.9990822076797485,
+    0.9981465935707092
+  ],
+  "decode_pcc_strict": 0.9984094500541687,
+  "decode_pcc_min_strict": 0.9972791075706482,
+  "decode_router_ties": [
+    {
+      "row": 0,
+      "step": 0,
+      "tied_experts": [
+        88,
+        141,
+        171
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 0,
+      "pcc_strict": 0.998044490814209,
+      "pcc_chosen": 0.998044490814209
+    },
+    {
+      "row": 0,
+      "step": 3,
+      "tied_experts": [
+        213,
+        233
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9984093308448792,
+      "pcc_chosen": 0.9988775253295898
+    },
+    {
+      "row": 0,
+      "step": 12,
+      "tied_experts": [
+        174,
+        226
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9987491369247437,
+      "pcc_chosen": 0.9987491369247437
+    },
+    {
+      "row": 0,
+      "step": 24,
+      "tied_experts": [
+        49,
+        184
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9977867007255554,
+      "pcc_chosen": 0.9977867007255554
+    },
+    {
+      "row": 0,
+      "step": 26,
+      "tied_experts": [
+        59,
+        178
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9991463422775269,
+      "pcc_chosen": 0.9993109107017517
+    },
+    {
+      "row": 1,
+      "step": 4,
+      "tied_experts": [
+        166,
+        177
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9980481266975403,
+      "pcc_chosen": 0.9980481266975403
+    },
+    {
+      "row": 1,
+      "step": 11,
+      "tied_experts": [
+        68,
+        99
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.997748613357544,
+      "pcc_chosen": 0.997748613357544
+    },
+    {
+      "row": 1,
+      "step": 15,
+      "tied_experts": [
+        107,
+        189
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9982170462608337,
+      "pcc_chosen": 0.9983113408088684
+    },
+    {
+      "row": 1,
+      "step": 16,
+      "tied_experts": [
+        65,
+        161,
+        178
+      ],
+      "open_slots": 2,
+      "exact": true,
+      "candidates": 3,
+      "chosen": 1,
+      "pcc_strict": 0.998801052570343,
+      "pcc_chosen": 0.9989581108093262
+    },
+    {
+      "row": 1,
+      "step": 30,
+      "tied_experts": [
+        17,
+        31
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9978525638580322,
+      "pcc_chosen": 0.9978525638580322
+    }
+  ],
+  "traced": true,
+  "repeated_identical": true,
+  "threshold": 0.995,
+  "traced_replay_host_us": [
+    7177.927,
+    7181.785,
+    7187.547,
+    7186.704,
+    7200.551,
+    7180.934,
+    7180.052,
+    7198.648,
+    7179.22,
+    7196.914,
+    7173.97,
+    7198.287,
+    7172.227,
+    7196.774,
+    7179.551,
+    7193.478,
+    7188.228,
+    7185.652,
+    7185.031,
+    7185.582,
+    7189.119,
+    7185.993,
+    7180.081,
+    7197.145,
+    7180.112,
+    7206.232,
+    7171.886,
+    7197.785,
+    7172.156,
+    7198.036,
+    7181.475
+  ]
+}

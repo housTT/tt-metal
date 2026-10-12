@@ -1,0 +1,114 @@
+diff evidence7/tests/test_prefill_plan.py evidence9/tests/test_prefill_plan.py
+--- evidence7/tests/test_prefill_plan.py	2026-10-11 01:34:25.000000000 +0000
++++ evidence9/tests/test_prefill_plan.py	2026-10-12 10:31:02.000000000 +0000
+@@ -55,16 +55,52 @@
+ 
+ @pytest.mark.parametrize("kind,full,length,expected", [
+     ("full_attention", True, 2, [(1, 1), (1, 1)]),
+-    ("full_attention", True, 3, [(1, 1)] * 3),
++    ("full_attention", True, 3, [(32, 3)]),
+     ("full_attention", True, 4, [(32, 4)]),
+     ("full_attention", True, 5, [(32, 5)]),
+     ("linear_attention", False, 2, [(1, 1), (1, 1)]),
+     ("linear_attention", False, 3, [(32, 3)]),
+     ("linear_attention", False, 4, [(32, 4)]),
+     ("full_attention", True, 4100, [(4096, 4096)] + [(1, 1)] * 4),
+-    ("linear_attention", False, 4100, [(4096, 4096), (32, 4)]),
++    ("linear_attention", False, 4100, [(4096, 4096)] + [(1, 1)] * 4),
++    ("linear_attention", False, 4101, [(4096, 4096), (32, 5)]),
+ ])
+ def test_short_plan_choice(kind, full, length, expected):
+     model = planner(kind, 32)
+     plan = [(count, valid) for group in model._chunk_plan(full, 0, length, None) for _, count, valid in group]
+     assert plan == expected
++
++
++@pytest.mark.parametrize("tp", [2, 4])
++@pytest.mark.parametrize("kind,full,length,expected", [
++    ("full_attention", True, 1, [(1, 1)]),
++    ("full_attention", True, 2, [(32, 2)]),
++    ("full_attention", True, 3, [(32, 3)]),
++    ("linear_attention", False, 2, [(32, 2)]),
++    ("full_attention", True, 4100, [(4096, 4096)] + [(1, 1)] * 4),
++    ("linear_attention", False, 4100, [(4096, 4096)] + [(1, 1)] * 4),
++])
++def test_mesh_short_plan_choice(tp, kind, full, length, expected):
++    from ..tt.multichip_decoder import mesh_policy
++
++    model = planner(kind, 32)
++    model.optimization = od.OptimizationPolicy(**mesh_policy(od.DEFAULT_POLICIES[kind], tp, kind))
++    plan = [(count, valid) for group in model._chunk_plan(full, 0, length, None) for _, count, valid in group]
++    assert plan == expected
++
++
++@pytest.mark.parametrize("kind,full", [("linear_attention", False), ("full_attention", True)])
++@pytest.mark.parametrize("tp,length,expected", [
++    (4, 1300, [(2048, 1300)]),
++    (2, 1300, [(2048, 1300)]),
++    (4, 2600, [(4096, 2600)]),
++    (2, 2600, [(4096, 2600)]),
++    (4, 4103, [(4096, 4096), (32, 7)]),
++])
++def test_mesh_mid_plan_choice(kind, full, tp, length, expected):
++    from ..tt.multichip_decoder import mesh_policy
++
++    model = planner(kind, 32)
++    model.optimization = od.OptimizationPolicy(**mesh_policy(od.DEFAULT_POLICIES[kind], tp, kind))
++    plan = [(count, valid) for group in model._chunk_plan(full, 0, length, None) for _, count, valid in group]
++    assert plan == expected
+diff evidence7/tt/multichip_decoder.py evidence9/tt/multichip_decoder.py
+--- evidence7/tt/multichip_decoder.py	2026-10-12 06:38:55.000000000 +0000
++++ evidence9/tt/multichip_decoder.py	2026-10-12 10:31:02.000000000 +0000
+@@ -22,6 +22,9 @@
+         "dispatch_weights": "expert_parallel",
+         "prefill_moe_pieces": 2,
+         "prefill_moe_merge_min": 1024,
++        "plan_start_step_cost": 3.0,
++        "plan_chunk_cost": 2.5,
++        "plan_row_cost": 0.002,
+         "residual_sharded_decode": True,
+         "sparse_gate_cores": 16,
+         "sparse_gate_k": 64,
+@@ -39,6 +42,9 @@
+         "dispatch_weights": "expert_parallel",
+         "prefill_moe_pieces": 2,
+         "prefill_moe_merge_min": 1024,
++        "plan_start_step_cost": 3.0,
++        "plan_chunk_cost": 2.5,
++        "plan_row_cost": 0.002,
+         "residual_sharded_decode": True,
+         "sparse_gate_cores": 8,
+         "sparse_gate_k": 64,
+diff evidence7/tt/optimized_decoder.py evidence9/tt/optimized_decoder.py
+--- evidence7/tt/optimized_decoder.py	2026-10-12 06:38:55.000000000 +0000
++++ evidence9/tt/optimized_decoder.py	2026-10-12 10:31:02.000000000 +0000
+@@ -42,6 +42,9 @@
+     dispatch_weight_nd: bool = False
+     dispatch_weights: str = "lists"
+     plan_cost: tuple = ()
++    plan_start_step_cost: float = 0.0
++    plan_chunk_cost: float = 0.0
++    plan_row_cost: float = 0.0
+     dispatch_rank: str = "sort"
+     prefill_tail_bucket: int = 0
+     prefill_buckets: tuple = ()
+@@ -297,7 +300,9 @@
+         buckets = self._planner_buckets(full)
+         costs = tuple(self.optimization.plan_cost or _PLAN_COST["full" if full else "linear"])
+         chunk_cost, row_cost, step_cost, group_cost = costs[:4]
+-        whole_step_cost = costs[4] if len(costs) > 4 else step_cost
++        chunk_cost = self.optimization.plan_chunk_cost or chunk_cost
++        row_cost = self.optimization.plan_row_cost or row_cost
++        whole_step_cost = self.optimization.plan_start_step_cost or (costs[4] if len(costs) > 4 else step_cost)
+ 
+         def fits(absolute, n):
+             return n % block == 0 and absolute % block == 0 and absolute % min(n, 128) == 0
+@@ -1815,7 +1820,7 @@
+         return self.main[:, :, start:stop]
+ 
+ 
+-_PLAN_COST = {"full": (0.8, 0.0014, 0.8, 3.0, 1.05), "linear": (0.5, 0.003, 1.1, 3.0, 1.6)}
++_PLAN_COST = {"full": (0.8, 0.0014, 0.8, 3.0, 1.6), "linear": (0.5, 0.003, 0.85, 3.0, 1.6)}
+ 
+ 
+ def _moe_pieces(rows, sizes, limit, merge_min=0):

@@ -39,8 +39,11 @@ def test_plan_invariants(kind, full, page, start, length, tight):
         assert chunk_offset == offset
         assert 0 < valid <= count
         absolute = start + chunk_offset
+        long_chunk = full and count == model.optimization.prefill_long_chunk
+        if long_chunk:
+            assert valid == count and absolute >= model.optimization.prefill_long_from
         if count > 1:
-            assert count in model._planner_buckets(full)
+            assert count in model._planner_buckets(full) or long_chunk
             assert count % block == 0 and absolute % block == 0 and absolute % min(count, 128) == 0
         assert absolute + count <= model.config.max_seq_len
         if valid < count:
@@ -49,22 +52,84 @@ def test_plan_invariants(kind, full, page, start, length, tight):
         offset += valid
     assert offset == length
     for group in groups:
-        assert sum(count for _, count, _ in group) <= max(model._planner_buckets(full))
+        assert (sum(count for _, count, _ in group) <= max(model._planner_buckets(full))
+                or (len(group) == 1 and group[0][1] == model.optimization.prefill_long_chunk))
         assert len(group) == 1 or all(count > 1 for _, count, _ in group)
 
 
 @pytest.mark.parametrize("kind,full,length,expected", [
     ("full_attention", True, 2, [(1, 1), (1, 1)]),
-    ("full_attention", True, 3, [(1, 1)] * 3),
+    ("full_attention", True, 3, [(32, 3)]),
     ("full_attention", True, 4, [(32, 4)]),
     ("full_attention", True, 5, [(32, 5)]),
     ("linear_attention", False, 2, [(1, 1), (1, 1)]),
     ("linear_attention", False, 3, [(32, 3)]),
     ("linear_attention", False, 4, [(32, 4)]),
     ("full_attention", True, 4100, [(4096, 4096)] + [(1, 1)] * 4),
-    ("linear_attention", False, 4100, [(4096, 4096), (32, 4)]),
+    ("linear_attention", False, 4100, [(4096, 4096)] + [(1, 1)] * 4),
+    ("linear_attention", False, 4101, [(4096, 4096), (32, 5)]),
 ])
 def test_short_plan_choice(kind, full, length, expected):
     model = planner(kind, 32)
     plan = [(count, valid) for group in model._chunk_plan(full, 0, length, None) for _, count, valid in group]
     assert plan == expected
+
+
+@pytest.mark.parametrize("tp", [2, 4])
+@pytest.mark.parametrize("kind,full,length,expected", [
+    ("full_attention", True, 1, [(1, 1)]),
+    ("full_attention", True, 2, [(32, 2)]),
+    ("full_attention", True, 3, [(32, 3)]),
+    ("linear_attention", False, 2, [(32, 2)]),
+    ("full_attention", True, 4100, [(4096, 4096)] + [(1, 1)] * 4),
+    ("linear_attention", False, 4100, [(4096, 4096)] + [(1, 1)] * 4),
+])
+def test_mesh_short_plan_choice(tp, kind, full, length, expected):
+    from ..tt.multichip_decoder import mesh_policy
+
+    model = planner(kind, 32)
+    model.optimization = od.OptimizationPolicy(**mesh_policy(od.DEFAULT_POLICIES[kind], tp, kind))
+    plan = [(count, valid) for group in model._chunk_plan(full, 0, length, None) for _, count, valid in group]
+    assert plan == expected
+
+
+@pytest.mark.parametrize("kind,full", [("linear_attention", False), ("full_attention", True)])
+@pytest.mark.parametrize("tp,length,expected", [
+    (4, 1300, [(2048, 1300)]),
+    (2, 1300, [(2048, 1300)]),
+    (4, 2600, [(4096, 2600)]),
+    (2, 2600, [(4096, 2600)]),
+    (4, 4103, [(4096, 4096), (32, 7)]),
+])
+def test_mesh_mid_plan_choice(kind, full, tp, length, expected):
+    from ..tt.multichip_decoder import mesh_policy
+
+    model = planner(kind, 32)
+    model.optimization = od.OptimizationPolicy(**mesh_policy(od.DEFAULT_POLICIES[kind], tp, kind))
+    plan = [(count, valid) for group in model._chunk_plan(full, 0, length, None) for _, count, valid in group]
+    assert plan == expected
+
+
+@pytest.mark.parametrize("start,length,long_from,expected", [
+    (0, 16384, 0, [8192, 8192]),
+    (0, 16384, 8192, [4096, 4096, 8192]),
+    (0, 12288, 0, [8192, 4096]),
+    (4096, 8192, 0, [8192]),
+    (0, 8190, 0, [4096, 4096]),
+])
+def test_long_chunk_merge(start, length, long_from, expected):
+    model = planner("full_attention", 32)
+    policy = dict(od.DEFAULT_POLICIES["full_attention"], prefill_long_chunk=8192, prefill_long_from=long_from)
+    model.optimization = od.OptimizationPolicy(**policy)
+    groups = model._chunk_plan(True, start, length, None)
+    counts = [count for group in groups for _, count, _ in group]
+    assert counts == expected
+    assert all(len(group) == 1 for group in groups if group[0][1] == 8192)
+    assert sum(valid for group in groups for _, _, valid in group) == length
+
+
+def test_long_chunk_moe_pieces():
+    sizes = (32, 64, 128, 256, 512, 1024, 2048, 4096)
+    assert od._moe_pieces(8192, sizes, 2, 1024) == [4096, 4096]
+    with pytest.raises(ValueError):
+        od._moe_pieces(8192 + 32, sizes, 2, 1024)

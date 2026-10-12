@@ -474,7 +474,9 @@ class FunctionalDecoder(LightweightModule):
                 kw = dict(cos=c, sin=s, position_tensor=pos, page_table=page_table[row : row + 1, :])
             x = ttnn.to_layout(hidden_states[row : row + 1, :, :], ttnn.TILE_LAYOUT)
             rows.append(self.layer.forward(x, mode="decode", **kw))
-        return rows[0] if len(rows) == 1 else ttnn.concat(rows, dim=0)
+        if len(rows) == 1:
+            return rows[0]
+        return ttnn.concat([ttnn.to_memory_config(r, ttnn.L1_MEMORY_CONFIG) if r.is_sharded() else r for r in rows], dim=0)
 
     def forward(self, hidden_states: Any, *, mode: str, **kwargs: Any) -> Any:
         if mode == "prefill":

@@ -1,0 +1,482 @@
+{
+  "decoder_class": "MultichipDecoder",
+  "input_activations": "random_normal_0.1",
+  "optimization": {
+    "expert_dtype": "bfp4",
+    "expert_grid_y": 2,
+    "expert_grid_x": 8,
+    "expert_fidelity": "LoFi",
+    "expert_input_dtype": "bf16",
+    "expert_backend": "sparse",
+    "sparse_gate_cores": 8,
+    "sparse_gate_k": 64,
+    "sparse_gate_subblock": 1,
+    "sparse_down_cores": 64,
+    "sparse_down_k": 4,
+    "sparse_down_subblock": 1,
+    "sparse_split": false,
+    "sparse_indexed": true,
+    "sparse_fused_reduce": true,
+    "compact_router_dtype": true,
+    "sparse_down_dtype": "bfp8",
+    "prefill_down_cores": 32,
+    "prefill_down_k": 16,
+    "prefill_down_subblock": 2,
+    "prefill_backend": "dispatch",
+    "dispatch_dtype": "bfp8",
+    "dispatch_input_dtype": "bf16",
+    "dispatch_grid": [
+      4,
+      4
+    ],
+    "dispatch_grid_large": [
+      2048,
+      8,
+      8
+    ],
+    "dispatch_m_tiles": 0,
+    "dispatch_ffn": "fused",
+    "dispatch_hybrid_threshold": 0,
+    "dispatch_weight_nd": false,
+    "dispatch_weights": "expert_parallel",
+    "plan_cost": [],
+    "dispatch_rank": "matmul",
+    "prefill_tail_bucket": 32,
+    "prefill_buckets": [
+      2048,
+      1024,
+      256,
+      64
+    ],
+    "decode_input_fill": false,
+    "dispatch_combine": "post_combine",
+    "dispatch_tiles_from": 2048,
+    "prefill_moe_batch": true,
+    "prefill_moe_pieces": 2,
+    "prefill_moe_merge_min": 1024,
+    "prefill_masked_tail": true,
+    "prefill_sparse_chunk": 32,
+    "prefill_sparse_l1": false,
+    "prefill_gate_cores": 32,
+    "prefill_gate_k": 16,
+    "prefill_gate_subblock": 1,
+    "projections": {
+      "attention_in": {
+        "dtype": "bfp8",
+        "fidelity": "LoFi",
+        "prefill_minimal": {
+          "grid": [
+            11,
+            10
+          ],
+          "M_block_size": 4,
+          "K_block_size": 8,
+          "N_block_size": 16,
+          "subblock_h": 1,
+          "subblock_w": 4
+        },
+        "decode_grid": [
+          8,
+          5
+        ],
+        "k_block": 8,
+        "per_n": 2
+      },
+      "attention_out": {
+        "dtype": "bfp8",
+        "fidelity": "LoFi",
+        "decode_grid": [
+          8,
+          4
+        ],
+        "k_block": 8,
+        "per_n": 2,
+        "prefill_minimal": {
+          "grid": [
+            8,
+            8
+          ],
+          "M_block_size": 8,
+          "K_block_size": 8,
+          "N_block_size": 8,
+          "subblock_h": 2,
+          "subblock_w": 2
+        }
+      },
+      "shared_down": {
+        "dtype": "bfp8",
+        "fidelity": "LoFi",
+        "dram": false,
+        "cores": 8,
+        "k_block": 4,
+        "readers": 1,
+        "prefill_grid": [
+          8,
+          8
+        ],
+        "prefill_k": 4,
+        "decode_grid": [
+          8,
+          1
+        ],
+        "per_n": 8
+      },
+      "router": {
+        "dtype": "bf16",
+        "fidelity": "HiFi2"
+      }
+    },
+    "sdpa": {
+      "grid": [
+        11,
+        10
+      ],
+      "q_chunk_size": 32,
+      "k_chunk_size": 512,
+      "exp_approx_mode": false,
+      "prefill": {
+        "q_chunk_size": 128,
+        "k_chunk_size": 256,
+        "exp_approx_mode": false
+      }
+    },
+    "kv_dtype": "bfp8",
+    "residual_cores": 0,
+    "decode_norm_cores": 16,
+    "decode_norm_fp32_input": false,
+    "decode_norm_output": "l1",
+    "decode_norm_fill": false,
+    "attention_decode_memory": "l1",
+    "residual_output_sharded": false,
+    "norm_fused_weight": false,
+    "prefill_norm": "bf16",
+    "router_topk_prefill": true,
+    "gdn_gate_mixed": false,
+    "gate_pack_fidelity": "HiFi2",
+    "gdn_decode_direct": false,
+    "shared_split": false,
+    "gate_pack": true,
+    "gate_pack_grid": [
+      8,
+      2,
+      32
+    ],
+    "gdn_l1": false,
+    "gdn_state_l1": false,
+    "gdn_l1_slots": 32,
+    "conv_chunk": 512,
+    "gdn_heads_decode": false,
+    "gdn_decode_kernel": false,
+    "gdn_decode_gates": false,
+    "gdn_decode_blocks": 0,
+    "expert_decode_kernel": true,
+    "expert_decode_nper": 0,
+    "expert_decode_kb": 8,
+    "expert_decode_shared": true,
+    "residual_sharded_decode": true,
+    "router_cached_slices": true,
+    "dispatch_scatter_rows": 32,
+    "mesh_policy_keep": [],
+    "conv_state_rm": false,
+    "conv_decode_fill": true,
+    "gdn_ab_split": {},
+    "gdn_flat_qk": false,
+    "release_unused_weights": true,
+    "prefill_tiled": true,
+    "prefill_chunk": 4096,
+    "shared_minimal_config": {},
+    "shared_decode_minimal_config": {
+      "grid": [
+        4,
+        2
+      ],
+      "M_block_size": 1,
+      "K_block_size": 16,
+      "N_block_size": 4,
+      "subblock_h": 1,
+      "subblock_w": 2
+    },
+    "prefill_minimal_config": {}
+  },
+  "mesh_shape": [
+    1,
+    4
+  ],
+  "device_ids": [
+    3,
+    2,
+    1,
+    0
+  ],
+  "tensor_parallel": 4,
+  "output_replicas_identical": true,
+  "fusions": [
+    "moe_gate",
+    "shared_gate",
+    "shared_minimal",
+    "rope",
+    "cache",
+    "qkv",
+    "heads",
+    "indexed_rope",
+    "gate",
+    "compact_reduce",
+    "compact_routing",
+    "prefill_split"
+  ],
+  "cases": [
+    {
+      "length": 1,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9995593428611755,
+      "prefill_pcc_min": 0.9994824528694153,
+      "decode_pcc": 0.9992786645889282,
+      "decode_pcc_min": 0.999114990234375,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 31,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9990711212158203,
+      "prefill_pcc_min": 0.999069094657898,
+      "decode_pcc": 0.9989076256752014,
+      "decode_pcc_min": 0.9987545013427734,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 32,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9990403652191162,
+      "prefill_pcc_min": 0.9989664554595947,
+      "decode_pcc": 0.9977089166641235,
+      "decode_pcc_min": 0.9969497919082642,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 33,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.999059796333313,
+      "prefill_pcc_min": 0.9990254640579224,
+      "decode_pcc": 0.9989893436431885,
+      "decode_pcc_min": 0.9988906383514404,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 127,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9989282488822937,
+      "prefill_pcc_min": 0.9988903999328613,
+      "decode_pcc": 0.9990316033363342,
+      "decode_pcc_min": 0.99898362159729,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 128,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9988670945167542,
+      "prefill_pcc_min": 0.998836874961853,
+      "decode_pcc": 0.9987818598747253,
+      "decode_pcc_min": 0.9986774921417236,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 129,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9988572001457214,
+      "prefill_pcc_min": 0.9988409280776978,
+      "decode_pcc": 0.9985840916633606,
+      "decode_pcc_min": 0.998469889163971,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 511,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9986513257026672,
+      "prefill_pcc_min": 0.9986225962638855,
+      "decode_pcc": 0.9985588192939758,
+      "decode_pcc_min": 0.998461902141571,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 512,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9986713528633118,
+      "prefill_pcc_min": 0.9985851049423218,
+      "decode_pcc": 0.9989618062973022,
+      "decode_pcc_min": 0.9987926483154297,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 513,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9986099004745483,
+      "prefill_pcc_min": 0.9985691905021667,
+      "decode_pcc": 0.9983046054840088,
+      "decode_pcc_min": 0.9982270002365112,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 1153,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9986599683761597,
+      "prefill_pcc_min": 0.9985361695289612,
+      "decode_pcc": 0.9983996748924255,
+      "decode_pcc_min": 0.9983497858047485,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 33,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9990257620811462,
+      "prefill_pcc_min": 0.9990197420120239,
+      "decode_pcc": 0.9989796876907349,
+      "decode_pcc_min": 0.9988124966621399,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 35,
+      "padded_input": true,
+      "warmed": true,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9989870190620422,
+      "prefill_pcc_min": 0.9989070892333984,
+      "decode_pcc": 0.9988527297973633,
+      "decode_pcc_min": 0.998633861541748,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 36,
+      "padded_input": true,
+      "warmed": false,
+      "cuts": [],
+      "batch": 2,
+      "prefill_pcc": 0.9990305304527283,
+      "prefill_pcc_min": 0.998989999294281,
+      "decode_pcc": 0.9990436434745789,
+      "decode_pcc_min": 0.9986743927001953,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 1153,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [
+        1,
+        3,
+        127,
+        129,
+        160,
+        513
+      ],
+      "batch": 2,
+      "prefill_pcc": 0.9984695911407471,
+      "prefill_pcc_min": 0.9985314607620239,
+      "decode_pcc": 0.9985841512680054,
+      "decode_pcc_min": 0.9983804225921631,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 256,
+      "padded_input": true,
+      "warmed": true,
+      "cuts": [
+        35
+      ],
+      "batch": 2,
+      "prefill_pcc": 0.9986473917961121,
+      "prefill_pcc_min": 0.9986253976821899,
+      "decode_pcc": 0.9983090758323669,
+      "decode_pcc_min": 0.9979889988899231,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 256,
+      "padded_input": true,
+      "warmed": false,
+      "cuts": [
+        36
+      ],
+      "batch": 2,
+      "prefill_pcc": 0.9986626505851746,
+      "prefill_pcc_min": 0.9986347556114197,
+      "decode_pcc": 0.9987449049949646,
+      "decode_pcc_min": 0.9987069368362427,
+      "trace_id": "MeshTraceId(0)"
+    },
+    {
+      "length": 2047,
+      "padded_input": false,
+      "warmed": true,
+      "cuts": [
+        1152
+      ],
+      "batch": 2,
+      "prefill_pcc": 0.9983453154563904,
+      "prefill_pcc_min": 0.998324990272522,
+      "decode_pcc": 0.9981322288513184,
+      "decode_pcc_min": 0.9981235861778259,
+      "trace_id": "MeshTraceId(0)"
+    }
+  ],
+  "captures": 1,
+  "request_releases": 0,
+  "teardown_releases": 1,
+  "guards_clean": true,
+  "kv_scratch_block": 35,
+  "kv_scratch_written": true,
+  "runtime_audit": true,
+  "request_slots": [
+    30,
+    31
+  ],
+  "page_size": 128,
+  "expert_precision": "inherited",
+  "source_sha256": {
+    "multichip_decoder.py": "76862d51ec5409177dee18cd214f08409034f1fa6405eb1f0feb2b3a359e5caf",
+    "gdn_decode.py": "760aec1cf660dbd328c0929ed8dd1b9ef7222030a439a565a37622322a2f90e1",
+    "functional_attention.py": "6718df3736404f042613670f43e184e202ece215a9f7907f6358ec18326a8638",
+    "functional_decoder.py": "c3597bf194086ddc39fb030d221b7fe932162b052815affd7c6c14ede135f9b0",
+    "__init__.py": "20db980a38cc5bb36a49afaff8f9838e2c77f17e5b1ef0c42b5ed918f77a1ca9",
+    "fused_decoder.py": "e1c244e3d565d287f26c88d889a2d7ddf49c8fd9db71ee5ea8e700d068825602",
+    "functional_gdn.py": "2a5a87d7ff4d35483a1e0103951001e8610ed12f5f4af4cb15498a6e547ad37b",
+    "expert_decode.py": "d4aaeba12a8889d02a8ac529922d583320b630f75116e50702586a4018fc5d9e",
+    "optimized_decoder.py": "630f73beec7699b58f1bdd390d328e5fb48b679f49a89106ec8c30e5c6fa876a"
+  }
+}

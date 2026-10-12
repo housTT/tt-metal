@@ -659,5 +659,211 @@
    "multichip_decoder/evidence7/inventory/",
    "multichip_decoder/evidence7/memory_handoff_recheck.json"
   ]
+ },
+ "optimized_multichip_decoder_validation": {
+  "stage": "05 optimized multichip decoder",
+  "capability_reduction": null,
+  "supported_context": 262144,
+  "meshes": {
+   "p150": "1x1, physical device 3",
+   "p150x2": "1x2, TT_VISIBLE_DEVICES=2,3, FABRIC_1D",
+   "p150x4": "1x4 ring, FABRIC_1D_RING"
+  },
+  "kv_layout": "unchanged from Stage 4: per-device local KV head [pages, 1, page, 256] BFP8",
+  "recurrent_state": "unchanged: per-device local value heads [1, 32/tp, 128, 128] FP32 per configured slot; the fused GDN decode kernel updates it in place",
+  "page_table_contract": "decode SDPA uses k_chunk 512 when the page-table coverage is a multiple of 512 tokens (16 blocks of 32); otherwise the chunk halves until it divides (correct, slower). Serving tables (262144/32 = 8192 blocks) are aligned.",
+  "new_persistent_buffers": [
+   "decode all-reduce buffer [1,1,32,2048*tp] BF16 width-sharded L1 plus 2 global semaphores per (mesh, cores)",
+   "dispatch scatter buffers FP32 [1,1,R,capacity] and token rows per (mesh, capacity, length, R)",
+   "router cached slices per layer (created on the eager warmup decode)",
+   "EP dispatch scratch-slot table FP32 [1,1,length,8] per prepared length (masked routes map to 32 scratch rows)",
+   "EP dispatch spread default FP32 [1,1,1,capacity] per prepared length (arange % length)",
+   "32 zero rows (was 1) at the end of each restore table",
+   "BF16 copy of each decode-norm gamma for prefill (prefill_norm bf16): 2 per layer, 128 KiB each in tile layout",
+   "shared addcmul ones row [1,1,1,2048] BFP8 DRAM per layer (64 tiles, 69632 bytes)",
+   "full-attention index-offset table for the 8192-row long chunk: FP32 arange [1,8192] tile layout, 1048576 bytes per full layer (shareable constant)"
+  ],
+  "removed_buffers": [
+   "BF16 GDN in-projection source weight after the BFP8 projection copy (-12.8 MB per linear layer on p150x4, -50.6 MB on p150 vs chain 2)"
+  ],
+  "native_context_tests": {
+   "m4_linear_262143": {
+    "prefill_pcc": 0.9992910623550415,
+    "decode_pcc": 0.9998253583908081,
+    "artifact": "optimized_multichip_decoder/evidence12/accept_context_m4/linear_262143.json"
+   },
+   "m4_linear_262144": {
+    "prefill_pcc": 0.9994888305664062,
+    "decode_pcc": null,
+    "artifact": "optimized_multichip_decoder/evidence12/accept_context_m4/linear_262144.json"
+   },
+   "m4_full_262143": {
+    "prefill_pcc": 0.9985198378562927,
+    "decode_pcc": 0.997855544090271,
+    "artifact": "optimized_multichip_decoder/evidence12/accept_context_m4/full_262143.json"
+   },
+   "m4_full_262144": {
+    "prefill_pcc": 0.9982174038887024,
+    "decode_pcc": null,
+    "artifact": "optimized_multichip_decoder/evidence12/accept_context_m4/full_262144.json"
+   },
+   "m2_linear_262143": {
+    "prefill_pcc": 0.999290943145752,
+    "decode_pcc": 0.9998070001602173,
+    "artifact": "optimized_multichip_decoder/evidence12/accept_context_m2/linear_262143.json"
+   },
+   "m2_linear_262144": {
+    "prefill_pcc": 0.9994773864746094,
+    "decode_pcc": null,
+    "artifact": "optimized_multichip_decoder/evidence12/accept_context_m2/linear_262144.json"
+   },
+   "m2_full_262143": {
+    "prefill_pcc": 0.9985363483428955,
+    "decode_pcc": 0.997899055480957,
+    "artifact": "optimized_multichip_decoder/evidence12/accept_context_m2/full_262143.json"
+   },
+   "m2_full_262144": {
+    "prefill_pcc": 0.9981704354286194,
+    "decode_pcc": null,
+    "artifact": "optimized_multichip_decoder/evidence12/accept_context_m2/full_262144.json"
+   },
+   "m1_linear_262143": {
+    "prefill_pcc": 0.9992855191230774,
+    "decode_pcc": 0.9998174905776978,
+    "artifact": "optimized_multichip_decoder/evidence12/accept_context_m1/linear_262143.json"
+   },
+   "m1_linear_262144": {
+    "prefill_pcc": 0.9994786381721497,
+    "decode_pcc": null,
+    "artifact": "optimized_multichip_decoder/evidence12/accept_context_m1/linear_262144.json"
+   },
+   "m1_full_262143": {
+    "prefill_pcc": 0.998519241809845,
+    "decode_pcc": 0.9978489875793457,
+    "artifact": "optimized_multichip_decoder/evidence12/accept_context_m1/full_262143.json"
+   },
+   "m1_full_262144": {
+    "prefill_pcc": 0.9981595277786255,
+    "decode_pcc": null,
+    "artifact": "optimized_multichip_decoder/evidence12/accept_context_m1/full_262144.json"
+   }
+  },
+  "long_context_timing": "optimized_multichip_decoder/evidence12/long_context/ (131072 on all profiles; 262112 full layer on p150x4)",
+  "capacity": {
+   "p150": {
+    "tensor_parallel": 1,
+    "device_capacity_bytes": 34178731008,
+    "per_layer_weight_bytes": {
+     "linear_attention": 638149120,
+     "full_attention": 625050112
+    },
+    "gdn_state_bytes_per_slot_per_layer": 2146304.0,
+    "shareable_constant_bytes_counted_once": 138571396,
+    "forty_layer_weight_bytes": 25394974720,
+    "embedding_bytes": 1017118720,
+    "lm_head_bytes": 540344320.0,
+    "reserve_bytes": 2147483648,
+    "kv_bytes_per_token_all_full_layers": 10880.0,
+    "by_gdn_slots": {
+     "1": {
+      "bytes_before_kv": 29302881924.0,
+      "kv_tokens": 448147,
+      "full_context_sequences": 1.709548544883728
+     },
+     "8": {
+      "bytes_before_kv": 29753605764.0,
+      "kv_tokens": 406721,
+      "full_context_sequences": 1.5515177544425516
+     },
+     "32": {
+      "bytes_before_kv": 31298944644.0,
+      "kv_tokens": 264686,
+      "full_context_sequences": 1.0096979015013752
+     }
+    },
+    "fits_one_262144_sequence_with_8_slots": true
+   },
+   "p150x2": {
+    "tensor_parallel": 2,
+    "device_capacity_bytes": 34178731008,
+    "per_layer_weight_bytes": {
+     "linear_attention": 614326784,
+     "full_attention": 607715840
+    },
+    "gdn_state_bytes_per_slot_per_layer": 1073152.0,
+    "shareable_constant_bytes_counted_once": 132835972,
+    "forty_layer_weight_bytes": 24506961920,
+    "embedding_bytes": 1017118720,
+    "lm_head_bytes": 270172160.0,
+    "reserve_bytes": 2147483648,
+    "kv_bytes_per_token_all_full_layers": 5440.0,
+    "by_gdn_slots": {
+     "1": {
+      "bytes_before_kv": 28106766980.0,
+      "kv_tokens": 1116169,
+      "full_context_sequences": 4.257850105622236
+     },
+     "8": {
+      "bytes_before_kv": 28332128900.0,
+      "kv_tokens": 1074743,
+      "full_context_sequences": 4.099819315181059
+     },
+     "32": {
+      "bytes_before_kv": 29104798340.0,
+      "kv_tokens": 932708,
+      "full_context_sequences": 3.5579994622398825
+     }
+    },
+    "fits_one_262144_sequence_with_8_slots": true
+   },
+   "p150x4": {
+    "tensor_parallel": 4,
+    "device_capacity_bytes": 34178731008,
+    "per_layer_weight_bytes": {
+     "linear_attention": 309371392,
+     "full_attention": 306561536
+    },
+    "gdn_state_bytes_per_slot_per_layer": 536576.0,
+    "shareable_constant_bytes_counted_once": 130017412,
+    "forty_layer_weight_bytes": 12346757120,
+    "embedding_bytes": 1017118720,
+    "lm_head_bytes": 135086080.0,
+    "reserve_bytes": 2147483648,
+    "kv_bytes_per_token_all_full_layers": 5440.0,
+    "by_gdn_slots": {
+     "1": {
+      "bytes_before_kv": 15792560260.0,
+      "kv_tokens": 3379810,
+      "full_context_sequences": 12.892955014284919
+     },
+     "8": {
+      "bytes_before_kv": 15905241220.0,
+      "kv_tokens": 3359097,
+      "full_context_sequences": 12.813939619064332
+     },
+     "32": {
+      "bytes_before_kv": 16291575940.0,
+      "kv_tokens": 3288079,
+      "full_context_sequences": 12.543029692593743
+     }
+    },
+    "fits_one_262144_sequence_with_8_slots": true
+   }
+  },
+  "capacity_method": "Per-layer weights from the root-buffer inventory (DRAM payload by unique buffer). Constants that are identical in every layer (RoPE tables, dispatch maps, zero templates, index tables) are counted once. GDN state counted per configured slot. Embedding BF16 replicated; LM head BFP8 sharded by vocabulary. Reserve of 2 GiB for activations, trace and CCL buffers is an estimate until the full model measures it.",
+  "capacity_conditions": [
+   "RoPE tables, dispatch maps, zero templates and index tables are allocated once per mesh in the full model (the single-layer harness holds one copy per layer).",
+   "GDN recurrent slots are a configuration choice separate from active batch; table lists 1, 8 and 32 slots.",
+   "The 2 GiB reserve for activations, trace and CCL buffers is an estimate until the full model measures it.",
+   "p150 holds 1.55 x 262144 tokens with 8 GDN slots and 1.01 with 32 slots."
+  ],
+  "artifacts": [
+   "optimized_multichip_decoder/evidence12/capacity_model.json",
+   "optimized_multichip_decoder/evidence12/inventory/",
+   "optimized_multichip_decoder/evidence12/memory_handoff_recheck.json",
+   "optimized_multichip_decoder/evidence12/accept_context_m4/",
+   "optimized_multichip_decoder/evidence12/accept_context_m2/",
+   "optimized_multichip_decoder/evidence12/accept_context_m1/"
+  ]
  }
 }

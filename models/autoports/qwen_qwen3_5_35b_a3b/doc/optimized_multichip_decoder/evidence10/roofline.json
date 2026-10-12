@@ -1,0 +1,293 @@
+{
+ "method": "compulsory-traffic and useful-FLOP lower bounds per device; peaks from tt-perf-report ArchitectureSpec 'blackhole' (512 GB/s DRAM, 4096 FLOP/cycle/core at LoFi, 1.35 GHz, 110 cores; HiFi2 /2, HiFi4 /4). Decode at batch 1, context 4096 (and 131072 for KV). Prefill 4096 tokens. Not a hardware counter: tile padding, multicast and temporaries are excluded.",
+ "rows": [
+  {
+   "mesh": 4,
+   "kind": "linear_attention",
+   "decode": {
+    "bytes": {
+     "in_projection_bfp8": 6719488.0,
+     "attention_out_bfp8": 2228224.0,
+     "gdn_state_fp32_read_write": 1048576.0,
+     "router_shared_gate_bf16": 1179648.0,
+     "routed_gate_up_bfp4": 2359296.0,
+     "routed_down_bfp8": 2228224.0,
+     "shared_gate_up_bfp4": 294912.0,
+     "shared_down_bfp8": 278528.0
+    },
+    "total_mb": 16.336896,
+    "roofline_us": 31.908,
+    "roofline_us_131072": 31.908,
+    "kernel_sum_us": 208.7,
+    "traced_host_us": 236.448,
+    "roofline_fraction_of_host": 0.13494721883881444,
+    "kernel_fraction_of_host": 0.8826465015563675
+   },
+   "prefill": {
+    "flops": {
+     "in_projection": 51808043008.0,
+     "attention_out": 17179869184.0,
+     "delta_recurrence": 3766484992.0,
+     "routed_experts": 51539607552.0,
+     "shared_expert": 6442450944.0,
+     "router": 4294967296
+    },
+    "fidelity": {
+     "in_projection": "HiFi2",
+     "attention_out": "HiFi2",
+     "delta_recurrence": "HiFi4",
+     "routed_experts": "LoFi",
+     "shared_expert": "LoFi",
+     "router": "HiFi2"
+    },
+    "compute_bound_us": 361.05481481481485,
+    "memory_bound_us": 369.732,
+    "roofline_us": 369.732,
+    "kernel_sum_us": 10498.485999999999,
+    "fw_span_us": 10553.893333333333,
+    "warm_host_us": 10831.488,
+    "roofline_fraction_of_host": 0.03413492218243699
+   }
+  },
+  {
+   "mesh": 4,
+   "kind": "full_attention",
+   "decode": {
+    "bytes": {
+     "qkvg_bfp8": 5570560.0,
+     "attention_out_bfp8": 2228224.0,
+     "kv_read_bfp8": 2228224.0,
+     "router_shared_gate_bf16": 1179648.0,
+     "routed_gate_up_bfp4": 2359296.0,
+     "routed_down_bfp8": 2228224.0,
+     "shared_gate_up_bfp4": 294912.0,
+     "shared_down_bfp8": 278528.0
+    },
+    "total_mb": 16.367616,
+    "roofline_us": 31.968000000000004,
+    "roofline_us_131072": 166.88,
+    "kernel_sum_us": 251.26,
+    "traced_host_us": 260.599,
+    "roofline_fraction_of_host": 0.12267123051124526,
+    "kernel_fraction_of_host": 0.9641633314018857
+   },
+   "prefill": {
+    "flops": {
+     "qkvg": 42949672960.0,
+     "attention_out": 17179869184.0,
+     "sdpa_causal": 34359738368.0,
+     "routed_experts": 51539607552.0,
+     "shared_expert": 6442450944.0,
+     "router": 4294967296
+    },
+    "fidelity": {
+     "qkvg": "LoFi",
+     "attention_out": "LoFi",
+     "sdpa_causal": "HiFi2",
+     "routed_experts": "LoFi",
+     "shared_expert": "LoFi",
+     "router": "HiFi2"
+    },
+    "compute_bound_us": 321.280861952862,
+    "memory_bound_us": 371.84000000000003,
+    "roofline_us": 371.84000000000003,
+    "kernel_sum_us": 10730.526,
+    "fw_span_us": 11475.16888888889,
+    "warm_host_us": 11555.934,
+    "roofline_fraction_of_host": 0.03217740772835844
+   }
+  },
+  {
+   "mesh": 2,
+   "kind": "linear_attention",
+   "decode": {
+    "bytes": {
+     "in_projection_bfp8": 13438976.0,
+     "attention_out_bfp8": 4456448.0,
+     "gdn_state_fp32_read_write": 2097152.0,
+     "router_shared_gate_bf16": 1179648.0,
+     "routed_gate_up_bfp4": 4718592.0,
+     "routed_down_bfp8": 4456448.0,
+     "shared_gate_up_bfp4": 589824.0,
+     "shared_down_bfp8": 557056.0
+    },
+    "total_mb": 31.494144,
+    "roofline_us": 61.512,
+    "roofline_us_131072": 61.512,
+    "kernel_sum_us": 247.31,
+    "traced_host_us": 277.4715,
+    "roofline_fraction_of_host": 0.22168763278390755,
+    "kernel_fraction_of_host": 0.8912987459973367
+   },
+   "prefill": {
+    "flops": {
+     "in_projection": 103616086016.0,
+     "attention_out": 34359738368.0,
+     "delta_recurrence": 7532969984.0,
+     "routed_experts": 103079215104.0,
+     "shared_expert": 12884901888.0,
+     "router": 4294967296
+    },
+    "fidelity": {
+     "in_projection": "HiFi2",
+     "attention_out": "HiFi2",
+     "delta_recurrence": "HiFi4",
+     "routed_experts": "LoFi",
+     "shared_expert": "LoFi",
+     "router": "HiFi2"
+    },
+    "compute_bound_us": 707.987393939394,
+    "memory_bound_us": 673.928,
+    "roofline_us": 707.987393939394,
+    "kernel_sum_us": 14047.981,
+    "fw_span_us": 14093.373333333333,
+    "warm_host_us": 14405.157,
+    "roofline_fraction_of_host": 0.049148190050229516
+   }
+  },
+  {
+   "mesh": 2,
+   "kind": "full_attention",
+   "decode": {
+    "bytes": {
+     "qkvg_bfp8": 10027008.0,
+     "attention_out_bfp8": 4456448.0,
+     "kv_read_bfp8": 2228224.0,
+     "router_shared_gate_bf16": 1179648.0,
+     "routed_gate_up_bfp4": 4718592.0,
+     "routed_down_bfp8": 4456448.0,
+     "shared_gate_up_bfp4": 589824.0,
+     "shared_down_bfp8": 557056.0
+    },
+    "total_mb": 28.213248,
+    "roofline_us": 55.104,
+    "roofline_us_131072": 190.016,
+    "kernel_sum_us": 279.04,
+    "traced_host_us": 293.327,
+    "roofline_fraction_of_host": 0.18785860149253222,
+    "kernel_fraction_of_host": 0.9512932665591645
+   },
+   "prefill": {
+    "flops": {
+     "qkvg": 77309411328.0,
+     "attention_out": 34359738368.0,
+     "sdpa_causal": 68719476736.0,
+     "routed_experts": 103079215104.0,
+     "shared_expert": 12884901888.0,
+     "router": 4294967296
+    },
+    "fidelity": {
+     "qkvg": "LoFi",
+     "attention_out": "LoFi",
+     "sdpa_causal": "HiFi2",
+     "routed_experts": "LoFi",
+     "shared_expert": "LoFi",
+     "router": "HiFi2"
+    },
+    "compute_bound_us": 614.3172525252526,
+    "memory_bound_us": 671.616,
+    "roofline_us": 671.616,
+    "kernel_sum_us": 14307.132,
+    "fw_span_us": 14950.579259259259,
+    "warm_host_us": 15160.281,
+    "roofline_fraction_of_host": 0.04430102581871668
+   }
+  },
+  {
+   "mesh": 1,
+   "kind": "linear_attention",
+   "decode": {
+    "bytes": {
+     "in_projection_bfp8": 26877952.0,
+     "attention_out_bfp8": 8912896.0,
+     "gdn_state_fp32_read_write": 4194304.0,
+     "router_shared_gate_bf16": 1179648.0,
+     "routed_gate_up_bfp4": 9437184.0,
+     "routed_down_bfp8": 8912896.0,
+     "shared_gate_up_bfp4": 1179648.0,
+     "shared_down_bfp8": 1114112.0
+    },
+    "total_mb": 61.80864,
+    "roofline_us": 120.72,
+    "roofline_us_131072": 120.72,
+    "kernel_sum_us": 341.62,
+    "traced_host_us": 369.7635,
+    "roofline_fraction_of_host": 0.32647895208694205,
+    "kernel_fraction_of_host": 0.9238878364143567
+   },
+   "prefill": {
+    "flops": {
+     "in_projection": 207232172032.0,
+     "attention_out": 68719476736.0,
+     "delta_recurrence": 15065939968.0,
+     "routed_experts": 206158430208.0,
+     "shared_expert": 25769803776.0,
+     "router": 4294967296
+    },
+    "fidelity": {
+     "in_projection": "HiFi2",
+     "attention_out": "HiFi2",
+     "delta_recurrence": "HiFi4",
+     "routed_experts": "LoFi",
+     "shared_expert": "LoFi",
+     "router": "HiFi2"
+    },
+    "compute_bound_us": 1401.8525521885522,
+    "memory_bound_us": 1282.32,
+    "roofline_us": 1401.8525521885522,
+    "kernel_sum_us": 20352.861,
+    "fw_span_us": 20425.52,
+    "warm_host_us": 20561.252,
+    "roofline_fraction_of_host": 0.0681793381156241
+   }
+  },
+  {
+   "mesh": 1,
+   "kind": "full_attention",
+   "decode": {
+    "bytes": {
+     "qkvg_bfp8": 20054016.0,
+     "attention_out_bfp8": 8912896.0,
+     "kv_read_bfp8": 4456448.0,
+     "router_shared_gate_bf16": 1179648.0,
+     "routed_gate_up_bfp4": 9437184.0,
+     "routed_down_bfp8": 8912896.0,
+     "shared_gate_up_bfp4": 1179648.0,
+     "shared_down_bfp8": 1114112.0
+    },
+    "total_mb": 55.246848,
+    "roofline_us": 107.904,
+    "roofline_us_131072": 377.728,
+    "kernel_sum_us": 358.34,
+    "traced_host_us": 370.5705,
+    "roofline_fraction_of_host": 0.2911834590179197,
+    "kernel_fraction_of_host": 0.9669954839902258
+   },
+   "prefill": {
+    "flops": {
+     "qkvg": 154618822656.0,
+     "attention_out": 68719476736.0,
+     "sdpa_causal": 137438953472.0,
+     "routed_experts": 206158430208.0,
+     "shared_expert": 25769803776.0,
+     "router": 4294967296
+    },
+    "fidelity": {
+     "qkvg": "LoFi",
+     "attention_out": "LoFi",
+     "sdpa_causal": "HiFi2",
+     "routed_experts": "LoFi",
+     "shared_expert": "LoFi",
+     "router": "HiFi2"
+    },
+    "compute_bound_us": 1214.5122693602693,
+    "memory_bound_us": 1277.6960000000001,
+    "roofline_us": 1277.6960000000001,
+    "kernel_sum_us": 19817.864999999998,
+    "fw_span_us": 20403.08814814815,
+    "warm_host_us": 20712.729,
+    "roofline_fraction_of_host": 0.06168651170978002
+   }
+  }
+ ]
+}

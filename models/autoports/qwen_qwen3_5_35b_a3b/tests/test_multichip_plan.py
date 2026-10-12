@@ -166,10 +166,55 @@ def test_moe_pieces(rows, limit, expected):
     assert _moe_pieces(rows, [32, 64, 128, 256, 512, 1024, 2048, 4096], limit) == expected
 
 
+@pytest.mark.parametrize("rows,expected", [(2176, [2048, 128]), (2432, [2048, 512]), (2624, [4096]), (3072, [4096]),
+                                           (1152, [1024, 128])])
+def test_moe_pieces_merge(rows, expected):
+    from models.autoports.qwen_qwen3_5_35b_a3b.tt.optimized_decoder import _moe_pieces
+
+    assert _moe_pieces(rows, [32, 64, 128, 256, 512, 1024, 2048, 4096], 2, 1024) == expected
+
+
 def test_mesh_policy_moe_pieces():
     assert mc.mesh_policy(mc.DEFAULT_POLICIES["full_attention"], 1).get("prefill_moe_pieces", 1) == 1
     assert mc.mesh_policy(mc.DEFAULT_POLICIES["full_attention"], 2)["prefill_moe_pieces"] == 2
     assert mc.mesh_policy(mc.DEFAULT_POLICIES["linear_attention"], 4)["prefill_moe_pieces"] == 2
+    assert mc.mesh_policy(mc.DEFAULT_POLICIES["linear_attention"], 4)["prefill_moe_merge_min"] == 1024
+    assert mc.mesh_policy(mc.DEFAULT_POLICIES["full_attention"], 1).get("prefill_moe_merge_min", 0) == 0
+
+
+@pytest.mark.parametrize("routes,rows", [(32768, 32), (16384, 16), (8192, 8), (1024, 1), (800, 1), (10400, 10)])
+def test_scatter_rows(routes, rows):
+    from models.autoports.qwen_qwen3_5_35b_a3b.tt.optimized_decoder import _scatter_rows
+
+    chosen = _scatter_rows(routes, 32)
+    assert chosen == rows and routes % chosen == 0 and (chosen == 1 or routes // chosen >= 1024)
+
+
+@pytest.mark.parametrize("tp", [1, 2, 4])
+@pytest.mark.parametrize("kind", ["full_attention", "linear_attention"])
+def test_stage5_decode_policy(tp, kind):
+    policy = mc.mesh_policy(mc.DEFAULT_POLICIES[kind], tp, kind)
+    assert policy["expert_decode_kernel"] and policy["expert_decode_shared"]
+    assert policy["router_cached_slices"] and policy["decode_norm_output"] == "l1"
+    assert not policy["decode_input_fill"] and not policy.get("decode_norm_fill", False)
+    assert policy.get("residual_sharded_decode", False) == (tp > 1)
+    assert policy["dispatch_scatter_rows"] == 32
+    assert policy["prefill_norm"] == "bf16" and policy["router_topk_prefill"]
+    assert policy["gate_pack_fidelity"] == "HiFi2" and policy["projections"]["router"]["fidelity"] == "HiFi2"
+    addcmul = policy["shared_addcmul_config"]
+    assert addcmul["grid"] == [8, 2] and (512 // tp // 32) % addcmul["K_block_size"] == 0
+    assert (2048 // 32 // addcmul["grid"][0]) % addcmul["N_block_size"] == 0
+    if kind == "full_attention":
+        sdpa = policy["sdpa"]
+        assert (sdpa["k_chunk_size"], sdpa["grid"]) == (512, [11, 10])
+        assert (sdpa["prefill"]["q_chunk_size"], sdpa["prefill"]["k_chunk_size"]) == (128, 256)
+        assert (policy["prefill_long_chunk"], policy["prefill_long_from"]) == (8192, 8192)
+        long_sdpa = policy["sdpa_prefill_long"]
+        assert (long_sdpa["q_chunk_size"], long_sdpa["k_chunk_size"]) == ((64, 256) if tp == 4 else (128, 512))
+    else:
+        assert policy["gdn_decode_kernel"] and policy["gdn_decode_gates"] and not policy["conv_decode_fill"]
+        assert policy["gdn_flat_qk"] and policy["gdn_gate_mixed"] and policy["gdn_decode_direct"]
+        assert policy["conv_shift"] == "gate" and policy["conv_state_rm"]
 
 
 def test_local_hf_config():

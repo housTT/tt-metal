@@ -1,0 +1,101 @@
+[
+  {
+    "name": "default",
+    "policy": null,
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "multichip",
+      "--mesh",
+      "1",
+      "--layer",
+      "3",
+      "--length",
+      "2176",
+      "--steps",
+      "4",
+      "--batch",
+      "1",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_multichip_decoder/evidence6/len_m1_full_2176/default.json",
+      "--compare-tensors",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence7_tensors/len_base_full_2176/default.pt",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer3.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 11.837675880989991,
+    "source_stable": true,
+    "prefill_pcc": 0.9995265603065491,
+    "decode_pcc": 0.999594509601593,
+    "prefill_host_us": 17701.15,
+    "continuation_host_us": null,
+    "prefill_token_pcc_min": 0.9914085268974304,
+    "prefill_tokens_below_0995": 1,
+    "prefill_repeat_identical": true,
+    "prefill_repeat_difference": null,
+    "decode_host_us": 370.2645,
+    "mesh_shape": [
+      1,
+      1
+    ],
+    "device_ids": [
+      3
+    ],
+    "output_replicas_identical": true,
+    "control_equivalence": {
+      "prefill_pcc": 0.999854326248169,
+      "decode_pcc_min": 0.9997442960739136,
+      "decode_pcc_min_strict": 0.9997130036354065,
+      "decode_tie_choices_differ": [
+        {
+          "row": 0,
+          "step": 1,
+          "control_choice": 3,
+          "choice": 1
+        }
+      ],
+      "source": "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence7_tensors/len_base_full_2176/default.pt",
+      "prefill_max_abs": 0.015625,
+      "decode_max_abs": 0.0078125,
+      "prefill_identical": false,
+      "decode_identical": false
+    },
+    "weight_memory": {
+      "before_cleanup": {
+        "dram": {
+          "allocated_bytes": 2708982784,
+          "free_bytes": 31469748224,
+          "banks": 8,
+          "largest_free_bytes_per_bank": 3933331840
+        },
+        "l1": {
+          "allocated_bytes": 901120,
+          "free_bytes": 159822080,
+          "banks": 110,
+          "largest_free_bytes_per_bank": 1452928
+        }
+      },
+      "after_cleanup": {
+        "dram": {
+          "allocated_bytes": 776222720,
+          "free_bytes": 33402508288,
+          "banks": 8,
+          "largest_free_bytes_per_bank": 3933331840
+        },
+        "l1": {
+          "allocated_bytes": 901120,
+          "free_bytes": 159822080,
+          "banks": 110,
+          "largest_free_bytes_per_bank": 1452928
+        }
+      }
+    },
+    "construction_memory": null
+  }
+]

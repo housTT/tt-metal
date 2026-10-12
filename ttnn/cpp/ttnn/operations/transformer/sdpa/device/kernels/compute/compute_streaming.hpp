@@ -1688,7 +1688,7 @@ static void sdpa_inner_loop_step(
 
         // Max reduce: reads from cb_qkt_im at q_subblock position
         {
-            MaybeDeviceZoneScopedN(profiling_enabled, "Reduce max");
+            MaybeDeviceZoneScopedN(profiling_enabled, "Reduce_max");
             CircularBuffer(cur.max).reserve_back(qkt_subblock_h);
             configure_single_tile_pack(cur.max);
             // Use reduce_trigger to enable early reduce start (before all matmul output is ready).

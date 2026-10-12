@@ -1,0 +1,103 @@
+diff -ru -x __pycache__ evidence9/tests/test_multichip_plan.py evidence10/tests/test_multichip_plan.py
+--- evidence9/tests/test_multichip_plan.py	2026-10-12 06:39:05.000000000 +0000
++++ evidence10/tests/test_multichip_plan.py	2026-10-12 12:34:51.000000000 +0000
+@@ -201,6 +201,9 @@
+     assert policy["dispatch_scatter_rows"] == 32
+     assert policy["prefill_norm"] == "bf16" and policy["router_topk_prefill"]
+     assert policy["gate_pack_fidelity"] == "HiFi2" and policy["projections"]["router"]["fidelity"] == "HiFi2"
++    addcmul = policy["shared_addcmul_config"]
++    assert addcmul["grid"] == [8, 2] and (512 // tp // 32) % addcmul["K_block_size"] == 0
++    assert (2048 // 32 // addcmul["grid"][0]) % addcmul["N_block_size"] == 0
+     if kind == "full_attention":
+         sdpa = policy["sdpa"]
+         assert (sdpa["k_chunk_size"], sdpa["grid"]) == (512, [11, 10])
+diff -ru -x __pycache__ evidence9/tt/multichip_decoder.py evidence10/tt/multichip_decoder.py
+--- evidence9/tt/multichip_decoder.py	2026-10-12 10:31:02.000000000 +0000
++++ evidence10/tt/multichip_decoder.py	2026-10-12 12:34:51.000000000 +0000
+@@ -32,6 +32,8 @@
+         "sparse_down_k": 8,
+         "shared_decode_minimal_config": {"grid": [8, 2], "M_block_size": 1, "K_block_size": 16, "N_block_size": 4,
+                                          "subblock_h": 1, "subblock_w": 2},
++        "shared_addcmul_config": {"grid": [8, 2], "M_block_size": 1, "K_block_size": 8, "N_block_size": 8,
++                                  "subblock_h": 1, "subblock_w": 2},
+         "projections": {"shared_down": {"dram": False, "decode_grid": [8, 2], "k_block": 8, "per_n": 4}},
+         "projections_by_kind": {
+             "full_attention": {"attention_in": {"decode_grid": [8, 2], "k_block": 8, "per_n": 9}},
+@@ -52,6 +54,8 @@
+         "sparse_down_k": 4,
+         "shared_decode_minimal_config": {"grid": [4, 2], "M_block_size": 1, "K_block_size": 16, "N_block_size": 4,
+                                          "subblock_h": 1, "subblock_w": 2},
++        "shared_addcmul_config": {"grid": [8, 2], "M_block_size": 1, "K_block_size": 4, "N_block_size": 8,
++                                  "subblock_h": 1, "subblock_w": 2},
+         "projections": {"shared_down": {"dram": False, "decode_grid": [8, 1], "k_block": 4, "per_n": 8}},
+         "projections_by_kind": {
+             "full_attention": {"attention_in": {"decode_grid": [8, 5], "k_block": 8, "per_n": 2}},
+diff -ru -x __pycache__ evidence9/tt/optimized_decoder.py evidence10/tt/optimized_decoder.py
+--- evidence9/tt/optimized_decoder.py	2026-10-12 10:31:02.000000000 +0000
++++ evidence10/tt/optimized_decoder.py	2026-10-12 12:35:13.000000000 +0000
+@@ -76,6 +76,7 @@
+     gdn_gate_mixed: bool = False
+     gate_pack_fidelity: str = "HiFi4"
+     gdn_decode_direct: bool = False
++    shared_addcmul_config: dict = None
+     shared_split: bool = False
+     gate_pack: bool = False
+     gate_pack_grid: tuple = ()
+@@ -144,6 +145,8 @@
+     "sparse_down_dtype": "bfp8",
+     "expert_decode_kernel": True,
+     "expert_decode_shared": True,
++    "shared_addcmul_config": {"grid": [8, 2], "M_block_size": 1, "K_block_size": 16, "N_block_size": 8,
++                              "subblock_h": 1, "subblock_w": 2},
+     "router_cached_slices": True,
+     "dispatch_scatter_rows": 32,
+     "prefill_norm": "bf16",
+@@ -716,6 +719,12 @@
+             for role, weight in weights.items():
+                 if role in policy.projections:
+                     shared.projections[role] = _Projection(weight,kwargs["mesh_device"],policy.projections[role])
++            if policy.shared_addcmul_config:
++                import torch
++
++                shared.addcmul_ones = ttnn.from_torch(torch.ones((1, 1, 1, 2048), dtype=torch.bfloat16),
++                    device=kwargs["mesh_device"], dtype=ttnn.bfloat8_b, layout=ttnn.TILE_LAYOUT,
++                    memory_config=ttnn.DRAM_MEMORY_CONFIG, mesh_mapper=ttnn.ReplicateTensorToMesh(kwargs["mesh_device"]))
+             moe.shared = shared
+         if policy.compact_router_dtype or policy.prefill_backend == "dispatch" or policy.gate_pack:
+             router = _OptimizedRouter.__new__(_OptimizedRouter)
+@@ -834,12 +843,25 @@
+         routing = (ttnn.permute(values, (1, 2, 0, 3)), ttnn.permute(indices, (1, 2, 0, 3)))
+         if self.policy.expert_decode_shared and self.policy.expert_decode_kernel:
+             out, activated = self.moe.experts(x, routing, mode=mode, shared=self.moe.shared.packed)
++            if self.policy.shared_addcmul_config:
++                return self.moe.shared.addcmul(out, activated, logits[:, :, :, 256:257])
+             return ttnn.add(out, self.moe.shared.forward(x, gate=logits[:, :, :, 256:257], activated=activated))
+         out = self.moe.experts(x, routing, mode=mode)
+         return ttnn.add(out, self.moe.shared.forward(x, gate=logits[:, :, :, 256:257]))
+ 
+ 
+ class _OptimizedShared:
++    def addcmul(self, routed, activated, gate):
++        import ttnn
++
++        down = self.projections["shared_down"]
++        activated = ttnn.reshape(activated, (1, 1, 1, activated.shape[-1]), activated.padded_shape)
++        scaled = ttnn.multiply(gate, activated, input_tensor_a_activations=[ttnn.UnaryOpType.SIGMOID],
++                               memory_config=ttnn.L1_MEMORY_CONFIG)
++        return ttnn.experimental.dit_minimal_matmul_addcmul_fused(
++            scaled, down.weight, 1.0, routed, self.addcmul_ones, config=_minimal_config(self.policy.shared_addcmul_config),
++            memory_config=ttnn.L1_MEMORY_CONFIG, dtype=ttnn.bfloat16, compute_kernel_config=down.compute)
++
+     def forward(self, x, gate=None, activated=None):
+         import ttnn
+ 
+@@ -1109,7 +1131,8 @@
+         def project(x, weight, role, n, sparse_input=False, activation=None):
+             return ttnn.sparse_matmul(x, weight, sparsity=sparsity, nnz=nnz, indices=ids,
+                 program_config=self.program_config(role,n,activation), compute_kernel_config=self.compute,
+-                memory_config=ttnn.L1_MEMORY_CONFIG, dtype=ttnn.bfloat16,
++                memory_config=ttnn.L1_MEMORY_CONFIG,
++                dtype=ttnn.bfloat8_b if role == "down" and shared is not None and self.policy.shared_addcmul_config else ttnn.bfloat16,
+                 is_input_a_sparse=sparse_input, output_tile=ttnn.Tile([32,32]))
+         if self.policy.expert_decode_kernel and self.policy.sparse_indexed and mode == "decode":
+             from models.autoports.qwen_qwen3_5_35b_a3b.tt.expert_decode import expert_swiglu_decode

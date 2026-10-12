@@ -1,0 +1,223 @@
+[
+  {
+    "name": "default",
+    "policy": null,
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "multichip",
+      "--mesh",
+      "4",
+      "--layer",
+      "3",
+      "--length",
+      "129",
+      "--steps",
+      "8",
+      "--batch",
+      "32",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_multichip_decoder/evidence5/b32_m4_full/default.json",
+      "--compare-tensors",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence7_tensors/b32_base_full/default.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 21.022068410995416,
+    "source_stable": true,
+    "prefill_pcc": 0.9987298250198364,
+    "decode_pcc": 0.9964770674705505,
+    "prefill_host_us": 103797.098,
+    "continuation_host_us": null,
+    "prefill_token_pcc_min": 0.9961273074150085,
+    "prefill_tokens_below_0995": 0,
+    "prefill_repeat_identical": false,
+    "prefill_repeat_difference": {
+      "elements": 123565,
+      "rows": 822,
+      "first_rows": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        7,
+        9
+      ],
+      "blocks_of_32": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        96,
+        97,
+        98,
+        99,
+        100,
+        101,
+        102,
+        103,
+        104,
+        105,
+        106,
+        107,
+        108,
+        120,
+        121,
+        122,
+        123,
+        124
+      ],
+      "max_abs": 0.0078125,
+      "max_bf16_ulp": 29568,
+      "repeat_pcc": 0.9999986290931702
+    },
+    "decode_host_us": 7470.970499999999,
+    "mesh_shape": [
+      1,
+      4
+    ],
+    "device_ids": [
+      3,
+      2,
+      1,
+      0
+    ],
+    "output_replicas_identical": true,
+    "control_equivalence": {
+      "prefill_pcc": 0.999956488609314,
+      "decode_pcc_min": 0.9998902082443237,
+      "decode_pcc_min_strict": 0.9998841285705566,
+      "decode_tie_choices_differ": [
+        {
+          "row": 2,
+          "step": 3,
+          "control_choice": 1,
+          "choice": 0
+        },
+        {
+          "row": 6,
+          "step": 3,
+          "control_choice": 2,
+          "choice": 1
+        },
+        {
+          "row": 10,
+          "step": 1,
+          "control_choice": 1,
+          "choice": 0
+        },
+        {
+          "row": 11,
+          "step": 6,
+          "control_choice": 2,
+          "choice": 1
+        },
+        {
+          "row": 13,
+          "step": 5,
+          "control_choice": 0,
+          "choice": 1
+        },
+        {
+          "row": 15,
+          "step": 0,
+          "control_choice": 1,
+          "choice": 2
+        },
+        {
+          "row": 20,
+          "step": 0,
+          "control_choice": 0,
+          "choice": 1
+        },
+        {
+          "row": 21,
+          "step": 7,
+          "control_choice": 1,
+          "choice": 0
+        }
+      ],
+      "source": "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence7_tensors/b32_base_full/default.pt",
+      "prefill_max_abs": 0.0546875,
+      "decode_max_abs": 0.03515625,
+      "prefill_identical": false,
+      "decode_identical": false
+    },
+    "weight_memory": {
+      "after_merge": {
+        "dram": {
+          "allocated_bytes": 461757440,
+          "free_bytes": 33716973568,
+          "banks": 8,
+          "largest_free_bytes_per_bank": 4007767296
+        },
+        "l1": {
+          "allocated_bytes": 901120,
+          "free_bytes": 159822080,
+          "banks": 110,
+          "largest_free_bytes_per_bank": 1452928
+        }
+      }
+    },
+    "construction_memory": [
+      {
+        "step": "start",
+        "device_dram_allocated_bytes": 0,
+        "host_rss_bytes": 2794205184,
+        "host_peak_rss_bytes": 2796077056
+      },
+      {
+        "step": "replica_0",
+        "device_dram_allocated_bytes": 461757440,
+        "host_rss_bytes": 3009744896,
+        "host_peak_rss_bytes": 5042020352
+      },
+      {
+        "step": "replica_1",
+        "device_dram_allocated_bytes": 846570496,
+        "host_rss_bytes": 2993201152,
+        "host_peak_rss_bytes": 5098344448
+      },
+      {
+        "step": "replica_2",
+        "device_dram_allocated_bytes": 1231383552,
+        "host_rss_bytes": 3060752384,
+        "host_peak_rss_bytes": 5098344448
+      },
+      {
+        "step": "replica_3",
+        "device_dram_allocated_bytes": 1616196608,
+        "host_rss_bytes": 3040460800,
+        "host_peak_rss_bytes": 5148790784
+      },
+      {
+        "step": "merged_before_release",
+        "device_dram_allocated_bytes": 1616196608,
+        "host_rss_bytes": 3076153344,
+        "host_peak_rss_bytes": 5148790784
+      },
+      {
+        "step": "released",
+        "device_dram_allocated_bytes": 461757440,
+        "host_rss_bytes": 3076153344,
+        "host_peak_rss_bytes": 5148790784
+      }
+    ]
+  }
+]

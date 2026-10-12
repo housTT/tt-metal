@@ -1,0 +1,1825 @@
+{
+  "device_ids": [
+    3
+  ],
+  "decode_output_residual_contract": null,
+  "weight_memory": {
+    "before_cleanup": {
+      "dram": {
+        "allocated_bytes": 2775920128,
+        "free_bytes": 31402810880,
+        "banks": 8,
+        "largest_free_bytes_per_bank": 3923158400
+      },
+      "l1": {
+        "allocated_bytes": 901120,
+        "free_bytes": 159822080,
+        "banks": 110,
+        "largest_free_bytes_per_bank": 1452928
+      }
+    },
+    "after_cleanup": {
+      "dram": {
+        "allocated_bytes": 863214080,
+        "free_bytes": 33315516928,
+        "banks": 8,
+        "largest_free_bytes_per_bank": 3923158400
+      },
+      "l1": {
+        "allocated_bytes": 901120,
+        "free_bytes": 159822080,
+        "banks": 110,
+        "largest_free_bytes_per_bank": 1452928
+      }
+    }
+  },
+  "input_metadata": {
+    "kind": "random_activation",
+    "seed": 1234
+  },
+  "optimization": {
+    "expert_dtype": "bfp4",
+    "expert_grid_y": 2,
+    "expert_grid_x": 8,
+    "expert_fidelity": "LoFi",
+    "expert_input_dtype": "bf16",
+    "expert_backend": "sparse",
+    "sparse_gate_cores": 32,
+    "sparse_gate_k": 32,
+    "sparse_gate_subblock": 1,
+    "sparse_down_cores": 32,
+    "sparse_down_k": 16,
+    "sparse_down_subblock": 1,
+    "sparse_split": false,
+    "sparse_indexed": true,
+    "sparse_fused_reduce": true,
+    "compact_router_dtype": true,
+    "sparse_down_dtype": "bfp8",
+    "prefill_down_cores": 32,
+    "prefill_down_k": 16,
+    "prefill_down_subblock": 2,
+    "prefill_backend": "dispatch",
+    "dispatch_dtype": "bfp8",
+    "dispatch_input_dtype": "bf16",
+    "dispatch_grid": [
+      4,
+      4
+    ],
+    "dispatch_grid_large": [
+      2048,
+      8,
+      8
+    ],
+    "dispatch_m_tiles": 0,
+    "dispatch_ffn": "fused",
+    "dispatch_hybrid_threshold": 0,
+    "dispatch_weight_nd": false,
+    "dispatch_weights": "stacked",
+    "plan_cost": [],
+    "dispatch_rank": "matmul",
+    "prefill_tail_bucket": 32,
+    "prefill_buckets": [
+      2048,
+      1024,
+      256,
+      64
+    ],
+    "decode_input_fill": false,
+    "dispatch_combine": "post_combine",
+    "dispatch_tiles_from": 2048,
+    "prefill_moe_batch": true,
+    "prefill_moe_pieces": 1,
+    "prefill_masked_tail": true,
+    "prefill_sparse_chunk": 32,
+    "prefill_sparse_l1": false,
+    "prefill_gate_cores": 32,
+    "prefill_gate_k": 16,
+    "prefill_gate_subblock": 1,
+    "projections": {
+      "attention_in": {
+        "dtype": "bfp8",
+        "fidelity": "HiFi2",
+        "prefill_minimal": {
+          "grid": [
+            11,
+            10
+          ],
+          "M_block_size": 4,
+          "K_block_size": 8,
+          "N_block_size": 16,
+          "subblock_h": 1,
+          "subblock_w": 4
+        }
+      },
+      "attention_out": {
+        "dtype": "bfp8",
+        "fidelity": "HiFi2",
+        "decode_grid": [
+          8,
+          4
+        ],
+        "k_block": 8,
+        "per_n": 2
+      },
+      "shared_down": {
+        "dtype": "bfp8",
+        "fidelity": "LoFi",
+        "dram": true,
+        "cores": 8,
+        "k_block": 8,
+        "readers": 1,
+        "prefill_grid": [
+          8,
+          8
+        ],
+        "prefill_k": 4
+      }
+    },
+    "sdpa": {},
+    "kv_dtype": "bf16",
+    "residual_cores": 0,
+    "decode_norm_cores": 16,
+    "decode_norm_fp32_input": false,
+    "decode_norm_output": "l1",
+    "decode_norm_fill": false,
+    "attention_decode_memory": "l1",
+    "residual_output_sharded": false,
+    "norm_fused_weight": false,
+    "shared_split": false,
+    "gate_pack": true,
+    "gate_pack_grid": [
+      8,
+      2,
+      32
+    ],
+    "gdn_l1": true,
+    "gdn_state_l1": false,
+    "gdn_l1_slots": 32,
+    "conv_chunk": 128,
+    "gdn_heads_decode": false,
+    "gdn_decode_kernel": true,
+    "gdn_decode_gates": true,
+    "gdn_decode_blocks": 0,
+    "expert_decode_kernel": true,
+    "expert_decode_nper": 0,
+    "expert_decode_kb": 8,
+    "expert_decode_shared": true,
+    "residual_sharded_decode": false,
+    "router_cached_slices": true,
+    "dispatch_scatter_rows": 32,
+    "mesh_policy_keep": [],
+    "conv_state_rm": true,
+    "conv_decode_fill": false,
+    "gdn_ab_split": {},
+    "gdn_flat_qk": false,
+    "release_unused_weights": true,
+    "prefill_tiled": true,
+    "prefill_chunk": 4096,
+    "shared_minimal_config": {},
+    "shared_decode_minimal_config": {},
+    "prefill_minimal_config": {}
+  },
+  "mesh_shape": [
+    1,
+    1
+  ],
+  "tensor_parallel": 1,
+  "merge_stats": null,
+  "construction_memory": null,
+  "output_replicas_identical": true,
+  "decoder_class": "MultichipDecoder",
+  "runtime_components": {
+    "attention": "_OptimizedGDN",
+    "attention_reduce": false,
+    "feed_forward_reduce": false,
+    "router": "_OptimizedRouter",
+    "experts": "_OptimizedPrefillExperts",
+    "decode_experts": "_OptimizedSparseExperts",
+    "shared": "_OptimizedShared"
+  },
+  "fusions": [
+    "moe_gate",
+    "shared_gate",
+    "shared_minimal",
+    "kda_conv",
+    "kda_tuple",
+    "kda_tail",
+    "kda_norm",
+    "gdn_heads",
+    "gdn_norm",
+    "gdn_eltwise",
+    "gdn_grouped",
+    "gdn_state_ternary",
+    "gdn_inplace",
+    "gdn_flat_v",
+    "gdn_head_major",
+    "gdn_fused_chunk",
+    "compact_reduce",
+    "compact_routing",
+    "prefill_split"
+  ],
+  "layer_type": "linear_attention",
+  "layer_idx": 0,
+  "weights": "real",
+  "implementation_sha256": {
+    "__init__.py": "20db980a38cc5bb36a49afaff8f9838e2c77f17e5b1ef0c42b5ed918f77a1ca9",
+    "expert_decode.py": "d4aaeba12a8889d02a8ac529922d583320b630f75116e50702586a4018fc5d9e",
+    "functional_attention.py": "6718df3736404f042613670f43e184e202ece215a9f7907f6358ec18326a8638",
+    "functional_decoder.py": "c3597bf194086ddc39fb030d221b7fe932162b052815affd7c6c14ede135f9b0",
+    "functional_gdn.py": "2a5a87d7ff4d35483a1e0103951001e8610ed12f5f4af4cb15498a6e547ad37b",
+    "fused_decoder.py": "e1c244e3d565d287f26c88d889a2d7ddf49c8fd9db71ee5ea8e700d068825602",
+    "gdn_decode.py": "2aa5bcc6ddaf37a8b6a80a027182bfeec6b33f45479467a17b4abd8179db0f7b",
+    "multichip_decoder.py": "19da16d4e8e5dec0880651387ab81c280a18715bb58fb440ba566eb107b87c65",
+    "optimized_decoder.py": "2f0dda8cff6f5824b39333fde88746e282fc38cadb4c11ab894e9dfd645a99f6"
+  },
+  "gdn_recurrence": "native_exact_chunk_and_sfpu_fp32_token",
+  "expert_precision": "inherited",
+  "profile": false,
+  "warmed_prefill_host_us": 225296.283,
+  "split": null,
+  "kv_scratch_block": null,
+  "warmed_continuation_host_us": null,
+  "prefill_repeat_identical": true,
+  "prefill_repeat_difference": null,
+  "moe_pieces": [
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ],
+    [
+      256,
+      256,
+      129
+    ]
+  ],
+  "length": 129,
+  "batch": 32,
+  "decode_steps": 8,
+  "page_size": 32,
+  "minimum_cache_pages": 32,
+  "cache_guard_pages": 3,
+  "prefill_pcc": 0.9993259906768799,
+  "prefill_pcc_min": 0.9992026090621948,
+  "prefill_token_pcc": [
+    [
+      0.9962254166603088,
+      13,
+      70
+    ],
+    [
+      0.9965124726295471,
+      16,
+      43
+    ],
+    [
+      0.9971914291381836,
+      23,
+      96
+    ],
+    [
+      0.9972375631332397,
+      22,
+      125
+    ],
+    [
+      0.997248113155365,
+      20,
+      121
+    ],
+    [
+      0.9973065257072449,
+      6,
+      128
+    ],
+    [
+      0.9973199367523193,
+      14,
+      9
+    ],
+    [
+      0.9973450303077698,
+      7,
+      32
+    ]
+  ],
+  "prefill_tokens_below_0995": 0,
+  "decode_pcc": 0.9994620680809021,
+  "prefill_probes": null,
+  "runtime_audit": true,
+  "trace_id": "MeshTraceId(0)",
+  "decode_pcc_min": 0.9981656670570374,
+  "decode_pcc_by_token": [
+    0.9996306300163269,
+    0.9993058443069458,
+    0.9992712140083313,
+    0.9996185898780823,
+    0.9994713068008423,
+    0.9995635747909546,
+    0.9994426965713501,
+    0.9994888305664062
+  ],
+  "decode_pcc_strict": 0.9994567036628723,
+  "decode_pcc_min_strict": 0.9981626272201538,
+  "decode_router_ties": [
+    {
+      "row": 0,
+      "step": 1,
+      "tied_experts": [
+        36,
+        141
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9997981190681458,
+      "pcc_chosen": 0.9997981190681458
+    },
+    {
+      "row": 1,
+      "step": 3,
+      "tied_experts": [
+        184,
+        195,
+        214
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 0,
+      "pcc_strict": 0.9992935657501221,
+      "pcc_chosen": 0.9992935657501221
+    },
+    {
+      "row": 1,
+      "step": 6,
+      "tied_experts": [
+        101,
+        196,
+        242
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 1,
+      "pcc_strict": 0.9994361400604248,
+      "pcc_chosen": 0.9994768500328064
+    },
+    {
+      "row": 2,
+      "step": 4,
+      "tied_experts": [
+        61,
+        162,
+        188
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 0,
+      "pcc_strict": 0.9998263716697693,
+      "pcc_chosen": 0.9998263716697693
+    },
+    {
+      "row": 3,
+      "step": 0,
+      "tied_experts": [
+        37,
+        238
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9997267723083496,
+      "pcc_chosen": 0.9997267723083496
+    },
+    {
+      "row": 3,
+      "step": 2,
+      "tied_experts": [
+        46,
+        70,
+        108,
+        115,
+        243
+      ],
+      "open_slots": 3,
+      "exact": false,
+      "candidates": 10,
+      "chosen": 2,
+      "pcc_strict": 0.9987055659294128,
+      "pcc_chosen": 0.9987844228744507
+    },
+    {
+      "row": 3,
+      "step": 7,
+      "tied_experts": [
+        179,
+        214
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9992479681968689,
+      "pcc_chosen": 0.9992479681968689
+    },
+    {
+      "row": 4,
+      "step": 3,
+      "tied_experts": [
+        164,
+        248
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9998248219490051,
+      "pcc_chosen": 0.9998248219490051
+    },
+    {
+      "row": 5,
+      "step": 0,
+      "tied_experts": [
+        55,
+        76,
+        220
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 3,
+      "chosen": 0,
+      "pcc_strict": 0.9998601675033569,
+      "pcc_chosen": 0.9998601675033569
+    },
+    {
+      "row": 5,
+      "step": 6,
+      "tied_experts": [
+        120,
+        144,
+        238
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 0,
+      "pcc_strict": 0.9994474649429321,
+      "pcc_chosen": 0.9994474649429321
+    },
+    {
+      "row": 5,
+      "step": 7,
+      "tied_experts": [
+        63,
+        121
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9995040893554688,
+      "pcc_chosen": 0.9995040893554688
+    },
+    {
+      "row": 6,
+      "step": 0,
+      "tied_experts": [
+        38,
+        132
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9998947978019714,
+      "pcc_chosen": 0.9998947978019714
+    },
+    {
+      "row": 6,
+      "step": 3,
+      "tied_experts": [
+        86,
+        216
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9984846115112305,
+      "pcc_chosen": 0.9985530972480774
+    },
+    {
+      "row": 7,
+      "step": 2,
+      "tied_experts": [
+        105,
+        123,
+        207,
+        223
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 4,
+      "chosen": 0,
+      "pcc_strict": 0.9983499646186829,
+      "pcc_chosen": 0.9983499646186829
+    },
+    {
+      "row": 8,
+      "step": 1,
+      "tied_experts": [
+        29,
+        32,
+        86,
+        115
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 6,
+      "chosen": 5,
+      "pcc_strict": 0.9987064599990845,
+      "pcc_chosen": 0.9987065196037292
+    },
+    {
+      "row": 8,
+      "step": 3,
+      "tied_experts": [
+        124,
+        141,
+        173,
+        203,
+        252
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 10,
+      "chosen": 1,
+      "pcc_strict": 0.9984648823738098,
+      "pcc_chosen": 0.9985517263412476
+    },
+    {
+      "row": 8,
+      "step": 4,
+      "tied_experts": [
+        42,
+        105,
+        238
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 1,
+      "pcc_strict": 0.9991489052772522,
+      "pcc_chosen": 0.9993970990180969
+    },
+    {
+      "row": 8,
+      "step": 7,
+      "tied_experts": [
+        154,
+        173
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9997396469116211,
+      "pcc_chosen": 0.9997396469116211
+    },
+    {
+      "row": 9,
+      "step": 0,
+      "tied_experts": [
+        165,
+        171,
+        221
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 0,
+      "pcc_strict": 0.9999306797981262,
+      "pcc_chosen": 0.9999306797981262
+    },
+    {
+      "row": 9,
+      "step": 1,
+      "tied_experts": [
+        26,
+        37
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9998623728752136,
+      "pcc_chosen": 0.9998623728752136
+    },
+    {
+      "row": 9,
+      "step": 2,
+      "tied_experts": [
+        52,
+        55
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.999577522277832,
+      "pcc_chosen": 0.999577522277832
+    },
+    {
+      "row": 9,
+      "step": 4,
+      "tied_experts": [
+        43,
+        108,
+        163
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 1,
+      "pcc_strict": 0.9985703825950623,
+      "pcc_chosen": 0.9986298084259033
+    },
+    {
+      "row": 9,
+      "step": 6,
+      "tied_experts": [
+        60,
+        82
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9996271133422852,
+      "pcc_chosen": 0.9996271133422852
+    },
+    {
+      "row": 10,
+      "step": 1,
+      "tied_experts": [
+        15,
+        169,
+        194,
+        253
+      ],
+      "open_slots": 3,
+      "exact": false,
+      "candidates": 4,
+      "chosen": 0,
+      "pcc_strict": 0.9995038509368896,
+      "pcc_chosen": 0.9995038509368896
+    },
+    {
+      "row": 10,
+      "step": 2,
+      "tied_experts": [
+        105,
+        205,
+        248
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 1,
+      "pcc_strict": 0.9981626272201538,
+      "pcc_chosen": 0.9982379674911499
+    },
+    {
+      "row": 10,
+      "step": 5,
+      "tied_experts": [
+        145,
+        221
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9998496770858765,
+      "pcc_chosen": 0.9998966455459595
+    },
+    {
+      "row": 10,
+      "step": 6,
+      "tied_experts": [
+        39,
+        89,
+        101,
+        140
+      ],
+      "open_slots": 3,
+      "exact": false,
+      "candidates": 4,
+      "chosen": 0,
+      "pcc_strict": 0.9998311400413513,
+      "pcc_chosen": 0.9998311400413513
+    },
+    {
+      "row": 11,
+      "step": 3,
+      "tied_experts": [
+        71,
+        89
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9992713928222656,
+      "pcc_chosen": 0.9992713928222656
+    },
+    {
+      "row": 11,
+      "step": 4,
+      "tied_experts": [
+        108,
+        197,
+        224
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 2,
+      "pcc_strict": 0.9996373057365417,
+      "pcc_chosen": 0.9996421337127686
+    },
+    {
+      "row": 12,
+      "step": 0,
+      "tied_experts": [
+        96,
+        255
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9998468160629272,
+      "pcc_chosen": 0.9998468160629272
+    },
+    {
+      "row": 12,
+      "step": 4,
+      "tied_experts": [
+        72,
+        196
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9996504783630371,
+      "pcc_chosen": 0.9996504783630371
+    },
+    {
+      "row": 12,
+      "step": 6,
+      "tied_experts": [
+        127,
+        190
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.999708354473114,
+      "pcc_chosen": 0.9997678399085999
+    },
+    {
+      "row": 13,
+      "step": 3,
+      "tied_experts": [
+        56,
+        61
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.999753475189209,
+      "pcc_chosen": 0.999753475189209
+    },
+    {
+      "row": 14,
+      "step": 6,
+      "tied_experts": [
+        60,
+        95
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9997218251228333,
+      "pcc_chosen": 0.9997568130493164
+    },
+    {
+      "row": 16,
+      "step": 0,
+      "tied_experts": [
+        133,
+        205
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9991518259048462,
+      "pcc_chosen": 0.9991518259048462
+    },
+    {
+      "row": 16,
+      "step": 1,
+      "tied_experts": [
+        18,
+        242
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9996082782745361,
+      "pcc_chosen": 0.9997028708457947
+    },
+    {
+      "row": 16,
+      "step": 4,
+      "tied_experts": [
+        3,
+        25
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.998885452747345,
+      "pcc_chosen": 0.998885452747345
+    },
+    {
+      "row": 16,
+      "step": 6,
+      "tied_experts": [
+        95,
+        98,
+        238
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 0,
+      "pcc_strict": 0.9993489980697632,
+      "pcc_chosen": 0.9993489980697632
+    },
+    {
+      "row": 17,
+      "step": 0,
+      "tied_experts": [
+        59,
+        132
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9997666478157043,
+      "pcc_chosen": 0.9997950196266174
+    },
+    {
+      "row": 18,
+      "step": 0,
+      "tied_experts": [
+        140,
+        200
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9998899698257446,
+      "pcc_chosen": 0.9998899698257446
+    },
+    {
+      "row": 18,
+      "step": 5,
+      "tied_experts": [
+        71,
+        72,
+        151
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 0,
+      "pcc_strict": 0.9986584186553955,
+      "pcc_chosen": 0.9986584186553955
+    },
+    {
+      "row": 19,
+      "step": 0,
+      "tied_experts": [
+        59,
+        78,
+        177,
+        224
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 6,
+      "chosen": 5,
+      "pcc_strict": 0.9996756911277771,
+      "pcc_chosen": 0.9998917579650879
+    },
+    {
+      "row": 19,
+      "step": 1,
+      "tied_experts": [
+        8,
+        71
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9996486902236938,
+      "pcc_chosen": 0.9998084902763367
+    },
+    {
+      "row": 19,
+      "step": 2,
+      "tied_experts": [
+        149,
+        186
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9994574189186096,
+      "pcc_chosen": 0.9994574189186096
+    },
+    {
+      "row": 19,
+      "step": 6,
+      "tied_experts": [
+        13,
+        242
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9995540976524353,
+      "pcc_chosen": 0.9995540976524353
+    },
+    {
+      "row": 20,
+      "step": 6,
+      "tied_experts": [
+        16,
+        60,
+        114,
+        224
+      ],
+      "open_slots": 3,
+      "exact": false,
+      "candidates": 4,
+      "chosen": 0,
+      "pcc_strict": 0.9999051690101624,
+      "pcc_chosen": 0.9999051690101624
+    },
+    {
+      "row": 21,
+      "step": 1,
+      "tied_experts": [
+        76,
+        122
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.999308705329895,
+      "pcc_chosen": 0.999308705329895
+    },
+    {
+      "row": 22,
+      "step": 7,
+      "tied_experts": [
+        106,
+        162,
+        222
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 0,
+      "pcc_strict": 0.9990640878677368,
+      "pcc_chosen": 0.9990640878677368
+    },
+    {
+      "row": 23,
+      "step": 5,
+      "tied_experts": [
+        37,
+        59,
+        160
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 2,
+      "pcc_strict": 0.9995015859603882,
+      "pcc_chosen": 0.9995219111442566
+    },
+    {
+      "row": 23,
+      "step": 6,
+      "tied_experts": [
+        34,
+        95
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9992339015007019,
+      "pcc_chosen": 0.9992339015007019
+    },
+    {
+      "row": 24,
+      "step": 4,
+      "tied_experts": [
+        37,
+        56
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9994324445724487,
+      "pcc_chosen": 0.9995526671409607
+    },
+    {
+      "row": 24,
+      "step": 5,
+      "tied_experts": [
+        41,
+        65,
+        234
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 0,
+      "pcc_strict": 0.9986628890037537,
+      "pcc_chosen": 0.9986628890037537
+    },
+    {
+      "row": 24,
+      "step": 6,
+      "tied_experts": [
+        4,
+        11,
+        118
+      ],
+      "open_slots": 2,
+      "exact": true,
+      "candidates": 3,
+      "chosen": 0,
+      "pcc_strict": 0.998454749584198,
+      "pcc_chosen": 0.998454749584198
+    },
+    {
+      "row": 25,
+      "step": 2,
+      "tied_experts": [
+        50,
+        70,
+        139,
+        197,
+        234
+      ],
+      "open_slots": 4,
+      "exact": false,
+      "candidates": 5,
+      "chosen": 0,
+      "pcc_strict": 0.9990049600601196,
+      "pcc_chosen": 0.9990049600601196
+    },
+    {
+      "row": 25,
+      "step": 4,
+      "tied_experts": [
+        11,
+        34,
+        101,
+        181
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 6,
+      "chosen": 0,
+      "pcc_strict": 0.9994818568229675,
+      "pcc_chosen": 0.9994818568229675
+    },
+    {
+      "row": 26,
+      "step": 0,
+      "tied_experts": [
+        29,
+        212,
+        218
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 2,
+      "pcc_strict": 0.9985619783401489,
+      "pcc_chosen": 0.9987087845802307
+    },
+    {
+      "row": 26,
+      "step": 1,
+      "tied_experts": [
+        28,
+        197,
+        203
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 0,
+      "pcc_strict": 0.999495804309845,
+      "pcc_chosen": 0.999495804309845
+    },
+    {
+      "row": 26,
+      "step": 3,
+      "tied_experts": [
+        64,
+        204
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9993274807929993,
+      "pcc_chosen": 0.9993274807929993
+    },
+    {
+      "row": 26,
+      "step": 4,
+      "tied_experts": [
+        19,
+        21,
+        51
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 1,
+      "pcc_strict": 0.9993055462837219,
+      "pcc_chosen": 0.9994136095046997
+    },
+    {
+      "row": 27,
+      "step": 0,
+      "tied_experts": [
+        64,
+        216
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9994081854820251,
+      "pcc_chosen": 0.9994081854820251
+    },
+    {
+      "row": 27,
+      "step": 5,
+      "tied_experts": [
+        56,
+        91
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9995314478874207,
+      "pcc_chosen": 0.9995314478874207
+    },
+    {
+      "row": 28,
+      "step": 4,
+      "tied_experts": [
+        16,
+        214,
+        231,
+        255
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 6,
+      "chosen": 5,
+      "pcc_strict": 0.9989339113235474,
+      "pcc_chosen": 0.9990899562835693
+    },
+    {
+      "row": 29,
+      "step": 3,
+      "tied_experts": [
+        214,
+        251
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9997545480728149,
+      "pcc_chosen": 0.9997545480728149
+    },
+    {
+      "row": 29,
+      "step": 5,
+      "tied_experts": [
+        21,
+        53,
+        169
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 1,
+      "pcc_strict": 0.999721109867096,
+      "pcc_chosen": 0.9997434020042419
+    },
+    {
+      "row": 29,
+      "step": 6,
+      "tied_experts": [
+        18,
+        228
+      ],
+      "open_slots": 1,
+      "exact": false,
+      "candidates": 2,
+      "chosen": 0,
+      "pcc_strict": 0.9993587136268616,
+      "pcc_chosen": 0.9993587136268616
+    },
+    {
+      "row": 29,
+      "step": 7,
+      "tied_experts": [
+        91,
+        119,
+        178,
+        216
+      ],
+      "open_slots": 3,
+      "exact": false,
+      "candidates": 4,
+      "chosen": 0,
+      "pcc_strict": 0.9995390772819519,
+      "pcc_chosen": 0.9995390772819519
+    },
+    {
+      "row": 30,
+      "step": 6,
+      "tied_experts": [
+        16,
+        38,
+        193
+      ],
+      "open_slots": 2,
+      "exact": false,
+      "candidates": 3,
+      "chosen": 1,
+      "pcc_strict": 0.9998624920845032,
+      "pcc_chosen": 0.9999003410339355
+    },
+    {
+      "row": 31,
+      "step": 5,
+      "tied_experts": [
+        21,
+        129
+      ],
+      "open_slots": 1,
+      "exact": true,
+      "candidates": 2,
+      "chosen": 1,
+      "pcc_strict": 0.9997565150260925,
+      "pcc_chosen": 0.9998121857643127
+    }
+  ],
+  "traced": true,
+  "repeated_identical": true,
+  "threshold": 0.995,
+  "traced_replay_host_us": [
+    11498.097,
+    11427.742,
+    11452.57,
+    11453.501,
+    11471.576,
+    11473.86,
+    11461.176,
+    11478.339
+  ],
+  "unfused_equivalence": {
+    "prefill_pcc": 0.999800443649292,
+    "decode_pcc_min": 0.999871551990509,
+    "decode_pcc_min_strict": 0.9997272491455078,
+    "decode_tie_choices_differ": [
+      {
+        "row": 0,
+        "step": 1,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 1,
+        "step": 3,
+        "control_choice": 2,
+        "choice": 0
+      },
+      {
+        "row": 3,
+        "step": 0,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 3,
+        "step": 2,
+        "control_choice": 0,
+        "choice": 2
+      },
+      {
+        "row": 3,
+        "step": 7,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 5,
+        "step": 0,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 5,
+        "step": 7,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 8,
+        "step": 1,
+        "control_choice": 0,
+        "choice": 5
+      },
+      {
+        "row": 8,
+        "step": 3,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 8,
+        "step": 4,
+        "control_choice": 2,
+        "choice": 1
+      },
+      {
+        "row": 9,
+        "step": 4,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 10,
+        "step": 6,
+        "control_choice": 2,
+        "choice": 0
+      },
+      {
+        "row": 12,
+        "step": 0,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 12,
+        "step": 6,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 13,
+        "step": 3,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 14,
+        "step": 6,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 17,
+        "step": 0,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 19,
+        "step": 0,
+        "control_choice": 0,
+        "choice": 5
+      },
+      {
+        "row": 19,
+        "step": 1,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 23,
+        "step": 5,
+        "control_choice": 1,
+        "choice": 2
+      },
+      {
+        "row": 25,
+        "step": 2,
+        "control_choice": 3,
+        "choice": 0
+      },
+      {
+        "row": 26,
+        "step": 4,
+        "control_choice": 2,
+        "choice": 1
+      },
+      {
+        "row": 28,
+        "step": 4,
+        "control_choice": 3,
+        "choice": 5
+      },
+      {
+        "row": 29,
+        "step": 3,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 30,
+        "step": 6,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 31,
+        "step": 5,
+        "control_choice": 0,
+        "choice": 1
+      }
+    ],
+    "source": "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence7_tensors/b32_base_linear/default.pt",
+    "prefill_max_abs": 0.3125,
+    "decode_max_abs": 0.125,
+    "prefill_identical": false,
+    "decode_identical": false
+  },
+  "control_equivalence": {
+    "prefill_pcc": 0.999800443649292,
+    "decode_pcc_min": 0.999871551990509,
+    "decode_pcc_min_strict": 0.9997272491455078,
+    "decode_tie_choices_differ": [
+      {
+        "row": 0,
+        "step": 1,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 1,
+        "step": 3,
+        "control_choice": 2,
+        "choice": 0
+      },
+      {
+        "row": 3,
+        "step": 0,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 3,
+        "step": 2,
+        "control_choice": 0,
+        "choice": 2
+      },
+      {
+        "row": 3,
+        "step": 7,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 5,
+        "step": 0,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 5,
+        "step": 7,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 8,
+        "step": 1,
+        "control_choice": 0,
+        "choice": 5
+      },
+      {
+        "row": 8,
+        "step": 3,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 8,
+        "step": 4,
+        "control_choice": 2,
+        "choice": 1
+      },
+      {
+        "row": 9,
+        "step": 4,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 10,
+        "step": 6,
+        "control_choice": 2,
+        "choice": 0
+      },
+      {
+        "row": 12,
+        "step": 0,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 12,
+        "step": 6,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 13,
+        "step": 3,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 14,
+        "step": 6,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 17,
+        "step": 0,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 19,
+        "step": 0,
+        "control_choice": 0,
+        "choice": 5
+      },
+      {
+        "row": 19,
+        "step": 1,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 23,
+        "step": 5,
+        "control_choice": 1,
+        "choice": 2
+      },
+      {
+        "row": 25,
+        "step": 2,
+        "control_choice": 3,
+        "choice": 0
+      },
+      {
+        "row": 26,
+        "step": 4,
+        "control_choice": 2,
+        "choice": 1
+      },
+      {
+        "row": 28,
+        "step": 4,
+        "control_choice": 3,
+        "choice": 5
+      },
+      {
+        "row": 29,
+        "step": 3,
+        "control_choice": 1,
+        "choice": 0
+      },
+      {
+        "row": 30,
+        "step": 6,
+        "control_choice": 0,
+        "choice": 1
+      },
+      {
+        "row": 31,
+        "step": 5,
+        "control_choice": 0,
+        "choice": 1
+      }
+    ],
+    "source": "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence7_tensors/b32_base_linear/default.pt",
+    "prefill_max_abs": 0.3125,
+    "decode_max_abs": 0.125,
+    "prefill_identical": false,
+    "decode_identical": false
+  }
+}

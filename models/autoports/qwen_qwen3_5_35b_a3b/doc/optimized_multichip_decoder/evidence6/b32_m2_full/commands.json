@@ -1,0 +1,153 @@
+[
+  {
+    "name": "default",
+    "policy": null,
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "multichip",
+      "--mesh",
+      "2",
+      "--layer",
+      "3",
+      "--length",
+      "129",
+      "--steps",
+      "8",
+      "--batch",
+      "32",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_multichip_decoder/evidence6/b32_m2_full/default.json",
+      "--compare-tensors",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence7_tensors/b32_base_full/default.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 20.608201276976615,
+    "source_stable": true,
+    "prefill_pcc": 0.9987204074859619,
+    "decode_pcc": 0.9963242411613464,
+    "prefill_host_us": 122660.756,
+    "continuation_host_us": null,
+    "prefill_token_pcc_min": 0.9964673519134521,
+    "prefill_tokens_below_0995": 0,
+    "prefill_repeat_identical": true,
+    "prefill_repeat_difference": null,
+    "decode_host_us": 8450.121,
+    "mesh_shape": [
+      1,
+      2
+    ],
+    "device_ids": [
+      1,
+      0
+    ],
+    "output_replicas_identical": true,
+    "control_equivalence": {
+      "prefill_pcc": 0.9998569488525391,
+      "decode_pcc_min": 0.9998273253440857,
+      "decode_pcc_min_strict": 0.9998214244842529,
+      "decode_tie_choices_differ": [
+        {
+          "row": 2,
+          "step": 3,
+          "control_choice": 1,
+          "choice": 0
+        },
+        {
+          "row": 6,
+          "step": 3,
+          "control_choice": 2,
+          "choice": 1
+        },
+        {
+          "row": 10,
+          "step": 1,
+          "control_choice": 1,
+          "choice": 0
+        },
+        {
+          "row": 13,
+          "step": 5,
+          "control_choice": 0,
+          "choice": 1
+        },
+        {
+          "row": 18,
+          "step": 7,
+          "control_choice": 0,
+          "choice": 1
+        },
+        {
+          "row": 21,
+          "step": 7,
+          "control_choice": 1,
+          "choice": 0
+        },
+        {
+          "row": 25,
+          "step": 2,
+          "control_choice": 0,
+          "choice": 2
+        }
+      ],
+      "source": "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence7_tensors/b32_base_full/default.pt",
+      "prefill_max_abs": 0.1796875,
+      "decode_max_abs": 0.03515625,
+      "prefill_identical": false,
+      "decode_identical": false
+    },
+    "weight_memory": {
+      "after_merge": {
+        "dram": {
+          "allocated_bytes": 766630912,
+          "free_bytes": 33412100096,
+          "banks": 8,
+          "largest_free_bytes_per_bank": 4011176320
+        },
+        "l1": {
+          "allocated_bytes": 901120,
+          "free_bytes": 159822080,
+          "banks": 110,
+          "largest_free_bytes_per_bank": 1452928
+        }
+      }
+    },
+    "construction_memory": [
+      {
+        "step": "start",
+        "device_dram_allocated_bytes": 0,
+        "host_rss_bytes": 2777169920,
+        "host_peak_rss_bytes": 2777169920
+      },
+      {
+        "step": "replica_0",
+        "device_dram_allocated_bytes": 766630912,
+        "host_rss_bytes": 3026731008,
+        "host_peak_rss_bytes": 7169925120
+      },
+      {
+        "step": "replica_1",
+        "device_dram_allocated_bytes": 1454451712,
+        "host_rss_bytes": 3028369408,
+        "host_peak_rss_bytes": 7207985152
+      },
+      {
+        "step": "merged_before_release",
+        "device_dram_allocated_bytes": 1454451712,
+        "host_rss_bytes": 3045756928,
+        "host_peak_rss_bytes": 7207985152
+      },
+      {
+        "step": "released",
+        "device_dram_allocated_bytes": 766630912,
+        "host_rss_bytes": 3045756928,
+        "host_peak_rss_bytes": 7207985152
+      }
+    ]
+  }
+]

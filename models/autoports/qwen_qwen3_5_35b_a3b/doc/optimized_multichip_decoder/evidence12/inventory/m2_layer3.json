@@ -1,0 +1,2188 @@
+{
+ "layer_idx": 3,
+ "layer_type": "full_attention",
+ "device": 0,
+ "decoder": "multichip",
+ "mesh_shape": [
+  1,
+  2
+ ],
+ "device_ids": [
+  1,
+  0
+ ],
+ "optimization": {
+  "expert_dtype": "bfp4",
+  "expert_grid_y": 2,
+  "expert_grid_x": 8,
+  "expert_fidelity": "LoFi",
+  "expert_input_dtype": "bf16",
+  "expert_backend": "sparse",
+  "sparse_gate_cores": 16,
+  "sparse_gate_k": 64,
+  "sparse_gate_subblock": 1,
+  "sparse_down_cores": 64,
+  "sparse_down_k": 8,
+  "sparse_down_subblock": 1,
+  "sparse_split": false,
+  "sparse_indexed": true,
+  "sparse_fused_reduce": true,
+  "compact_router_dtype": true,
+  "sparse_down_dtype": "bfp8",
+  "prefill_down_cores": 32,
+  "prefill_down_k": 16,
+  "prefill_down_subblock": 2,
+  "prefill_backend": "dispatch",
+  "dispatch_dtype": "bfp8",
+  "dispatch_input_dtype": "bf16",
+  "dispatch_grid": [
+   4,
+   4
+  ],
+  "dispatch_grid_large": [
+   2048,
+   8,
+   8
+  ],
+  "dispatch_m_tiles": 0,
+  "dispatch_ffn": "fused",
+  "dispatch_hybrid_threshold": 0,
+  "dispatch_weight_nd": false,
+  "dispatch_weights": "expert_parallel",
+  "plan_cost": [],
+  "plan_start_step_cost": 3.0,
+  "plan_chunk_cost": 2.5,
+  "plan_row_cost": 0.002,
+  "dispatch_rank": "matmul",
+  "prefill_tail_bucket": 32,
+  "prefill_buckets": [
+   2048,
+   1024,
+   256,
+   64
+  ],
+  "decode_input_fill": false,
+  "dispatch_combine": "post_combine",
+  "dispatch_tiles_from": 2048,
+  "prefill_moe_batch": true,
+  "prefill_moe_pieces": 2,
+  "prefill_moe_merge_min": 1024,
+  "prefill_masked_tail": true,
+  "prefill_sparse_chunk": 32,
+  "prefill_sparse_l1": false,
+  "prefill_gate_cores": 32,
+  "prefill_gate_k": 16,
+  "prefill_gate_subblock": 1,
+  "projections": {
+   "attention_in": {
+    "dtype": "bfp8",
+    "fidelity": "LoFi",
+    "prefill_minimal": {
+     "grid": [
+      11,
+      10
+     ],
+     "M_block_size": 4,
+     "K_block_size": 8,
+     "N_block_size": 16,
+     "subblock_h": 1,
+     "subblock_w": 4
+    },
+    "decode_grid": [
+     8,
+     2
+    ],
+    "k_block": 8,
+    "per_n": 9
+   },
+   "attention_out": {
+    "dtype": "bfp8",
+    "fidelity": "LoFi",
+    "decode_grid": [
+     8,
+     4
+    ],
+    "k_block": 8,
+    "per_n": 2,
+    "prefill_minimal": {
+     "grid": [
+      8,
+      8
+     ],
+     "M_block_size": 8,
+     "K_block_size": 8,
+     "N_block_size": 8,
+     "subblock_h": 2,
+     "subblock_w": 2
+    }
+   },
+   "shared_down": {
+    "dtype": "bfp8",
+    "fidelity": "LoFi",
+    "dram": false,
+    "cores": 8,
+    "k_block": 8,
+    "readers": 1,
+    "prefill_grid": [
+     8,
+     8
+    ],
+    "prefill_k": 4,
+    "decode_grid": [
+     8,
+     2
+    ],
+    "per_n": 4
+   },
+   "router": {
+    "dtype": "bf16",
+    "fidelity": "HiFi2"
+   }
+  },
+  "sdpa": {
+   "grid": [
+    11,
+    10
+   ],
+   "q_chunk_size": 32,
+   "k_chunk_size": 512,
+   "exp_approx_mode": false,
+   "prefill": {
+    "q_chunk_size": 128,
+    "k_chunk_size": 256,
+    "exp_approx_mode": false
+   }
+  },
+  "kv_dtype": "bfp8",
+  "residual_cores": 0,
+  "decode_norm_cores": 16,
+  "decode_norm_fp32_input": false,
+  "decode_norm_output": "l1",
+  "decode_norm_fill": false,
+  "attention_decode_memory": "l1",
+  "residual_output_sharded": false,
+  "norm_fused_weight": false,
+  "prefill_norm": "bf16",
+  "router_topk_prefill": true,
+  "gdn_gate_mixed": false,
+  "gate_pack_fidelity": "HiFi2",
+  "gdn_decode_direct": false,
+  "shared_addcmul_config": {
+   "grid": [
+    8,
+    2
+   ],
+   "M_block_size": 1,
+   "K_block_size": 8,
+   "N_block_size": 8,
+   "subblock_h": 1,
+   "subblock_w": 2
+  },
+  "conv_shift": "ops",
+  "prefill_long_chunk": 8192,
+  "prefill_long_from": 8192,
+  "sdpa_prefill_long": {
+   "q_chunk_size": 128,
+   "k_chunk_size": 512,
+   "exp_approx_mode": false
+  },
+  "shared_split": false,
+  "gate_pack": true,
+  "gate_pack_grid": [
+   8,
+   2,
+   32
+  ],
+  "gdn_l1": false,
+  "gdn_state_l1": false,
+  "gdn_l1_slots": 32,
+  "conv_chunk": 512,
+  "gdn_heads_decode": false,
+  "gdn_decode_kernel": false,
+  "gdn_decode_gates": false,
+  "gdn_decode_blocks": 0,
+  "expert_decode_kernel": true,
+  "expert_decode_nper": 0,
+  "expert_decode_kb": 8,
+  "expert_decode_shared": true,
+  "residual_sharded_decode": true,
+  "router_cached_slices": true,
+  "dispatch_scatter_rows": 32,
+  "mesh_policy_keep": [],
+  "conv_state_rm": false,
+  "conv_decode_fill": true,
+  "gdn_ab_split": {},
+  "gdn_flat_qk": false,
+  "release_unused_weights": true,
+  "prefill_tiled": true,
+  "prefill_chunk": 4096,
+  "shared_minimal_config": {},
+  "shared_decode_minimal_config": {
+   "grid": [
+    8,
+    2
+   ],
+   "M_block_size": 1,
+   "K_block_size": 16,
+   "N_block_size": 4,
+   "subblock_h": 1,
+   "subblock_w": 2
+  },
+  "prefill_minimal_config": {}
+ },
+ "weight_memory": {
+  "after_merge": {
+   "dram": {
+    "allocated_bytes": 767781888,
+    "free_bytes": 33410949120,
+    "banks": 8,
+    "largest_free_bytes_per_bank": 4011110784
+   },
+   "l1": {
+    "allocated_bytes": 901120,
+    "free_bytes": 159822080,
+    "banks": 110,
+    "largest_free_bytes_per_bank": 1452928
+   }
+  }
+ },
+ "construction_memory": [
+  {
+   "step": "start",
+   "device_dram_allocated_bytes": 0,
+   "host_rss_bytes": 705966080,
+   "host_peak_rss_bytes": 705966080
+  },
+  {
+   "step": "replica_0",
+   "device_dram_allocated_bytes": 767781888,
+   "host_rss_bytes": 2456678400,
+   "host_peak_rss_bytes": 6366720000
+  },
+  {
+   "step": "replica_1",
+   "device_dram_allocated_bytes": 1456720896,
+   "host_rss_bytes": 2717618176,
+   "host_peak_rss_bytes": 6900649984
+  },
+  {
+   "step": "merged_before_release",
+   "device_dram_allocated_bytes": 1456720896,
+   "host_rss_bytes": 2743336960,
+   "host_peak_rss_bytes": 6900649984
+  },
+  {
+   "step": "released",
+   "device_dram_allocated_bytes": 767781888,
+   "host_rss_bytes": 2743336960,
+   "host_peak_rss_bytes": 6900649984
+  }
+ ],
+ "allocator": {
+  "baseline_bytes": 0,
+  "after_construct_bytes": 768407552,
+  "delta_bytes": 768407552,
+  "total_dram_bytes": 34178731008
+ },
+ "named_dram_payload_bytes": 708273984,
+ "named_note": "Payload lower bound grouped by root buffer_unique_id; bank-spread reservation can exceed it.",
+ "by_consumer": {
+  "routed_experts_prefill_dispatch": {
+   "bytes": 322905920,
+   "roots": 62
+  },
+  "routed_experts_decode": {
+   "bytes": 293620736,
+   "roots": 6
+  },
+  "rope": {
+   "bytes": 67108864,
+   "roots": 2
+  },
+  "attention": {
+   "bytes": 14911488,
+   "roots": 7
+  },
+  "router": {
+   "bytes": 3489792,
+   "roots": 5
+  },
+  "index_tables": {
+   "bytes": 2117632,
+   "roots": 15
+  },
+  "shared_expert": {
+   "bytes": 1937408,
+   "roots": 6
+  },
+  "module_cache": {
+   "bytes": 1179648,
+   "roots": 1
+  },
+  "kv_cache": {
+   "bytes": 609280,
+   "roots": 2
+  },
+  "norms": {
+   "bytes": 393216,
+   "roots": 2
+  }
+ },
+ "roots": [
+  {
+   "uid": 22755,
+   "consumer": "routed_experts_decode",
+   "bytes": 150994944,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.weights.gate_up_proj",
+   "dtype": "DataType.BFLOAT4_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    256,
+    2048,
+    512
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 22758,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 150994944,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.gate[0]",
+   "dtype": "DataType.BFLOAT4_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    128,
+    2048,
+    1024
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 22752,
+   "consumer": "routed_experts_decode",
+   "bytes": 142606336,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.weights.down_proj",
+   "dtype": "DataType.BFLOAT8_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    256,
+    256,
+    2048
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 22761,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 142606336,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.down[0]",
+   "dtype": "DataType.BFLOAT8_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    128,
+    512,
+    2048
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 10404,
+   "consumer": "rope",
+   "bytes": 33554432,
+   "aliases": 1,
+   "path": "decoder._rope_cos",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    262144,
+    64
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 10407,
+   "consumer": "rope",
+   "bytes": 33554432,
+   "aliases": 1,
+   "path": "decoder._rope_sin",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    262144,
+    64
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13464,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 17825792,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[4096][3]",
+   "dtype": "DataType.BFLOAT8_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    4096,
+    4096
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 22749,
+   "consumer": "attention",
+   "bytes": 10027008,
+   "aliases": 1,
+   "path": "decoder.layer.original.attention.reduced_module.qkvg_weight",
+   "dtype": "DataType.BFLOAT8_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    2048,
+    4608
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 22746,
+   "consumer": "attention",
+   "bytes": 4456448,
+   "aliases": 1,
+   "path": "decoder.layer.original.attention.reduced_module.weights.o_proj",
+   "dtype": "DataType.BFLOAT8_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    2048,
+    2048
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13389,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 4456448,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[2048][3]",
+   "dtype": "DataType.BFLOAT8_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    2048,
+    2048
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 10518,
+   "consumer": "router",
+   "bytes": 2097152,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.router.zero_templates[4096]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    4096,
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 14073,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 1310720,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[4096][0]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    4096,
+    160
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13509,
+   "consumer": "module_cache",
+   "bytes": 1179648,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.weight",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    2048,
+    288
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13308,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 1114112,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[1024][3]",
+   "dtype": "DataType.BFLOAT8_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    1024,
+    1024
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 234,
+   "consumer": "router",
+   "bytes": 1048576,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.router.module.original.tt_gate_weight",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    2048,
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 10494,
+   "consumer": "index_tables",
+   "bytes": 1048576,
+   "aliases": 1,
+   "path": "decoder._index_offsets[8192]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    8192
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 14004,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 655360,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[2048][0]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    2048,
+    160
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 22776,
+   "consumer": "shared_expert",
+   "bytes": 589824,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.shared.packed",
+   "dtype": "DataType.BFLOAT4_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    2048,
+    512
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 22770,
+   "consumer": "shared_expert",
+   "bytes": 557056,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.shared.mlp.weights.w2",
+   "dtype": "DataType.BFLOAT8_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    256,
+    2048
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 14037,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 524288,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.scratch[4096]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    4096,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 10482,
+   "consumer": "index_tables",
+   "bytes": 524288,
+   "aliases": 1,
+   "path": "decoder._index_offsets[4096]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    4096
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13935,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 327680,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[1024][0]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    1024,
+    160
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 22830,
+   "consumer": "kv_cache",
+   "bytes": 304640,
+   "aliases": 1,
+   "path": "decoder.layer.original.attention.reduced_module.paged_kv_cache_key",
+   "dtype": "DataType.BFLOAT8_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    35,
+    1,
+    32,
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 22833,
+   "consumer": "kv_cache",
+   "bytes": 304640,
+   "aliases": 1,
+   "path": "decoder.layer.original.attention.reduced_module.paged_kv_cache_value",
+   "dtype": "DataType.BFLOAT8_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    35,
+    1,
+    32,
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 22767,
+   "consumer": "shared_expert",
+   "bytes": 294912,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.shared.mlp.weights.w1",
+   "dtype": "DataType.BFLOAT4_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    2048,
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 22773,
+   "consumer": "shared_expert",
+   "bytes": 294912,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.shared.mlp.weights.w3",
+   "dtype": "DataType.BFLOAT4_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    2048,
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13227,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 278528,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[512][3]",
+   "dtype": "DataType.BFLOAT8_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    512,
+    512
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 81,
+   "consumer": "attention",
+   "bytes": 262144,
+   "aliases": 1,
+   "path": "decoder.layer.original.attention_norm.original.weight",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    2048
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 93,
+   "consumer": "norms",
+   "bytes": 262144,
+   "aliases": 1,
+   "path": "decoder.layer.original.ffn_norm.original.weight",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    2048
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 22821,
+   "consumer": "attention",
+   "bytes": 262144,
+   "aliases": 1,
+   "path": "decoder.layer.original.attention.decode['buffer']",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    32,
+    4096
+   ],
+   "buffer": "BufferType.L1",
+   "alias_paths": []
+  },
+  {
+   "uid": 255,
+   "consumer": "router",
+   "bytes": 262144,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.router.zero_templates[512]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    512,
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 14085,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 262144,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[4096][1]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    4096,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 14097,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 262144,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[4096][4]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    1,
+    4096
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13968,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 262144,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.scratch[2048]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    2048,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 10470,
+   "consumer": "index_tables",
+   "bytes": 262144,
+   "aliases": 1,
+   "path": "decoder._index_offsets[2048]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    2048
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 237,
+   "consumer": "router",
+   "bytes": 225280,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.router.module.original.tt_bias",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    110,
+    32,
+    32
+   ],
+   "buffer": "BufferType.L1",
+   "alias_paths": []
+  },
+  {
+   "uid": 240,
+   "consumer": "router",
+   "bytes": 225280,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.router.module.original.tt_input_indices",
+   "dtype": "DataType.UINT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    110,
+    16,
+    16
+   ],
+   "buffer": "BufferType.L1",
+   "alias_paths": []
+  },
+  {
+   "uid": 243,
+   "consumer": "router",
+   "bytes": 225280,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.router.module.original.tt_output",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    110,
+    32,
+    32
+   ],
+   "buffer": "BufferType.L1",
+   "alias_paths": []
+  },
+  {
+   "uid": 246,
+   "consumer": "router",
+   "bytes": 225280,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.router.module.original.tt_output_indices",
+   "dtype": "DataType.UINT16",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    110,
+    32,
+    32
+   ],
+   "buffer": "BufferType.L1",
+   "alias_paths": []
+  },
+  {
+   "uid": 13866,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 163840,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[512][0]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    512,
+    160
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 14031,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 147072,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.buffers[4096][1]",
+   "dtype": "DataType.UINT32",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    1,
+    36768
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13518,
+   "consumer": "attention",
+   "bytes": 131072,
+   "aliases": 1,
+   "path": "decoder.layer.original.attention_norm.prefill_weight",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    2048
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13527,
+   "consumer": "norms",
+   "bytes": 131072,
+   "aliases": 1,
+   "path": "decoder.layer.original.ffn_norm.prefill_weight",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    2048
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13572,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 131072,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.zero_row",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    32,
+    2048
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 14016,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 131072,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[2048][1]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    2048,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 14028,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 131072,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[2048][4]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    1,
+    2048
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 14088,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 131072,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[4096][2]",
+   "dtype": "DataType.UINT32",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    1,
+    32768
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13899,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 131072,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.scratch[1024]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    1024,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 69,
+   "consumer": "shared_expert",
+   "bytes": 131072,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.shared.gate_weight",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    2048,
+    1
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 10458,
+   "consumer": "index_tables",
+   "bytes": 131072,
+   "aliases": 1,
+   "path": "decoder._index_offsets[1024]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1024
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13797,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 81920,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[256][0]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    256,
+    160
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13962,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 81536,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.buffers[2048][1]",
+   "dtype": "DataType.UINT32",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    1,
+    20384
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13146,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 69632,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[256][3]",
+   "dtype": "DataType.BFLOAT8_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    256,
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13503,
+   "consumer": "shared_expert",
+   "bytes": 69632,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.shared.addcmul_ones",
+   "dtype": "DataType.BFLOAT8_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    1,
+    2048
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 252,
+   "consumer": "router",
+   "bytes": 65536,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.router.zero_templates[128]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    128,
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13947,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 65536,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[1024][1]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    1024,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13959,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 65536,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[1024][4]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    1,
+    1024
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 14019,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 65536,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[2048][2]",
+   "dtype": "DataType.UINT32",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    1,
+    16384
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13830,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 65536,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.scratch[512]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    512,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 183,
+   "consumer": "index_tables",
+   "bytes": 65536,
+   "aliases": 1,
+   "path": "decoder._index_offsets[512]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    512
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13593,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 51200,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.region_matrix",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    160,
+    160
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13893,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 48768,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.buffers[1024][1]",
+   "dtype": "DataType.UINT32",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    1,
+    12192
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13728,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 40960,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[128][0]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    128,
+    160
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13878,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 32768,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[512][1]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    512,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13890,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 32768,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[512][4]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    1,
+    512
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13950,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 32768,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[1024][2]",
+   "dtype": "DataType.UINT32",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    1,
+    8192
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13761,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 32768,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.scratch[256]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    256,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 10446,
+   "consumer": "index_tables",
+   "bytes": 32768,
+   "aliases": 1,
+   "path": "decoder._index_offsets[256]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13824,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 32384,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.buffers[512][1]",
+   "dtype": "DataType.UINT32",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    1,
+    8096
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13755,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 24192,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.buffers[256][1]",
+   "dtype": "DataType.UINT32",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    1,
+    6048
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13677,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 20480,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[64][0]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    64,
+    160
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13704,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 20096,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.buffers[128][1]",
+   "dtype": "DataType.UINT32",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    1,
+    5024
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13653,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 18048,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.buffers[64][1]",
+   "dtype": "DataType.UINT32",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    1,
+    4512
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13059,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 17408,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[128][3]",
+   "dtype": "DataType.BFLOAT8_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    128,
+    128
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13602,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 17024,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.buffers[32][1]",
+   "dtype": "DataType.UINT32",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    1,
+    4256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 10380,
+   "consumer": "attention",
+   "bytes": 16384,
+   "aliases": 1,
+   "path": "decoder.layer.original.attention.reduced_module.weights.q_norm",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 10396,
+   "consumer": "attention",
+   "bytes": 16384,
+   "aliases": 1,
+   "path": "decoder.layer.original.attention.reduced_module.weights.k_norm",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 249,
+   "consumer": "router",
+   "bytes": 16384,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.router.zero_templates[1]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    1,
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 12858,
+   "consumer": "routed_experts_decode",
+   "bytes": 16384,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.original.zeros",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    1,
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13809,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 16384,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[256][1]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    256,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13821,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 16384,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[256][4]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    1,
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13881,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 16384,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[512][2]",
+   "dtype": "DataType.UINT32",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    1,
+    4096
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13710,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 16384,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.scratch[128]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    128,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 171,
+   "consumer": "index_tables",
+   "bytes": 16384,
+   "aliases": 1,
+   "path": "decoder._index_offsets[128]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    128
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13626,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 10240,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[32][0]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    32,
+    160
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13740,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 8192,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[128][1]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    128,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13752,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 8192,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[128][4]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    1,
+    128
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13812,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 8192,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[256][2]",
+   "dtype": "DataType.UINT32",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    1,
+    2048
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13659,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 8192,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.scratch[64]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    64,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 10434,
+   "consumer": "index_tables",
+   "bytes": 8192,
+   "aliases": 1,
+   "path": "decoder._index_offsets[64]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    64
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 12990,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 4352,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[64][3]",
+   "dtype": "DataType.BFLOAT8_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    64,
+    64
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 22764,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 4096,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.offset",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    1,
+    1
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13689,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 4096,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[64][1]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    64,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13701,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 4096,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[64][4]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    1,
+    64
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13743,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 4096,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[128][2]",
+   "dtype": "DataType.UINT32",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    1,
+    1024
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13608,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 4096,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.scratch[32]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    32,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 99,
+   "consumer": "index_tables",
+   "bytes": 4096,
+   "aliases": 1,
+   "path": "decoder._index_offsets[1]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 111,
+   "consumer": "index_tables",
+   "bytes": 4096,
+   "aliases": 1,
+   "path": "decoder._index_offsets[2]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    2
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 123,
+   "consumer": "index_tables",
+   "bytes": 4096,
+   "aliases": 1,
+   "path": "decoder._index_offsets[4]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    4
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 135,
+   "consumer": "index_tables",
+   "bytes": 4096,
+   "aliases": 1,
+   "path": "decoder._index_offsets[8]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 147,
+   "consumer": "index_tables",
+   "bytes": 4096,
+   "aliases": 1,
+   "path": "decoder._index_offsets[16]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    16
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 159,
+   "consumer": "index_tables",
+   "bytes": 4096,
+   "aliases": 1,
+   "path": "decoder._index_offsets[32]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    32
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 10506,
+   "consumer": "index_tables",
+   "bytes": 4096,
+   "aliases": 1,
+   "path": "decoder._index_offsets[3]",
+   "dtype": "DataType.FLOAT32",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    3
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 10422,
+   "consumer": "attention",
+   "bytes": 2048,
+   "aliases": 1,
+   "path": "decoder.layer.original.attention.reduced_module.rotation",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    32,
+    32
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 12846,
+   "consumer": "routed_experts_decode",
+   "bytes": 2048,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.original.ones",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    1,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13638,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 2048,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[32][1]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    32,
+    8
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13650,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 2048,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[32][4]",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    1,
+    32
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13692,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 2048,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[64][2]",
+   "dtype": "DataType.UINT32",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    1,
+    512
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 12921,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 1088,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[32][3]",
+   "dtype": "DataType.BFLOAT8_B",
+   "layout": "Layout.TILE",
+   "shape": [
+    1,
+    1,
+    32,
+    32
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13641,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 1024,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.rank_buffers[32][2]",
+   "dtype": "DataType.UINT32",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    1,
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 10278,
+   "consumer": "routed_experts_decode",
+   "bytes": 512,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.original.mapping",
+   "dtype": "DataType.UINT16",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 12867,
+   "consumer": "routed_experts_decode",
+   "bytes": 512,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.original.placeholder",
+   "dtype": "DataType.BFLOAT16",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    1,
+    1,
+    1,
+    256
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  },
+  {
+   "uid": 13536,
+   "consumer": "routed_experts_prefill_dispatch",
+   "bytes": 512,
+   "aliases": 1,
+   "path": "decoder.layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.expert_ids",
+   "dtype": "DataType.UINT32",
+   "layout": "Layout.ROW_MAJOR",
+   "shape": [
+    128
+   ],
+   "buffer": "BufferType.DRAM",
+   "alias_paths": []
+  }
+ ],
+ "source_sha256": "52e4df7a9d63db0df47f23b865d3bf7bc4c42a7906da9039df83fcdbd7ca44d3"
+}

@@ -1,0 +1,94 @@
+[
+  {
+    "name": "default",
+    "policy": null,
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "multichip",
+      "--mesh",
+      "1",
+      "--layer",
+      "0",
+      "--length",
+      "1000",
+      "--steps",
+      "4",
+      "--batch",
+      "1",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_multichip_decoder/evidence1/len_m1_linear_1000/default.json",
+      "--compare-tensors",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence7_tensors/len_base_linear_1000/default.pt",
+      "--input-activations",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage03_inputs/layer0.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 11.800423495005816,
+    "source_stable": true,
+    "prefill_pcc": 0.9996947050094604,
+    "decode_pcc": 0.9990738034248352,
+    "prefill_host_us": 12660.515,
+    "continuation_host_us": null,
+    "prefill_token_pcc_min": 0.9924713969230652,
+    "prefill_tokens_below_0995": 4,
+    "prefill_repeat_identical": true,
+    "prefill_repeat_difference": null,
+    "decode_host_us": 404.32050000000004,
+    "mesh_shape": [
+      1,
+      1
+    ],
+    "device_ids": [
+      3
+    ],
+    "output_replicas_identical": true,
+    "control_equivalence": {
+      "prefill_pcc": 0.9999215006828308,
+      "decode_pcc_min": 0.9999264478683472,
+      "decode_pcc_min_strict": 0.9999264478683472,
+      "decode_tie_choices_differ": [],
+      "source": "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence7_tensors/len_base_linear_1000/default.pt",
+      "prefill_max_abs": 0.015625,
+      "decode_max_abs": 0.00390625,
+      "prefill_identical": false,
+      "decode_identical": false
+    },
+    "weight_memory": {
+      "before_cleanup": {
+        "dram": {
+          "allocated_bytes": 2762599936,
+          "free_bytes": 31416131072,
+          "banks": 8,
+          "largest_free_bytes_per_bank": 3924848512
+        },
+        "l1": {
+          "allocated_bytes": 901120,
+          "free_bytes": 159822080,
+          "banks": 110,
+          "largest_free_bytes_per_bank": 1452928
+        }
+      },
+      "after_cleanup": {
+        "dram": {
+          "allocated_bytes": 849893888,
+          "free_bytes": 33328837120,
+          "banks": 8,
+          "largest_free_bytes_per_bank": 3924848512
+        },
+        "l1": {
+          "allocated_bytes": 901120,
+          "free_bytes": 159822080,
+          "banks": 110,
+          "largest_free_bytes_per_bank": 1452928
+        }
+      }
+    },
+    "construction_memory": null
+  }
+]

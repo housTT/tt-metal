@@ -16,7 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def source_manifest():
-    files = sorted(ROOT.glob("tt/*.py")) + sorted(ROOT.glob("tests/*.py"))
+    files = sorted(f for d in ("tt", "tests") for f in (ROOT / d).rglob("*")
+                   if f.is_file() and "__pycache__" not in f.parts)
     result = {str(f.relative_to(ROOT)): hashlib.sha256(f.read_bytes()).hexdigest() for f in files}
     repo = ROOT.parents[2]
     git = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, check=True).stdout

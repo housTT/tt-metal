@@ -1,0 +1,161 @@
+[
+  {
+    "name": "default",
+    "policy": null,
+    "command": [
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/python_env/bin/python",
+      "-m",
+      "models.autoports.qwen_qwen3_5_35b_a3b.tests.run_layer",
+      "--decoder",
+      "multichip",
+      "--mesh",
+      "4",
+      "--layer",
+      "3",
+      "--length",
+      "129",
+      "--steps",
+      "8",
+      "--batch",
+      "32",
+      "--trace",
+      "--audit",
+      "--warm-prefill",
+      "--output",
+      "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_multichip_decoder/evidence11/b32_m4_full/default.json",
+      "--compare-tensors",
+      "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence7_tensors/b32_base_full/default.pt"
+    ],
+    "exit_code": 0,
+    "elapsed_seconds": 20.015034695970826,
+    "source_stable": true,
+    "prefill_pcc": 0.9987205266952515,
+    "decode_pcc": 0.9954106211662292,
+    "prefill_host_us": 88239.568,
+    "continuation_host_us": null,
+    "prefill_token_pcc_min": 0.9953424334526062,
+    "prefill_tokens_below_0995": 0,
+    "prefill_repeat_identical": true,
+    "prefill_repeat_difference": null,
+    "decode_host_us": 7659.082,
+    "mesh_shape": [
+      1,
+      4
+    ],
+    "device_ids": [
+      3,
+      2,
+      1,
+      0
+    ],
+    "output_replicas_identical": true,
+    "control_equivalence": {
+      "prefill_pcc": 0.9998592734336853,
+      "decode_pcc_min": 0.9998049139976501,
+      "decode_pcc_min_strict": 0.9997987151145935,
+      "decode_tie_choices_differ": [
+        {
+          "row": 2,
+          "step": 3,
+          "control_choice": 1,
+          "choice": 0
+        },
+        {
+          "row": 6,
+          "step": 3,
+          "control_choice": 2,
+          "choice": 1
+        },
+        {
+          "row": 10,
+          "step": 1,
+          "control_choice": 1,
+          "choice": 0
+        },
+        {
+          "row": 13,
+          "step": 5,
+          "control_choice": 0,
+          "choice": 1
+        },
+        {
+          "row": 21,
+          "step": 7,
+          "control_choice": 1,
+          "choice": 0
+        },
+        {
+          "row": 25,
+          "step": 2,
+          "control_choice": 0,
+          "choice": 2
+        }
+      ],
+      "source": "/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage04/evidence7_tensors/b32_base_full/default.pt",
+      "prefill_max_abs": 0.18359375,
+      "decode_max_abs": 0.0859375,
+      "prefill_identical": false,
+      "decode_identical": false
+    },
+    "weight_memory": {
+      "after_merge": {
+        "dram": {
+          "allocated_bytes": 463186944,
+          "free_bytes": 33715544064,
+          "banks": 8,
+          "largest_free_bytes_per_bank": 4015967488
+        },
+        "l1": {
+          "allocated_bytes": 901120,
+          "free_bytes": 159822080,
+          "banks": 110,
+          "largest_free_bytes_per_bank": 1452928
+        }
+      }
+    },
+    "construction_memory": [
+      {
+        "step": "start",
+        "device_dram_allocated_bytes": 0,
+        "host_rss_bytes": 2783342592,
+        "host_peak_rss_bytes": 2783342592
+      },
+      {
+        "step": "replica_0",
+        "device_dram_allocated_bytes": 463186944,
+        "host_rss_bytes": 2999799808,
+        "host_peak_rss_bytes": 5032996864
+      },
+      {
+        "step": "replica_1",
+        "device_dram_allocated_bytes": 849380352,
+        "host_rss_bytes": 3046166528,
+        "host_peak_rss_bytes": 5088305152
+      },
+      {
+        "step": "replica_2",
+        "device_dram_allocated_bytes": 1235573760,
+        "host_rss_bytes": 3030085632,
+        "host_peak_rss_bytes": 5138272256
+      },
+      {
+        "step": "replica_3",
+        "device_dram_allocated_bytes": 1621767168,
+        "host_rss_bytes": 3030634496,
+        "host_peak_rss_bytes": 5138272256
+      },
+      {
+        "step": "merged_before_release",
+        "device_dram_allocated_bytes": 1621767168,
+        "host_rss_bytes": 3066331136,
+        "host_peak_rss_bytes": 5138272256
+      },
+      {
+        "step": "released",
+        "device_dram_allocated_bytes": 463186944,
+        "host_rss_bytes": 3066331136,
+        "host_peak_rss_bytes": 5138272256
+      }
+    ]
+  }
+]
