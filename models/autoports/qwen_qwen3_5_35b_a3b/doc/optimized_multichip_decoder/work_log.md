@@ -1533,3 +1533,9 @@ Long-context chunk 2 control (`runs/main/stage05/micro/long_cold/`, 17:21):
 ### Review 6 (`stage_review6.md`, 17:45)
 - Verdict: clean-pass, no required work.
 - Fixed the stale README sentence on the index-offset table.
+
+### Commit
+- Local commit `1f9fb518c5ed9428ad54be1be700714447991ee2` on `feat/qwen3-5-35b-a3b`; not pushed.
+- Hooks skipped to keep bytes equal to the frozen manifests.
+- Includes the two ttnn source changes in `evidence12/ttnn_patch.diff`.
+- Committed tt/ and tests/ hashes equal `evidence12/source_manifest_end.json` (55 files).

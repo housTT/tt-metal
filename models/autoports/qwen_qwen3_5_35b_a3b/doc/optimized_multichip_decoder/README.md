@@ -15,6 +15,7 @@
   (8192-token external chunks) and profiles. SOURCE_STABLE, CHILD_FAILURES 0, 255 steps, all with exit code 0.
   Derived: `capacity_model.json`, `memory_handoff_recheck.json`, `roofline.json`, `profiles/`
   (`runs/main/stage05/process_profiles12.sh`).
+- Stage commit: `1f9fb518c5ed9428ad54be1be700714447991ee2` (local branch `feat/qwen3-5-35b-a3b`, not pushed).
 - Source delta from chain 10 (`evidence12/source_delta.diff`, `evidence12/ttnn_patch.diff`): indexed
   `sparse_matmul` without zero-fill (ttnn), conv-state shift in the GDN gate writer, 8192-row full-attention
   prefill step from position 8192, the conv row reference fix, the profiler zone label, the `run_layer --profile`
