@@ -1,0 +1,426 @@
+{
+ "purpose": "Stage 6 recheck of memory-layout-handoff.json against the full 40-layer model.",
+ "handoff_inspected_on": "2026-10-10",
+ "source_sha256": {
+  "__init__.py": "20db980a38cc5bb36a49afaff8f9838e2c77f17e5b1ef0c42b5ed918f77a1ca9",
+  "expert_decode.py": "d4aaeba12a8889d02a8ac529922d583320b630f75116e50702586a4018fc5d9e",
+  "functional_attention.py": "6718df3736404f042613670f43e184e202ece215a9f7907f6358ec18326a8638",
+  "functional_decoder.py": "c3597bf194086ddc39fb030d221b7fe932162b052815affd7c6c14ede135f9b0",
+  "functional_gdn.py": "2a5a87d7ff4d35483a1e0103951001e8610ed12f5f4af4cb15498a6e547ad37b",
+  "fused_decoder.py": "e1c244e3d565d287f26c88d889a2d7ddf49c8fd9db71ee5ea8e700d068825602",
+  "gdn_decode.py": "78a0cd39d798ddb4bf10cc36d93b9fa990b3abe7ccc8410c11c6e3285b78b23d",
+  "generator.py": "4140f40c45be639078cc1919c6908d0bdc9b3e6c6bd28b1d08583fa4b525a6df",
+  "model.py": "58449dea9d6f70d1fe8aab81c7a11f9a71f17cf9515bcbbfa56de3e7c2cd1b09",
+  "multichip_decoder.py": "f395f7ec2fd18bcfb5c605c97801a2ba7240719880f64110c0adc38abcc8cd0e",
+  "optimized_decoder.py": "406333a10434bfa1234d27ab5f5c5ba6bd7aa0b6227375e05ce064f0423cdbb8"
+ },
+ "method": "tests/model_census.py inside tests/run_full_evidence.py: after build and prepare(), walk the generator object graph, group live device buffers by buffer_unique_id, size each as pages x page size per device, and compare with the allocator total. Tensors reached from several layers are 'shared_across_layers'; tensors inside a container object shared by layers count under the first layer that holds it.",
+ "items": [
+  {
+   "item": "In the appropriate optimization/multichip/full-model stages, record post-construction allocator DRAM and per-buffer identities, host RSS and setup peaks; validate implicit reference releases.",
+   "status": "addressed for device memory",
+   "evidence": "per-category census, 12 largest buffers and allocator totals per profile below; host RSS and setup peaks are not re-measured for the full model (loading builds one layer at a time; the Stage 5 per-layer setup peaks apply)"
+  },
+  {
+   "item": "Create an explicit representation/consumer/last-use ownership table. Release setup-only originals only after all actual consumers have finished; preserve live trace and cache ownership.",
+   "status": "addressed",
+   "evidence": "Stage 5 ownership table holds; Stage 6 adds KV pool, GDN request-slot pool, embedding, LM head, sampler and generator I/O as separate census categories"
+  },
+  {
+   "item": "Avoid retaining both monolithic packed weights and copied packed groups when the selected path uses only one. Consider offset/view-compatible kernel inputs, or deallocate the unused parent after copies are complete.",
+   "status": "addressed",
+   "evidence": "unchanged from Stage 5"
+  },
+  {
+   "item": "Construct compact BF8 descriptors from the checkpoint/cache without keeping unused fallback representations resident. Gate any dtype or math change by real correctness/quality tests.",
+   "status": "addressed",
+   "evidence": "unchanged from Stage 5"
+  },
+  {
+   "item": "Reuse a down-weight backing allocation when the kernel can accept valid views/offsets; ordinary slice currently copies.",
+   "status": "addressed",
+   "evidence": "unchanged from Stage 5"
+  },
+  {
+   "item": "Share identical RoPE tables across full-attention layers where ownership and indexed channel conventions permit.",
+   "status": "addressed",
+   "evidence": "tt/model.py _share_layer_constants stores RoPE tables (_rope_cos, _rope_sin) and the other per-layer constants once after an on-device equality check; census category shared_across_layers"
+  },
+  {
+   "item": "Implement local-expert indexing and genuinely sharded weight representations for x2/x4; do not reuse single-chip gather/replicate adapters unchanged.",
+   "status": "addressed",
+   "evidence": "unchanged from Stage 5"
+  },
+  {
+   "item": "Allow deliberately different qualified precision/representation configurations for p150 and p150x2, while optimizing p150x4. Do not silently drop either required profile.",
+   "status": "addressed",
+   "evidence": "three profiles qualified: full model, sampling and readiness accuracy in full_model/evidence5/"
+  },
+  {
+   "item": "Recompute this audit on the selected full-model implementation and validate real serving capacity before setting manifest context/concurrency limits.",
+   "status": "addressed",
+   "evidence": "full-model allocator and census per profile below; serving capacity measured: 262144-token context, KV pool tokens and 32 request slots per profile, long prompt 262100 and boundary 262143 runs"
+  }
+ ],
+ "known_duplicates": [
+  {
+   "what": "routed expert weights on p150x2 and p150x4: expert-parallel prefill copy (experts.dispatch.*) and tensor-parallel decode copy (experts.weights.*)",
+   "evidence": "largest_buffers per profile: both paths at 144 MiB per layer on p150x2; p150 has only experts.weights.* (288 MiB per layer)",
+   "consumers": "dispatch copy: prefill dispatch backend; weights copy: traced decode",
+   "status": "both copies have live consumers; removal is Stage 7 memory work (doc/optimized_multichip_decoder/README.md, Work owned by later stages)"
+  }
+ ],
+ "profiles": {
+  "p150x4": {
+   "allocator_dram_mib": 20122.9,
+   "named_dram_mib": 19851.7,
+   "unnamed_dram_mib": 271.2,
+   "by_category_dram_mib": {
+    "layer_private": 12703.3,
+    "gdn_request_state": 491.2,
+    "shared_across_layers": 22.7,
+    "kv_cache": 5450.8,
+    "embedding": 970.0,
+    "final_norm": 0.2,
+    "lm_head": 128.8,
+    "other": 0.0,
+    "generator_io": 1.2,
+    "sampler": 83.4
+   },
+   "by_category_buffers": {
+    "layer_private": 4285,
+    "gdn_request_state": 1920,
+    "shared_across_layers": 12,
+    "kv_cache": 20,
+    "embedding": 1,
+    "final_norm": 1,
+    "lm_head": 1,
+    "other": 2,
+    "generator_io": 8,
+    "sampler": 21
+   },
+   "largest_buffers": [
+    {
+     "bytes": 1017118720,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.embedding",
+     "aliases": 1
+    },
+    {
+     "bytes": 285778432,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[3].layer.original.attention.reduced_module.paged_kv_cache_key",
+     "aliases": 2
+    },
+    {
+     "bytes": 285778432,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[3].layer.original.attention.reduced_module.paged_kv_cache_value",
+     "aliases": 2
+    },
+    {
+     "bytes": 285778432,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[7].layer.original.attention.reduced_module.paged_kv_cache_key",
+     "aliases": 2
+    },
+    {
+     "bytes": 285778432,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[7].layer.original.attention.reduced_module.paged_kv_cache_value",
+     "aliases": 2
+    },
+    {
+     "bytes": 285778432,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[11].layer.original.attention.reduced_module.paged_kv_cache_key",
+     "aliases": 2
+    },
+    {
+     "bytes": 285778432,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[11].layer.original.attention.reduced_module.paged_kv_cache_value",
+     "aliases": 2
+    },
+    {
+     "bytes": 285778432,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[15].layer.original.attention.reduced_module.paged_kv_cache_key",
+     "aliases": 2
+    },
+    {
+     "bytes": 285778432,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[15].layer.original.attention.reduced_module.paged_kv_cache_value",
+     "aliases": 2
+    },
+    {
+     "bytes": 285778432,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[19].layer.original.attention.reduced_module.paged_kv_cache_key",
+     "aliases": 2
+    },
+    {
+     "bytes": 285778432,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[19].layer.original.attention.reduced_module.paged_kv_cache_value",
+     "aliases": 2
+    },
+    {
+     "bytes": 285778432,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[23].layer.original.attention.reduced_module.paged_kv_cache_key",
+     "aliases": 2
+    }
+   ],
+   "dram_free_after_build_mib": 12472.5,
+   "dram_largest_free_per_bank_mib": 1422.5,
+   "kv_pool_tokens": 1050624,
+   "request_slots": 32,
+   "long_prompt_tokens": 262100,
+   "boundary": {
+    "length": 262143,
+    "requested": 16,
+    "returned": 2,
+    "tokens": [
+     264,
+     2526
+    ]
+   }
+  },
+  "p150x2": {
+   "allocator_dram_mib": 29742.9,
+   "named_dram_mib": 29430.3,
+   "unnamed_dram_mib": 312.6,
+   "by_category_dram_mib": {
+    "layer_private": 24359.1,
+    "gdn_request_state": 982.5,
+    "shared_across_layers": 22.7,
+    "kv_cache": 2730.8,
+    "embedding": 970.0,
+    "final_norm": 0.2,
+    "lm_head": 257.7,
+    "other": 0.0,
+    "generator_io": 1.2,
+    "sampler": 106.1
+   },
+   "by_category_buffers": {
+    "layer_private": 4285,
+    "gdn_request_state": 1920,
+    "shared_across_layers": 12,
+    "kv_cache": 20,
+    "embedding": 1,
+    "final_norm": 1,
+    "lm_head": 1,
+    "other": 2,
+    "generator_io": 8,
+    "sampler": 21
+   },
+   "largest_buffers": [
+    {
+     "bytes": 1017118720,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.embedding",
+     "aliases": 1
+    },
+    {
+     "bytes": 270172160,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.lm_head",
+     "aliases": 1
+    },
+    {
+     "bytes": 150994944,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[0].layer.original.feed_forward.reduced_module.module.moe.experts.weights.gate_up_proj",
+     "aliases": 2
+    },
+    {
+     "bytes": 150994944,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[0].layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.gate[0]",
+     "aliases": 2
+    },
+    {
+     "bytes": 150994944,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[1].layer.original.feed_forward.reduced_module.module.moe.experts.weights.gate_up_proj",
+     "aliases": 2
+    },
+    {
+     "bytes": 150994944,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[1].layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.gate[0]",
+     "aliases": 2
+    },
+    {
+     "bytes": 150994944,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[2].layer.original.feed_forward.reduced_module.module.moe.experts.weights.gate_up_proj",
+     "aliases": 2
+    },
+    {
+     "bytes": 150994944,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[2].layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.gate[0]",
+     "aliases": 2
+    },
+    {
+     "bytes": 150994944,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[3].layer.original.feed_forward.reduced_module.module.moe.experts.weights.gate_up_proj",
+     "aliases": 2
+    },
+    {
+     "bytes": 150994944,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[3].layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.gate[0]",
+     "aliases": 2
+    },
+    {
+     "bytes": 150994944,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[4].layer.original.feed_forward.reduced_module.module.moe.experts.weights.gate_up_proj",
+     "aliases": 2
+    },
+    {
+     "bytes": 150994944,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[4].layer.original.feed_forward.reduced_module.module.moe.experts.dispatch.gate[0]",
+     "aliases": 2
+    }
+   ],
+   "dram_free_after_build_mib": 2852.5,
+   "dram_largest_free_per_bank_mib": 274.1,
+   "kv_pool_tokens": 526336,
+   "request_slots": 32,
+   "long_prompt_tokens": 262100,
+   "boundary": {
+    "length": 262143,
+    "requested": 16,
+    "returned": 2,
+    "tokens": [
+     264,
+     2526
+    ]
+   }
+  },
+  "p150": {
+   "allocator_dram_mib": 31050.7,
+   "named_dram_mib": 30863.4,
+   "unnamed_dram_mib": 187.3,
+   "by_category_dram_mib": {
+    "layer_private": 24425.3,
+    "gdn_request_state": 1965.0,
+    "shared_across_layers": 93.2,
+    "kv_cache": 2741.6,
+    "embedding": 970.0,
+    "final_norm": 0.2,
+    "lm_head": 515.3,
+    "other": 0.0,
+    "generator_io": 1.2,
+    "sampler": 151.6
+   },
+   "by_category_buffers": {
+    "layer_private": 2464,
+    "gdn_request_state": 1920,
+    "shared_across_layers": 58,
+    "kv_cache": 20,
+    "embedding": 1,
+    "final_norm": 1,
+    "lm_head": 1,
+    "other": 2,
+    "generator_io": 8,
+    "sampler": 21
+   },
+   "largest_buffers": [
+    {
+     "bytes": 1017118720,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.embedding",
+     "aliases": 1
+    },
+    {
+     "bytes": 540344320,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.lm_head",
+     "aliases": 1
+    },
+    {
+     "bytes": 301989888,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[0].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+     "aliases": 4
+    },
+    {
+     "bytes": 301989888,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[1].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+     "aliases": 4
+    },
+    {
+     "bytes": 301989888,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[2].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+     "aliases": 4
+    },
+    {
+     "bytes": 301989888,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[3].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+     "aliases": 4
+    },
+    {
+     "bytes": 301989888,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[4].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+     "aliases": 4
+    },
+    {
+     "bytes": 301989888,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[5].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+     "aliases": 4
+    },
+    {
+     "bytes": 301989888,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[6].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+     "aliases": 4
+    },
+    {
+     "bytes": 301989888,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[7].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+     "aliases": 4
+    },
+    {
+     "bytes": 301989888,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[8].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+     "aliases": 4
+    },
+    {
+     "bytes": 301989888,
+     "buffer": "BufferType.DRAM",
+     "path": "gen.model.layers[9].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+     "aliases": 4
+    }
+   ],
+   "dram_free_after_build_mib": 1544.7,
+   "dram_largest_free_per_bank_mib": 170.4,
+   "kv_pool_tokens": 264192,
+   "request_slots": 32,
+   "long_prompt_tokens": 262100,
+   "boundary": {
+    "length": 262143,
+    "requested": 16,
+    "returned": 2,
+    "tokens": [
+     264,
+     2526
+    ]
+   }
+  }
+ }
+}

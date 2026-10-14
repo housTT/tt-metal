@@ -80,6 +80,7 @@ class OptimizationPolicy:
     conv_shift: str = "ops"
     prefill_long_chunk: int = 0
     prefill_long_from: int = 0
+    prefill_bucket_plan: bool = False
     sdpa_prefill_long: dict = None
     shared_split: bool = False
     gate_pack: bool = False
@@ -325,6 +326,20 @@ class OptimizedDecoder(FusedDecoder):
                     and (capacity is None or absolute + n <= capacity))
 
         plan, offset = [], 0
+        if self.optimization.prefill_bucket_plan and start_pos % 128 == 0 and start_pos % block == 0:
+            while length - offset > buckets[0]:
+                plan.append((offset, buckets[0], buckets[0]))
+                offset += buckets[0]
+            rem, physical = length - offset, 128
+            while physical < length:
+                physical *= 2
+            n = min((b for b in buckets if b >= rem and offset + b >= physical and fits(start_pos + offset, b)),
+                    default=0)
+            if n and (n == rem or masked(start_pos + offset, n)):
+                plan.append((offset, n, rem))
+                offset = length
+            else:
+                plan, offset = [], 0
         while offset < length and (start_pos + offset) % max(block, 32):
             plan.append((offset, 1, 1))
             offset += 1
