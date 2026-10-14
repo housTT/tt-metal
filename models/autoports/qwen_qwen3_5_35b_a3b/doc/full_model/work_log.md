@@ -345,3 +345,13 @@ Preserved failed attempts are in `failed_*` subdirectories next to the runs that
 - Batch perf (tracker off): B32 aggregate 113.3, 93.0 and 68.7 t/s. Flat with batch.
 - Trace capture DRAM: 250, 275 and 298 MB per device.
 - Contract and memory recheck regenerated from evidence5; evidence4 marked superseded.
+
+## Review 4 and commit (Oct 14)
+
+- Review 4 (`stage_review4.md`): clean-pass, no required work.
+- Doc fixes from its concerns: tracker-off note, trace label, stale numbers.
+- Contract now records DRAM after all trace captures.
+- Stage 9 notes add chunked prefill and never-prefilled slot cases.
+- Local commit `dfe0c6bd3c71f39853bdfc052787d5db67c465b0` on `feat/qwen3-5-35b-a3b`; not pushed.
+- Committed tt/ and tests/ hashes equal `evidence5/source_manifest_end.txt`.
+- Raw `ops_perf_results.csv.gz` dumps left out; perf reports and sha256 kept.

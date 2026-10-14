@@ -539,6 +539,9 @@ is for tests only; the measured token-out path never uses it.
 
 ## Evidence chains and artifacts
 
+- Stage commit: `dfe0c6bd3c71f39853bdfc052787d5db67c465b0` (local branch `feat/qwen3-5-35b-a3b`, not pushed). Review 4
+  (`stage_review4.md`): clean-pass.
+
 | Chain | Script and log | Time (Eastern) | Result | Used for |
 |---|---|---|---|---|
 | 5 | `evidence5/evidence_chain5.sh`, `.log` | 2026 Oct 14 06:42 to 12:37 | 39 steps, all exit code 0, `SOURCE_STABLE` | everything except watcher, profiles, continuation KL probe and p150 slot build |
