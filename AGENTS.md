@@ -16,6 +16,20 @@ for your own work.
 
 ## Your environment
 
+### Task-specific Ornith serving environment authorization
+
+For `models/autoports/ornith_ai_ornith_1_5_9b`, the supervising user's accepted
+bringup/release plan explicitly requires building the environment and selecting,
+integration-testing, and pinning vLLM, Transformers, and the TT plugin. This
+authorizes fetching their source and installing required Python dependencies
+inside the task-owned `ornith-bringup-runtime` container or task-local virtual
+environments. The generic no-install host guidance below does not block that
+work. Preserve the working TTNN build and recorded dependency locks; use an
+isolated serving environment if dependencies conflict. No additional permission
+is needed for this already-authorized provisioning. Hardware is present for this
+task and remains serialized under its supervising watchdog. All accuracy,
+serving, build, and release gates remain required.
+
 You run on an internal runner. The tt-metal toolchain is **not** installed on
 that host — it lives in the CI build image, and you reach it through a wrapper
 script. Do not try to install compilers or dependencies; do not run
