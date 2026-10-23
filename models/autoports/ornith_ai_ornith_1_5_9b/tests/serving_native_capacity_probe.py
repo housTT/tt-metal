@@ -3,7 +3,7 @@
 """All32 native serving-capacity gate through public adapter device sampling.
 
 Run only in the supervising hardware lane. Uses external4098 blocks, B1,
-context262144 and the selected precision. No profiler or host logits.
+context262144 and explicit or selected precision on the requested1/2/4-chip mesh. No profiler or host logits.
 Imports are deferred so authoring checks and --help cannot access devices.
 """
 
@@ -21,6 +21,8 @@ TRACE_FIELDS = ("_model_trace", "_sampling_trace", "_sampling_history_trace", "_
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--num-devices", type=int, choices=(1, 2, 4), default=4)
+    parser.add_argument("--config", type=Path, help="Explicit validated precision JSON; omitted uses selected policy")
     parser.add_argument("--require-trace-allocation-tracking", action="store_true")
     args = parser.parse_args()
 
@@ -29,15 +31,25 @@ def main():
     import ttnn
     from models.autoports.ornith_ai_ornith_1_5_9b.tt.generator_vllm import TTOrnithForCausalLM
     from models.autoports.ornith_ai_ornith_1_5_9b.tt.model import OrnithModel, close_ornith_mesh, open_ornith_mesh
+    from models.autoports.ornith_ai_ornith_1_5_9b.tt.precision import SELECTED, load_precision
     from models.common.sampling import SamplingParams
+
+    config_path = (args.config or SELECTED).resolve()
+    policy = load_precision(config_path)
 
     report = dict(
         native_context=262144,
         physical_blocks=4098,
         batch=1,
         layers=list(range(32)),
-        mesh=[1, 4],
+        mesh=[1, args.num_devices],
+        physical_hardware="Blackhole chips on P300c boards; no P150 board measurement",
         capability_reduction=None,
+        precision_config=dict(
+            path=str(config_path),
+            sha256=hashlib.sha256(config_path.read_bytes()).hexdigest(),
+            explicit=args.config is not None,
+        ),
         measurements={},
         windows=[],
         probe_execution_pass=False,
@@ -48,6 +60,7 @@ def main():
         environment={
             name: os.environ.get(name)
             for name in (
+                "ORNITH_ACTIVE8_MODE",
                 "TT_METAL_WATCHER",
                 "TT_METAL_WATCHER_DISABLE_ETH",
                 "TT_METAL_TRACE_ALLOC_TRACKING",
@@ -132,9 +145,10 @@ def main():
             assert report["trace_allocation_tracking"]["skip_program_cache"] == "0"
         report["phase"] = "open"
         save()
-        mesh = open_ornith_mesh()
+        mesh = open_ornith_mesh(num_devices=args.num_devices)
         report["measurements"]["opened"] = memory()
-        model = OrnithModel(None, mesh)
+        model = OrnithModel(None, mesh, precision_config=policy)
+        assert model.precision == policy, "Explicit native precision did not reach the model"
         assert model.layer_indices == list(range(32))
         report["precision"] = model.precision
         report["measurements"]["loaded_weights_constants"] = memory()
@@ -153,6 +167,7 @@ def main():
         report["phase"] = "startup"
         save()
         adapter.warmup_model_prefill(cache, enable_trace=True)
+        report["execution"] = gen.execution_info()
         assert gen._prefill_key[1] == 128 and all(getattr(gen, name) is not None for name in TRACE_FIELDS)
         # This gate must actually include the new persistent sampling allocation.
         assert len(getattr(gen, "_prefill_sampling_saved", [])) >= 2, "Apply the persistent prefill sampler candidate"
@@ -206,7 +221,7 @@ def main():
                     int(ttnn.to_torch(shard).reshape(-1)[0]) for shard in ttnn.get_device_tensors(gen._inputs[1])
                 ]
                 rope = [int(ttnn.to_torch(shard).reshape(-1)[0]) for shard in ttnn.get_device_tensors(gen._inputs[2])]
-                assert positions == [262144] * 4 and rope == positions, (positions, rope)
+                assert positions == [262144] * args.num_devices and rope == positions, (positions, rope)
                 assert gen.counters["model_replays"] - before_decode["model_replays"] == 1
                 assert gen.counters["sampling_replays"] - before_decode["sampling_replays"] == 1
                 item.update(

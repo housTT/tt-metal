@@ -99,6 +99,7 @@ def runtime_summary(gen):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--num-devices", type=int, choices=(1, 2, 4), default=4)
     parser.add_argument("--config")
     parser.add_argument("--head-block-w", type=int)
     parser.add_argument("--output", type=Path, required=True)
@@ -113,13 +114,13 @@ def main():
         command=sys.argv,
         config_id=policy["config_id"],
         dtype_policy=policy,
-        hardware="four Blackhole chips on two P300c boards",
-        mesh=[1, 4],
+        hardware="Blackhole chips on physical P300c boards; no P150 board measurement",
+        mesh=[1, args.num_devices],
         measurement_regime="full32 batch1 AIME24 chat100; traced teacher forcing with callback/logit readback",
         reference=str(ROOT / "readiness_aime24_chat.refpt"),
         pass_status="error",
     )
-    mesh = open_ornith_mesh()
+    mesh = open_ornith_mesh(num_devices=args.num_devices)
     gen = None
     teardown = None
     try:

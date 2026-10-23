@@ -8,6 +8,7 @@ from unittest.mock import Mock
 import pytest
 import torch
 
+from models.autoports.ornith_ai_ornith_1_5_9b.tt.generator import OrnithGenerator
 from models.autoports.ornith_ai_ornith_1_5_9b.tt.generator_vllm import TTOrnithForCausalLM
 from models.common.sampling import SamplingParams
 
@@ -16,7 +17,8 @@ from models.common.sampling import SamplingParams
 def adapter():
     model = SimpleNamespace(mesh_device=Mock(), page_block_size=64)
     obj = TTOrnithForCausalLM(model, max_batch_size=4, max_model_len=262144, hf_config=SimpleNamespace())
-    obj.generator = Mock(kv_cache=object(), counters={})
+    obj.generator = Mock(kv_cache=object(), counters={}, max_batch_size=4)
+    obj.generator._normalize_positions = OrnithGenerator._normalize_positions.__get__(obj.generator)
     obj._device_rows[:] = True
     obj._last_device_sampling = True
     yield obj

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-"""Four-chip Blackhole TP decoder; optimized decoder is the local compute baseline."""
+"""Blackhole TP decoder; optimized decoder is the local compute baseline."""
 
 import copy
 import math
@@ -14,6 +14,51 @@ from .fused_decoder import _align_up, _field, _slice_owned
 from .optimized_decoder import DecoderConfig, OptimizedDecoder
 
 TP = 4
+
+# Per-bank L1 budget for pinning the 24 linear-attention layers' persistent recurrent
+# states (the B1 prefill copies) in L1 for the whole serving lifetime. The earlier
+# 300 KiB bound was validated at TP4, where the stack is 24 x 8 KiB = 192 KiB. At TP2
+# the stack is 24 x 12 KiB = 288 KiB: still under 300 KiB, but every 1/TP-wide decode
+# transient is twice its TP4 size while the LM head's DRAM-sharded matmul reserves a
+# TP-independent ~832 KiB/bank of circular buffers, and the first decode warm-up died
+# with "Statically allocated circular buffers in program 318 clash with L1 buffers"
+# (p150x2, 2026-09-17; state/package-rebuild-v1/RECORD.md). 224 KiB — the bound the
+# recurrent outer-product working set is already held to — keeps TP4 pinned exactly
+# as measured and sends TP2, like TP1 (24 x 20 KiB), to DRAM.
+STACK_STATE_L1_BUDGET = 224 * 1024
+
+
+def stack_state_fits_l1(layer_bytes_per_bank, layers):
+    """Whether the whole linear-attention stack's persistent state may live in L1."""
+    return layers * layer_bytes_per_bank <= STACK_STATE_L1_BUDGET
+
+
+def mesh_parallel_size(mesh_device):
+    """Resolve supported one-dimensional meshes without assuming a global TP."""
+    shape = tuple(mesh_device.shape)
+    if len(shape) != 2 or shape[0] != 1 or shape[1] not in (1, 2, 4):
+        raise ValueError(f"Ornith requires a 1x1, 1x2, or 1x4 Blackhole mesh, got {shape}")
+    return shape[1]
+
+
+def local_decoder_config(hf_config, tp):
+    """Partition complete attention heads and dense channels at setup time."""
+    if tp not in (1, 2, 4):
+        raise ValueError("Ornith tensor parallel size must be 1, 2, or 4")
+    original = getattr(hf_config, "text_config", None) or hf_config
+    local_cfg = copy.deepcopy(original)
+    for attr in (
+        "num_attention_heads",
+        "num_key_value_heads",
+        "linear_num_key_heads",
+        "linear_num_value_heads",
+        "intermediate_size",
+    ):
+        value = getattr(original, attr)
+        if value % tp:
+            raise ValueError(f"{attr} must divide TP{tp}")
+        setattr(local_cfg, attr, value // tp)
+    return local_cfg
 
 
 class MeshCCLManager(CCLManager):
@@ -73,28 +118,31 @@ def fabric_router_config():
     return router
 
 
-def partition_state_dict(state, cfg, rank):
+def partition_state_dict(state, cfg, rank, tp=TP):
     """Setup-only exact head/channel partition in HF orientation."""
     import torch
 
+    local_decoder_config(cfg, tp)
+    if not 0 <= rank < tp:
+        raise ValueError(f"Rank {rank} is outside TP{tp}")
     result = dict(state)
     for role in ("gate_proj", "up_proj"):
-        result[f"mlp.{role}.weight"] = state[f"mlp.{role}.weight"].chunk(TP, dim=0)[rank]
-    result["mlp.down_proj.weight"] = state["mlp.down_proj.weight"].chunk(TP, dim=1)[rank]
+        result[f"mlp.{role}.weight"] = state[f"mlp.{role}.weight"].chunk(tp, dim=0)[rank]
+    result["mlp.down_proj.weight"] = state["mlp.down_proj.weight"].chunk(tp, dim=1)[rank]
     if "self_attn.q_proj.weight" in state:
         for role in ("q_proj", "k_proj", "v_proj"):
-            result[f"self_attn.{role}.weight"] = state[f"self_attn.{role}.weight"].chunk(TP, dim=0)[rank]
-        result["self_attn.o_proj.weight"] = state["self_attn.o_proj.weight"].chunk(TP, dim=1)[rank]
+            result[f"self_attn.{role}.weight"] = state[f"self_attn.{role}.weight"].chunk(tp, dim=0)[rank]
+        result["self_attn.o_proj.weight"] = state["self_attn.o_proj.weight"].chunk(tp, dim=1)[rank]
     else:
         widths = (cfg.linear_num_key_heads * cfg.linear_key_head_dim,) * 2 + (
             cfg.linear_num_value_heads * cfg.linear_value_head_dim,
         )
         for name in ("in_proj_qkv.weight", "conv1d.weight"):
             parts = state[f"linear_attn.{name}"].split(widths, dim=0)
-            result[f"linear_attn.{name}"] = torch.cat([v.chunk(TP, dim=0)[rank] for v in parts])
+            result[f"linear_attn.{name}"] = torch.cat([v.chunk(tp, dim=0)[rank] for v in parts])
         for name in ("in_proj_z.weight", "in_proj_a.weight", "in_proj_b.weight", "A_log", "dt_bias"):
-            result[f"linear_attn.{name}"] = state[f"linear_attn.{name}"].chunk(TP, dim=0)[rank]
-        result["linear_attn.out_proj.weight"] = state["linear_attn.out_proj.weight"].chunk(TP, dim=1)[rank]
+            result[f"linear_attn.{name}"] = state[f"linear_attn.{name}"].chunk(tp, dim=0)[rank]
+        result["linear_attn.out_proj.weight"] = state["linear_attn.out_proj.weight"].chunk(tp, dim=1)[rank]
     return result
 
 
@@ -126,31 +174,19 @@ def _projection_weights(state, cfg):
 
 
 class MultichipDecoder(OptimizedDecoder):
-    """TP4 weights, head-local state, and two residual reductions per layer."""
+    """Mesh-sharded weights, head-local state, and two residual reductions per layer."""
 
     @classmethod
     def from_state_dict(cls, state_dict, *, hf_config, mesh_device, mesh_config=None, **kwargs):
         import torch
 
         plan = mesh_config or MeshConfig()
-        if tuple(mesh_device.shape) != (1, TP):
-            raise ValueError("Ornith multichip decoder requires the 1x4 Blackhole ring")
+        tp = mesh_parallel_size(mesh_device)
         if plan.residual not in ("replicated", "sharded"):
             raise ValueError("residual must be replicated or sharded")
         original = getattr(hf_config, "text_config", None) or hf_config
-        local_cfg = copy.deepcopy(original)
-        for attr in (
-            "num_attention_heads",
-            "num_key_value_heads",
-            "linear_num_key_heads",
-            "linear_num_value_heads",
-            "intermediate_size",
-        ):
-            value = getattr(original, attr)
-            if value % TP:
-                raise ValueError(f"{attr} must divide TP4")
-            setattr(local_cfg, attr, value // TP)
-        states = [partition_state_dict(state_dict, original, rank) for rank in range(TP)]
+        local_cfg = local_decoder_config(original, tp)
+        states = [partition_state_dict(state_dict, original, rank, tp) for rank in range(tp)]
         # Reuse optimized setup for constants and op policies at local head/channel sizes.
         # Its provisional rank-zero weights are replaced below before any forward.
         decoder = super().from_state_dict(
@@ -161,9 +197,10 @@ class MultichipDecoder(OptimizedDecoder):
             **kwargs,
         )
         decoder.mesh_config = plan
+        decoder.tp = tp
         decoder.global_hf_config = original
-        decoder.residual_width = original.hidden_size // TP if plan.residual == "sharded" else original.hidden_size
-        decoder.ccl = MeshCCLManager(mesh_device, plan.async_links)
+        decoder.residual_width = original.hidden_size // tp if plan.residual == "sharded" else original.hidden_size
+        decoder.ccl = MeshCCLManager(mesh_device, plan.async_links) if tp > 1 else None
         packed = [_projection_weights(s, local_cfg) for s in states]
         if plan.pack_gdn and not decoder.is_full_attention:
             for weights in packed:
@@ -250,8 +287,9 @@ class MultichipDecoder(OptimizedDecoder):
                 padded = [torch.nn.functional.pad(p, (0, 32 - p.numel())).reshape(1, 1, -1) for p in parts]
                 value = upload(padded, -1, ttnn.float32)
                 old = decoder.w[role]
-                decoder.w[role] = ttnn.slice(value, [0, 0, 0], [1, 1, local_cfg.linear_num_value_heads])
-                ttnn.deallocate(value)
+                decoder.w[role], owns = _slice_owned(value, [0, 0, 0], [1, 1, local_cfg.linear_num_value_heads])
+                if owns:
+                    ttnn.deallocate(value)
                 ttnn.deallocate(old)
         decoder.distributed_norms = {}
         if plan.residual == "sharded":
@@ -259,7 +297,7 @@ class MultichipDecoder(OptimizedDecoder):
                 ("attn_norm", "input_layernorm.weight"),
                 ("ff_norm", "post_attention_layernorm.weight"),
             ):
-                parts = [(part.float() + 1).reshape(1, 1, 1, -1) for part in state_dict[source].chunk(TP)]
+                parts = [(part.float() + 1).reshape(1, 1, 1, -1) for part in state_dict[source].chunk(tp)]
                 decoder.distributed_norms[name] = upload(parts, -1, ttnn.bfloat16)
         return decoder
 
@@ -290,15 +328,23 @@ class MultichipDecoder(OptimizedDecoder):
         heads = ttnn.reshape(normed, [batch, self.cfg.linear_num_value_heads, 1, self.cfg.linear_value_head_dim])
         combined = ttnn.permute(heads, (0, 2, 1, 3))
         ttnn.deallocate(normed)
-        # Compact logical users into one tile row. Mixed BF16/FP32 BinaryNG
-        # activation preprocessing must see BF16 on the left and one tile per
-        # worker; separate padded batch planes violate that kernel contract.
+        # Compact logical users into one tile row.
         merged = ttnn.reshape(combined, [batch, 1, self.cfg.linear_v_dim])
         merged = ttnn.reshape(merged, [1, batch, self.cfg.linear_v_dim])
         gate_input = ttnn.reshape(z, [1, batch, self.cfg.linear_v_dim])
-        gated = ttnn.multiply(
-            gate_input, merged, dtype=ttnn.float32, input_tensor_a_activations=[ttnn.UnaryOpType.SILU]
-        )
+        grid = self.device.compute_with_storage_grid_size()
+        tiles = math.prod(merged.padded_shape) // 1024
+        if tiles > grid.x * grid.y:
+            # Mixed BF16/FP32 BinaryNG preprocessing retains the RHS unpacker
+            # format on a worker's second tile. Keep its BF16 SiLU intermediate
+            # explicit when the compact tensor requires multiple tile cycles.
+            activated = ttnn.silu(gate_input)
+            gated = ttnn.multiply(activated, merged, dtype=ttnn.float32)
+            ttnn.deallocate(activated)
+        else:
+            gated = ttnn.multiply(
+                gate_input, merged, dtype=ttnn.float32, input_tensor_a_activations=[ttnn.UnaryOpType.SILU]
+            )
         gated = ttnn.reshape(gated, [batch, 1, self.cfg.linear_v_dim])
         ttnn.deallocate(combined)
         result = self._linear(gated, "gdn_out")
@@ -371,7 +417,7 @@ class MultichipDecoder(OptimizedDecoder):
             out = ttnn.reshape(out, [batch, 1, n])
         else:
             out = super()._linear(x, role, **kwargs)
-        if role not in ("o_proj", "gdn_out", "down_proj"):
+        if role not in ("o_proj", "gdn_out", "down_proj") or self.tp == 1:
             return out
         shape = list(out.shape)
         local = ttnn.to_memory_config(out, ttnn.L1_MEMORY_CONFIG if shape[1] == 1 else ttnn.DRAM_MEMORY_CONFIG)
@@ -380,7 +426,9 @@ class MultichipDecoder(OptimizedDecoder):
         if self.mesh_config.ccl_dtype != "native":
             folded = ttnn.typecast(folded, getattr(ttnn, self.mesh_config.ccl_dtype))
         if self.mesh_config.residual == "replicated" and self.mesh_config.collective == "native":
-            reduced = ttnn.all_reduce(folded, num_links=self.mesh_config.links, topology=ttnn.Topology.Ring)
+            reduced = ttnn.all_reduce(
+                folded, num_links=min(self.mesh_config.links, self.tp - 1), topology=ttnn.Topology.Ring
+            )
         else:
             reduced = ttnn.experimental.reduce_scatter_minimal_async(
                 folded,
@@ -401,6 +449,8 @@ class MultichipDecoder(OptimizedDecoder):
         return ttnn.reshape(reduced, shape)
 
     def _gather(self, tensor):
+        if self.tp == 1:
+            return ttnn.clone(tensor, memory_config=tensor.memory_config())
         return ttnn.experimental.all_gather_async(
             tensor,
             dim=3,
@@ -435,7 +485,7 @@ class MultichipDecoder(OptimizedDecoder):
         return ttnn.reshape(gathered, [shape[0], shape[1], self.cfg.dim])
 
     def _block(self, x, *, mode, logical_len=None, page_table=None, chunk_start_idx=0, current_pos=None, rot_idxs=None):
-        if self.mesh_config.residual == "replicated":
+        if self.mesh_config.residual == "replicated" or self.tp == 1:
             return super()._block(
                 x,
                 mode=mode,
@@ -555,6 +605,9 @@ class MultichipDecoder(OptimizedDecoder):
 
     def allocate_state(self, batch_size):
         """Budget persistent L1 state for every linear layer in the future stack."""
+        # Shallow prefill/Active8 copies must not inherit canonical B32 masks.
+        self.deferred_active_mask = None
+        self.conv_active_mask = None
         FunctionalDecoder.allocate_state(self, batch_size)
         if self.is_full_attention:
             return
@@ -564,7 +617,7 @@ class MultichipDecoder(OptimizedDecoder):
         layers = self.cfg.layer_types.count("linear_attention")
         self.recurrent_l1_intermediates = self.requested_l1_intermediates and layer_bytes_per_bank <= 224 * 1024
         self.stack_state_bytes_per_bank = layers * layer_bytes_per_bank
-        if self.stack_state_bytes_per_bank <= 300 * 1024:
+        if stack_state_fits_l1(layer_bytes_per_bank, layers):
             old = self.recurrent_state
             self.recurrent_state = ttnn.to_memory_config(old, ttnn.L1_MEMORY_CONFIG)
             ttnn.deallocate(old)

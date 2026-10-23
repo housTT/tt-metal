@@ -4,6 +4,16 @@ This autoport implements text and agentic inference for `ornith-ai/Ornith-1.5-9B
 The supervising user's full release requirements below apply in addition to the
 current multigoal stage. Finish only the current stage; do not skip ahead.
 
+The user has already authorized provisioning the required serving environment.
+Fetch compatible vLLM/TT-plugin sources and install required Python dependencies
+inside the task container or task-local virtual environments, integration-test
+them, then pin the tested revisions. Missing `vllm`, `vllm_tt_plugin`, or `openai`
+is implementation work, not a permission blocker. Preserve the existing TTNN
+build and locks; isolate serving dependencies when needed. See the task-specific
+exception in repository-root AGENTS.md. No host-wide compiler installation is
+needed. The original release still requires independently validated TP1, TP2,
+and TP4 serving; predecessor TP4 evidence does not validate the other profiles.
+
 The user explicitly requests leveraging their Ornith-1.0-35B bringup. Its
 autoport is available as reference at
 `/home/hous/dev/ornith-1.5-9b/references/ornith-1.0-35b/models/autoports/ornith_ai_ornith_1_0_35b`.

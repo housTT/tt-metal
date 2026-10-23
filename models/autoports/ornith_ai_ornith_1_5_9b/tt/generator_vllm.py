@@ -17,9 +17,11 @@ import ttnn
 from models.common.sampling import SamplingParams
 
 from ..reference.hf_reference import resolve_model_path
+from .context import validated_serving_context
 from .functional_decoder import num_blocks_for_context
 from .generator import OrnithGenerator
 from .model import OrnithModel
+from .precision import load_precision
 
 
 class TTOrnithForCausalLM:
@@ -29,6 +31,13 @@ class TTOrnithForCausalLM:
         "supports_async_decode": True,
         "supports_sample_on_device": True,
         "supports_batched_prefill": True,
+        "supports_masked_prefill_sampling": True,
+        "sampled_raw_logprobs_devices": (4,),
+        # This adapter raises if asked to sample on the host, which would kill
+        # EngineCore mid-request. Declaring it lets the platform reject such a
+        # request at admission instead. Mirrors the same env escape hatch the
+        # host-sampling guard below honours, so the two never disagree.
+        "supports_host_sampling": os.environ.get("ORNITH_VLLM_ALLOW_HOST_SAMPLING", "0") == "1",
     }
 
     def __init__(self, model, *, max_batch_size, max_model_len, hf_config, vllm_config=None):
@@ -42,6 +51,8 @@ class TTOrnithForCausalLM:
         text = getattr(hf_config, "text_config", hf_config)
         self.uses_mrope = "mrope_section" in (getattr(text, "rope_parameters", None) or {})
         self.allow_host_sampling = os.environ.get("ORNITH_VLLM_ALLOW_HOST_SAMPLING", "0") == "1"
+        if vllm_config is not None and vllm_config.model_config.logprobs_mode != "raw_logprobs":
+            raise ValueError("Ornith device logprobs require raw_logprobs mode")
         self._device_rows = torch.zeros(self.max_batch_size, dtype=torch.bool)
         self._prefilled_rows = torch.zeros(self.max_batch_size, dtype=torch.bool)
         self._pending_device_seeds = torch.zeros(self.max_batch_size, dtype=torch.bool)
@@ -51,6 +62,7 @@ class TTOrnithForCausalLM:
         self._sampling_key = None
         self.counters = dict(prefills=0, device_decodes=0, host_decodes=0, async_reads=0, sampling_updates=0)
         self._warmed = False
+        self._closed = False
         atexit.register(self.teardown)
 
     def embed_input_ids(self, input_ids):
@@ -71,17 +83,41 @@ class TTOrnithForCausalLM:
         if not 1 <= max_batch_size <= 32:
             raise ValueError("Ornith requires max_num_seqs in 1..32")
         contract = json.loads((Path(__file__).parents[1] / "doc/context_contract.json").read_text())
-        context = contract["current_supported_context"]
-        if max_seq_len is not None and not 1 <= max_seq_len <= context:
-            raise ValueError(f"Requested context exceeds the validated {context}-token contract")
+        context, rope_parameters = validated_serving_context(
+            hf_config, contract, max_seq_len, mesh_device.get_num_devices()
+        )
+        # Model-owned snapshots restore both recurrent state and KV into fresh
+        # scheduler pages. Keep scheduler attention-only APC disabled.
+        try:
+            prefix_bytes = int(os.environ.get("ORNITH_PREFIX_CACHE_BYTES", "0"))
+            prefix_tokens = int(os.environ.get("ORNITH_PREFIX_CACHE_MAX_TOKENS", "4096"))
+        except ValueError as exc:
+            raise ValueError("ORNITH_PREFIX_CACHE limits must be integers") from exc
+        if prefix_bytes < 0 or prefix_tokens < 64:
+            raise ValueError("ORNITH_PREFIX_CACHE_BYTES must be nonnegative and MAX_TOKENS at least64")
         indices = os.environ.get("ORNITH_VLLM_LAYER_INDICES")
         layer_indices = [int(i) for i in indices.split(",")] if indices else None
         if layer_indices is not None:
             logger.warning("Reduced serving target: layers {}; not full-model evidence", layer_indices)
+        precision = load_precision(os.environ.get("ORNITH_PRECISION_CONFIG"))
         model = OrnithModel.from_pretrained(
-            resolve_model_path(), mesh_device=mesh_device, max_context=context, layer_indices=layer_indices
+            resolve_model_path(),
+            mesh_device=mesh_device,
+            max_context=context,
+            precision_config=precision,
+            layer_indices=layer_indices,
+            rope_parameters=rope_parameters,
+            prefix_cache_bytes=prefix_bytes,
+            prefix_cache_max_tokens=prefix_tokens,
         )
-        logger.info("Serving selected precision: {}", json.dumps(model.precision, sort_keys=True))
+        logger.info(
+            "Model-owned hybrid prefix caching: budget {} bytes/device, max {} tokens; scheduler APC disabled",
+            prefix_bytes,
+            prefix_tokens // 64 * 64,
+        )
+        if model.precision != precision:
+            raise ValueError("Resolved serving precision did not reach the model")
+        logger.info("Serving resolved precision: {}", json.dumps(model.precision, sort_keys=True))
         return cls(model, max_batch_size=max_batch_size, max_model_len=max_seq_len or context, hf_config=hf_config)
 
     @classmethod
@@ -203,6 +239,7 @@ class TTOrnithForCausalLM:
         empty_slots=None,
         enable_trace=True,
         page_tables_per_layer=None,
+        intermediate_prefill_mask=None,
         **kwargs,
     ):
         gen = self._generator(kv_cache)
@@ -213,7 +250,25 @@ class TTOrnithForCausalLM:
         rows = list(range(len(prompt_lens))) if empty_slots is None else list(map(int, empty_slots))
         lengths = list(map(int, prompt_lens))
         starts = [0] * len(rows) if start_pos is None else torch.as_tensor(start_pos).reshape(-1).tolist()
+        if any(starts):
+            if not (len(tokens) == len(rows) == len(lengths) == len(starts)) or any(
+                start < 0 or end <= start for start, end in zip(starts, lengths)
+            ):
+                raise ValueError("Invalid scheduler prefill continuation window")
+            # vLLM supplies full prefixes and absolute chunk ends. The model
+            # consumes chunk-local tokens/lengths at the supplied start position.
+            tokens = [row[start:end] for row, start, end in zip(tokens, starts, lengths)]
+            lengths = [end - start for start, end in zip(starts, lengths)]
+        prefill_options = {}
+        if intermediate_prefill_mask is not None:
+            intermediate = torch.as_tensor(intermediate_prefill_mask).reshape(-1).tolist()
+            if len(intermediate) != len(rows) or any(type(value) is not bool for value in intermediate):
+                raise ValueError("Intermediate prefill mask must describe every scheduled row")
+            if any(intermediate):
+                prefill_options["sample_rows"] = [row for row, partial in zip(rows, intermediate) if not partial]
         device = self._device_sampling(sampling_params)
+        if prefill_options and not device:
+            raise ValueError("Intermediate Ornith prefill requires device sampling for final rows")
         if device:
             self._sampling(
                 sampling_params,
@@ -231,6 +286,7 @@ class TTOrnithForCausalLM:
             slots=rows,
             start_pos=starts,
             return_device_logits=not device,
+            **prefill_options,
         )
         if not device:
             out = gen.logits_from(out)[rows, None, :]
@@ -240,6 +296,10 @@ class TTOrnithForCausalLM:
             if device or start == 0:
                 self._pending_device_seeds[row] = not device
         self.counters["prefills"] += len(rows)
+        if device and gen._raw_logprobs_enabled:
+            final_rows = prefill_options.get("sample_rows", rows)
+            logprobs = gen.logprobs_from(gen._raw_logprobs.output)[rows] if final_rows else torch.zeros(len(rows))
+            out = (out, logprobs)
         return (out, torch.zeros(len(rows), dtype=torch.int64)) if self.uses_mrope else out
 
     def decode_forward(
@@ -265,6 +325,16 @@ class TTOrnithForCausalLM:
         if page_tables_per_layer is not None:
             raise ValueError("Unexpected per-layer page tables for the uniform full-attention group")
         device = self._device_sampling(sampling_params)
+        refresh_activity = bool(
+            reset_batch
+            or slot_remap is not None
+            or self._prefilled_rows.any()
+            or not device
+            or self._last_device_sampling != device
+        )
+        if refresh_activity:
+            gen._active_slots = None
+            start_pos = gen._normalize_positions(start_pos)
         if slot_remap is not None:
             remap = torch.as_tensor(slot_remap).reshape(-1).to(torch.int64)
             gen.remap_serving_slots(remap)
@@ -315,17 +385,29 @@ class TTOrnithForCausalLM:
         self._prefilled_rows[:] = False
         self._last_device_sampling = device
         self.counters["device_decodes" if device else "host_decodes"] += 1
+        if device and gen._raw_logprobs_enabled:
+            out = (out, gen._raw_logprobs.output)
         return self.process_decode_output_host(out, is_tokens=device) if read_from_device else out
 
     def read_decode_output(self, tt_out, async_read=False):
         if not async_read:
             return [tt_out]
-        host, event = self.generator.read_output_async(tt_out, return_logits=self._last_device_sampling is False)
+        if isinstance(tt_out, tuple):
+            tokens, logprobs = tt_out
+            token_host, token_event = self.generator.read_output_async(tokens)
+            lp_host, lp_event = self.generator.read_output_async(logprobs)
+            self.counters["async_reads"] += 1
+            return [(token_host, lp_host)], [token_event, lp_event]
+        host, event = self.generator.read_output_async(tt_out, return_logits=tt_out is not self.generator._inputs[0])
         self.counters["async_reads"] += 1
         return [host], [event]
 
     def process_decode_output_host(self, tt_out, is_tokens=False):
-        out = tt_out[0] if isinstance(tt_out, (list, tuple)) else tt_out
+        out = tt_out[0] if isinstance(tt_out, list) else tt_out
+        if isinstance(out, tuple):
+            if not is_tokens or len(out) != 2:
+                raise ValueError("Ornith logprobs output requires a device token/logprob pair")
+            return self.generator.tokens_from(out[0]), self.generator.logprobs_from(out[1])
         return self.generator.tokens_from(out) if is_tokens else self.generator.logits_from(out)[:, None, :]
 
     def warmup_model_prefill(self, kv_cache, enable_trace=False, **kwargs):
@@ -388,12 +470,28 @@ class TTOrnithForCausalLM:
         self._prefilled_rows[:] = False
         self._pending_device_seeds[:] = False
         self._last_device_sampling = None
+        logger.info("Ornith decode execution: {}", json.dumps(gen.execution_info(), sort_keys=True))
         self._warmed = True
 
     def warmup_model_decode(self, kv_cache, enable_trace=False, **kwargs):
         self._generator(kv_cache).ensure_traces()
 
+    def prefix_cache_stats(self):
+        cache = getattr(self.model, "prefix_cache", None)
+        if cache is None:
+            return {"enabled": False}
+        return {
+            "enabled": True,
+            **cache.counters,
+            "size_bytes_per_device": cache.size_bytes,
+            "budget_bytes_per_device": cache.budget_bytes,
+            "max_prefix_tokens": cache.max_tokens,
+        }
+
     def teardown(self):
+        if getattr(self, "_closed", False):
+            return
+        logger.info("Hybrid prefix cache counters: {}", json.dumps(self.prefix_cache_stats(), sort_keys=True))
         if self.generator is not None:
             logger.info(
                 "Serving execution counters: {}",
@@ -401,3 +499,9 @@ class TTOrnithForCausalLM:
             )
             self.generator.teardown()
             self.generator = None
+        # Release traces before persistent snapshots, including failed startup
+        # where allocation never bound a generator to this adapter.
+        clear_prefix = getattr(self.model, "clear_prefix_cache", None)
+        if clear_prefix is not None:
+            clear_prefix()
+        self._closed = True

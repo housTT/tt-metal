@@ -1,11 +1,12 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent AI ULC
 # SPDX-License-Identifier: Apache-2.0
-"""Text autoregressive model preserving the optimized TP4 decoder contract."""
+"""Text autoregressive model with explicit one-, two-, and four-chip geometry."""
 
 from __future__ import annotations
 
 import copy
 import json
+import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,15 +19,31 @@ from models.common.modules.lazy_weight import LazyWeight
 from models.common.modules.lm_head.lm_head_1d import LMHead1D, LMHead1DConfig
 
 from ..reference.hf_reference import CHECKPOINT_TEXT_PREFIX, load_layer_state_dict, load_text_config, resolve_model_path
+from .context import configure_context
 from .functional_decoder import DEFAULT_PAGE_BLOCK_SIZE, DEFAULT_PREFILL_CHUNK, num_blocks_for_context
-from .multichip_decoder import TP, MeshCCLManager, MeshConfig, MultichipDecoder, fabric_router_config
+from .multichip_decoder import (
+    TP,
+    MeshCCLManager,
+    MeshConfig,
+    MultichipDecoder,
+    fabric_router_config,
+    mesh_parallel_size,
+)
 from .optimized_decoder import PrecisionPolicy
 from .precision import layer_precision, load_precision
+from .prefix_cache import HybridPrefixCache
 
 
-def open_ornith_mesh(*, trace_region_size=100_000_000):
-    ttnn.set_fabric_config(ttnn.FabricConfig.FABRIC_1D_RING, router_config=fabric_router_config())
-    return ttnn.open_mesh_device(ttnn.MeshShape(1, TP), l1_small_size=32768, trace_region_size=trace_region_size)
+def open_ornith_mesh(*, num_devices=TP, trace_region_size=100_000_000):
+    if num_devices not in (1, 2, 4):
+        raise ValueError("Ornith requires 1, 2, or 4 devices")
+    if num_devices == 1:
+        ttnn.set_fabric_config(ttnn.FabricConfig.DISABLED)
+    else:
+        ttnn.set_fabric_config(ttnn.FabricConfig.FABRIC_1D_RING, router_config=fabric_router_config())
+    return ttnn.open_mesh_device(
+        ttnn.MeshShape(1, num_devices), l1_small_size=32768, trace_region_size=trace_region_size
+    )
 
 
 def close_ornith_mesh(mesh):
@@ -35,10 +52,11 @@ def close_ornith_mesh(mesh):
 
 
 class SamplingCCL:
-    """Common sampler hook with full-grid, cycling TP4 collective semaphores."""
+    """Common sampler hook with independently owned gather outputs."""
 
     def __init__(self, mesh):
-        self.ccl = MeshCCLManager(mesh, 1)
+        self.tp = mesh_parallel_size(mesh)
+        self.ccl = MeshCCLManager(mesh, 1) if self.tp > 1 else None
         self._outputs = {}
 
     def get_and_cycle_ag_semaphore_handles(self, cluster_axis=None):
@@ -49,6 +67,9 @@ class SamplingCCL:
 
     def line_all_gather(self, tensor, *, dim, cluster_axis=None, memory_config=None, num_links=None, buffer_key=None):
         memory = memory_config or ttnn.DRAM_MEMORY_CONFIG
+        if self.tp == 1:
+            # Callers release the gather result and the input independently.
+            return ttnn.clone(tensor, memory_config=memory)
         # Reuse only fixed decode embedding and sampler outputs. Arbitrary
         # prefill lengths must not accumulate request-sized persistent buffers.
         persistent = buffer_key is not None or tensor.shape[-2] == 1
@@ -101,6 +122,7 @@ class OrnithModel:
         *,
         layer_indices=None,
         max_context=None,
+        rope_parameters=None,
         prefill_chunk=DEFAULT_PREFILL_CHUNK,
         lm_head_dtype=None,
         lm_head_fidelity=None,
@@ -110,6 +132,8 @@ class OrnithModel:
         lm_head_readers=None,
         lm_head_cores=None,
         sharded_final_norm=True,
+        prefix_cache_bytes=0,
+        prefix_cache_max_tokens=4096,
     ):
         self.precision = load_precision(precision_config)
         geometry = self.precision["head_geometry"]
@@ -129,17 +153,14 @@ class OrnithModel:
         self.precision["weight_groups"]["lm_head"] = str(lm_head_dtype).split(".")[-1].lower()
         self.precision["compute_fidelities"]["lm_head"] = str(lm_head_fidelity).split(".")[-1]
         self.mesh_device = mesh_device
-        if tuple(mesh_device.shape) != (1, TP):
-            raise ValueError("The optimized Ornith full model requires a 1x4 Blackhole ring")
+        self.tp = mesh_parallel_size(mesh_device)
         candidate = Path(model_path) if model_path is not None else resolve_model_path()
         self.model_path = candidate if (candidate / "model.safetensors.index.json").is_file() else resolve_model_path()
-        self.hf_config = load_text_config(self.model_path)
+        self.max_context = self.precision["max_context"] if max_context is None else max_context
+        self.hf_config = configure_context(load_text_config(self.model_path), self.max_context, rope_parameters)
         self.dim = self.hf_config.hidden_size
         self.vocab_size = self.hf_config.vocab_size
         self.padded_vocab_size = 262144
-        self.max_context = self.precision["max_context"] if max_context is None else int(max_context)
-        if not 1 <= self.max_context <= self.hf_config.max_position_embeddings:
-            raise ValueError("max_context exceeds the HF contract")
         self.prefill_chunk = prefill_chunk
         self.page_block_size = DEFAULT_PAGE_BLOCK_SIZE
         self.ccl = SamplingCCL(mesh_device)
@@ -174,7 +195,7 @@ class OrnithModel:
         banks = dram.x * dram.y
         grid = ttnn.CoreRangeSet([ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(dram.x - 1, dram.y - 1))])
         self.head_columns = int(lm_head_columns)
-        local_vocab = self.padded_vocab_size // TP
+        local_vocab = self.padded_vocab_size // self.tp
         if local_vocab % self.head_columns:
             raise ValueError("LM-head columns must divide the per-device padded vocabulary")
         head_mem = ttnn.MemoryConfig(
@@ -187,7 +208,7 @@ class OrnithModel:
             packed = torch.cat(
                 [
                     head[:, rank * local_vocab + start : rank * local_vocab + start + self.head_columns]
-                    for rank in range(TP)
+                    for rank in range(self.tp)
                 ],
                 dim=1,
             )
@@ -223,7 +244,7 @@ class OrnithModel:
             num_workers_per_dram_bank=lm_head_readers,
             fused_activation=None,
         )
-        # Reuse the already packed TP4 device weights through the materialized
+        # Reuse the already packed mesh-sharded weights through the materialized
         # LazyWeight cache; the common module performs no second upload.
         self.lm_head = LMHead1D.from_config(
             LMHead1DConfig(
@@ -248,8 +269,24 @@ class OrnithModel:
         # Splitting N preserves its K accumulation and exact projection output.
         mesh_config = replace(
             mesh_config,
-            local=replace(mesh_config.local, large_prefill_role_configs={"gdn_out": {"out_block_w": 6}}),
+            local=replace(mesh_config.local, large_prefill_role_configs={"gdn_out": {"out_block_w": 4}}),
         )
+        # TP1 QKVG exceeds physical L1; TP2 projections share L1 with recurrent state.
+        if self.tp in (1, 2):
+            prefill_roles = {
+                **mesh_config.local.large_prefill_role_configs,
+                "qkvg": {"out_block_w": 15 if self.tp == 1 else 5},
+            }
+            if self.tp == 2:
+                prefill_roles.update(
+                    gdn_all={"out_block_w": 9},
+                    gate_proj={"out_block_w": 9},
+                    up_proj={"out_block_w": 9},
+                    gdn_out={"out_block_w": 3},
+                )
+            mesh_config = replace(
+                mesh_config, local=replace(mesh_config.local, large_prefill_role_configs=prefill_roles)
+            )
         for index in self.layer_indices:
             selected = layer_precision(self.precision, index)
             w, f = selected["weight_groups"], selected["compute_fidelities"]
@@ -289,6 +326,9 @@ class OrnithModel:
             readbacks=0,
             synchronizations=0,
             read_waits=0,
+        )
+        self.prefix_cache = (
+            HybridPrefixCache(self, prefix_cache_bytes, prefix_cache_max_tokens) if prefix_cache_bytes else None
         )
 
     @classmethod
@@ -357,6 +397,16 @@ class OrnithModel:
         # where selects its SFPU data path from the condition dtype. Match the
         # BF16 convolution buffers; FP32 predicates reinterpret their elements.
         active_conv = self.upload(torch.ones(batch_size, 1, 1), dtype=ttnn.bfloat16)
+        for layer in decode:
+            # Only canonical B32 DRAM state uses the validated deferred commits.
+            if (
+                batch_size == 32
+                and not layer.is_full_attention
+                and layer.recurrent_state.dtype == ttnn.float32
+                and layer.recurrent_state.memory_config() == ttnn.DRAM_MEMORY_CONFIG
+            ):
+                layer.deferred_active_mask = active_recurrent
+                layer.conv_active_mask = active_conv
         cache = ModelCache(
             batch_size,
             context,
@@ -403,13 +453,17 @@ class OrnithModel:
                     for tensor in pair:
                         ttnn.multiply(tensor, 0, output_tensor=tensor)
 
+    def clear_prefix_cache(self):
+        if self.prefix_cache is not None:
+            self.prefix_cache.clear()
+
     def build_sampler(self, *, max_top_k=32, force_argmax=False):
         from models.common.sampling import SamplingGenerator
 
         args = SimpleNamespace(
             vocab_size=self.vocab_size,
             padded_vocab_size=self.padded_vocab_size,
-            cluster_shape=(1, TP),
+            cluster_shape=(1, self.tp),
             max_batch_size=32,
             max_top_k=max_top_k,
             sampling_dp=1,
@@ -430,7 +484,7 @@ class OrnithModel:
     def embed(self, ids):
         batch, seq = ids.shape
         local = ttnn.embedding(ids, self.embed_weight, layout=ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG)
-        local = ttnn.reshape(local, [1, 1, batch * seq, self.dim // TP])
+        local = ttnn.reshape(local, [1, 1, batch * seq, self.dim // self.tp])
         whole = self.ccl.line_all_gather(local, dim=3)
         ttnn.deallocate(local)
         return ttnn.reshape(whole, [batch, seq, self.dim])
@@ -462,27 +516,59 @@ class OrnithModel:
         ].float()
 
     def _transfer_slot(self, source, target, slot, *, into_batch):
-        for a, b in zip(source, target):
-            if a.is_full_attention:
-                continue
-            for src, dst in zip([a.recurrent_state] + a.conv_state, [b.recurrent_state] + b.conv_state):
-                if into_batch:
-                    # The decoder stores every hybrid state with batch on axis zero.
-                    mask_shape = [int(dst.shape[0])] + [1] * (len(dst.shape) - 1)
-                    mask = torch.zeros(mask_shape)
-                    mask[slot] = 1
-                    select = self.upload(mask, dtype=dst.dtype)
-                    repeats = [int(dst.shape[0])] + [1] * (len(src.shape) - 1)
-                    wide = ttnn.repeat(src, ttnn.Shape(repeats))
-                    ttnn.where(select, wide, dst, output_tensor=dst)
-                    ttnn.deallocate(wide)
-                    ttnn.deallocate(select)
-                else:
-                    starts, ends = [0] * len(src.shape), list(src.shape)
-                    starts[0], ends[0] = slot, slot + 1
-                    row = ttnn.slice(src, starts, ends)
-                    ttnn.copy(row, dst)
-                    ttnn.deallocate(row)
+        selects = {}
+        staging_memory = None
+        try:
+            for a, b in zip(source, target):
+                if a.is_full_attention:
+                    continue
+                for src, dst in zip([a.recurrent_state] + a.conv_state, [b.recurrent_state] + b.conv_state):
+                    if into_batch:
+                        # The decoder stores every hybrid state with batch on axis zero.
+                        mask_shape = (int(dst.shape[0]),) + (1,) * (len(dst.shape) - 1)
+                        key = (mask_shape, dst.dtype)
+                        if key not in selects:
+                            mask = torch.zeros(mask_shape)
+                            mask[slot] = 1
+                            selects[key] = self.upload(mask, dtype=dst.dtype)
+                        select = selects[key]
+                        if (
+                            src is a.recurrent_state
+                            and tuple(src.shape) == (1, 8, 128, 128)
+                            and tuple(dst.shape) == (32, 8, 128, 128)
+                            and src.dtype == dst.dtype == ttnn.float32
+                            and src.layout == dst.layout == ttnn.TILE_LAYOUT
+                            and src.memory_config() in (ttnn.L1_MEMORY_CONFIG, ttnn.DRAM_MEMORY_CONFIG)
+                            and dst.memory_config() == ttnn.DRAM_MEMORY_CONFIG
+                        ):
+                            if staging_memory is None:
+                                staging_memory = ttnn.MemoryConfig(
+                                    ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
+                                    ttnn.BufferType.L1,
+                                    ttnn.ShardSpec(
+                                        ttnn.CoreRangeSet([ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(7, 0))]),
+                                        [128, 128],
+                                        ttnn.ShardOrientation.ROW_MAJOR,
+                                    ),
+                                )
+                            staged = ttnn.interleaved_to_sharded(src, staging_memory)
+                            try:
+                                ttnn.experimental.slice_write(
+                                    staged, dst, [slot, 0, 0, 0], [slot + 1, 8, 128, 128], [1, 1, 1, 1]
+                                )
+                            finally:
+                                ttnn.deallocate(staged)
+                        else:
+                            ttnn.where(select, src, dst, output_tensor=dst)
+                    else:
+                        starts, ends = [0] * len(src.shape), list(src.shape)
+                        starts[0], ends[0] = slot, slot + 1
+                        row = ttnn.slice(src, starts, ends)
+                        ttnn.copy(row, dst)
+                        ttnn.deallocate(row)
+        finally:
+            for select in selects.values():
+                ttnn.deallocate(select)
 
     def validate_prefill(self, tokens, *, page_table, kv_cache, prompt_lens, slots=None, start_pos=None):
         """Validate both eager and traced prompts before changing cache or sampler state."""
@@ -510,14 +596,82 @@ class OrnithModel:
                 raise ValueError("prompt window exceeds cache context")
         return slots, starts, table
 
-    def _prefill_chunk_forward(self, ids, *, start_pos, page_table, kv_cache):
-        """Device-only logical chunk shared by eager prefill and trace capture."""
-        x = self.embed(ids)
-        for layer in kv_cache.prefill_layers:
-            nxt = layer.prefill_forward(x, start_pos=start_pos, page_table=page_table)
+    def _prefill_chunk_forward(self, ids, *, start_pos, page_table, kv_cache, reuse_padded_residual=False):
+        """Preserve logical chunk lengths while reusing eager padded residuals."""
+        logical = int(ids.shape[-1])
+        layers = kv_cache.prefill_layers
+        qualified = (
+            reuse_padded_residual
+            and kv_cache.batch_size == 32
+            and self.tp == 4
+            and self.prefill_chunk == 2048
+            and 0 < logical < self.prefill_chunk
+            and logical % 128 != 0
+            and start_pos % 128 == 0
+            and tuple(ids.shape) == (1, logical)
+            and self.precision["residual_dtype"] == "bfloat16"
+            and len(layers) == 32
+            and all(
+                layer.batch_size == 1
+                and layer.prefill_chunk == self.prefill_chunk
+                and layer.mesh_config.residual == "replicated"
+                and layer.residual_width == self.dim
+                and start_pos + logical <= layer.max_context
+                and (layer.is_full_attention or layer.w["pos_ramp"].shape[1] >= self.prefill_chunk)
+                for layer in layers
+            )
+        )
+        if not qualified:
+            x = self.embed(ids)
+            for layer in kv_cache.prefill_layers:
+                nxt = layer.prefill_forward(x, start_pos=start_pos, page_table=page_table)
+                ttnn.deallocate(x)
+                x = nxt
+            return x
+
+        physical = ((logical + 127) // 128) * 128
+        x = keep = None
+        try:
+            x = self.embed(ids)
+            if not (
+                tuple(x.shape) == (1, logical, self.dim)
+                and x.layout == ttnn.TILE_LAYOUT
+                and x.dtype == ttnn.bfloat16
+                and x.memory_config() == ttnn.DRAM_MEMORY_CONFIG
+            ):
+                raise ValueError("Ragged prefill residual geometry changed")
+            host_keep = torch.zeros((1, physical, 1), dtype=torch.bfloat16)
+            host_keep[:, :logical, :] = 1
+            keep = self.upload(host_keep, dtype=x.dtype)
+            # pad can alias; never separately retire the pre-pad input.
+            x = ttnn.pad(x, [(0, 0), (0, physical - logical), (0, 0)], 0.0)
+            for index, layer in enumerate(layers):
+                nxt = layer._block(
+                    x,
+                    mode="prefill",
+                    logical_len=logical,
+                    page_table=page_table,
+                    chunk_start_idx=start_pos,
+                )
+                ttnn.deallocate(x)
+                x = nxt
+                if index + 1 < len(layers):
+                    ttnn.where(keep, x, 0.0, output_tensor=x)
+            result = ttnn.slice(x, [0, 0, 0], [1, logical, self.dim])
             ttnn.deallocate(x)
-            x = nxt
-        return x
+            x = None
+            return result
+        finally:
+            primary = sys.exc_info()[0]
+            cleanup = []
+            for tensor in (x, keep):
+                if tensor is not None:
+                    try:
+                        ttnn.deallocate(tensor)
+                    except BaseException as error:
+                        cleanup.append(error)
+            if cleanup and primary is None:
+                raise cleanup[0]
 
     def prefill_last_logits(self, ids, *, page_table, kv_cache):
         """Device-only, single-user fresh chunk; callers validate and reset state."""
@@ -548,8 +702,12 @@ class OrnithModel:
             return_all_logits=return_all_logits,
         )
 
-    def _prefill_validated(self, tokens, *, page_table, kv_cache, prompt_lens, slots, start_pos, return_all_logits):
-        """Execute a prompt already checked by validate_prefill."""
+    def _prefill_validated(
+        self, tokens, *, page_table, kv_cache, prompt_lens, slots, start_pos, return_all_logits, skip_terminal=False
+    ):
+        """Execute a validated prompt; state-only intermediate chunks omit terminal logits."""
+        if skip_terminal and return_all_logits:
+            raise ValueError("State-only prefill cannot return all logits")
         cache, starts, table = kv_cache, start_pos, page_table
         results = []
         for user, (slot, length, start) in enumerate(zip(slots, prompt_lens, starts)):
@@ -559,20 +717,35 @@ class OrnithModel:
             elif start == 0:
                 for layer in cache.prefill_layers:
                     layer.reset_state()
+            prefix_cache = self.prefix_cache if start == 0 and not return_all_logits else None
+            offset, checkpoint = 0, 0
+            if prefix_cache is not None:
+                prompt = torch.as_tensor(tokens[user])[:length].tolist()
+                snapshot = prefix_cache.find(prompt)
+                if snapshot is not None:
+                    prefix_cache.restore(cache, snapshot, table[slot])
+                    offset = len(snapshot.tokens)
+                checkpoint = prefix_cache.checkpoint_length(length)
             pt = self.upload(
                 table[slot : slot + 1].to(torch.int32),
                 dtype=ttnn.int32,
                 layout=ttnn.ROW_MAJOR_LAYOUT,
             )
             chunks = []
-            for offset in range(0, length, self.prefill_chunk):
+            while offset < length:
                 logical = min(self.prefill_chunk, length - offset)
+                if offset < checkpoint < offset + logical:
+                    logical = checkpoint - offset
                 ids = self.upload(
                     torch.as_tensor(tokens[user][offset : offset + logical]).reshape(1, -1).to(torch.int32),
                     dtype=ttnn.uint32,
                     layout=ttnn.ROW_MAJOR_LAYOUT,
                 )
-                x = self._prefill_chunk_forward(ids, start_pos=start + offset, page_table=pt, kv_cache=cache)
+                x = self._prefill_chunk_forward(
+                    ids, start_pos=start + offset, page_table=pt, kv_cache=cache, reuse_padded_residual=True
+                )
+                if prefix_cache is not None and offset + logical == checkpoint:
+                    prefix_cache.save(cache, prompt[:checkpoint], table[slot])
                 if return_all_logits:
                     for row in range(0, logical, 32):
                         n = min(32, logical - row)
@@ -580,15 +753,19 @@ class OrnithModel:
                         logits = self.terminal(hidden)
                         chunks.append(self.logits_to_host(logits, n))
                         ttnn.deallocate(logits)
-                elif offset + logical == length:
+                elif not skip_terminal and offset + logical == length:
                     hidden = ttnn.slice(x, [0, logical - 1, 0], [1, logical, self.dim])
                     chunks.append(ttnn.clone(hidden))
                 ttnn.deallocate(x)
                 ttnn.deallocate(ids)
+                offset += logical
             if cache.batch_size > 1:
                 self._transfer_slot(cache.prefill_layers, cache.decode_layers, slot, into_batch=True)
             ttnn.deallocate(pt)
-            results.append(torch.cat(chunks) if return_all_logits else chunks[-1])
+            if not skip_terminal:
+                results.append(torch.cat(chunks) if return_all_logits else chunks[-1])
+        if skip_terminal:
+            return None
         if return_all_logits:
             return results
         slot_rows = [cache.zero_hidden] * cache.batch_size
@@ -597,17 +774,27 @@ class OrnithModel:
         combined = slot_rows[0] if cache.batch_size == 1 else ttnn.concat(slot_rows, dim=1)
         return self.terminal(combined)
 
-    def decode_forward(self, tokens, *, current_pos, rot_idxs, page_table, kv_cache, advance_positions=True):
+    def decode_forward(
+        self, tokens, *, current_pos, rot_idxs, page_table, kv_cache, advance_positions=True, active8=None
+    ):
         """Device-only token-to-logits path over caller-owned persistent state."""
         cache = kv_cache
+        if active8 is not None and active8.cache is not cache:
+            raise ValueError("Active8 scratch belongs to another canonical cache")
         batch = cache.batch_size
         ids = ttnn.reshape(ttnn.slice(tokens, [0, 0, 0, 0], [1, 1, 1, batch]), [batch, 1])
         x = self.embed(ids)
         for layer in cache.decode_layers:
+            execution = layer if active8 is None or layer.is_full_attention else active8.proxies[id(layer)]
             saved = []
-            if batch > 1 and not layer.is_full_attention:
+            if (
+                execution is layer
+                and batch > 1
+                and not layer.is_full_attention
+                and getattr(layer, "deferred_active_mask", None) is None
+            ):
                 saved = [ttnn.clone(buf) for buf in [layer.recurrent_state] + layer.conv_state]
-            nxt = layer.decode_forward(x, current_pos=current_pos, rot_idxs=rot_idxs, page_table=page_table)
+            nxt = execution.decode_forward(x, current_pos=current_pos, rot_idxs=rot_idxs, page_table=page_table)
             if saved:
                 masks = [cache.active_recurrent] + [cache.active_conv] * len(layer.conv_state)
                 for old, buf, mask in zip(saved, [layer.recurrent_state] + layer.conv_state, masks):

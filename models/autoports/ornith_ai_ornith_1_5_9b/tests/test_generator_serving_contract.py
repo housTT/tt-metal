@@ -60,6 +60,12 @@ def gen(tt):
     obj.mesh_device = object()
     obj.counters = defaultdict(int)
     obj.sampling_mode = "device"
+    obj._active8_enabled = False
+    obj._active8_mode = "original"
+    obj._active8 = obj._active8_trace = obj._active_slots = None
+    obj._protect_inactive_sampler_rows = False
+    obj._capture_in_progress = None
+    obj.capture_cleanup_errors = []
     obj._inputs = [
         torch.arange(100, 132, dtype=torch.int32).reshape(1, 1, 1, 32),
         torch.tensor([1000, 2000, 3000], dtype=torch.int32),

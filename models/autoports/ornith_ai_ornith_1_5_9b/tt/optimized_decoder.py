@@ -645,7 +645,17 @@ class OptimizedDecoder(FusedDecoder):
         beta_view = ttnn.reshape(beta, [batch, nv, 1, 1])
         g_view = ttnn.reshape(g, [batch, nv, 1, 1])
         state = self.recurrent_state
-        ttnn.multiply(state, g_view, input_tensor_b_activations=[ttnn.UnaryOpType.EXP], output_tensor=state)
+        mask = getattr(self, "deferred_active_mask", None)
+        if mask is None:
+            ttnn.multiply(state, g_view, input_tensor_b_activations=[ttnn.UnaryOpType.EXP], output_tensor=state)
+        else:
+            state = ttnn.multiply(
+                state,
+                g_view,
+                input_tensor_b_activations=[ttnn.UnaryOpType.EXP],
+                dtype=ttnn.float32,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
         read = ttnn.matmul(
             k_row,
             state,
@@ -677,6 +687,9 @@ class OptimizedDecoder(FusedDecoder):
             compute_kernel_config=self.state_compute,
         )
         ttnn.deallocate(q_row)
+        if mask is not None:
+            ttnn.where(mask, state, self.recurrent_state, output_tensor=self.recurrent_state)
+            ttnn.deallocate(state)
         return result
 
     def _prefill_linear(self, x, role, **kwargs):

@@ -3,6 +3,7 @@
 """Exercise actual generator trace ownership without importing TTNN."""
 
 import ast
+from collections import defaultdict
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -69,6 +70,11 @@ def generator_fixture():
     )
     cls = namespace["OrnithGenerator"]
     gen = cls.__new__(cls)
+    gen._active8_enabled = False
+    gen._active8_trace = gen._active8 = gen._capture_in_progress = None
+    gen.capture_cleanup_errors = []
+    gen.counters = defaultdict(int)
+    gen.model = SimpleNamespace(prefix_cache=None)
     gen.mesh_device = SimpleNamespace(programs=10)
     gen.mesh_device.num_program_cache_entries = lambda: gen.mesh_device.programs
     gen.sampling_mode = "device"
@@ -82,7 +88,9 @@ def generator_fixture():
     gen._forward = lambda: torch.tensor([17.0])
     gen._sample_device = lambda logits: None
     gen._append_output_history = lambda: None
-    gen.sampling = SimpleNamespace(reset_trace=lambda: None, reset_sampling_params=lambda params: None)
+    gen.sampling = SimpleNamespace(
+        _trace_states={}, reset_trace=lambda: None, reset_sampling_params=lambda params: None
+    )
     saved_teardown = gen.teardown
     # The qualitative runner deliberately defers public cleanup across requests.
     gen.teardown = lambda: None

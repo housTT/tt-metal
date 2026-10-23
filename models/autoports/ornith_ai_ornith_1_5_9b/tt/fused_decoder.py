@@ -594,9 +594,15 @@ class FusedDecoder(FunctionalDecoder):
             ttnn.deallocate(previous)
         activated = ttnn.silu(acc)
         ttnn.deallocate(acc)
-        for idx in range(kernel - 2):
-            ttnn.copy(self.conv_state[idx + 1], self.conv_state[idx])
-        ttnn.copy(qkv, self.conv_state[kernel - 2])
+        mask = getattr(self, "conv_active_mask", None)
+        if mask is None:
+            for idx in range(kernel - 2):
+                ttnn.copy(self.conv_state[idx + 1], self.conv_state[idx])
+            ttnn.copy(qkv, self.conv_state[kernel - 2])
+        else:
+            for idx in range(kernel - 2):
+                ttnn.where(mask, self.conv_state[idx + 1], self.conv_state[idx], output_tensor=self.conv_state[idx])
+            ttnn.where(mask, qkv, self.conv_state[kernel - 2], output_tensor=self.conv_state[kernel - 2])
         return activated
 
     def _gdn_decode_heads(self, activated):

@@ -1,0 +1,462 @@
+# Ornith-1.5-9B as a container (v5.1) package: the platform ships as an OCI image,
+# so a consumer needs only Docker and Tenstorrent silicon.
+#
+# ONE image, THREE serving profiles. A P150 is one Blackhole ASIC; a p300c board
+# carries two. So p150 = 1 ASIC, p150x2 = 2, p150x4 = 4 — on this validation host,
+# two p300c boards.
+#
+# ACCEPTANCE STATUS — read before using this package.
+# Every profile below starts, serves, and passes the 12-check OpenAI API suite on
+# real silicon. The first accuracy figures were measured on p150x4 (superseded,
+# kept for history; the current figures are in the card below):
+#   meta_ifeval      PASS  86.476481% (four-metric mean)          [p150x4]
+#   OpenAI API suite PASS  12/12 on p150, p150x2 and p150x4
+#   meta_gpqa_cot    11/23 = 47.83%, gate then 18/23 (superseded)   [p150x4]
+#   TTFT benchmarks  measured; latency tables are in the card      [p150x4]
+# FIXED 2026-09-16: temperature-0 nondeterminism. Root cause was in
+# vllm-tt-plugin, not this port -- InputBatch.block_tables_for_rows passed
+# block-table columns beyond each row's allocation, so the model received
+# another request's physical blocks and sometimes a duplicate of its own.
+# Both measurements were REPEATED after that fix (2026-09-16) and neither
+# moved: meta_gpqa_cot is still 11/23 (byte-identical score, same 15 terminating
+# / 8 budget-exhausting split), and the six TTFT rows are unchanged.
+# The determinism fix makes these figures reproducible rather than
+# single samples; it does not improve them, and it costs no measurable latency
+# (A/B: -1.41% / +0.02%). See
+# state/determinism-investigation-v1/gate-remeasure-postfix/RESULTS.md.
+# PROMOTED 2026-09-17 (state/gpqa-passing-v1/RESULTS.md, Part 1): the acceptance
+# protocol is now greedy over presence-penalized logits (presence_penalty=1.5,
+# the model card's general-task setting and its only anti-repetition lever;
+# deterministic on device), and the shipped precision is attention HiFi2 +
+# bfloat16 KV cache on top of gate/up HiFi2 (attn_hifi2_kv16_policy.json,
+# selected below). Under that protocol, measured and reproduced:
+#   meta_gpqa_cot    16/23 = 69.57%, gate 17/23 (one short)        [p150x4]
+#   meta_ifeval      PASS  81.97%, proxy 23 >= 22 (was 86.48%/24) [p150x4]
+#   TTFT             +8.04% vs the previous policy; see the card  [p150x4]
+# The 11/23 and 86.48% lines above are the superseded frozen-greedy figures,
+# kept for comparison. Five GPQA rows loop under every greedy configuration;
+# the card's own sampled protocol (temperature 1.0 / top_p 0.95 / top_k 20 /
+# presence 1.5, five seeds) was piloted and rejected: it frees ~1.6 of the five
+# hard rows but costs 4 of the 16 rows greedy has right (predicted ~13.6/23).
+# 16/23 is the measured ceiling of this checkpoint on this hardware.
+# PRECISION IS PER PROFILE (2026-09-17, state/package-rebuild-v1/RECORD.md):
+# p150x2 and p150x4 serve the promoted attn_hifi2_kv16 policy. Its bfloat16 KV
+# cache does not fit one ASIC (DRAM OOM at the first trace capture), so p150
+# pins the previous gate_up_hifi2 policy (bfp8 KV) in its own env block — the
+# configuration it was validated on. p150x2 was broken until 2026-09-17 (its
+# first request died in the two-ASIC decode path with an L1 circular-buffer
+# clash, in the published 09-15 image too); tt/multichip_decoder.py now keeps
+# the TP2 recurrent states in DRAM and the profile serves the promoted policy.
+# All three profiles pass the local API/reasoning/tool-call/determinism
+# validation and the 12-check API suite.
+# p150 and p150x2 have NO accuracy or latency measurements at all. Their numbers
+# are not implied by p150x4's. Published deliberately in this state.
+# p150 RE-PRECISIONED 2026-09-24 (state/p150-gpqa-v1/RECORD.md): p150 now serves
+# p150_head8_hifi2_kv8_policy.json — the promoted policy with a bfp8 LM head at
+# HiFi2 (was bfp4 at LoFi, the one material fidelity loss found by long-context
+# teacher forcing against the HF checkpoint) and a bfp8 KV cache, so the full
+# 262144-token pool fits one ASIC. Measured on p150 under the acceptance
+# protocol: meta_gpqa_cot 16/23 (was 13/23; identical rows to p150x4), meta_ifeval
+# 89.48% proxy 25 (was 80.47%). The five rows that never finish under greedy are
+# the same on one and four chips; the HF checkpoint itself answers rows 0 and 1
+# wrong and does not finish row 6 within 8,000 tokens. p150x2 and p150x4 keep the
+# promoted attn_hifi2_kv16 policy they were measured with.
+# 2026-09-25: under the card's own sampled recipe (five seeds) p150 averages
+# 16.8/23 strict at the frozen 32,768-token budget and 17.2/23 at a 65,536
+# budget (over the 17/23 bar); the frozen greedy protocol stays 16/23 at any
+# budget because its five unfinished rows cycle. Details in the card below.
+schema: "5.1"
+
+repo: tt-hous/ornith-1.5-9b
+name: ornith-1-5-9b
+
+# A POINTER, pinned to the revision every measurement was taken against.
+# Never baked into the image; fetched to the consumer's own HF cache at pull.
+weights:
+  repo: ornith-ai/Ornith-1.5-9B
+  revision: 489cb97981b8654bcfcf30ce1f94ed1b62e07b53
+  ignore_patterns: ["*.pt", "*.bin"]
+
+# Stock upstream vLLM plus the standalone plugin — the arrangement this port was
+# migrated onto, off the deprecated tenstorrent/vllm fork.
+kind: vllm-plugin
+arch: blackhole
+
+image:
+  registry: hf
+
+source:
+  tt_metal: /home/hous/dev/ornith-1.5-9b/tt-metal
+  # An allowlist of exactly what SERVING reads. Deliberately NOT the whole
+  # autoport: its doc/ tree is 41 GB of bring-up evidence across 13,788 files,
+  # which has no place in a serving image and exhausts memory during the
+  # staging COPY. The serving code itself is ~600 KB.
+  code:
+    - models/common                                 # readiness runner + shared sampling
+    # Sibling packages the port imports from outside models/common. Derived by an
+    # AST scan of every `models.*` import reachable from tt/ and reference/,
+    # including DEFERRED imports inside function bodies — functional_decoder.py
+    # imports the gdn fused_chunk that way, so a line-anchored grep misses it and
+    # the image fails at load with ModuleNotFoundError. Whole directories rather
+    # than single files: these are regular packages whose parents carry
+    # __init__.py, and the lot is under 2 MB.
+    - models/demos/gpt_oss/tt
+    - models/demos/blackhole/qwen36/tt
+    - models/experimental/gated_attention_gated_deltanet/tt
+    - models/autoports/ornith_ai_ornith_1_5_9b/__init__.py
+    - models/autoports/ornith_ai_ornith_1_5_9b/tt
+    - models/autoports/ornith_ai_ornith_1_5_9b/reference
+    - models/autoports/ornith_ai_ornith_1_5_9b/vllm_bundle   # COVERS extra_models_dir
+    # The only doc/ files the serving path actually opens.
+    - models/autoports/ornith_ai_ornith_1_5_9b/doc/context_contract.json
+    - models/autoports/ornith_ai_ornith_1_5_9b/doc/functional_decoder/hf_config.json
+    - models/autoports/ornith_ai_ornith_1_5_9b/doc/datatype_sweep/selected_precision_config.json
+    - models/autoports/ornith_ai_ornith_1_5_9b/doc/datatype_sweep/gate_up_hifi2_policy.json
+    - models/autoports/ornith_ai_ornith_1_5_9b/doc/datatype_sweep/attn_hifi2_kv16_policy.json
+    - models/autoports/ornith_ai_ornith_1_5_9b/doc/datatype_sweep/p150_head8_hifi2_kv8_policy.json
+    - models/autoports/ornith_ai_ornith_1_5_9b/doc/datatype_sweep/p150x4_head8_hifi2_kv8_c64_policy.json
+    - tt_metal/fabric/mesh_graph_descriptors        # per-profile topology descriptors,
+                                                    # referenced by the profiles below
+  ubuntu: "22.04"
+  python: "3.10"
+
+runtime:
+  vllm: {version: "0.26.0"}
+  plugin: {path: /home/hous/dev/ornith-1.5-9b/vllm-tt-plugin}
+  extra_models_dir: models/autoports/ornith_ai_ornith_1_5_9b/vllm_bundle
+
+# Defaults every profile inherits. Anything that differs per mesh — the topology
+# descriptor, and whether a fabric exists at all — is set on the profile instead.
+serve:
+  port: 8000
+  block_size: 64                # the TT backend rejects vLLM's default
+  max_num_seqs: 32
+  max_model_len: 262144         # all three profiles allocate the full 4129-block pool
+
+  capabilities:
+    tool_parser: qwen3_xml
+    reasoning_parser: qwen3
+
+  env:
+    ARCH_NAME: blackhole
+    # Precision policy C (2026-09-17): attention HiFi2 + bfloat16 KV cache on top
+    # of the gate/up HiFi2 policy. Shipped inside the image via source.code, so
+    # this path resolves in the container. The previous gate_up_hifi2 policy is
+    # still packaged for comparison.
+    ORNITH_PRECISION_CONFIG: /opt/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/datatype_sweep/p150_head8_hifi2_kv8_policy.json
+    ORNITH_VLLM_POOL_TOKENS: "262208"
+    ORNITH_PREFIX_CACHE_BYTES: "0"
+    ORNITH_VLLM_ALLOW_HOST_SAMPLING: "0"
+    ORNITH_ACTIVE8_MODE: active8
+    # ORNITH_MODEL_PATH is deliberately unset: the adapter then resolves the pinned
+    # revision from the consumer's mounted HF cache. Setting it would name a host
+    # path that does not exist inside the image.
+
+  # The launcher emits no --hf-overrides, and the checkpoint's config.json declares
+  # Qwen3_5ForConditionalGeneration, so without this the image would silently load
+  # the generic Qwen3.5 adapter instead of this port. The TT-prefixed name is
+  # required because vLLM validates the architecture before the platform applies
+  # its TT prefix.
+  args:
+    - --hf-overrides
+    - '{"architectures": ["TTOrnithForCausalLM"]}'
+    - --async-scheduling
+
+serve_profiles:
+  # ---- 1 ASIC -----------------------------------------------------------------
+  # A single chip has no fabric. Passing any fabric_config here trips TT_FATAL in
+  # tt_cluster on the mesh-graph descriptor, so this profile's additional_config
+  # deliberately omits it rather than inheriting a multi-chip block.
+  - name: p150
+    description: One Blackhole ASIC. Full 262144-token context; lowest hardware bar.
+    hardware: p150
+    mesh_device: P150
+    max_num_seqs: 32
+    max_model_len: 262144
+    additional_config:
+      tt:
+        sample_on_device_mode: all
+        trace_region_size: 100000000
+        l1_small_size: 32768
+    env:
+      TT_MESH_GRAPH_DESC_PATH: /opt/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto
+      # 2026-09-24 (state/p150-gpqa-v1/RECORD.md): the promoted policy plus a bfp8
+      # LM head at HiFi2 instead of the bfp4/LoFi head, with a bfp8 KV cache so
+      # the full 262144-token pool fits one ASIC. The head was the one material
+      # fidelity loss: per-token agreement with the HF checkpoint on a 2,588-token
+      # GPQA reasoning path rises from 97.1% to 98.5% (fp32-vs-bf16 floor 99.4%);
+      # the KV dtype does not move it. Measured on this profile with this policy:
+      # meta_gpqa_cot 16/23 (greedy acceptance protocol, = p150x4), meta_ifeval
+      # 89.48% (proxy 25). The previous bfloat16-KV policy OOMs at this pool.
+      ORNITH_PRECISION_CONFIG: /opt/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/datatype_sweep/p150_head8_hifi2_kv8_policy.json
+
+  # ---- 2 ASICs ----------------------------------------------------------------
+  # Two ASICs are the two chips of ONE p300c board, joined by 2 eth channels. The
+  # p150_x2 descriptor describes two DISCRETE p150 cards and asserts 4 channels,
+  # which that hardware does not have; p300 is the same [1,2] mesh with the right
+  # link count. Validated on this host with exactly that descriptor.
+  - name: p150x2
+    description: Two Blackhole ASICs (one p300c board). Full 262144-token context.
+    hardware: p150x2
+    mesh_device: P150x2
+    max_num_seqs: 32
+    max_model_len: 262144
+    additional_config:
+      tt:
+        sample_on_device_mode: all
+        trace_region_size: 100000000
+        l1_small_size: 32768
+        fabric_config: FABRIC_1D_RING
+        fabric_max_packet_payload_size_bytes: 8192
+    env:
+      TT_MESH_GRAPH_DESC_PATH: /opt/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p300_mesh_graph_descriptor.textproto
+      # Until 2026-09-17 this profile died on its first request: the two-chip
+      # decode pinned the 24 recurrent states in L1 under a budget validated only
+      # at TP4, and the LM head's circular buffers collided with them
+      # (state/package-rebuild-v1/RECORD.md). tt/multichip_decoder.py now keeps
+      # the TP2 states in DRAM like TP1; the profile serves the default (promoted)
+      # policy. No accuracy measurements.
+
+
+  # ---- 4 ASICs ----------------------------------------------------------------
+  # The full machine, so topology comes from auto-discovery and no descriptor is
+  # set — this is the exact configuration every accuracy and latency measurement
+  # in this repository was taken under. Do not add a descriptor here without
+  # re-measuring: p150_x4 is a [2,2] mesh, while this profile serves (1,4).
+  - name: p150x4
+    description: Four Blackhole ASICs (two p300c boards). The measured configuration.
+    hardware: p150x4
+    mesh_device: P150x4
+    # 2026-09-28: the same weights, fidelities and bfp8 KV cache as p150/p150x2
+    # (p150_head8_hifi2_kv8) on the 64-core LM-head geometry: on four chips the
+    # 32-core geometry's prefill circular buffers overrun an L1 buffer of the TP4
+    # path once the head is bfp8. attn_hifi2_kv16 stays packaged for comparison.
+    env:
+      ORNITH_PRECISION_CONFIG: /opt/tt-metal/models/autoports/ornith_ai_ornith_1_5_9b/doc/datatype_sweep/p150x4_head8_hifi2_kv8_c64_policy.json
+    max_num_seqs: 32
+    max_model_len: 262144
+    additional_config:
+      tt:
+        sample_on_device_mode: all
+        trace_region_size: 100000000
+        l1_small_size: 32768
+        fabric_config: FABRIC_1D_RING
+        fabric_max_packet_payload_size_bytes: 8192
+
+default_profile: p150x4
+
+verify:
+  - "import models.autoports.ornith_ai_ornith_1_5_9b.tt.generator_vllm as g; assert g.TTOrnithForCausalLM"
+
+card:
+  description: >
+    Ornith-1.5-9B ported to Tenstorrent Blackhole, served through upstream vLLM
+    with the standalone Tenstorrent plugin. One image, three profiles: p150 (one
+    ASIC), p150x2 (two), p150x4 (four), each at the full 262144-token context.
+    The majority of testing and evaluation was done for the p150 serve profile.
+  performance: |
+    ### Accuracy against the model card
+
+    | GPQA Diamond (198 questions) | Ornith AI model card | This package, p150 |
+    |---|---:|---:|
+    | model-card recipe: temperature 1.0, top-p 0.95, top-k 20, presence penalty 1.5 | 86.4 | 78.3 (seeds 42 / 43: 75.3 / 81.3) |
+
+    The card averages five runs; this package ran two seeds with a 32,768-token output budget.
+
+    ### Latency sweep, P150 (one chip)
+
+    Random-token prompts of exactly the input length, output pinned with `ignore_eos`, greedy,
+    streamed; users are concurrent requests held open as a closed loop, N is the total requests in the
+    row; TTFT is time to the first streamed token; TPOT = (E2EL − TTFT)/(output − 1); prefill tok/s =
+    input/TTFT; decode tok/s = 1/TPOT; three warm-up requests per input length; rows with a predicted
+    end-to-end latency above 300 s are skipped.
+
+    Single user:
+
+    | Input tokens | Output tokens | TTFT (ms) | Prefill tok/s | TPOT (ms) | Decode tok/s | E2EL (s) |
+    | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+    | 128 | 128 | 97 | 1,313 | 167.4 | 6.0 | 21.35 |
+    | 1,024 | 256 | 196 | 5,224 | 168.0 | 6.0 | 43.03 |
+    | 4,096 | 256 | 558 | 7,343 | 169.8 | 5.9 | 43.84 |
+    | 16,384 | 256 | 2,442 | 6,709 | 176.9 | 5.7 | 47.55 |
+    | 32,768 | 256 | 5,687 | 5,762 | 186.4 | 5.4 | 53.22 |
+    | 65,536 | 256 | 14,704 | 4,457 | 205.4 | 4.9 | 67.08 |
+    | 131,072 | 256 | 42,781 | 3,064 | 243.5 | 4.1 | 104.86 |
+
+    Concurrent users:
+
+    | Input tokens | Output tokens | Users | N | TTFT (ms) | TPOT (ms) | Decode tok/s/user | Total out tok/s | E2EL (s) |
+    | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+    | 128 | 128 | 1 | 4 | 97 | 167.4 | 6.0 | 6 | 21.35 |
+    | 128 | 128 | 2 | 8 | 222 | 167.9 | 6.0 | 12 | 21.55 |
+    | 128 | 128 | 4 | 16 | 409 | 167.9 | 6.0 | 24 | 21.73 |
+    | 128 | 128 | 8 | 32 | 882 | 168.4 | 5.9 | 46 | 22.27 |
+    | 128 | 128 | 16 | 64 | 1,851 | 168.7 | 5.9 | 88 | 23.27 |
+    | 128 | 128 | 32 | 128 | 3,785 | 169.3 | 5.9 | 162 | 25.29 |
+    | 1,024 | 256 | 1 | 4 | 196 | 168.0 | 6.0 | 6 | 43.03 |
+    | 1,024 | 256 | 2 | 8 | 401 | 168.2 | 5.9 | 12 | 43.29 |
+    | 1,024 | 256 | 4 | 16 | 787 | 168.4 | 5.9 | 23 | 43.74 |
+    | 1,024 | 256 | 8 | 32 | 1,629 | 168.7 | 5.9 | 46 | 44.64 |
+    | 1,024 | 256 | 16 | 64 | 3,372 | 169.0 | 5.9 | 88 | 46.47 |
+    | 1,024 | 256 | 32 | 128 | 6,864 | 170.3 | 5.9 | 163 | 50.29 |
+    | 4,096 | 256 | 1 | 4 | 558 | 169.8 | 5.9 | 6 | 43.84 |
+    | 4,096 | 256 | 2 | 8 | 1,112 | 169.9 | 5.9 | 12 | 44.43 |
+    | 4,096 | 256 | 4 | 16 | 2,234 | 170.2 | 5.9 | 22 | 45.64 |
+    | 4,096 | 256 | 8 | 32 | 4,508 | 170.5 | 5.9 | 43 | 47.98 |
+    | 4,096 | 256 | 16 | 64 | 9,128 | 171.4 | 5.8 | 78 | 52.82 |
+    | 4,096 | 256 | 32 | 128 | 18,376 | 175.0 | 5.7 | 130 | 62.99 |
+    | 16,384 | 256 | 1 | 2 | 2,442 | 176.9 | 5.7 | 5 | 47.55 |
+    | 16,384 | 256 | 2 | 4 | 4,878 | 177.0 | 5.6 | 10 | 50.02 |
+    | 16,384 | 256 | 4 | 8 | 9,762 | 177.4 | 5.6 | 19 | 54.99 |
+    | 16,384 | 256 | 8 | 16 | 19,552 | 177.8 | 5.6 | 32 | 64.89 |
+    | 16,384 | 256 | 16 | 32 | 39,212 | 186.6 | 5.4 | 37 | 86.79 |
+    | 16,384 | 256 | 32 | 64 | 82,547 | 204.2 | 4.9 | 41 | 134.61 |
+    | 32,768 | 256 | 1 | 1 | 5,687 | 186.4 | 5.4 | 5 | 53.22 |
+    | 32,768 | 256 | 2 | 2 | 11,374 | 186.7 | 5.4 | 9 | 58.98 |
+    | 32,768 | 256 | 4 | 4 | 22,743 | 186.9 | 5.4 | 15 | 70.39 |
+    | 32,768 | 256 | 8 | 8 | 45,506 | 187.5 | 5.3 | 22 | 93.32 |
+    | 32,768 | 256 | 16 | 16 | 92,096 | 187.1 | 5.3 | 22 | 139.82 |
+    | 32,768 | 256 | 32 | 32 | 185,051 | 187.0 | 5.3 | 22 | 232.73 |
+    | 65,536 | 256 | 1 | 1 | 14,704 | 205.4 | 4.9 | 4 | 67.08 |
+    | 65,536 | 256 | 2 | 2 | 29,380 | 205.7 | 4.9 | 6 | 81.83 |
+    | 65,536 | 256 | 4 | 4 | 58,802 | 205.8 | 4.9 | 9 | 111.28 |
+    | 65,536 | 256 | 8 | 8 | 114,339 | 205.6 | 4.9 | 9 | 166.76 |
+    | 65,536 | 256 | 16 | 16 | 225,429 | 205.4 | 4.9 | 9 | 277.82 |
+    | 131,072 | 256 | 1 | 1 | 42,781 | 243.5 | 4.1 | 2 | 104.86 |
+    | 131,072 | 256 | 2 | 2 | 85,526 | 243.6 | 4.1 | 3 | 147.66 |
+    | 131,072 | 256 | 4 | 4 | 159,342 | 243.3 | 4.1 | 3 | 221.37 |
+
+    Peak aggregate output: 163 tok/s at 1,024 input / 256 output tokens, 32 users.
+    Not measured: 65,536 in / 32 users, 131,072 in / 8 users, 131,072 in / 16 users, 131,072 in / 32 users.
+
+    ### Latency sweep, P150x2 (two chips)
+
+    Same method as the P150 sweep. Single user:
+
+    | Input tokens | Output tokens | TTFT (ms) | Prefill tok/s | TPOT (ms) | Decode tok/s | E2EL (s) |
+    | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+    | 128 | 128 | 68 | 1,886 | 103.6 | 9.7 | 13.23 |
+    | 1,024 | 256 | 145 | 7,068 | 103.9 | 9.6 | 26.65 |
+    | 4,096 | 256 | 429 | 9,539 | 104.8 | 9.5 | 27.16 |
+    | 16,384 | 256 | 1,838 | 8,913 | 108.4 | 9.2 | 29.48 |
+    | 32,768 | 256 | 4,205 | 7,792 | 113.1 | 8.8 | 33.06 |
+    | 65,536 | 256 | 10,548 | 6,213 | 122.6 | 8.2 | 41.81 |
+    | 131,072 | 256 | 29,784 | 4,401 | 141.5 | 7.1 | 65.88 |
+
+    Concurrent users:
+
+    | Input tokens | Output tokens | Users | N | TTFT (ms) | TPOT (ms) | Decode tok/s/user | Total out tok/s | E2EL (s) |
+    | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+    | 128 | 128 | 1 | 4 | 68 | 103.6 | 9.7 | 10 | 13.23 |
+    | 128 | 128 | 2 | 8 | 163 | 104.0 | 9.6 | 19 | 13.37 |
+    | 128 | 128 | 4 | 16 | 300 | 104.0 | 9.6 | 38 | 13.51 |
+    | 128 | 128 | 8 | 32 | 576 | 104.1 | 9.6 | 74 | 13.79 |
+    | 128 | 128 | 16 | 64 | 1,103 | 104.4 | 9.6 | 143 | 14.36 |
+    | 128 | 128 | 32 | 128 | 2,223 | 104.8 | 9.5 | 264 | 15.53 |
+    | 1,024 | 256 | 1 | 4 | 145 | 103.9 | 9.6 | 10 | 26.65 |
+    | 1,024 | 256 | 2 | 8 | 290 | 104.1 | 9.6 | 19 | 26.83 |
+    | 1,024 | 256 | 4 | 16 | 580 | 104.1 | 9.6 | 38 | 27.12 |
+    | 1,024 | 256 | 8 | 32 | 1,150 | 104.2 | 9.6 | 74 | 27.72 |
+    | 1,024 | 256 | 16 | 64 | 2,293 | 104.5 | 9.6 | 141 | 28.95 |
+    | 1,024 | 256 | 32 | 128 | 4,623 | 105.3 | 9.5 | 260 | 31.47 |
+    | 4,096 | 256 | 1 | 4 | 429 | 104.8 | 9.5 | 9 | 27.16 |
+    | 4,096 | 256 | 2 | 8 | 862 | 104.9 | 9.5 | 19 | 27.62 |
+    | 4,096 | 256 | 4 | 16 | 1,721 | 105.0 | 9.5 | 36 | 28.49 |
+    | 4,096 | 256 | 8 | 32 | 3,426 | 105.1 | 9.5 | 68 | 30.24 |
+    | 4,096 | 256 | 16 | 64 | 6,854 | 105.8 | 9.5 | 121 | 33.82 |
+    | 4,096 | 256 | 32 | 128 | 13,745 | 107.7 | 9.3 | 199 | 41.21 |
+    | 16,384 | 256 | 1 | 2 | 1,838 | 108.4 | 9.2 | 9 | 29.48 |
+    | 16,384 | 256 | 2 | 4 | 3,681 | 108.5 | 9.2 | 16 | 31.35 |
+    | 16,384 | 256 | 4 | 8 | 7,352 | 108.5 | 9.2 | 29 | 35.03 |
+    | 16,384 | 256 | 8 | 16 | 14,698 | 108.7 | 9.2 | 48 | 42.42 |
+    | 16,384 | 256 | 16 | 32 | 29,379 | 114.5 | 8.7 | 56 | 58.57 |
+    | 16,384 | 256 | 32 | 64 | 58,683 | 127.8 | 7.8 | 60 | 91.27 |
+    | 32,768 | 256 | 1 | 1 | 4,205 | 113.1 | 8.8 | 8 | 33.06 |
+    | 32,768 | 256 | 2 | 2 | 8,408 | 113.3 | 8.8 | 14 | 37.29 |
+    | 32,768 | 256 | 4 | 4 | 16,812 | 113.2 | 8.8 | 22 | 45.69 |
+    | 32,768 | 256 | 8 | 8 | 33,599 | 113.5 | 8.8 | 33 | 62.54 |
+    | 32,768 | 256 | 16 | 16 | 64,766 | 113.3 | 8.8 | 33 | 93.66 |
+    | 32,768 | 256 | 32 | 32 | 127,117 | 113.3 | 8.8 | 33 | 156.00 |
+    | 65,536 | 256 | 1 | 1 | 10,548 | 122.6 | 8.2 | 6 | 41.81 |
+    | 65,536 | 256 | 2 | 2 | 21,111 | 122.4 | 8.2 | 10 | 52.32 |
+    | 65,536 | 256 | 4 | 4 | 42,147 | 122.7 | 8.1 | 14 | 73.45 |
+    | 65,536 | 256 | 8 | 8 | 78,830 | 122.4 | 8.2 | 14 | 110.05 |
+    | 65,536 | 256 | 16 | 16 | 152,139 | 122.4 | 8.2 | 14 | 183.36 |
+    | 131,072 | 256 | 1 | 1 | 29,784 | 141.5 | 7.1 | 4 | 65.88 |
+    | 131,072 | 256 | 2 | 2 | 59,526 | 141.6 | 7.1 | 5 | 95.62 |
+    | 131,072 | 256 | 4 | 4 | 107,366 | 141.4 | 7.1 | 5 | 143.43 |
+    | 131,072 | 256 | 8 | 8 | 202,876 | 141.3 | 7.1 | 5 | 238.91 |
+
+    Peak aggregate output: 264 tok/s at 128 input / 128 output tokens, 32 users.
+    Not measured: 65,536 in / 32 users, 131,072 in / 16 users, 131,072 in / 32 users.
+
+    ### Latency sweep, P150x4 (four chips)
+
+    Same method as the P150 sweep. Single user:
+
+    | Input tokens | Output tokens | TTFT (ms) | Prefill tok/s | TPOT (ms) | Decode tok/s | E2EL (s) |
+    | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+    | 128 | 128 | 66 | 1,948 | 65.0 | 15.4 | 8.32 |
+    | 1,024 | 256 | 97 | 10,597 | 65.2 | 15.3 | 16.71 |
+    | 4,096 | 256 | 258 | 15,907 | 65.6 | 15.2 | 16.98 |
+    | 16,384 | 256 | 1,052 | 15,573 | 67.4 | 14.8 | 18.23 |
+    | 32,768 | 256 | 2,342 | 13,993 | 69.6 | 14.4 | 20.10 |
+    | 65,536 | 256 | 5,585 | 11,735 | 74.4 | 13.4 | 24.55 |
+    | 131,072 | 256 | 14,983 | 8,748 | 83.8 | 11.9 | 36.35 |
+
+    Concurrent users:
+
+    | Input tokens | Output tokens | Users | N | TTFT (ms) | TPOT (ms) | Decode tok/s/user | Total out tok/s | E2EL (s) |
+    | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+    | 128 | 128 | 1 | 4 | 66 | 65.0 | 15.4 | 15 | 8.32 |
+    | 128 | 128 | 2 | 8 | 305 | 65.6 | 15.2 | 30 | 8.64 |
+    | 128 | 128 | 4 | 16 | 437 | 65.6 | 15.2 | 58 | 8.77 |
+    | 128 | 128 | 8 | 32 | 769 | 58.0 | 17.2 | 126 | 8.14 |
+    | 128 | 128 | 16 | 64 | 1,296 | 65.3 | 15.3 | 214 | 9.59 |
+    | 128 | 128 | 32 | 128 | 2,295 | 65.6 | 15.3 | 386 | 10.62 |
+    | 1,024 | 256 | 1 | 4 | 97 | 65.2 | 15.3 | 15 | 16.71 |
+    | 1,024 | 256 | 2 | 8 | 197 | 65.3 | 15.3 | 30 | 16.84 |
+    | 1,024 | 256 | 4 | 16 | 377 | 65.2 | 15.3 | 60 | 17.02 |
+    | 1,024 | 256 | 8 | 32 | 742 | 58.0 | 17.2 | 132 | 15.54 |
+    | 1,024 | 256 | 16 | 64 | 1,471 | 65.4 | 15.3 | 226 | 18.15 |
+    | 1,024 | 256 | 32 | 128 | 2,952 | 65.8 | 15.2 | 415 | 19.73 |
+    | 4,096 | 256 | 1 | 4 | 258 | 65.6 | 15.2 | 15 | 16.98 |
+    | 4,096 | 256 | 2 | 8 | 519 | 65.7 | 15.2 | 30 | 17.27 |
+    | 4,096 | 256 | 4 | 16 | 1,031 | 65.7 | 15.2 | 58 | 17.78 |
+    | 4,096 | 256 | 8 | 32 | 2,059 | 58.5 | 17.1 | 121 | 16.97 |
+    | 4,096 | 256 | 16 | 64 | 4,092 | 66.0 | 15.1 | 196 | 20.93 |
+    | 4,096 | 256 | 32 | 128 | 8,173 | 66.9 | 14.9 | 324 | 25.24 |
+    | 16,384 | 256 | 1 | 2 | 1,052 | 67.4 | 14.8 | 14 | 18.23 |
+    | 16,384 | 256 | 2 | 4 | 2,106 | 67.4 | 14.8 | 27 | 19.29 |
+    | 16,384 | 256 | 4 | 8 | 4,222 | 67.4 | 14.8 | 48 | 21.42 |
+    | 16,384 | 256 | 8 | 16 | 8,420 | 60.2 | 16.6 | 86 | 23.76 |
+    | 16,384 | 256 | 16 | 32 | 16,797 | 70.7 | 14.1 | 92 | 34.84 |
+    | 16,384 | 256 | 32 | 64 | 34,141 | 79.7 | 12.6 | 101 | 54.46 |
+    | 32,768 | 256 | 1 | 1 | 2,342 | 69.6 | 14.4 | 13 | 20.10 |
+    | 32,768 | 256 | 2 | 2 | 4,649 | 69.8 | 14.3 | 23 | 22.44 |
+    | 32,768 | 256 | 4 | 4 | 9,288 | 69.8 | 14.3 | 38 | 27.08 |
+    | 32,768 | 256 | 8 | 8 | 18,546 | 62.5 | 16.0 | 59 | 34.49 |
+    | 32,768 | 256 | 16 | 16 | 35,767 | 62.3 | 16.1 | 59 | 51.64 |
+    | 32,768 | 256 | 32 | 32 | 70,032 | 62.3 | 16.1 | 60 | 85.92 |
+    | 65,536 | 256 | 1 | 1 | 5,585 | 74.4 | 13.4 | 10 | 24.55 |
+    | 65,536 | 256 | 2 | 2 | 11,157 | 74.5 | 13.4 | 17 | 30.14 |
+    | 65,536 | 256 | 4 | 4 | 22,311 | 74.4 | 13.4 | 25 | 41.27 |
+    | 65,536 | 256 | 8 | 8 | 42,898 | 74.2 | 13.5 | 25 | 61.83 |
+    | 65,536 | 256 | 16 | 16 | 84,031 | 74.1 | 13.5 | 25 | 102.94 |
+    | 65,536 | 256 | 32 | 32 | 166,320 | 74.1 | 13.5 | 25 | 185.21 |
+    | 131,072 | 256 | 1 | 1 | 14,983 | 83.8 | 11.9 | 7 | 36.35 |
+    | 131,072 | 256 | 2 | 2 | 29,954 | 83.7 | 12.0 | 10 | 51.29 |
+    | 131,072 | 256 | 4 | 4 | 55,627 | 83.6 | 12.0 | 10 | 76.94 |
+    | 131,072 | 256 | 8 | 8 | 106,942 | 83.6 | 12.0 | 10 | 128.25 |
+    | 131,072 | 256 | 16 | 16 | 209,067 | 83.5 | 12.0 | 10 | 230.37 |
+
+    Peak aggregate output: 415 tok/s at 1,024 input / 256 output tokens, 32 users.
+    Not measured: 131,072 in / 32 users.
+  limitations: |
+    - With 32 concurrent requests whose generations together exceed the 262144-token pool, vLLM
+      preempts a request and the engine exits (`no free device state slot`, plugin allocator). Keep
+      concurrent long generations below the pool, for example `--max-num-seqs 16` on p150.
+    - Device logprobs exist only on the four-ASIC mesh; on p150 and p150x2 a `logprobs` request is
+      rejected with HTTP 400.
+    - Host sampling is refused on every profile: `min_p`, `bad_words`, `logit_bias`,
+      `allowed_token_ids`, `min_tokens`, structured outputs and `top_logprobs > 0` return HTTP 400.

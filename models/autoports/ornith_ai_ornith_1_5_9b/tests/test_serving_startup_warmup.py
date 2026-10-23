@@ -17,6 +17,7 @@ HELPERS = runpy.run_path(str(Path(__file__).with_name("test_prefill_penalty_admi
 def fixture(batch, mrope):
     case = HELPERS["admission"].__wrapped__()
     adapter, gen = case.adapter, case.gen
+    gen.execution_info = lambda: {"effective_mode": "original"}
     adapter.max_batch_size = gen.max_batch_size = batch
     adapter.max_model_len = 262144
     adapter._warmed = False
@@ -107,6 +108,8 @@ def fixture(batch, mrope):
     gen.read_output_async = lambda output, **kwargs: (output.clone(), "event")
     gen.tokens_from = lambda value: value.reshape(-1)[:batch].to(torch.int64)
     namespace = adapter.warmup_model_prefill.__func__.__globals__
+    namespace["logger"] = SimpleNamespace(info=lambda *args: None)
+    namespace["json"] = __import__("json")
     namespace["ttnn"] = SimpleNamespace(
         event_synchronize=lambda event: case.calls.append(("wait", event)),
         int32=torch.int32,

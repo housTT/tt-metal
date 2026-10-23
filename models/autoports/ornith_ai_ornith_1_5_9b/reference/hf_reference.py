@@ -38,12 +38,32 @@ CHECKPOINT_TEXT_PREFIX = "model.language_model."
 def resolve_model_path() -> Path:
     """Local snapshot directory for :data:`HF_MODEL_ID`.
 
-    Uses the pinned local snapshot only. No unpinned network resolution is permitted.
-    ORNITH_MODEL_PATH may name another copy of revision HF_REVISION.
+    ORNITH_MODEL_PATH may name another copy of revision HF_REVISION. A packaged
+    launch sets HF_MODEL and resolves the exact revision in its mounted HF cache.
+    No unpinned network resolution is permitted.
     """
     import os
 
-    return Path(os.environ.get("ORNITH_MODEL_PATH", "/home/hous/dev/ornith-1.5-9b/upstream"))
+    model_id = os.environ.get("HF_MODEL")
+    if model_id is not None and model_id != HF_MODEL_ID:
+        raise ValueError(f"This autoport only supports {HF_MODEL_ID}, got {model_id!r}")
+    explicit = os.environ.get("ORNITH_MODEL_PATH")
+    if explicit:
+        return Path(explicit)
+    # Preserve the original bringup default only outside packaged serving.
+    # HF_MODEL always takes the pinned Hub path, even on the developer's host.
+    development_snapshot = Path("/home/hous/dev/ornith-1.5-9b/upstream")
+    if model_id is None and development_snapshot.is_dir():
+        return development_snapshot
+    from huggingface_hub import snapshot_download
+
+    return Path(
+        snapshot_download(
+            repo_id=HF_MODEL_ID,
+            revision=HF_REVISION,
+            allow_patterns=["*.json", "*.jinja", "*.safetensors"],
+        )
+    )
 
 
 def load_text_config(model_path: Path | None = None) -> Qwen3_5TextConfig:

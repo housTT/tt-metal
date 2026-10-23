@@ -18,22 +18,86 @@ from pathlib import Path
 TRACE_FIELDS = ("_model_trace", "_sampling_trace", "_sampling_history_trace", "_prefill_trace")
 
 
+def check_live_key_reuse(gen, params_type, formatter, observations, save):
+    """Opt-in boundary assertion; leave the existing traced/eager oracle intact."""
+    params = params_type(
+        temperature=[0.0], top_k=[248320], top_p=[1.0], num_logprobs=[-2], seed=list(gen._configured_seeds)
+    )
+    key = gen._sampling_trace_key(formatter(params, 32))
+    row = {"live": gen._live, "normalized_key_equal": key == gen._sampling_key, "calls": []}
+    observations.append(row)
+    save()
+    assert gen._live and row["normalized_key_equal"]
+
+    def resources():
+        buffers = list(gen._inputs) + [gen._logits, gen.sampling.tt_sampling.seeds_tt_tensor]
+        buffers += gen._sampler_history_tensors() + list(gen._prefill_inputs or [])
+        for name in ("_output_history", "_output_history_index", "_prefill_sampling_logits"):
+            tensor = getattr(gen, name, None)
+            if tensor is not None:
+                buffers.append(tensor)
+        for name in ("_prefill_sampling_saved", "_prefill_sampling_masks"):
+            buffers += list(getattr(gen, name, []))
+        return {
+            "traces": [str(getattr(gen, field)) for field in TRACE_FIELDS],
+            "addresses": [int(t.buffer_address()) for t in buffers],
+            "configured_seeds": list(gen._configured_seeds),
+            "prefill_key": str(gen._prefill_key),
+        }
+
+    before = resources()
+    row["before"] = before
+    counters = dict(gen.counters)
+    methods = {name: getattr(gen, name) for name in ("_capture", "_forward", "_sample_device", "_release_traces")}
+    overrides = {name: gen.__dict__.get(name) for name in methods}
+
+    def observe(name):
+        def call(*args, **kwargs):
+            row["calls"].append(name)
+            return methods[name](*args, **kwargs)
+
+        return call
+
+    for name in methods:
+        setattr(gen, name, observe(name))
+    try:
+        gen.configure_sampling(params)
+    finally:
+        for name, value in overrides.items():
+            if value is None:
+                delattr(gen, name)
+            else:
+                setattr(gen, name, value)
+        row["after"] = resources()
+        row["counter_delta"] = {name: value - counters.get(name, 0) for name, value in gen.counters.items()}
+        save()
+    assert not row["calls"], row
+    assert not any(row["counter_delta"].values()), row
+    assert row["after"] == before, row
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--full32", action="store_true")
+    parser.add_argument("--verify-live-key-reuse", action="store_true")
     parser.add_argument(
         "--tensor-dir", type=Path, required=True, help="Persistent artifact directory outside source docs"
     )
     parser.add_argument("--require-trace-allocation-tracking", action="store_true")
     args = parser.parse_args()
+    if args.verify_live_key_reuse:
+        if not args.full32 or os.environ.get("ORNITH_ACTIVE8_MODE", "original") != "original":
+            raise ValueError("The key-reuse B1 control requires --full32 and original mode")
+        if args.output.exists():
+            raise FileExistsError("Preserve the previous control; choose a fresh output")
 
     import torch
 
     import ttnn
     from models.autoports.ornith_ai_ornith_1_5_9b.tt.generator_vllm import TTOrnithForCausalLM
     from models.autoports.ornith_ai_ornith_1_5_9b.tt.model import OrnithModel, close_ornith_mesh, open_ornith_mesh
-    from models.common.sampling import SamplingParams
+    from models.common.sampling import SamplingParams, format_sampling_params
 
     report = dict(
         layers=list(range(32)) if args.full32 else [0, 3],
@@ -49,7 +113,7 @@ def main():
         ),
         source_sha256={
             name: hashlib.sha256((Path(__file__).parents[1] / "tt" / name).read_bytes()).hexdigest()
-            for name in ("generator.py", "generator_vllm.py", "model.py")
+            for name in ("generator.py", "generator_vllm.py", "model.py", "active8.py")
         },
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -98,6 +162,18 @@ def main():
         if args.require_trace_allocation_tracking:
             assert ttnn.TRACE_ALLOC_TRACKING, "Set TT_METAL_TRACE_ALLOC_TRACKING=1 before starting Python"
             assert report["trace_allocation_tracking"]["skip_program_cache"] == "0"
+        if args.verify_live_key_reuse:
+            import sys
+
+            package = TTOrnithForCausalLM.__module__.rsplit(".", 1)[0]
+            actual = {
+                name: str(Path(sys.modules[package + "." + name].__file__).resolve())
+                for name in ("generator", "generator_vllm", "model", "active8")
+            }
+            report["imported_sources"] = actual
+            save()
+            expected = (Path(__file__).resolve().parents[1] / "tt").resolve()
+            assert all(Path(path) == expected / (name + ".py") for name, path in actual.items())
         report["phase"] = "open"
         save()
         mesh = open_ornith_mesh()
@@ -173,6 +249,10 @@ def main():
                 lane["literal_first131"] = dict(
                     scores_sha256=sha(first_scores), state_hashes=first_record["states"], snapshot_calls=0
                 )
+                if args.verify_live_key_reuse:
+                    check_live_key_reuse(
+                        gen, SamplingParams, format_sampling_params, lane.setdefault("live_key_reuse", []), save
+                    )
                 gen.reset(clear_kv=False)
 
                 # Populate an unreferenced physical page with real nonzero KV.
@@ -236,6 +316,10 @@ def main():
                     state = states()
                     assert output is not gen._logits and output.buffer_address() != gen._logits.buffer_address()
                     ttnn.deallocate(output)
+                    if args.verify_live_key_reuse:
+                        check_live_key_reuse(
+                            gen, SamplingParams, format_sampling_params, lane.setdefault("live_key_reuse", []), save
+                        )
                     next_scores = gen.decode_forward(
                         [42], [start + len(tokens)], page_table=table, kv_cache=cache, return_logits=True
                     )

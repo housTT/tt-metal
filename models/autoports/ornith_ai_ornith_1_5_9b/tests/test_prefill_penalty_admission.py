@@ -37,6 +37,7 @@ def admission():
     gen = namespace["OrnithGenerator"].__new__(namespace["OrnithGenerator"])
     gen.max_batch_size, gen.sampling_mode, gen._live = 4, "device", True
     gen._model_trace, gen._logits = 1, torch.arange(4).float()
+    gen._sampling_key = None
     gen._inputs = [torch.arange(32), torch.arange(4), torch.arange(4), torch.arange(128).reshape(4, 32)]
     gen.sampling = SimpleNamespace(
         _penalties_active=False,
@@ -113,10 +114,10 @@ def test_continuation_prefill_cannot_claim_fresh_history(admission):
     case = admission
     with pytest.raises(ValueError, match="requires prompt_token_ids"):  # allow-pytest.raises: CPU-only error.
         case.adapter.prefill_forward(
-            tokens=torch.tensor([[7, 8, 9]]),
+            tokens=torch.tensor([[1, 2, 3, 7, 8, 9]]),
             page_table=torch.tensor([[1]]),
             kv_cache=case.gen.kv_cache,
-            prompt_lens=[3],
+            prompt_lens=[6],
             empty_slots=[2],
             start_pos=[3],
             sampling_params=case.params(temperature=0.0, top_k=1, top_p=1.0, presence_penalty=0.5),
@@ -145,3 +146,74 @@ def test_invalid_fresh_slots_fail_before_any_sampler_mutation(admission, fresh):
     with pytest.raises(ValueError, match="fresh_slots"):  # allow-pytest.raises: CPU-only error.
         case.gen.configure_sampling(params(case, presence_penalty=[0.0, 0.0, 0.5, 0.0]), fresh_slots=fresh)
     assert case.calls == []
+
+
+def configure_live_sampler(case, params):
+    """Use the real normalized key while keeping TT writes at the CPU boundary."""
+    gen = case.gen
+    del gen._configure_sampling
+    gen.sampling.reset_sampling_params = lambda formatted: case.calls.append("reset_params")
+    gen._configure_sampling(params)
+    gen._sampling_trace, gen._sampling_history_trace = 2, 3
+    gen._active8_trace, gen._prefill_trace = 4, 5
+    namespace = gen.configure_sampling.__globals__
+    namespace["ttnn"].clone = lambda tensor: case.calls.append("clone") or tensor.clone()
+    gen._sample_device = lambda logits: case.calls.append("warm")
+    case.calls.clear()
+    return gen, namespace
+
+
+@pytest.mark.parametrize("temperature", [0.0, 0.8])
+@pytest.mark.parametrize("seeds", [None, [71, None, 73, None]])
+def test_equal_normalized_sampling_key_reuses_live_traces(admission, temperature, seeds):
+    case = admission
+    initial = case.params(temperature=[temperature] * 4, top_k=10, top_p=1.0, seed=[1, 2, 3, 4])
+    gen, namespace = configure_live_sampler(case, initial)
+    request = replace(initial, top_k=248320 if temperature == 0.0 else 10, seed=seeds)
+    real_format = namespace["format_sampling_params"]
+    formatted_calls = []
+
+    def format_once(value, batch):
+        formatted_calls.append(value)
+        return real_format(value, batch)
+
+    namespace["format_sampling_params"] = format_once
+    trace_fields = ("_model_trace", "_sampling_trace", "_sampling_history_trace", "_active8_trace", "_prefill_trace")
+    traces = [getattr(gen, name) for name in trace_fields]
+    pointers = [tensor.data_ptr() for tensor in case.tracked]
+    before = [tensor.clone() for tensor in case.tracked]
+    cache = gen.kv_cache
+    gen.configure_sampling(request)
+    assert case.calls == []  # No cloning, parameter writes, warming, releasing or capturing.
+    assert len(formatted_calls) == 1 and formatted_calls[0] is request
+    assert gen._configured_seeds == list(real_format(request, 32).seed)
+    assert gen._sampling_key[-1][:4] == (1.0 if temperature == 0.0 else 1.25,) * 4
+    assert [getattr(gen, name) for name in trace_fields] == traces
+    assert [tensor.data_ptr() for tensor in case.tracked] == pointers
+    assert all(torch.equal(actual, expected) for actual, expected in zip(case.tracked, before))
+    assert gen.kv_cache is cache
+
+
+def test_equal_sampling_key_applies_seed_then_history_updates(admission):
+    case = admission
+    initial = params(case, presence_penalty=[0.5] * 4, seed=[1, 2, 3, 4])
+    gen, _ = configure_live_sampler(case, initial)
+    gen.sampling._penalties_active = True
+    requested = [91, None, 93, None]
+    gen._reset_seeds = lambda: case.calls.append(("all_seeds", gen._configured_seeds[:4]))
+    gen._reset_request_seeds = lambda rows: case.calls.append(("fresh_seeds", list(rows), gen._configured_seeds[:4]))
+    gen.sampling.reset_prompt_tokens = lambda rows: case.calls.append(("prompt", rows.clone()))
+    gen.sampling.reset_output_state = lambda rows: case.calls.append(("output", rows.clone()))
+    gen.configure_sampling(
+        replace(initial, seed=requested),
+        reset_seed=True,
+        fresh_seed_slots=[2],
+        prompt_token_ids=[[1, 2], [3], [], [4]],
+        generated_token_ids=[[5], [], [6, 7], []],
+    )
+    assert [event[0] for event in case.calls] == ["all_seeds", "fresh_seeds", "prompt", "output"]
+    assert case.calls[0] == ("all_seeds", requested)
+    assert case.calls[1] == ("fresh_seeds", [2], requested)
+    assert case.calls[2][1].shape == case.calls[3][1].shape == (32, 2)
+    assert case.calls[2][1][:4].tolist() == [[1, 2], [3, -1], [-1, -1], [4, -1]]
+    assert case.calls[3][1][:4].tolist() == [[5, -1], [-1, -1], [6, 7], [-1, -1]]

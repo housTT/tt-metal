@@ -144,7 +144,17 @@ def test_live_sampling_reconfigure_restores_every_warmup_mutation(monkeypatch):
             output_mask=histories[0], output_counts=histories[1], output_counts_gathered=histories[2]
         ),
     )
-    formatted = SimpleNamespace(presence_penalty=[0.1], frequency_penalty=[0.0], repetition_penalty=[1.0])
+    gen._sampling_key = ()
+    formatted = SimpleNamespace(
+        presence_penalty=[0.1],
+        frequency_penalty=[0.0],
+        repetition_penalty=[1.0],
+        enable_log_probs=[False],
+        num_logprobs=[0],
+        top_k=[1],
+        top_p=[1.0],
+        temperature=[0.0],
+    )
     monkeypatch.setitem(NAMESPACE, "format_sampling_params", lambda params, size: formatted)
     fake_tt = SimpleNamespace(
         clone=lambda tensor: tensor.clone(), copy=lambda src, dst: dst.copy_(src), deallocate=lambda tensor: None
@@ -205,12 +215,26 @@ def test_partial_prefill_sampler_preserves_other_rows(monkeypatch):
     state = [gen._inputs[0], gen.sampling.tt_sampling.seeds_tt_tensor] + histories
     before = [tensor.clone() for tensor in state]
 
-    def sample(logits):
+    # Stage 10 uses persistent backups and traced sampling; keep this older
+    # row-isolation fixture on that interface rather than its removed eager path.
+    gen._logits = torch.zeros(32, 4)
+    gen._programs = 1
+    gen.mesh_device = SimpleNamespace(num_program_cache_entries=lambda: 1)
+    gen._prefill_sampling_saved = [tensor.clone() for tensor in state]
+    lane_mask = torch.zeros(1, 1, 1, 32, dtype=torch.int32)
+    lane_mask[..., 2] = 1
+    row_mask = torch.zeros(32, 1, dtype=torch.int32)
+    row_mask[2] = 1
+    gen._prefill_sampling_masks = (lane_mask, row_mask)
+    gen._prefill_sampling_rows = (2,)
+
+    def sample(logits, *, require_trace):
+        assert require_trace
         for tensor in state:
             tensor.add_(100)
 
-    gen._sample_device = sample
-    gen._sample_prefill_device(torch.zeros(32, 4), [2])
+    gen._sample_first_token = sample
+    gen._sample_prefill_device(gen._logits, [2])
     for index, (old, new) in enumerate(zip(before, state)):
         if index < 2:
             old, new = old.flatten(), new.flatten()
