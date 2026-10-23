@@ -2952,6 +2952,9 @@ __attribute__((optimize("Os"))) void teardown(
     if constexpr (NUM_ACTIVE_ERISCS > 1) {
         wait_for_other_local_erisc();
     }
+    // Restore default transaction IDs after both ERISCs have drained fabric traffic.
+    // The kernel wrapper checks these command-buffer tags before firmware handoff.
+    noc_clear_packet_tags(noc_index);
     if constexpr (IS_TEARDOWN_MASTER()) {
         *edm_status_ptr = tt::tt_fabric::EDMStatus::TERMINATED;
     }
