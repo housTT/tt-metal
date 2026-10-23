@@ -9,6 +9,7 @@ import pytest
 import torch
 
 from models.autoports.qwen_qwen3_5_35b_a3b.tt.generator import SAMPLER_ROWS, Qwen35Generator, _greedy_params
+from models.common.sampling.generator import MAX_UINT32, SeedManager
 
 
 class _SeedSink:
@@ -37,8 +38,9 @@ class _Sampler:
         self.samples += 1
 
 
-def _generator():
+def _generator(seed_mode="host"):
     gen = Qwen35Generator.__new__(Qwen35Generator)
+    gen.seed_mode, gen._seeds_written = seed_mode, False
     gen.sampler = _Sampler()
     gen.counters = Counter()
     gen._sampling_mode = None
@@ -69,6 +71,30 @@ def test_greedy_lanes_skip_seed_writes_and_sampled_lanes_refresh_seeds():
     writes = gen.sampler.seed_manager.writes
     assert len(writes) == 2 and len(writes[0]) == SAMPLER_ROWS and writes[0] != writes[1]
     assert gen.sampler.samples == 3
+
+
+class _RecordingSeedManager(SeedManager):
+    def __init__(self):
+        super().__init__(tt_sampling=SimpleNamespace(_sampling_dp=1), max_batch_size=SAMPLER_ROWS)
+        self.writes = []
+
+    def write_device_seed_values(self, values):
+        self.writes.append(list(values))
+
+
+def test_skip_seed_mode_stops_host_writes_after_skip_sentinel():
+    gen = _generator("skip")
+    gen.sampler.seed_manager = _RecordingSeedManager()
+    gen._set_sampling(replace(_greedy_params(), temperature=1.0, top_k=32, top_p=1.0))
+    for _ in range(5):
+        gen._sample(None)
+    writes = gen.sampler.seed_manager.writes
+    assert len(writes) == 2 and writes[1] == [MAX_UINT32] * SAMPLER_ROWS and MAX_UINT32 not in writes[0]
+    assert gen.counters["seed_writes"] == 2 and gen.sampler.samples == 5
+    gen._seeds_written = False
+    gen._sample(None)
+    gen._sample(None)
+    assert len(writes) == 4 and writes[3] == [MAX_UINT32] * SAMPLER_ROWS
 
 
 def test_explicit_request_seed_rejected():

@@ -23,6 +23,7 @@ CHECKPOINT = Path(os.environ.get("QWEN35_CHECKPOINT", "/home/hous/dev/qwen3.5-35
 SAMPLER_ROWS = 32
 DEFAULT_KV_BLOCKS = {1: 8256, 2: 16448, 4: 32832}
 DEFAULT_REQUEST_SLOTS = {1: 32, 2: 32, 4: 32}
+SEED_MODES = ("skip", "host")
 PREFILL_BUCKETS = (128, 256, 512, 1024, 2048, 4096, 8192)
 WARMUP_FIRST = (1, 2, 128, 129, 256, 257, 512, 513, 1024, 1025, 2048, 2049, 4096, 4097, 8192)
 WARMUP_CONTINUATION = WARMUP_FIRST
@@ -37,9 +38,19 @@ def _greedy_params():
 class Qwen35Generator(_ContractGenerator):
     def __init__(self, model: Qwen35Model, tokenizer, *, kv_blocks: Optional[int] = None,
                  decode_batches: Sequence[int] = (1,), max_top_k: int = 32, audit: bool = False,
-                 warmup_first: Sequence[int] = WARMUP_FIRST, warmup_continuation: Sequence[int] = WARMUP_CONTINUATION):
+                 warmup_first: Sequence[int] = WARMUP_FIRST, warmup_continuation: Sequence[int] = WARMUP_CONTINUATION,
+                 seed_mode: str = "host", greedy_sampler: str = "topk"):
         import ttnn
 
+        if seed_mode not in SEED_MODES:
+            raise ValueError(f"seed_mode must be one of {SEED_MODES}")
+        self.seed_mode = seed_mode
+        if greedy_sampler not in ("topk", "argmax"):
+            raise ValueError("greedy_sampler must be topk or argmax")
+        self.greedy_sampler = greedy_sampler
+
+        if seed_mode == "skip" and model.tp > 1:
+            raise ValueError("seed_mode='skip' lets device token copies diverge on multichip meshes")
         self.model = model
         model.audit = audit
         self.warmup_first, self.warmup_continuation = tuple(warmup_first), tuple(warmup_continuation)
@@ -68,6 +79,7 @@ class Qwen35Generator(_ContractGenerator):
         self._live_slots = set()
         self._sampling_mode = None
         self._greedy_lanes = True
+        self._seeds_written = False
         self._prepared = False
         self.sampler = self._build_sampler()
 
@@ -90,16 +102,32 @@ class Qwen35Generator(_ContractGenerator):
             from models.common.modules.tt_ccl import TT_CCL
 
             tt_ccl = TT_CCL(self.mesh_device)
+        import ttnn
+
+        model_config = {}
+        if self.greedy_sampler == "argmax":
+            model_config["SAMPLING_AG_CONFIG"] = dict(
+                allow_force_argmax=True, num_links=1,
+                topology=ttnn.Topology.Ring if self.tp == 4 else ttnn.Topology.Linear)
         args = SimpleNamespace(vocab_size=self.vocab_size, padded_vocab_size=self.local_vocab * self.tp,
                                cluster_shape=tuple(self.mesh_device.shape), max_batch_size=SAMPLER_ROWS,
-                               max_top_k=32, pad_logits_to_power_of_2=self.tp > 1, model_config={})
+                               max_top_k=32, pad_logits_to_power_of_2=self.tp > 1, model_config=model_config)
         return SamplingGenerator(args=args, mesh_device=self.mesh_device, tt_ccl=tt_ccl)
 
     def _sample(self, logits, **kwargs):
-        if not self._greedy_lanes:
-            seeds = self.sampler.seed_manager
+        seeds = self.sampler.seed_manager
+        if self._greedy_lanes:
+            self.sampler.sample(logits, tt_out_tok=self.tt_tokens, **kwargs)
+            return
+        if self.seed_mode == "host":
             seeds.write_device_seed_values([seeds._next_unseeded_device_seed() for _ in range(seeds.max_batch_size)])
             self.counters["seed_writes"] += 1
+        else:
+            if not self._seeds_written:
+                seeds.reset_seed(None, list(range(seeds.max_batch_size)))
+                self._seeds_written = True
+            if seeds.get_new_values() is not None:
+                self.counters["seed_writes"] += 1
         self.sampler.sample(logits, tt_out_tok=self.tt_tokens, **kwargs)
 
     def _set_sampling(self, params):
@@ -187,6 +215,35 @@ class Qwen35Generator(_ContractGenerator):
         self.counters["token_readbacks"] += 1
         host = ttnn.to_torch(ttnn.get_device_tensors(self.tt_tokens)[0])
         return host.reshape(-1)[:batch].to(torch.int64)
+
+    def _read_tokens_async(self):
+        import ttnn
+
+        return self.tt_tokens.cpu(blocking=False), ttnn.record_event(self.mesh_device, 0)
+
+    def _wait_tokens(self, pending, batch):
+        import ttnn
+
+        host, event = pending
+        ttnn.event_synchronize(event)
+        self.counters["token_readbacks"] += 1
+        return ttnn.to_torch(ttnn.get_device_tensors(host)[0]).reshape(-1)[:batch].to(torch.int64)
+
+    def decode_steps(self, batch, steps, sampling_params, stop=None):
+        self._set_sampling(sampling_params)
+        tokens, pending = [], None
+        for _ in range(steps):
+            self._replay(batch, sample=True)
+            current = self._read_tokens_async()
+            if pending is not None:
+                tokens.append(self._wait_tokens(pending, batch))
+                if stop is not None and stop(tokens[-1]):
+                    pending = None
+                    break
+            pending = current
+        if pending is not None:
+            tokens.append(self._wait_tokens(pending, batch))
+        return tokens
 
     def _logits_to_host(self, logits, rows=None):
         import ttnn
@@ -392,6 +449,13 @@ class Qwen35Generator(_ContractGenerator):
         self._write_positions(1, [length])
         predictions = [predicted]
         eos = getattr(self.tokenizer, "eos_token_id", None)
+        if next_input is None and not host_sampling:
+            if stop_on_eos and eos is not None and predicted == eos:
+                return predictions
+            stop = (lambda t: int(t[0]) == eos) if stop_on_eos and eos is not None else None
+            tokens = self.decode_steps(1, max_new_tokens - 1, params, stop=stop)
+            predictions += [int(t[0]) for t in tokens]
+            return predictions
         for step in range(max_new_tokens - 1):
             feed = predicted if next_input is None else int(next_input(step, predicted))
             if feed != predicted:
@@ -416,6 +480,7 @@ class Qwen35Generator(_ContractGenerator):
 
     def reset(self) -> None:
         self._live_slots.clear()
+        self._seeds_written = False
         self.model.zero_kv_cache()
         self.model.reset_request_state()
         for batch in self.decode_batches:
@@ -434,7 +499,18 @@ def build_generator(model_dir, mesh_device, **kwargs) -> Qwen35Generator:
     model = Qwen35Model.from_checkpoint(checkpoint, mesh_device, layer_ids=layer_ids,
                                         max_batch_size=kwargs.pop("max_batch_size", None)
                                         or DEFAULT_REQUEST_SLOTS[mesh_device.get_num_devices()],
-                                        tensor_cache_path=None if cache is None else Path(cache), kv_blocks=kv_blocks)
+                                        tensor_cache_path=None if cache is None else Path(cache), kv_blocks=kv_blocks,
+                                        lm_head_dram=kwargs.pop("lm_head_dram", False))
+    batched = kwargs.pop("batched_decode", True)
+    moe_overrides = kwargs.pop("moe_policy", None) or {}
+    for layer in model.layers:
+        layer.batched_decode = batched
+        moe = getattr(layer.layer.feed_forward, "module", None)
+        if moe_overrides and hasattr(moe, "policy"):
+            moe.policy = replace(moe.policy, **moe_overrides)
+            dispatch = getattr(getattr(moe.moe, "experts", None), "dispatch", None)
+            if dispatch is not None and hasattr(dispatch, "policy"):
+                dispatch.policy = replace(dispatch.policy, **moe_overrides)
     tokenizer = AutoTokenizer.from_pretrained(checkpoint, local_files_only=True)
     generator = Qwen35Generator(model, tokenizer, **kwargs)
     generator.prepare()

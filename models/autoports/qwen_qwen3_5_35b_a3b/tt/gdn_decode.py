@@ -40,7 +40,7 @@ def _accessor(ttnn, tensor):
 
 
 def gdn_decode(q, k, v, z, decay_log, beta, state, norm_weight, *, groups, blocks=0, l2_eps=1e-6, norm_eps=1e-6,
-               gates=None, z_offset=0, conv=None):
+               gates=None, z_offset=0, conv=None, raw=False):
     import ttnn
 
     heads, head_k, head_v = state.shape[1], state.shape[-2], state.shape[-1]
@@ -133,5 +133,7 @@ def gdn_decode(q, k, v, z, decay_log, beta, state, norm_weight, *, groups, block
         runtime_args=[(c, []) for c in head_coords], config=_compute_config(ttnn))
     ttnn.generic_op(gate_tensors, ttnn.ProgramDescriptor(
         kernels=[gate_reader, gate_writer, gate_compute], semaphores=[], cbs=gate_cbs))
+    if raw:
+        return gated, output
     output.deallocate(True)
     return gated

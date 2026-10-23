@@ -1139,5 +1139,124 @@
    "full_model/evidence5/",
    "full_model/memory_handoff_recheck.json"
   ]
+ },
+ "optimized_full_model_validation": {
+  "stage": "optimized_full_model",
+  "capability_reduction": null,
+  "supported_context": 262144,
+  "profiles": {
+   "p150x4": {
+    "kv_pool_blocks": 32832,
+    "kv_block_tokens": 32,
+    "kv_pool_tokens": 1050624,
+    "kv_bytes_per_token_all_full_layers": 5440,
+    "kv_pool_bytes": 5715394560,
+    "request_slots": 32,
+    "gdn_state_bytes": 515112960,
+    "full_context_sequences_in_pool": 4.0078125,
+    "long_prompt": {
+     "length": 262100,
+     "prefill_and_16_tokens_seconds": 62.23263751200284,
+     "text": " Elena. Every morning, she would climb to the top of the eastern hill and"
+    },
+    "boundary": {
+     "length": 262143,
+     "requested": 16,
+     "returned": 2,
+     "tokens": [
+      264,
+      2526
+     ]
+    },
+    "dram_allocated_bytes_after_build_per_device": 21101937152,
+    "dram_allocated_bytes_after_all_trace_captures_per_device": 21216674304,
+    "dram_free_bytes_after_all_trace_captures_per_device": 12962056704,
+    "dram_largest_free_bytes_per_bank_after_all_trace_captures": 1479417856,
+    "trace_capture_dram_bytes_per_device": 114737152,
+    "decode_buckets": "4,8,16,32",
+    "artifacts": [
+     "optimized_full_model/evidence1/m4/full_evidence.json",
+     "optimized_full_model/evidence2/m4/batch_perf_sampled0.json"
+    ]
+   },
+   "p150x2": {
+    "kv_pool_blocks": 16448,
+    "kv_block_tokens": 32,
+    "kv_pool_tokens": 526336,
+    "kv_bytes_per_token_all_full_layers": 5440,
+    "kv_pool_bytes": 2863267840,
+    "request_slots": 32,
+    "gdn_state_bytes": 1030225920,
+    "full_context_sequences_in_pool": 2.0078125,
+    "long_prompt": {
+     "length": 262100,
+     "prefill_and_16_tokens_seconds": 90.96321660000831,
+     "text": " Elena. Every morning, she would climb to the top of the eastern hill and"
+    },
+    "boundary": {
+     "length": 262143,
+     "requested": 16,
+     "returned": 2,
+     "tokens": [
+      264,
+      2526
+     ]
+    },
+    "dram_allocated_bytes_after_build_per_device": 31186811392,
+    "dram_allocated_bytes_after_all_trace_captures_per_device": 31323798016,
+    "dram_free_bytes_after_all_trace_captures_per_device": 2854932992,
+    "dram_largest_free_bytes_per_bank_after_all_trace_captures": 274915328,
+    "trace_capture_dram_bytes_per_device": 136986624,
+    "decode_buckets": "4,8,16,32",
+    "artifacts": [
+     "optimized_full_model/evidence1/m2/full_evidence.json",
+     "optimized_full_model/evidence2/m2/batch_perf_sampled0.json"
+    ]
+   },
+   "p150": {
+    "kv_pool_blocks": 8256,
+    "kv_block_tokens": 32,
+    "kv_pool_tokens": 264192,
+    "kv_bytes_per_token_all_full_layers": 10880,
+    "kv_pool_bytes": 2874408960,
+    "request_slots": 32,
+    "gdn_state_bytes": 2060451840,
+    "full_context_sequences_in_pool": 1.0078125,
+    "long_prompt": {
+     "length": 262100,
+     "prefill_and_16_tokens_seconds": 140.41011051498936,
+     "text": " Elena. Every morning, she would climb to the top of the eastern hill and"
+    },
+    "boundary": {
+     "length": 262143,
+     "requested": 16,
+     "returned": 2,
+     "tokens": [
+      264,
+      2526
+     ]
+    },
+    "dram_allocated_bytes_after_build_per_device": 32553767424,
+    "dram_allocated_bytes_after_all_trace_captures_per_device": 32807162368,
+    "dram_free_bytes_after_all_trace_captures_per_device": 1371568640,
+    "dram_largest_free_bytes_per_bank_after_all_trace_captures": 156323712,
+    "trace_capture_dram_bytes_per_device": 253394944,
+    "decode_buckets": "4,8,16,32",
+    "artifacts": [
+     "optimized_full_model/evidence1/m1/full_evidence.json",
+     "optimized_full_model/evidence2/m1/batch_perf_sampled0.json"
+    ]
+   }
+  },
+  "notes": [
+   "Same KV pool, request slots (32), block size and dtype policy as full_model_validation.",
+   "Batched decode adds per-bucket decode traces; trace_capture_dram_bytes_per_device covers buckets 1, 4, 8, 16 and 32 plus their sampler traces, measured after all captures with the native context kept.",
+   "Batched GDN decode reads and writes the same per-slot FP32 recurrent state as the per-row path; no new persistent state.",
+   "Prefill at 262100 tokens and generation at the 262143-token boundary run on every profile."
+  ],
+  "artifacts": [
+   "optimized_full_model/evidence1/",
+   "optimized_full_model/evidence2/"
+  ]
  }
 }

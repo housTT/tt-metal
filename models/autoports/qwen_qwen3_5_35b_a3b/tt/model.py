@@ -217,6 +217,72 @@ class KVPool:
         return self.num_blocks
 
 
+class _ShardedHead:
+    def __init__(self, mesh_device, weight, cached, *, readers=3, cores=64, chunk=62208):
+        import torch
+        import ttnn
+
+        tp = mesh_device.get_num_devices()
+        k, vocab = weight.shape
+        banks = mesh_device.dram_grid_size().x
+        unit = 32 * banks * readers
+        if chunk % unit:
+            raise ValueError("LM head chunk must divide into DRAM banks, readers and tiles")
+        local = -(-vocab // tp)
+        self.chunks = -(-local // chunk)
+        self.local_vocab = self.chunks * chunk
+        padded = torch.nn.functional.pad(weight, (0, tp * self.local_vocab - vocab))
+        memory = ttnn.MemoryConfig(
+            ttnn.TensorMemoryLayout.WIDTH_SHARDED, ttnn.BufferType.DRAM,
+            ttnn.ShardSpec(ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(banks - 1, 0))}),
+                           [k, chunk // banks], ttnn.ShardOrientation.ROW_MAJOR))
+        self.weights = []
+        for i in range(self.chunks):
+            part = torch.cat([padded[:, d * self.local_vocab + i * chunk: d * self.local_vocab + (i + 1) * chunk]
+                              for d in range(tp)], dim=-1)
+            self.weights.append(ttnn.as_tensor(part.reshape(1, 1, k, tp * chunk), dtype=ttnn.bfloat8_b,
+                                               layout=ttnn.TILE_LAYOUT, device=mesh_device,
+                                               mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=-1),
+                                               memory_config=memory,
+                                               cache_file_name=cached(f"lm_head_dram{chunk}_c{i}_bfp8")))
+        grid = ttnn.CoreGrid(x=8, y=cores // 8)
+        self.input_memory = ttnn.create_sharded_memory_config(
+            (32, k // cores), core_grid=grid, strategy=ttnn.ShardStrategy.WIDTH,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR, use_height_and_width_as_shard_shape=True)
+        self.program = ttnn.MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(
+            in0_block_w=k // cores // 32, per_core_M=1, per_core_N=chunk // banks // readers // 32,
+            num_workers_per_dram_bank=readers)
+        self.compute = ttnn.init_device_compute_kernel_config(
+            mesh_device.arch(), math_fidelity=ttnn.MathFidelity.HiFi2, math_approx_mode=False,
+            fp32_dest_acc_en=True, packer_l1_acc=True)
+
+    @property
+    def shape(self):
+        return (self.weights[0].shape[-2], self.local_vocab)
+
+    def __call__(self, x):
+        import ttnn
+
+        shape = tuple(x.shape)
+        rows = shape[-2]
+        x = ttnn.reshape(x, (1, 1, rows, shape[-1]))
+        blocks = []
+        for first in range(0, rows, 32):
+            block = x if rows <= 32 else x[:, :, first:first + 32, :]
+            source = ttnn.to_memory_config(block, self.input_memory)
+            parts = []
+            for weight in self.weights:
+                out = ttnn.linear(source, weight, program_config=self.program, compute_kernel_config=self.compute,
+                                  dtype=ttnn.bfloat16, memory_config=ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG)
+                parts.append(ttnn.sharded_to_interleaved(out, ttnn.DRAM_MEMORY_CONFIG))
+                out.deallocate(True)
+            source.deallocate(True)
+            blocks.append(parts[0] if len(parts) == 1 else ttnn.concat(parts, dim=-1,
+                                                                       memory_config=ttnn.DRAM_MEMORY_CONFIG))
+        out = blocks[0] if len(blocks) == 1 else ttnn.concat(blocks, dim=-2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        return ttnn.reshape(out, (*shape[:-1], self.local_vocab))
+
+
 class Qwen35Model:
     def __init__(self, mesh_device, hf_config, layers, embedding, norm, lm_head, layer_ids, load_seconds):
         self.mesh_device = mesh_device
@@ -259,6 +325,7 @@ class Qwen35Model:
         max_batch_size: int = 32,
         tensor_cache_path: Optional[Path] = None,
         kv_blocks: Optional[int] = None,
+        lm_head_dram: bool = False,
         log=print,
     ) -> "Qwen35Model":
         import gc
@@ -289,10 +356,14 @@ class Qwen35Model:
                                    device=mesh_device, mesh_mapper=replicate, memory_config=ttnn.DRAM_MEMORY_CONFIG,
                                    cache_file_name=cached("embed_tokens"))
         norm = _FusedRMSNorm(mesh_device, top[names[1]], hf_config.rms_norm_eps)
-        lm_head = ttnn.as_tensor(top[names[2]].to(torch.bfloat16).transpose(0, 1).contiguous(), dtype=ttnn.bfloat8_b,
-                                 layout=ttnn.TILE_LAYOUT, device=mesh_device,
-                                 mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=-1),
-                                 memory_config=ttnn.DRAM_MEMORY_CONFIG, cache_file_name=cached("lm_head_bfp8"))
+        head_weight = top[names[2]].to(torch.bfloat16).transpose(0, 1).contiguous()
+        if lm_head_dram:
+            lm_head = _ShardedHead(mesh_device, head_weight, cached)
+        else:
+            lm_head = ttnn.as_tensor(head_weight, dtype=ttnn.bfloat8_b, layout=ttnn.TILE_LAYOUT, device=mesh_device,
+                                     mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=-1),
+                                     memory_config=ttnn.DRAM_MEMORY_CONFIG, cache_file_name=cached("lm_head_bfp8"))
+        del head_weight
         del top
         pool = None
         if kv_blocks:
@@ -382,6 +453,8 @@ class Qwen35Model:
         if hidden.is_sharded():
             hidden = ttnn.sharded_to_interleaved(hidden, ttnn.L1_MEMORY_CONFIG)
         normalized = self.norm(hidden)
+        if isinstance(self.lm_head, _ShardedHead):
+            return self.lm_head(normalized)
         return ttnn.matmul(normalized, self.lm_head, dtype=ttnn.bfloat16, memory_config=ttnn.DRAM_MEMORY_CONFIG)
 
     def physical_length(self, length: int) -> int:
@@ -515,6 +588,11 @@ class Qwen35Model:
             out = layer.decode_forward(hidden, **kw)
             hidden.deallocate(True)
             hidden = out
+        rows = hidden.shape[0]
+        if rows > 1:
+            if hidden.is_sharded():
+                hidden = ttnn.sharded_to_interleaved(hidden, ttnn.L1_MEMORY_CONFIG)
+            hidden = ttnn.reshape(hidden, (1, rows, hidden.shape[-1]))
         logits = self.logits(hidden)
         hidden.deallocate(True)
         return logits

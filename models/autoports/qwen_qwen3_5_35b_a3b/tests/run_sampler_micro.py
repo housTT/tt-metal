@@ -53,6 +53,8 @@ def main():
         gen.local_vocab = -(-VOCAB // tp // 32) * 32
         gen.counters = Counter()
         gen._sampling_mode = None
+        gen.seed_mode, gen._seeds_written = "host", False
+        gen.greedy_sampler = "topk"
         gen._replicate = ttnn.ReplicateTensorToMesh(mesh)
         gen.tt_tokens = gen._device(torch.zeros(1, 1, 1, ROWS, dtype=torch.int32), ttnn.uint32)
         gen.sampler = gen._build_sampler()

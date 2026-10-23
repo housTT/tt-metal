@@ -3,7 +3,7 @@
 
 import copy
 
-from .functional_decoder import FunctionalDecoderConfig, _text_config
+from .functional_decoder import FunctionalDecoderConfig, _text_config, decode_rows
 from .optimized_decoder import (
     DEFAULT_POLICIES,
     OptimizedDecoder,
@@ -17,7 +17,7 @@ from .optimized_decoder import (
 )
 
 MESH_POLICIES = {
-    1: {"dispatch_weights": "stacked"},
+    1: {"dispatch_weights": "stacked", "moe_slot_rows": 16},
     2: {
         "dispatch_weights": "expert_parallel",
         "prefill_moe_pieces": 2,
@@ -420,7 +420,7 @@ class _AllReduceOutput:
 
         partial = object.__getattribute__(self, "reduced_module").forward(*args, **kwargs)
         topology = object.__getattribute__(self, "topology")
-        if partial.shape[-2] == 1:
+        if decode_rows(partial.shape[-2]):
             decode = object.__getattribute__(self, "decode")
             semaphore = decode["semaphores"][decode["index"][0]]
             decode["index"][0] ^= 1

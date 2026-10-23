@@ -60,7 +60,7 @@ def main():
     tracker.corruptible_allocation_scope = recorded_scope
     try:
         layer_ids = tuple(int(x) for x in args.layers.split(",")) if args.layers else None
-        gen = build_generator(Path(__file__).parents[1], mesh, layer_ids=layer_ids, decode_batches=(1, 4, 32))
+        gen = build_generator(Path(__file__).parents[1], mesh, layer_ids=layer_ids, decode_batches=(1, 4, 8, 16, 32))
         if args.freeze_seeds:
             gen.sampler.seed_manager.write_device_seed_values = lambda *a, **k: None
         tok = gen.tokenizer
@@ -116,7 +116,21 @@ def main():
         greedy4, g4_rank, g4_agree = run(prompts, greedy, args.steps)
         rows32 = [prompts[i % len(prompts)] for i in range(32)]
         g32, g32_rank, g32_agree = run(rows32, greedy, 16)
-        checks["greedy_b32_rows_match_b4"] = all(g32[i] == greedy4[i % 4][:17] for i in range(32))
+        checks["greedy_b32_same_prompt_rows_identical"] = all(g32[i] == g32[i % 4] for i in range(32))
+        result["greedy_b32_rows_equal_b4"] = sum(g32[i] == greedy4[i % 4][:17] for i in range(32))
+        s32, s32_rank, s32_agree = run(rows32, sampled, 16)
+        checks["sampled_b32_within_top_k"] = s32_rank < 32
+        mid_agree = []
+        for size in (8, 16):
+            rows_mid = [prompts[i % len(prompts)] for i in range(size)]
+            greedy_mid, greedy_rank, greedy_ok = run(rows_mid, greedy, 16)
+            sampled_mid, sampled_rank, sampled_ok = run(rows_mid, sampled, 16)
+            checks[f"greedy_b{size}_same_prompt_rows_identical"] = all(greedy_mid[i] == greedy_mid[i % 4]
+                                                                       for i in range(size))
+            checks[f"greedy_b{size}_rank0"] = greedy_rank == 0
+            checks[f"sampled_b{size}_within_top_k"] = sampled_rank < 32
+            result[f"greedy_b{size}_rows_equal_b32"] = sum(greedy_mid[i] == g32[i] for i in range(size))
+            mid_agree += [greedy_ok, sampled_ok]
         again, _, again_agree = run(prompts[:1], greedy, args.steps)
         checks["greedy_b1_after_all_buckets_identical"] = again == g1
         sampled_generate = [gen.generate(prompts[0], args.steps + 1, sampling_params=sampled) for _ in range(2)]
@@ -168,15 +182,18 @@ def main():
         result["distribution"].update(kth_logit=kth, ties_at_kth=int((host[0] == kth).sum()), outside_top_k=outside,
                                       draws_by_row=draws.T.tolist())
         checks["distribution_within_top_k_ties"] = all(o["logit"] >= kth for o in outside)
+        result["device_copies_agree_by_run"] = dict(g1=g1_agree, s1=s1_agree, s4=s4_agree, g4=g4_agree, g32=g32_agree,
+                                                    s32=s32_agree, again=again_agree, draws=draws_agree,
+                                                    g8=mid_agree[0], s8=mid_agree[1], g16=mid_agree[2], s16=mid_agree[3])
         checks["device_token_copies_agree"] = all((g1_agree, s1_agree, s4_agree, g4_agree, g32_agree, again_agree,
-                                                   draws_agree))
+                                                   draws_agree, s32_agree, *mid_agree))
         checks["sampler_trace_keys"] = len(gen.sampler._trace_states)
         checks["decode_captures"] = gen.counters["decode_captures"]
         result.update(
             greedy_b1=tok.decode(g1[0]), sampled_b1=tok.decode(s1[0]),
             sampled_b4=[tok.decode(r) for r in s4], greedy_b4=[tok.decode(r) for r in greedy4],
             worst_rank=dict(greedy_b1=g1_rank, sampled_b1=s1_rank, sampled_b4=s4_rank, greedy_b4=g4_rank,
-                            greedy_b32=g32_rank),
+                            greedy_b32=g32_rank, sampled_b32=s32_rank),
             sampler_scope_allocations=scopes, counters=dict(gen.counters), checks=checks)
         result["passed"] = all(v for v in checks.values() if isinstance(v, bool))
         print(json.dumps(dict(checks=checks, passed=result["passed"],

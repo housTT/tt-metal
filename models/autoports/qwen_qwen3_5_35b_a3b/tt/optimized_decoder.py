@@ -4,6 +4,7 @@
 
 from dataclasses import dataclass, field
 
+from .functional_decoder import DECODE_BATCH, decode_rows
 from .fused_decoder import FusedDecoder, _CompactExperts, _PackedPrefillExperts
 
 
@@ -51,6 +52,7 @@ class OptimizationPolicy:
     decode_input_fill: bool = False
     dispatch_combine: str = "post_combine"
     dispatch_tiles_from: int = 0
+    dispatch_tiles_upto: int = 32
     prefill_moe_batch: bool = False
     prefill_moe_pieces: int = 1
     prefill_moe_merge_min: int = 0
@@ -93,6 +95,9 @@ class OptimizationPolicy:
     gdn_decode_kernel: bool = False
     gdn_decode_gates: bool = False
     gdn_decode_blocks: int = 0
+    gdn_batch_kernel: bool = True
+    moe_row_loop_max: int = 8
+    moe_slot_rows: int = 32
     expert_decode_kernel: bool = False
     expert_decode_nper: int = 0
     expert_decode_kb: int = 8
@@ -872,7 +877,20 @@ class _PackedGateMoE:
     def forward(self, x, mode="decode"):
         import ttnn
 
-        if x.shape[2] != 1:
+        rows = x.shape[2]
+        if 1 < rows <= self.policy.moe_slot_rows and decode_rows(rows):
+            logits = ttnn.linear(x, self.weight, compute_kernel_config=self.compute, memory_config=ttnn.L1_MEMORY_CONFIG)
+            values, indices = self.moe.router.module.route(logits[:, :, :, :256])
+            out = self.moe.experts.original.slotted(x, values, indices)
+            return ttnn.add(out, self.moe.shared.forward(x, gate=logits[:, :, :, 256:257]))
+        if 1 < rows <= self.policy.moe_row_loop_max and decode_rows(rows):
+            outs = [self.forward(x[:, :, r : r + 1, :], mode=mode) for r in range(rows)]
+            return ttnn.concat(outs, dim=2, memory_config=ttnn.L1_MEMORY_CONFIG)
+        if rows != 1 and decode_rows(rows):
+            padded = ttnn.pad(x, ((0, 0), (0, 0), (0, 32 - rows), (0, 0)), 0.0) if rows < 32 else x
+            out = self.moe.forward(padded, mode="prefill")
+            return out[:, :, :rows, :] if rows < 32 else out
+        if rows != 1:
             return self.moe.forward(x, mode=mode)
         logits = ttnn.linear(x, self.weight, compute_kernel_config=self.compute, program_config=self.program,
                              memory_config=ttnn.L1_MEMORY_CONFIG)
@@ -918,7 +936,7 @@ class _OptimizedShared:
                                      memory_config=ttnn.L1_MEMORY_CONFIG)
         else:
             config = self.policy.shared_minimal_config
-            if x.shape[-2] == 1 and self.policy.shared_decode_minimal_config:
+            if decode_rows(x.shape[-2]) and self.policy.shared_decode_minimal_config:
                 config = self.policy.shared_decode_minimal_config
             activated = ttnn.experimental.minimal_matmul(x,self.packed,fuse_swiglu=True,
                 config=_minimal_config(config),
@@ -1030,7 +1048,7 @@ class _DecodeNorm:
     def __call__(self, x, *, mode=None, norm_config=None):
         import ttnn
 
-        if x.shape[-2] != 1:
+        if not decode_rows(x.shape[-2]):
             if self.policy.prefill_norm:
                 dram = ttnn.DRAM_MEMORY_CONFIG
                 if self.policy.prefill_norm == "fp32":
@@ -1140,6 +1158,53 @@ class _OptimizedSparseExperts:
         if self.policy.sparse_split:
             self.up_weight = self.gate_up_weight[..., :512]
             self.gate_weight = self.gate_up_weight[..., 512:]
+
+    def slotted(self, hidden, values, indices):
+        import torch
+        import ttnn
+
+        from models.autoports.qwen_qwen3_5_35b_a3b.tt.expert_decode import expert_swiglu_decode
+
+        rows = hidden.shape[2]
+        slots = 8 * rows
+        wide = ttnn.reshape(ttnn.typecast(indices, ttnn.uint32), (1, 1, rows, 8))
+
+        def stick(tensor, count):
+            flat = ttnn.reshape(tensor, (1, 1, 1, 8 * count))
+            return ttnn.to_layout(ttnn.typecast(flat, ttnn.uint16), ttnn.ROW_MAJOR_LAYOUT)
+        half = self.gate_up_weight.shape[-1] // 64
+        grid = hidden.device().compute_with_storage_grid_size()
+        workers = half // 2 if half % 2 == 0 else half
+        chunk = max(1, grid.x * grid.y // (8 * workers))
+        parts = []
+        for start in range(0, rows, chunk):
+            count = min(chunk, rows - start)
+            part = stick(wide[:, :, start:start + count, :], count)
+            parts.append(expert_swiglu_decode(hidden, part, self.gate_up_weight, nper=self.policy.expert_decode_nper,
+                                              kb=self.policy.expert_decode_kb))
+        activated = parts[0] if len(parts) == 1 else ttnn.concat(parts, dim=1, memory_config=ttnn.L1_MEMORY_CONFIG)
+        width = activated.shape[-1]
+        activated = ttnn.reshape(activated, (1, slots, rows, width), activated.padded_shape)
+        down = ttnn.sparse_matmul(activated, self.down_weight, sparsity=self.placeholder,
+            indices=stick(wide, rows), program_config=self.program_config("down", 2048),
+            compute_kernel_config=self.compute, memory_config=ttnn.L1_MEMORY_CONFIG, dtype=ttnn.bfloat16,
+            is_input_a_sparse=True, output_tile=ttnn.Tile([32, 32]))
+        activated.deallocate(True)
+        down = ttnn.reshape(down, (1, slots, rows, 2048))
+        selectors = self.__dict__.setdefault("_slot_selectors", {})
+        if rows not in selectors:
+            select = torch.zeros(1, slots, rows, 1, dtype=torch.bfloat16)
+            select[0, torch.arange(slots), torch.arange(rows).repeat_interleave(8), 0] = 1
+            selectors[rows] = ttnn.from_torch(select, device=hidden.device(), dtype=ttnn.bfloat16,
+                                              layout=ttnn.TILE_LAYOUT,
+                                              mesh_mapper=ttnn.ReplicateTensorToMesh(hidden.device()))
+        scale = ttnn.multiply(selectors[rows], ttnn.reshape(values, (1, slots, 1, 1)),
+                              memory_config=ttnn.L1_MEMORY_CONFIG)
+        weighted = ttnn.multiply(down, scale, memory_config=ttnn.L1_MEMORY_CONFIG)
+        down.deallocate(True)
+        reduced = ttnn.experimental.fast_reduce_nc(weighted, dims=[1], memory_config=ttnn.L1_MEMORY_CONFIG)
+        weighted.deallocate(True)
+        return ttnn.reshape(reduced, (1, 1, rows, 2048), reduced.padded_shape)
 
     def program_config(self, role, n, activation=None):
         import ttnn
@@ -1349,15 +1414,15 @@ class _Projection:
         length = x.shape[-2]
         if self.parts:
             return ttnn.concat([part(x,memory) for part in self.parts],dim=-1,memory_config=memory)
-        if length == 1 and self.dram:
-            source = ttnn.to_memory_config(ttnn.reshape(x, (1,1,1,self.k)), self.input_memory)
+        if decode_rows(length) and self.dram:
+            source = ttnn.to_memory_config(ttnn.reshape(x, (1,1,length,self.k)), self.input_memory)
             y = ttnn.linear(source, self.decode_weight, program_config=self.program,
                 compute_kernel_config=self.compute, dtype=ttnn.bfloat16,
                 memory_config=ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG)
             y = ttnn.to_memory_config(y, memory)[..., :self.n]
             return ttnn.reshape(y, (*tuple(x.shape)[:-1], self.n))
         pc = None
-        if length == 1 and self.options.get("decode_grid"):
+        if decode_rows(length) and self.options.get("decode_grid"):
             gx, gy = self.options["decode_grid"]
             pn = self.options.get("per_n",math.ceil(self.n/32/(gx*gy)))
             pc = ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
@@ -1387,6 +1452,28 @@ from .fused_decoder import _FusedAttention, _FusedGDN
 
 
 class _OptimizedAttention(_ProjectionMixin, _FusedAttention):
+    def _cache_memories(self, rows):
+        import ttnn
+
+        if rows == 1:
+            return self.cache_mem, self.value_cache_mem
+        cache = self.__dict__.setdefault("_row_cache_memories", {})
+        if rows not in cache:
+            grid = self.device.compute_with_storage_grid_size()
+            cores = ttnn.num_cores_to_corerangeset(2 * rows, grid, row_wise=True)
+            spans = list(cores.ranges())
+            flat = [ttnn.CoreCoord(x, y) for r in spans for y in range(r.start.y, r.end.y + 1)
+                    for x in range(r.start.x, r.end.x + 1)]
+
+            def memory(coords):
+                return ttnn.MemoryConfig(
+                    ttnn.TensorMemoryLayout.HEIGHT_SHARDED, ttnn.BufferType.L1,
+                    ttnn.ShardSpec(ttnn.CoreRangeSet({ttnn.CoreRange(c, c) for c in coords}),
+                                   [32, self.config.head_dim], ttnn.ShardOrientation.ROW_MAJOR))
+
+            cache[rows] = (memory(flat[:rows]), memory(flat[rows:2 * rows]))
+        return cache[rows]
+
     def forward(
         self,
         x,
@@ -1410,7 +1497,8 @@ class _OptimizedAttention(_ProjectionMixin, _FusedAttention):
         batch, length = x.shape[0], x.shape[1]
         assert batch == 1 and self.use_paged_attention
         h, kv, d = self.config.num_heads, self.config.num_kv_heads, self.config.head_dim
-        decode = length == 1
+        decode = decode_rows(length)
+        cache_mem, value_cache_mem = self._cache_memories(length) if decode else (None, None)
         ckc = self.compute_kernel_config_decode if decode else self.compute_kernel_config
         mc = (ttnn.L1_MEMORY_CONFIG if decode and self.optimization.attention_decode_memory == "l1"
               else ttnn.DRAM_MEMORY_CONFIG)
@@ -1463,10 +1551,10 @@ class _OptimizedAttention(_ProjectionMixin, _FusedAttention):
                 query = ttnn.transpose(query, 1, 2)
                 key = ttnn.transpose(key, 1, 2)
         if decode:
-            key = ttnn.to_memory_config(key, self.cache_mem)
+            key = ttnn.to_memory_config(key, cache_mem)
             value = ttnn.to_memory_config(
                 value if heads_in_decode else ttnn.transpose(value, 1, 2),
-                self.value_cache_mem if "cache" in self.fusions else self.cache_mem,
+                value_cache_mem if "cache" in self.fusions else cache_mem,
             )
             if "cache" in self.fusions:
                 ttnn.experimental.paged_fused_update_cache(
@@ -1630,7 +1718,7 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
         return (ttnn.reshape(output,(1,1,self.num_v_heads,self.head_v_dim)),
                 ttnn.reshape(updated,(1,self.num_v_heads,self.head_k_dim,self.head_v_dim)))
 
-    def _decode_kernel(self, mega, q, k, v, decay_log, beta, z_start, mc, residual, gates=None):
+    def _decode_kernel(self, mega, q, k, v, decay_log, beta, z_start, mc, residual, gates=None, gated_only=False):
         import ttnn
 
         from .gdn_decode import gdn_decode
@@ -1645,6 +1733,8 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
                            z_offset=z_start // 32 if direct else 0,
                            conv=(self.fused_conv_state, current) if current is not None else None)
         flat = ttnn.reshape(gated, (1, 1, self.cfg.v_dim))
+        if gated_only:
+            return flat
         if residual is not None:
             return self.residual_projection(flat, residual, self.compute_kernel_config, mc)
         return self.project("attention_out", flat, self.output_weight, self.compute_kernel_config, mc)
@@ -1704,13 +1794,61 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
             return self.residual_projection(flat, residual, self.compute_kernel_config, mc)
         return self.project("attention_out", flat, self.output_weight, self.compute_kernel_config, mc)
 
-    def forward(self, x, mode="recurrent", chunk_size=None, valid_len=None, residual=None):
+    def _batch_kernel_ready(self, rows):
+        opt = self.optimization
+        grid = self.device.compute_with_storage_grid_size()
+        width = self.cfg.q_dim + self.cfg.k_dim + self.cfg.v_dim
+        return (opt.gdn_batch_kernel and opt.gdn_decode_gates and opt.gdn_decode_direct and opt.conv_state_rm
+                and "kda_conv" in self.fusions and self.num_v_heads * 4 <= grid.x * grid.y and width % 32 == 0
+                and (width + 2 * getattr(self, "ab_stride", self.num_v_heads)) % 32 == 0)
+
+    def _decode_batch(self, x, residual, states):
+        import ttnn
+
+        rows = x.shape[1]
+        mc = ttnn.L1_MEMORY_CONFIG if self.optimization.gdn_l1 else ttnn.DRAM_MEMORY_CONFIG
+        if self.optimization.gdn_ab_split:
+            mega = self.split_projection(x, mc)
+        else:
+            mega = self.project("attention_in", x, self.mega_weight, self.compute_kernel_config, mc)
+        if self._batch_kernel_ready(rows):
+            from .gdn_batch import conv_batch, gdn_decode_batch
+
+            width = self.cfg.q_dim + self.cfg.k_dim + self.cfg.v_dim
+            stride = getattr(self, "ab_stride", self.num_v_heads)
+            qkv = conv_batch(mega, self.kda_taps, [conv for _, conv in states], width)
+            gated = gdn_decode_batch(qkv, mega, [state for state, _ in states], self.norm_weight, self.dt_bias,
+                                     self.a_neg, q_dim=self.cfg.q_dim, k_dim=self.cfg.k_dim,
+                                     groups=self.num_v_heads // self.num_heads, a_start=width,
+                                     b_start=width + stride, z_offset=(width + 2 * stride) // 32,
+                                     norm_eps=self.norm_eps)
+            qkv.deallocate(True)
+            flat = ttnn.reshape(gated, (1, rows, self.cfg.v_dim))
+        else:
+            token = DECODE_BATCH.set(None)
+            try:
+                gated = []
+                for row, (state, conv) in enumerate(states):
+                    self.recurrent_state, self.fused_conv_state = state, conv
+                    gated.append(self.forward(None, _mega=mega[:, row : row + 1, :], _gated_only=True))
+            finally:
+                DECODE_BATCH.reset(token)
+            flat = ttnn.concat(gated, dim=1, memory_config=mc)
+        if residual is not None:
+            return self.residual_projection(flat, residual, self.compute_kernel_config, mc)
+        return self.project("attention_out", flat, self.output_weight, self.compute_kernel_config, mc)
+
+    def forward(self, x, mode="recurrent", chunk_size=None, valid_len=None, residual=None, _mega=None,
+                _gated_only=False):
         """Consume one real token or an aligned real-token chunk, retaining state."""
         import ttnn
 
-        if len(x.shape) != 3 or x.shape[0] != 1 or x.shape[2] != self.hidden_size:
+        batch = DECODE_BATCH.get()
+        if batch is not None and x.shape[1] == batch["rows"] > 1:
+            return self._decode_batch(x, residual, batch["states"])
+        if _mega is None and (len(x.shape) != 3 or x.shape[0] != 1 or x.shape[2] != self.hidden_size):
             raise ValueError("GDN expects a selected request [1,T,2048]")
-        length = x.shape[1]
+        length = 1 if _mega is not None else x.shape[1]
         if mode not in ("recurrent", "chunk") or length < 1:
             raise ValueError("GDN mode must be recurrent or chunk, with at least one token")
         masked = valid_len is not None and valid_len != length and getattr(self, "_tail_mask", None) is not None
@@ -1719,7 +1857,9 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
         if length > 1 and (mode != "chunk" or length % 32):
             raise ValueError("The outer decoder must plan aligned chunks and single-token tails")
         mc = ttnn.L1_MEMORY_CONFIG if length==1 and self.optimization.gdn_l1 else ttnn.DRAM_MEMORY_CONFIG
-        if self.optimization.gdn_ab_split:
+        if _mega is not None:
+            mega = _mega
+        elif self.optimization.gdn_ab_split:
             mega = self.split_projection(x, mc)
         else:
             mega = self.project("attention_in", x, self.mega_weight, self.compute_kernel_config, mc)
@@ -1740,7 +1880,8 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
         fused_norm = "kda_norm_decode" in self.fusions or (length > 1 and "kda_norm" in self.fusions)
         if (length == 1 and self.optimization.gdn_decode_kernel and self.optimization.gdn_decode_gates
                 and isinstance(qkv, tuple) and not masked):
-            return self._decode_kernel(mega, q, k, v, None, None, z_start, mc, residual, gates=(a_start, b_start))
+            return self._decode_kernel(mega, q, k, v, None, None, z_start, mc, residual, gates=(a_start, b_start),
+                                       gated_only=_gated_only)
         a = ttnn.typecast(columns(mega, a_start, a_start + self.num_v_heads), ttnn.float32)
         beta = ttnn.typecast(
             ttnn.sigmoid(ttnn.typecast(columns(mega, b_start, b_start + self.num_v_heads), ttnn.float32),
@@ -2110,7 +2251,8 @@ class _LocalDispatch:
                         ttnn.ROW_MAJOR_LAYOUT))
 
     def tiles(self, length):
-        return self.policy.dispatch_combine == "tiles" or 0 < self.policy.dispatch_tiles_from <= length
+        return (self.policy.dispatch_combine == "tiles" or 0 < self.policy.dispatch_tiles_from <= length
+                or length <= self.policy.dispatch_tiles_upto)
 
     def restore_table(self, result, capacity):
         import ttnn

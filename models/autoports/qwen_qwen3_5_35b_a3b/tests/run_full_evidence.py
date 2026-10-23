@@ -101,6 +101,19 @@ def main():
             gen.reset()
             singles[length] = gen.generate(book[:length], 8)
         result["nonaligned_single"] = {str(k): v for k, v in singles.items()}
+        single_logits = {}
+        for length in lengths:
+            gen.reset()
+            table = gen.default_page_table(1, length + 9)
+            steps = [gen.prefill_forward(torch.tensor([book[:length]]), page_table=table, prompt_lens=[length])[:, 0].float()]
+            for step in range(7):
+                steps.append(gen.decode_forward(torch.tensor([[singles[length][step]]]), torch.tensor([length + step]),
+                                                page_table=table).float())
+            single_logits[length] = [t.reshape(-1) for t in steps]
+
+        def kl(ref, got):
+            ref, got = ref.log_softmax(-1), got.log_softmax(-1)
+            return float((ref.exp() * (ref - got)).sum())
         for batch in batches:
             rows = [lengths[i % len(lengths)] for i in range(batch)]
             if batch == 1:
@@ -115,18 +128,27 @@ def main():
             tokens = torch.zeros(batch, max(rows), dtype=torch.int64)
             for r, length in enumerate(rows):
                 tokens[r, :length] = torch.tensor(book[:length])
-            logits = gen.prefill_forward(tokens, page_table=table, prompt_lens=rows)
-            current = logits[:, 0].argmax(-1)
-            outs = [[int(t)] for t in current]
+            logits = gen.prefill_forward(tokens, page_table=table, prompt_lens=rows)[:, 0].float()
+            forced = torch.tensor([singles[length] for length in rows])
+            agree = [[int(logits[r].argmax()) == int(forced[r, 0])] for r in range(batch)]
+            kls = [[kl(single_logits[rows[r]][0], logits[r])] for r in range(batch)]
+            ranks = [[int((logits[r] > logits[r, forced[r, 0]]).sum())] for r in range(batch)]
             positions = torch.tensor(rows)
-            for _ in range(7):
-                current = gen.decode_forward(current.reshape(batch, 1), positions, page_table=table,
-                                             sampling_params=_greedy_params())
+            for step in range(7):
+                logits = gen.decode_forward(forced[:, step].reshape(batch, 1), positions, page_table=table).float()
                 positions = positions + 1
                 for r in range(batch):
-                    outs[r].append(int(current[r]))
-            match = [outs[r] == singles[rows[r]] for r in range(batch)]
-            result[f"batch_{batch}"] = dict(rows=rows, match_batch1=match, all_match=all(match))
+                    agree[r].append(int(logits[r].argmax()) == int(forced[r, step + 1]))
+                    ranks[r].append(int((logits[r] > logits[r, forced[r, step + 1]]).sum()))
+                    kls[r].append(kl(single_logits[rows[r]][step + 1], logits[r]))
+            worst = max(max(r) for r in ranks)
+            result[f"batch_{batch}"] = dict(rows=rows, argmax_agree_steps=[sum(a) for a in agree], steps=8,
+                                            batch1_token_rank_max=worst,
+                                            all_steps_argmax_agree=all(all(a) for a in agree),
+                                            all_within_top5=worst < 5,
+                                            kl_vs_batch1_mean=sum(map(sum, kls)) / sum(map(len, kls)),
+                                            kl_vs_batch1_max=max(map(max, kls)),
+                                            kl_vs_batch1_row_max=[max(k) for k in kls])
             print(json.dumps({f"batch_{batch}": result[f"batch_{batch}"]}), flush=True)
             save()
 

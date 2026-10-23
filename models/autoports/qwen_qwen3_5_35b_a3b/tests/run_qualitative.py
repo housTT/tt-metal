@@ -30,6 +30,7 @@ def main():
     p.add_argument("--phase", choices=["hf", "tt"], required=True)
     p.add_argument("--mesh", type=int, choices=[1, 2, 4])
     p.add_argument("--max-new-tokens", type=int, default=128)
+    p.add_argument("--batch", type=int, default=1)
     p.add_argument("--output-dir", type=Path, required=True)
     args = p.parse_args()
     from transformers import AutoTokenizer
@@ -68,6 +69,34 @@ def main():
 
     mesh = open_mesh(args.mesh)
     try:
+        if args.batch > 1:
+            from ..tt.generator import _greedy_params
+
+            gen = build_generator(Path(__file__).parents[1], mesh, decode_batches=(1, args.batch))
+            rows = [items[r % len(items)] for r in range(args.batch)]
+            lens = [len(item["token_ids"]) for item in rows]
+            table = gen.default_page_table(args.batch, max(lens) + args.max_new_tokens + 1)
+            ids = torch.zeros(args.batch, max(lens), dtype=torch.int64)
+            for r, item in enumerate(rows):
+                ids[r, : lens[r]] = torch.tensor(item["token_ids"])
+            first = gen.prefill_forward(ids, page_table=table, prompt_lens=lens)[:, 0].argmax(-1)
+            second = gen.decode_forward(first.reshape(-1, 1), lens, page_table=table, sampling_params=_greedy_params())
+            steps = gen.decode_steps(args.batch, args.max_new_tokens - 2, _greedy_params())
+            columns = torch.stack([first, second, *steps], dim=1).tolist()
+            reference_path = args.output_dir / f"tt_m{args.mesh}_outputs.json"
+            reference = {o["id"]: o["tokens"] for o in json.loads(reference_path.read_text())} if reference_path.exists() else {}
+            for r, (item, tokens) in enumerate(zip(rows, columns)):
+                if eos in tokens:
+                    tokens = tokens[: tokens.index(eos) + 1]
+                ref = reference.get(item["id"])
+                prefix = next((i for i, (a, b) in enumerate(zip(tokens, ref)) if a != b), min(len(tokens), len(ref))) if ref else None
+                outputs.append(dict(row=r, id=item["id"], tokens=tokens, text=tokenizer.decode(tokens),
+                                    b1_common_prefix=prefix, b1_tokens=len(ref) if ref else None,
+                                    same_prompt_rows_identical=columns[r] == columns[r % len(items)]))
+                if r < len(items):
+                    print(json.dumps(dict(id=item["id"], b1_common_prefix=prefix, text=outputs[-1]["text"][:200])), flush=True)
+            (args.output_dir / f"tt_m{args.mesh}_b{args.batch}_outputs.json").write_text(json.dumps(outputs, indent=1))
+            return
         gen = build_generator(Path(__file__).parents[1], mesh)
         for item in items:
             gen.reset()

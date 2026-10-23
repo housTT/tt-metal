@@ -26,7 +26,7 @@ def main():
     result = dict(vars(args), output=str(args.output))
     checks = {}
     try:
-        gen = build_generator(Path(__file__).parents[1], mesh, decode_batches=(1, 4, 32))
+        gen = build_generator(Path(__file__).parents[1], mesh, decode_batches=(1, 4, 8, 16, 32))
         tok = gen.tokenizer
         prompts = [tok(tok.apply_chat_template([{"role": "user", "content": t}], tokenize=False,
                                                add_generation_prompt=True), add_special_tokens=False).input_ids
@@ -36,7 +36,7 @@ def main():
         width = max(len(r) for r in prompts) + STEPS + 1
         tables = gen.default_page_table(32, width)
 
-        def case(batch, active, traced, hide_at=None):
+        def run(batch, active, traced, hide_at=None):
             rows = sorted(active)
             ids = torch.zeros(len(rows), max(len(prompts[active[r]]) for r in rows), dtype=torch.int64)
             for i, r in enumerate(rows):
@@ -70,8 +70,15 @@ def main():
                 tokens = chosen.reshape(batch, 1)
                 positions = [p + 1 if p >= 0 else -1 for p in positions]
             gen.release_slots(rows)
-            matches = {str(r): out[r] == reference[active[r]] for r in rows}
+            return out, rejected
+
+        def case(batch, active, traced, hide_at=None):
+            rows = sorted(active)
+            filled, _ = run(batch, {r: active.get(r, r % len(prompts)) for r in range(batch)}, traced)
+            out, rejected = run(batch, active, traced, hide_at)
+            matches = {str(r): out[r] == filled[r] for r in rows}
             return dict(batch=batch, active={str(r): active[r] for r in rows}, traced=traced, matches=matches,
+                        matches_b1={str(r): out[r] == reference[active[r]] for r in rows},
                         hide_at=hide_at, hide_rejected=rejected,
                         all_match=all(matches.values()) and rejected is not False)
 
@@ -80,13 +87,16 @@ def main():
             gen.reset()
             cases.append(case(4, {0: 0, 2: 2}, traced))
             cases.append(case(32, {0: 0, 2: 2, 17: 1, 31: 3}, traced))
+        cases.append(case(8, {0: 0, 3: 2, 7: 1}, True))
+        cases.append(case(16, {2: 2, 9: 3, 15: 0}, True))
+        cases.append(case(16, {4: 1}, False))
         cases.append(case(4, {1: 1}, True))
         cases.append(case(32, {5: 3}, False))
         cases.append(case(32, {5: 3, 1: 1}, True))
         cases.append(case(4, {2: 2}, True, hide_at=5))
         checks["hidden_live_slot_rejected"] = cases[-1]["hide_rejected"] is True
         result["cases"] = cases
-        checks["active_rows_match_b1"] = all(c["all_match"] for c in cases)
+        checks["active_rows_match_all_active_bucket"] = all(c["all_match"] for c in cases)
         checks["greedy_b1_after_inactive_identical"] = gen.generate(prompts[0], STEPS + 1) == reference[0]
         checks["decode_captures"] = gen.counters["decode_captures"]
         result.update(checks=checks, counters=dict(gen.counters),

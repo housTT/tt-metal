@@ -7,11 +7,19 @@ imports are lazy so configuration and checkpoint-contract tests remain CPU
 only and cannot discover a device.
 """
 
+import contextvars
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
 from models.common.lightweightmodule import LightweightModule
+
+DECODE_BATCH = contextvars.ContextVar("qwen35_decode_batch", default=None)
+
+
+def decode_rows(length: int) -> bool:
+    batch = DECODE_BATCH.get()
+    return length == 1 or (batch is not None and length == batch["rows"])
 
 
 def _field(config: Any, name: str, default: Any = None) -> Any:
@@ -135,6 +143,7 @@ class FunctionalDecoder(LightweightModule):
         self.config = config
         self.layer_idx = layer_idx
         self.layer = layer
+        self.batched_decode = False
 
     @classmethod
     def from_state_dict(
@@ -465,7 +474,10 @@ class FunctionalDecoder(LightweightModule):
             page_table.shape[0] != hidden_states.shape[0] or position_tensor.shape[0] != hidden_states.shape[0]
         ):
             raise ValueError("decode metadata must have one row/position per request")
-        for row, slot in enumerate(self._slots(hidden_states.shape[0], request_slots)):
+        slots = self._slots(hidden_states.shape[0], request_slots)
+        if self.batched_decode and len(slots) > 1:
+            return self._decode_batched(hidden_states, slots, full, position_tensor, page_table)
+        for row, slot in enumerate(slots):
             self._select_state(slot)
             kw = {}
             if full:
@@ -477,6 +489,25 @@ class FunctionalDecoder(LightweightModule):
         if len(rows) == 1:
             return rows[0]
         return ttnn.concat([ttnn.to_memory_config(r, ttnn.L1_MEMORY_CONFIG) if r.is_sharded() else r for r in rows], dim=0)
+
+    def _decode_batched(self, hidden_states, slots, full, position_tensor, page_table):
+        import ttnn
+
+        rows, hidden = len(slots), hidden_states.shape[2]
+        kw = {}
+        if full:
+            cos, sin = self._rotary(position_tensor, rows)
+            kw = dict(cos=cos, sin=sin, position_tensor=position_tensor, page_table=page_table)
+        states = [self._states[slot] for slot in slots] if self._states else None
+        token = DECODE_BATCH.set(dict(rows=rows, states=states))
+        try:
+            x = ttnn.reshape(ttnn.to_layout(hidden_states, ttnn.TILE_LAYOUT), (1, rows, hidden))
+            y = self.layer.forward(x, mode="decode", **kw)
+        finally:
+            DECODE_BATCH.reset(token)
+        if y.is_sharded():
+            y = ttnn.to_memory_config(y, ttnn.L1_MEMORY_CONFIG)
+        return ttnn.reshape(y, (rows, 1, hidden))
 
     def forward(self, hidden_states: Any, *, mode: str, **kwargs: Any) -> Any:
         if mode == "prefill":

@@ -1,0 +1,51 @@
+{
+ "b1": {
+  "workload": {
+   "profile": "p150x4",
+   "prompt_len": 128,
+   "gen_len": 128,
+   "batch": 1,
+   "sampling": "greedy, traced split top-k"
+  },
+  "ttft_ms": 97.37244300777093,
+  "decode_ms_per_token_e2e": 9.111539936921464,
+  "decode_ms_per_step_e2e": 9.111539936921464,
+  "decode_ms_per_token_device": 9.23,
+  "roofline_ms_per_token_estimate": 1.499,
+  "device_breakdown_us": {
+   "gdn_layer": 194.8,
+   "full_attention_layer": 244.2,
+   "terminal_embedding_norm_lm_head": 444.2,
+   "sampler_trace": 499.5
+  },
+  "method": "device: traced replay device-kernel sums (device 0, last 4 replays) from 2-layer profiles (0,3) and (0,1,3); 40-layer = terminal + sampler + 30 GDN + 10 full. e2e: run_batch_perf median of 3. roofline: runs/main/stage07/roofline.py (weights at stored dtypes, GDN FP32 state read+write, KV at 192 tokens, 512 GB/s per chip)."
+ },
+ "b32": {
+  "workload": {
+   "profile": "p150x4",
+   "prompt_len": 128,
+   "gen_len": 128,
+   "batch": 32,
+   "sampling": "greedy, traced split top-k"
+  },
+  "ttft_ms": null,
+  "decode_ms_per_token_e2e": 60.11701194455825,
+  "decode_ms_per_step_e2e": 60.11701194455825,
+  "decode_ms_per_token_device": 60.46,
+  "roofline_ms_per_token_estimate": 10.425,
+  "device_breakdown_us": {
+   "gdn_layer": 1530.2,
+   "full_attention_layer": 1359.1,
+   "terminal_embedding_norm_lm_head": 463.0,
+   "sampler_trace": 499.8
+  },
+  "method": "device: traced replay device-kernel sums (device 0, last 4 replays) from 2-layer profiles (0,3) and (0,1,3); 40-layer = terminal + sampler + 30 GDN + 10 full. e2e: run_batch_perf median of 3. roofline: runs/main/stage07/roofline.py (weights at stored dtypes, GDN FP32 state read+write, KV at 192 tokens, 512 GB/s per chip)."
+ },
+ "named_limitations": [
+  "Decode is device-bound: device time equals end-to-end within 1.3%; no host gap remains.",
+  "B1 reaches 16% of the DRAM roofline: about 480 small ops per step (per-op latency bound, 40 layers x 12 to 24 ops).",
+  "B32 MoE slot path reads each selected expert once per row slot (256 slot reads vs about 163 unique experts) because expert de-duplication needs a device-side unique op.",
+  "B32 GDN layer 1530 us vs 195 us at B1: batched GDN kernels plus row-tiled tilize/untilize; GDN state traffic alone is about 64 us per layer.",
+  "Sampler top-k on the 62080-wide local vocabulary: 285 us per step (TopkLargeIndices)."
+ ]
+}

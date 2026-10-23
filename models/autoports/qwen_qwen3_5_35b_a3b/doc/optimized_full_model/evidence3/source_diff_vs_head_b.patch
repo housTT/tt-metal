@@ -1,0 +1,1316 @@
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/doc/context_contract.json b/models/autoports/qwen_qwen3_5_35b_a3b/doc/context_contract.json
+index 6dceb86c..45cec365 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/doc/context_contract.json
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/doc/context_contract.json
+@@ -1139,5 +1139,124 @@
+    "full_model/evidence5/",
+    "full_model/memory_handoff_recheck.json"
+   ]
++ },
++ "optimized_full_model_validation": {
++  "stage": "optimized_full_model",
++  "capability_reduction": null,
++  "supported_context": 262144,
++  "profiles": {
++   "p150x4": {
++    "kv_pool_blocks": 32832,
++    "kv_block_tokens": 32,
++    "kv_pool_tokens": 1050624,
++    "kv_bytes_per_token_all_full_layers": 5440,
++    "kv_pool_bytes": 5715394560,
++    "request_slots": 32,
++    "gdn_state_bytes": 515112960,
++    "full_context_sequences_in_pool": 4.0078125,
++    "long_prompt": {
++     "length": 262100,
++     "prefill_and_16_tokens_seconds": 62.23263751200284,
++     "text": " Elena. Every morning, she would climb to the top of the eastern hill and"
++    },
++    "boundary": {
++     "length": 262143,
++     "requested": 16,
++     "returned": 2,
++     "tokens": [
++      264,
++      2526
++     ]
++    },
++    "dram_allocated_bytes_after_build_per_device": 21101937152,
++    "dram_allocated_bytes_after_all_trace_captures_per_device": 21216674304,
++    "dram_free_bytes_after_all_trace_captures_per_device": 12962056704,
++    "dram_largest_free_bytes_per_bank_after_all_trace_captures": 1479417856,
++    "trace_capture_dram_bytes_per_device": 114737152,
++    "decode_buckets": "4,8,16,32",
++    "artifacts": [
++     "optimized_full_model/evidence1/m4/full_evidence.json",
++     "optimized_full_model/evidence2/m4/batch_perf_sampled0.json"
++    ]
++   },
++   "p150x2": {
++    "kv_pool_blocks": 16448,
++    "kv_block_tokens": 32,
++    "kv_pool_tokens": 526336,
++    "kv_bytes_per_token_all_full_layers": 5440,
++    "kv_pool_bytes": 2863267840,
++    "request_slots": 32,
++    "gdn_state_bytes": 1030225920,
++    "full_context_sequences_in_pool": 2.0078125,
++    "long_prompt": {
++     "length": 262100,
++     "prefill_and_16_tokens_seconds": 90.96321660000831,
++     "text": " Elena. Every morning, she would climb to the top of the eastern hill and"
++    },
++    "boundary": {
++     "length": 262143,
++     "requested": 16,
++     "returned": 2,
++     "tokens": [
++      264,
++      2526
++     ]
++    },
++    "dram_allocated_bytes_after_build_per_device": 31186811392,
++    "dram_allocated_bytes_after_all_trace_captures_per_device": 31323798016,
++    "dram_free_bytes_after_all_trace_captures_per_device": 2854932992,
++    "dram_largest_free_bytes_per_bank_after_all_trace_captures": 274915328,
++    "trace_capture_dram_bytes_per_device": 136986624,
++    "decode_buckets": "4,8,16,32",
++    "artifacts": [
++     "optimized_full_model/evidence1/m2/full_evidence.json",
++     "optimized_full_model/evidence2/m2/batch_perf_sampled0.json"
++    ]
++   },
++   "p150": {
++    "kv_pool_blocks": 8256,
++    "kv_block_tokens": 32,
++    "kv_pool_tokens": 264192,
++    "kv_bytes_per_token_all_full_layers": 10880,
++    "kv_pool_bytes": 2874408960,
++    "request_slots": 32,
++    "gdn_state_bytes": 2060451840,
++    "full_context_sequences_in_pool": 1.0078125,
++    "long_prompt": {
++     "length": 262100,
++     "prefill_and_16_tokens_seconds": 140.41011051498936,
++     "text": " Elena. Every morning, she would climb to the top of the eastern hill and"
++    },
++    "boundary": {
++     "length": 262143,
++     "requested": 16,
++     "returned": 2,
++     "tokens": [
++      264,
++      2526
++     ]
++    },
++    "dram_allocated_bytes_after_build_per_device": 32553767424,
++    "dram_allocated_bytes_after_all_trace_captures_per_device": 32807162368,
++    "dram_free_bytes_after_all_trace_captures_per_device": 1371568640,
++    "dram_largest_free_bytes_per_bank_after_all_trace_captures": 156323712,
++    "trace_capture_dram_bytes_per_device": 253394944,
++    "decode_buckets": "4,8,16,32",
++    "artifacts": [
++     "optimized_full_model/evidence1/m1/full_evidence.json",
++     "optimized_full_model/evidence2/m1/batch_perf_sampled0.json"
++    ]
++   }
++  },
++  "notes": [
++   "Same KV pool, request slots (32), block size and dtype policy as full_model_validation.",
++   "Batched decode adds per-bucket decode traces; trace_capture_dram_bytes_per_device covers buckets 1, 4, 8, 16 and 32 plus their sampler traces, measured after all captures with the native context kept.",
++   "Batched GDN decode reads and writes the same per-slot FP32 recurrent state as the per-row path; no new persistent state.",
++   "Prefill at 262100 tokens and generation at the 262143-token boundary run on every profile."
++  ],
++  "artifacts": [
++   "optimized_full_model/evidence1/",
++   "optimized_full_model/evidence2/"
++  ]
+  }
+ }
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_batch_perf.py b/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_batch_perf.py
+index 23ffd206..aeee01b3 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_batch_perf.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_batch_perf.py
+@@ -2,6 +2,7 @@
+ # SPDX-License-Identifier: Apache-2.0
+ 
+ import argparse
++from dataclasses import replace
+ import json
+ import os
+ import time
+@@ -19,6 +20,12 @@ def main():
+     p = argparse.ArgumentParser()
+     p.add_argument("--mesh", type=int, choices=[1, 2, 4], required=True)
+     p.add_argument("--steps", type=int, default=127)
++    p.add_argument("--batched", type=int, choices=[0, 1], default=1)
++    p.add_argument("--batches", default="4,32")
++    p.add_argument("--moe-policy", default="{}")
++    p.add_argument("--greedy-sampler", default="topk")
++    p.add_argument("--sampled", type=int, choices=[0, 1], default=0)
++    p.add_argument("--lm-head-dram", type=int, choices=[0, 1], default=0)
+     p.add_argument("--output", type=Path, required=True)
+     args = p.parse_args()
+     import ttnn
+@@ -32,11 +39,15 @@ def main():
+                   env={k: os.environ.get(k) for k in ("TT_METAL_TRACE_ALLOC_TRACKING", "QWEN35_STRICT_CACHE",
+                                                       "TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE")})
+     try:
+-        gen = build_generator(Path(__file__).parents[1], mesh, decode_batches=(1, 4, 32))
++        batches = tuple(int(b) for b in args.batches.split(","))
++        gen = build_generator(Path(__file__).parents[1], mesh, decode_batches=(1, *batches),
++                              batched_decode=bool(args.batched), moe_policy=json.loads(args.moe_policy),
++                              greedy_sampler=args.greedy_sampler, lm_head_dram=bool(args.lm_head_dram))
+         result["memory_after_build"] = _memory_bytes(mesh)
+         tok = gen.tokenizer
+         book = tok(BOOK.read_text().strip() * 400, add_special_tokens=False).input_ids
+         greedy = _greedy_params()
++        batch_params = replace(greedy, temperature=1.0, top_k=32, top_p=1.0) if args.sampled else greedy
+         table = gen.default_page_table(32, ISL + args.steps + 1)
+ 
+         ttft, decode = [], []
+@@ -56,22 +67,20 @@ def main():
+             gen._replay = original
+             ttft.append(stamps[0] - t0)
+             decode.append((end - stamps[0]) / (len(tokens) - 1))
++        result["b1_tokens"] = [int(t) for t in tokens]
+         rows = {1: dict(ttft_ms=_median(ttft) * 1e3, step_ms=_median(decode) * 1e3,
+                         runs_ttft_ms=[x * 1e3 for x in ttft], runs_step_ms=[x * 1e3 for x in decode])}
+ 
+-        for batch in (4, 32):
++        for batch in batches:
+             steps = []
+             for _ in range(RUNS):
+                 gen.reset()
+                 ids = torch.tensor([book[r * ISL : (r + 1) * ISL] for r in range(batch)])
+                 first = gen.prefill_forward(ids, page_table=table[:batch], prompt_lens=[ISL] * batch)
+                 current = first[:, 0].argmax(-1).reshape(batch, 1)
+-                gen.decode_forward(current, [ISL] * batch, page_table=table[:batch], sampling_params=greedy)
++                gen.decode_forward(current, [ISL] * batch, page_table=table[:batch], sampling_params=batch_params)
+                 t0 = time.perf_counter()
+-                for _ in range(args.steps - 1):
+-                    gen._set_sampling(greedy)
+-                    gen._replay(batch, sample=True)
+-                    gen.read_tokens(batch)
++                gen.decode_steps(batch, args.steps - 1, batch_params)
+                 steps.append((time.perf_counter() - t0) / (args.steps - 1))
+             rows[batch] = dict(step_ms=_median(steps) * 1e3, runs_step_ms=[x * 1e3 for x in steps])
+         for batch, row in rows.items():
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_calibration_probe.py b/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_calibration_probe.py
+index c75a1533..ee612b3f 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_calibration_probe.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_calibration_probe.py
+@@ -14,6 +14,9 @@ def main():
+     p = argparse.ArgumentParser()
+     p.add_argument("--mesh", type=int, choices=[1, 2, 4], required=True)
+     p.add_argument("--output", type=Path, required=True)
++    p.add_argument("--batch", type=int, default=1)
++    p.add_argument("--batched", type=int, choices=[0, 1], default=0)
++    p.add_argument("--distinct", type=int, choices=[0, 1], default=0)
+     args = p.parse_args()
+     import ttnn
+ 
+@@ -25,17 +28,33 @@ def main():
+     prompt_len = entry["prompt_tokens"].shape[1]
+     mesh = open_mesh(args.mesh)
+     try:
+-        gen = build_generator(Path(__file__).parents[1], mesh)
++        batch = args.batch
++        gen = build_generator(Path(__file__).parents[1], mesh, decode_batches=tuple(sorted({1, batch})),
++                              batched_decode=bool(args.batched))
+         prefill = gen.prefill_logits(seq.tolist())[0, prompt_len - 1 : -1].float()
+         gen.reset()
+-        table = gen.default_page_table(1, len(seq))
+-        first = gen.prefill_forward(seq[None, :prompt_len], page_table=table, prompt_lens=[prompt_len])[0, 0]
+-        decode = [first.float()]
++        table = gen.default_page_table(batch, len(seq))
++        rows_seq = seq[None, :].repeat(batch, 1)
++        if args.distinct:
++            from .run_full_evidence import BOOK
++
++            book = torch.tensor(gen.tokenizer(BOOK.read_text().strip() * 400, add_special_tokens=False).input_ids)
++            for r in range(1, batch):
++                rows_seq[r] = book[r * 97 : r * 97 + len(seq)]
++        first = gen.prefill_forward(rows_seq[:, :prompt_len], page_table=table,
++                                    prompt_lens=[prompt_len] * batch)[:, 0]
++        decode, spread = [first[0].float()], []
+         for i in range(prompt_len, len(seq) - 1):
+-            decode.append(gen.decode_forward(seq[i : i + 1].reshape(1, 1), [i], page_table=table)[0].float())
++            rows = gen.decode_forward(rows_seq[:, i : i + 1], [i] * batch,
++                                      page_table=table).float().reshape(batch, -1)
++            same = [r for r in range(batch) if torch.equal(rows_seq[r], seq)]
++            spread.append(float((rows[same] - rows[0]).abs().max()))
++            decode.append(rows[0])
+         torch.save(dict(seq=seq, prompt_len=prompt_len, prefill=prefill.clone(), decode=torch.stack(decode)),
+                    args.output.with_suffix(".pt"))
+-        args.output.write_text(json.dumps(dict(mesh=args.mesh, prompt_len=prompt_len, positions=len(decode),
++        args.output.write_text(json.dumps(dict(mesh=args.mesh, batch=batch, batched=args.batched, distinct=args.distinct,
++                                               prompt_len=prompt_len,
++                                               positions=len(decode), max_row_spread=max(spread),
+                                                counters=dict(gen.counters)), indent=1))
+     finally:
+         ttnn.close_mesh_device(mesh)
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_full_evidence.py b/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_full_evidence.py
+index c7bc5ef9..9c5b1a10 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_full_evidence.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_full_evidence.py
+@@ -101,6 +101,19 @@ def main():
+             gen.reset()
+             singles[length] = gen.generate(book[:length], 8)
+         result["nonaligned_single"] = {str(k): v for k, v in singles.items()}
++        single_logits = {}
++        for length in lengths:
++            gen.reset()
++            table = gen.default_page_table(1, length + 9)
++            steps = [gen.prefill_forward(torch.tensor([book[:length]]), page_table=table, prompt_lens=[length])[:, 0].float()]
++            for step in range(7):
++                steps.append(gen.decode_forward(torch.tensor([[singles[length][step]]]), torch.tensor([length + step]),
++                                                page_table=table).float())
++            single_logits[length] = [t.reshape(-1) for t in steps]
++
++        def kl(ref, got):
++            ref, got = ref.log_softmax(-1), got.log_softmax(-1)
++            return float((ref.exp() * (ref - got)).sum())
+         for batch in batches:
+             rows = [lengths[i % len(lengths)] for i in range(batch)]
+             if batch == 1:
+@@ -115,18 +128,27 @@ def main():
+             tokens = torch.zeros(batch, max(rows), dtype=torch.int64)
+             for r, length in enumerate(rows):
+                 tokens[r, :length] = torch.tensor(book[:length])
+-            logits = gen.prefill_forward(tokens, page_table=table, prompt_lens=rows)
+-            current = logits[:, 0].argmax(-1)
+-            outs = [[int(t)] for t in current]
++            logits = gen.prefill_forward(tokens, page_table=table, prompt_lens=rows)[:, 0].float()
++            forced = torch.tensor([singles[length] for length in rows])
++            agree = [[int(logits[r].argmax()) == int(forced[r, 0])] for r in range(batch)]
++            kls = [[kl(single_logits[rows[r]][0], logits[r])] for r in range(batch)]
++            ranks = [[int((logits[r] > logits[r, forced[r, 0]]).sum())] for r in range(batch)]
+             positions = torch.tensor(rows)
+-            for _ in range(7):
+-                current = gen.decode_forward(current.reshape(batch, 1), positions, page_table=table,
+-                                             sampling_params=_greedy_params())
++            for step in range(7):
++                logits = gen.decode_forward(forced[:, step].reshape(batch, 1), positions, page_table=table).float()
+                 positions = positions + 1
+                 for r in range(batch):
+-                    outs[r].append(int(current[r]))
+-            match = [outs[r] == singles[rows[r]] for r in range(batch)]
+-            result[f"batch_{batch}"] = dict(rows=rows, match_batch1=match, all_match=all(match))
++                    agree[r].append(int(logits[r].argmax()) == int(forced[r, step + 1]))
++                    ranks[r].append(int((logits[r] > logits[r, forced[r, step + 1]]).sum()))
++                    kls[r].append(kl(single_logits[rows[r]][step + 1], logits[r]))
++            worst = max(max(r) for r in ranks)
++            result[f"batch_{batch}"] = dict(rows=rows, argmax_agree_steps=[sum(a) for a in agree], steps=8,
++                                            batch1_token_rank_max=worst,
++                                            all_steps_argmax_agree=all(all(a) for a in agree),
++                                            all_within_top5=worst < 5,
++                                            kl_vs_batch1_mean=sum(map(sum, kls)) / sum(map(len, kls)),
++                                            kl_vs_batch1_max=max(map(max, kls)),
++                                            kl_vs_batch1_row_max=[max(k) for k in kls])
+             print(json.dumps({f"batch_{batch}": result[f"batch_{batch}"]}), flush=True)
+             save()
+ 
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_inactive_rows.py b/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_inactive_rows.py
+index 3f1dcec3..c78f7399 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_inactive_rows.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_inactive_rows.py
+@@ -26,7 +26,7 @@ def main():
+     result = dict(vars(args), output=str(args.output))
+     checks = {}
+     try:
+-        gen = build_generator(Path(__file__).parents[1], mesh, decode_batches=(1, 4, 32))
++        gen = build_generator(Path(__file__).parents[1], mesh, decode_batches=(1, 4, 8, 16, 32))
+         tok = gen.tokenizer
+         prompts = [tok(tok.apply_chat_template([{"role": "user", "content": t}], tokenize=False,
+                                                add_generation_prompt=True), add_special_tokens=False).input_ids
+@@ -36,7 +36,7 @@ def main():
+         width = max(len(r) for r in prompts) + STEPS + 1
+         tables = gen.default_page_table(32, width)
+ 
+-        def case(batch, active, traced, hide_at=None):
++        def run(batch, active, traced, hide_at=None):
+             rows = sorted(active)
+             ids = torch.zeros(len(rows), max(len(prompts[active[r]]) for r in rows), dtype=torch.int64)
+             for i, r in enumerate(rows):
+@@ -70,8 +70,15 @@ def main():
+                 tokens = chosen.reshape(batch, 1)
+                 positions = [p + 1 if p >= 0 else -1 for p in positions]
+             gen.release_slots(rows)
+-            matches = {str(r): out[r] == reference[active[r]] for r in rows}
++            return out, rejected
++
++        def case(batch, active, traced, hide_at=None):
++            rows = sorted(active)
++            filled, _ = run(batch, {r: active.get(r, r % len(prompts)) for r in range(batch)}, traced)
++            out, rejected = run(batch, active, traced, hide_at)
++            matches = {str(r): out[r] == filled[r] for r in rows}
+             return dict(batch=batch, active={str(r): active[r] for r in rows}, traced=traced, matches=matches,
++                        matches_b1={str(r): out[r] == reference[active[r]] for r in rows},
+                         hide_at=hide_at, hide_rejected=rejected,
+                         all_match=all(matches.values()) and rejected is not False)
+ 
+@@ -80,13 +87,16 @@ def main():
+             gen.reset()
+             cases.append(case(4, {0: 0, 2: 2}, traced))
+             cases.append(case(32, {0: 0, 2: 2, 17: 1, 31: 3}, traced))
++        cases.append(case(8, {0: 0, 3: 2, 7: 1}, True))
++        cases.append(case(16, {2: 2, 9: 3, 15: 0}, True))
++        cases.append(case(16, {4: 1}, False))
+         cases.append(case(4, {1: 1}, True))
+         cases.append(case(32, {5: 3}, False))
+         cases.append(case(32, {5: 3, 1: 1}, True))
+         cases.append(case(4, {2: 2}, True, hide_at=5))
+         checks["hidden_live_slot_rejected"] = cases[-1]["hide_rejected"] is True
+         result["cases"] = cases
+-        checks["active_rows_match_b1"] = all(c["all_match"] for c in cases)
++        checks["active_rows_match_all_active_bucket"] = all(c["all_match"] for c in cases)
+         checks["greedy_b1_after_inactive_identical"] = gen.generate(prompts[0], STEPS + 1) == reference[0]
+         checks["decode_captures"] = gen.counters["decode_captures"]
+         result.update(checks=checks, counters=dict(gen.counters),
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_model_profile.py b/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_model_profile.py
+index 78be77b4..66168371 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_model_profile.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_model_profile.py
+@@ -14,6 +14,9 @@ def main():
+     p.add_argument("--layers", default="0,3")
+     p.add_argument("--prompt-len", type=int, default=128)
+     p.add_argument("--steps", type=int, default=4)
++    p.add_argument("--batch", type=int, default=1)
++    p.add_argument("--batched", type=int, choices=[0, 1], default=1)
++    p.add_argument("--distinct", type=int, choices=[0, 1], default=1)
+     p.add_argument("--output", type=Path, required=True)
+     args = p.parse_args()
+     import ttnn
+@@ -25,8 +28,17 @@ def main():
+     mesh = open_mesh(args.mesh)
+     result = dict(vars(args), output=str(args.output))
+     try:
+-        gen = build_generator(Path(__file__).parents[1], mesh, layer_ids=tuple(int(x) for x in args.layers.split(",")),
+-                              warmup_first=(args.prompt_len,), warmup_continuation=())
++        from ..tt.model import Qwen35Model
++
++        all_logits = Qwen35Model.all_logits
++        Qwen35Model.all_logits = lambda self, hidden, valid_rows, block=None: None
++        try:
++            gen = build_generator(Path(__file__).parents[1], mesh,
++                                  layer_ids=tuple(int(x) for x in args.layers.split(",")),
++                                  warmup_first=(args.prompt_len,), warmup_continuation=(),
++                                  decode_batches=tuple(sorted({1, args.batch})), batched_decode=bool(args.batched))
++        finally:
++            Qwen35Model.all_logits = all_logits
+         ids = torch.randint(0, gen.vocab_size, (args.prompt_len,), generator=torch.Generator().manual_seed(3)).tolist()
+         gen.generate(ids, args.steps + 1)
+         ttnn.synchronize_device(mesh)
+@@ -42,17 +54,24 @@ def main():
+         ttnn.synchronize_device(mesh)
+         signpost("PERF_PREFILL_END")
+         logits.deallocate(True)
+-        gen._write_page_table(1, table)
+-        gen._write_positions(1, [args.prompt_len])
++        batch = args.batch
++        if batch > 1:
++            table = gen.default_page_table(batch, args.prompt_len + args.steps + 1)
++            rows = [ids] + [torch.randint(0, gen.vocab_size, (args.prompt_len,),
++                                          generator=torch.Generator().manual_seed(100 + r)).tolist()
++                            if args.distinct else ids for r in range(1, batch)]
++            gen.prefill_forward(torch.tensor(rows), page_table=table, prompt_lens=[args.prompt_len] * batch)
++        gen._write_page_table(batch, table)
++        gen._write_positions(batch, [args.prompt_len] * batch)
+         ttnn.synchronize_device(mesh)
+         ttnn.ReadDeviceProfiler(mesh)
+         signpost("PERF_DECODE")
+         for _ in range(args.steps):
+-            gen._replay(1, sample=True)
++            gen._replay(batch, sample=True)
+         ttnn.synchronize_device(mesh)
+         signpost("PERF_DECODE_END")
+         ttnn.ReadDeviceProfiler(mesh)
+-        result["tokens"] = gen.read_tokens(1).tolist()
++        result["tokens"] = gen.read_tokens(batch).tolist()
+         result["counters"] = dict(gen.counters)
+     finally:
+         args.output.write_text(json.dumps(result, indent=1))
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_qualitative.py b/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_qualitative.py
+index 2efea686..eeac5809 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_qualitative.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_qualitative.py
+@@ -30,6 +30,7 @@ def main():
+     p.add_argument("--phase", choices=["hf", "tt"], required=True)
+     p.add_argument("--mesh", type=int, choices=[1, 2, 4])
+     p.add_argument("--max-new-tokens", type=int, default=128)
++    p.add_argument("--batch", type=int, default=1)
+     p.add_argument("--output-dir", type=Path, required=True)
+     args = p.parse_args()
+     from transformers import AutoTokenizer
+@@ -68,6 +69,34 @@ def main():
+ 
+     mesh = open_mesh(args.mesh)
+     try:
++        if args.batch > 1:
++            from ..tt.generator import _greedy_params
++
++            gen = build_generator(Path(__file__).parents[1], mesh, decode_batches=(1, args.batch))
++            rows = [items[r % len(items)] for r in range(args.batch)]
++            lens = [len(item["token_ids"]) for item in rows]
++            table = gen.default_page_table(args.batch, max(lens) + args.max_new_tokens + 1)
++            ids = torch.zeros(args.batch, max(lens), dtype=torch.int64)
++            for r, item in enumerate(rows):
++                ids[r, : lens[r]] = torch.tensor(item["token_ids"])
++            first = gen.prefill_forward(ids, page_table=table, prompt_lens=lens)[:, 0].argmax(-1)
++            second = gen.decode_forward(first.reshape(-1, 1), lens, page_table=table, sampling_params=_greedy_params())
++            steps = gen.decode_steps(args.batch, args.max_new_tokens - 2, _greedy_params())
++            columns = torch.stack([first, second, *steps], dim=1).tolist()
++            reference_path = args.output_dir / f"tt_m{args.mesh}_outputs.json"
++            reference = {o["id"]: o["tokens"] for o in json.loads(reference_path.read_text())} if reference_path.exists() else {}
++            for r, (item, tokens) in enumerate(zip(rows, columns)):
++                if eos in tokens:
++                    tokens = tokens[: tokens.index(eos) + 1]
++                ref = reference.get(item["id"])
++                prefix = next((i for i, (a, b) in enumerate(zip(tokens, ref)) if a != b), min(len(tokens), len(ref))) if ref else None
++                outputs.append(dict(row=r, id=item["id"], tokens=tokens, text=tokenizer.decode(tokens),
++                                    b1_common_prefix=prefix, b1_tokens=len(ref) if ref else None,
++                                    same_prompt_rows_identical=columns[r] == columns[r % len(items)]))
++                if r < len(items):
++                    print(json.dumps(dict(id=item["id"], b1_common_prefix=prefix, text=outputs[-1]["text"][:200])), flush=True)
++            (args.output_dir / f"tt_m{args.mesh}_b{args.batch}_outputs.json").write_text(json.dumps(outputs, indent=1))
++            return
+         gen = build_generator(Path(__file__).parents[1], mesh)
+         for item in items:
+             gen.reset()
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_sampler_micro.py b/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_sampler_micro.py
+index c13d9921..1910601f 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_sampler_micro.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_sampler_micro.py
+@@ -53,6 +53,8 @@ def main():
+         gen.local_vocab = -(-VOCAB // tp // 32) * 32
+         gen.counters = Counter()
+         gen._sampling_mode = None
++        gen.seed_mode, gen._seeds_written = "host", False
++        gen.greedy_sampler = "topk"
+         gen._replicate = ttnn.ReplicateTensorToMesh(mesh)
+         gen.tt_tokens = gen._device(torch.zeros(1, 1, 1, ROWS, dtype=torch.int32), ttnn.uint32)
+         gen.sampler = gen._build_sampler()
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_sampling_audit.py b/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_sampling_audit.py
+index 8bbd542b..a68f44f7 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_sampling_audit.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tests/run_sampling_audit.py
+@@ -60,7 +60,7 @@ def main():
+     tracker.corruptible_allocation_scope = recorded_scope
+     try:
+         layer_ids = tuple(int(x) for x in args.layers.split(",")) if args.layers else None
+-        gen = build_generator(Path(__file__).parents[1], mesh, layer_ids=layer_ids, decode_batches=(1, 4, 32))
++        gen = build_generator(Path(__file__).parents[1], mesh, layer_ids=layer_ids, decode_batches=(1, 4, 8, 16, 32))
+         if args.freeze_seeds:
+             gen.sampler.seed_manager.write_device_seed_values = lambda *a, **k: None
+         tok = gen.tokenizer
+@@ -116,7 +116,21 @@ def main():
+         greedy4, g4_rank, g4_agree = run(prompts, greedy, args.steps)
+         rows32 = [prompts[i % len(prompts)] for i in range(32)]
+         g32, g32_rank, g32_agree = run(rows32, greedy, 16)
+-        checks["greedy_b32_rows_match_b4"] = all(g32[i] == greedy4[i % 4][:17] for i in range(32))
++        checks["greedy_b32_same_prompt_rows_identical"] = all(g32[i] == g32[i % 4] for i in range(32))
++        result["greedy_b32_rows_equal_b4"] = sum(g32[i] == greedy4[i % 4][:17] for i in range(32))
++        s32, s32_rank, s32_agree = run(rows32, sampled, 16)
++        checks["sampled_b32_within_top_k"] = s32_rank < 32
++        mid_agree = []
++        for size in (8, 16):
++            rows_mid = [prompts[i % len(prompts)] for i in range(size)]
++            greedy_mid, greedy_rank, greedy_ok = run(rows_mid, greedy, 16)
++            sampled_mid, sampled_rank, sampled_ok = run(rows_mid, sampled, 16)
++            checks[f"greedy_b{size}_same_prompt_rows_identical"] = all(greedy_mid[i] == greedy_mid[i % 4]
++                                                                       for i in range(size))
++            checks[f"greedy_b{size}_rank0"] = greedy_rank == 0
++            checks[f"sampled_b{size}_within_top_k"] = sampled_rank < 32
++            result[f"greedy_b{size}_rows_equal_b32"] = sum(greedy_mid[i] == g32[i] for i in range(size))
++            mid_agree += [greedy_ok, sampled_ok]
+         again, _, again_agree = run(prompts[:1], greedy, args.steps)
+         checks["greedy_b1_after_all_buckets_identical"] = again == g1
+         sampled_generate = [gen.generate(prompts[0], args.steps + 1, sampling_params=sampled) for _ in range(2)]
+@@ -168,15 +182,18 @@ def main():
+         result["distribution"].update(kth_logit=kth, ties_at_kth=int((host[0] == kth).sum()), outside_top_k=outside,
+                                       draws_by_row=draws.T.tolist())
+         checks["distribution_within_top_k_ties"] = all(o["logit"] >= kth for o in outside)
++        result["device_copies_agree_by_run"] = dict(g1=g1_agree, s1=s1_agree, s4=s4_agree, g4=g4_agree, g32=g32_agree,
++                                                    s32=s32_agree, again=again_agree, draws=draws_agree,
++                                                    g8=mid_agree[0], s8=mid_agree[1], g16=mid_agree[2], s16=mid_agree[3])
+         checks["device_token_copies_agree"] = all((g1_agree, s1_agree, s4_agree, g4_agree, g32_agree, again_agree,
+-                                                   draws_agree))
++                                                   draws_agree, s32_agree, *mid_agree))
+         checks["sampler_trace_keys"] = len(gen.sampler._trace_states)
+         checks["decode_captures"] = gen.counters["decode_captures"]
+         result.update(
+             greedy_b1=tok.decode(g1[0]), sampled_b1=tok.decode(s1[0]),
+             sampled_b4=[tok.decode(r) for r in s4], greedy_b4=[tok.decode(r) for r in greedy4],
+             worst_rank=dict(greedy_b1=g1_rank, sampled_b1=s1_rank, sampled_b4=s4_rank, greedy_b4=g4_rank,
+-                            greedy_b32=g32_rank),
++                            greedy_b32=g32_rank, sampled_b32=s32_rank),
+             sampler_scope_allocations=scopes, counters=dict(gen.counters), checks=checks)
+         result["passed"] = all(v for v in checks.values() if isinstance(v, bool))
+         print(json.dumps(dict(checks=checks, passed=result["passed"],
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tests/test_generator_sampling.py b/models/autoports/qwen_qwen3_5_35b_a3b/tests/test_generator_sampling.py
+index b2351798..70ad4949 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tests/test_generator_sampling.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tests/test_generator_sampling.py
+@@ -9,6 +9,7 @@ import pytest
+ import torch
+ 
+ from models.autoports.qwen_qwen3_5_35b_a3b.tt.generator import SAMPLER_ROWS, Qwen35Generator, _greedy_params
++from models.common.sampling.generator import MAX_UINT32, SeedManager
+ 
+ 
+ class _SeedSink:
+@@ -37,8 +38,9 @@ class _Sampler:
+         self.samples += 1
+ 
+ 
+-def _generator():
++def _generator(seed_mode="host"):
+     gen = Qwen35Generator.__new__(Qwen35Generator)
++    gen.seed_mode, gen._seeds_written = seed_mode, False
+     gen.sampler = _Sampler()
+     gen.counters = Counter()
+     gen._sampling_mode = None
+@@ -71,6 +73,30 @@ def test_greedy_lanes_skip_seed_writes_and_sampled_lanes_refresh_seeds():
+     assert gen.sampler.samples == 3
+ 
+ 
++class _RecordingSeedManager(SeedManager):
++    def __init__(self):
++        super().__init__(tt_sampling=SimpleNamespace(_sampling_dp=1), max_batch_size=SAMPLER_ROWS)
++        self.writes = []
++
++    def write_device_seed_values(self, values):
++        self.writes.append(list(values))
++
++
++def test_skip_seed_mode_stops_host_writes_after_skip_sentinel():
++    gen = _generator("skip")
++    gen.sampler.seed_manager = _RecordingSeedManager()
++    gen._set_sampling(replace(_greedy_params(), temperature=1.0, top_k=32, top_p=1.0))
++    for _ in range(5):
++        gen._sample(None)
++    writes = gen.sampler.seed_manager.writes
++    assert len(writes) == 2 and writes[1] == [MAX_UINT32] * SAMPLER_ROWS and MAX_UINT32 not in writes[0]
++    assert gen.counters["seed_writes"] == 2 and gen.sampler.samples == 5
++    gen._seeds_written = False
++    gen._sample(None)
++    gen._sample(None)
++    assert len(writes) == 4 and writes[3] == [MAX_UINT32] * SAMPLER_ROWS
++
++
+ def test_explicit_request_seed_rejected():
+     gen = _generator()
+     with pytest.raises(ValueError):
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tt/functional_decoder.py b/models/autoports/qwen_qwen3_5_35b_a3b/tt/functional_decoder.py
+index 03d0b233..952b61eb 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tt/functional_decoder.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tt/functional_decoder.py
+@@ -7,12 +7,20 @@ imports are lazy so configuration and checkpoint-contract tests remain CPU
+ only and cannot discover a device.
+ """
+ 
++import contextvars
+ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Any, Mapping, Optional, Sequence
+ 
+ from models.common.lightweightmodule import LightweightModule
+ 
++DECODE_BATCH = contextvars.ContextVar("qwen35_decode_batch", default=None)
++
++
++def decode_rows(length: int) -> bool:
++    batch = DECODE_BATCH.get()
++    return length == 1 or (batch is not None and length == batch["rows"])
++
+ 
+ def _field(config: Any, name: str, default: Any = None) -> Any:
+     if isinstance(config, Mapping):
+@@ -135,6 +143,7 @@ class FunctionalDecoder(LightweightModule):
+         self.config = config
+         self.layer_idx = layer_idx
+         self.layer = layer
++        self.batched_decode = False
+ 
+     @classmethod
+     def from_state_dict(
+@@ -465,7 +474,10 @@ class FunctionalDecoder(LightweightModule):
+             page_table.shape[0] != hidden_states.shape[0] or position_tensor.shape[0] != hidden_states.shape[0]
+         ):
+             raise ValueError("decode metadata must have one row/position per request")
+-        for row, slot in enumerate(self._slots(hidden_states.shape[0], request_slots)):
++        slots = self._slots(hidden_states.shape[0], request_slots)
++        if self.batched_decode and len(slots) > 1:
++            return self._decode_batched(hidden_states, slots, full, position_tensor, page_table)
++        for row, slot in enumerate(slots):
+             self._select_state(slot)
+             kw = {}
+             if full:
+@@ -478,6 +490,25 @@ class FunctionalDecoder(LightweightModule):
+             return rows[0]
+         return ttnn.concat([ttnn.to_memory_config(r, ttnn.L1_MEMORY_CONFIG) if r.is_sharded() else r for r in rows], dim=0)
+ 
++    def _decode_batched(self, hidden_states, slots, full, position_tensor, page_table):
++        import ttnn
++
++        rows, hidden = len(slots), hidden_states.shape[2]
++        kw = {}
++        if full:
++            cos, sin = self._rotary(position_tensor, rows)
++            kw = dict(cos=cos, sin=sin, position_tensor=position_tensor, page_table=page_table)
++        states = [self._states[slot] for slot in slots] if self._states else None
++        token = DECODE_BATCH.set(dict(rows=rows, states=states))
++        try:
++            x = ttnn.reshape(ttnn.to_layout(hidden_states, ttnn.TILE_LAYOUT), (1, rows, hidden))
++            y = self.layer.forward(x, mode="decode", **kw)
++        finally:
++            DECODE_BATCH.reset(token)
++        if y.is_sharded():
++            y = ttnn.to_memory_config(y, ttnn.L1_MEMORY_CONFIG)
++        return ttnn.reshape(y, (rows, 1, hidden))
++
+     def forward(self, hidden_states: Any, *, mode: str, **kwargs: Any) -> Any:
+         if mode == "prefill":
+             return self.prefill_forward(hidden_states, **kwargs)
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tt/gdn_decode.py b/models/autoports/qwen_qwen3_5_35b_a3b/tt/gdn_decode.py
+index e4361fc3..3849a6f0 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tt/gdn_decode.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tt/gdn_decode.py
+@@ -40,7 +40,7 @@ def _accessor(ttnn, tensor):
+ 
+ 
+ def gdn_decode(q, k, v, z, decay_log, beta, state, norm_weight, *, groups, blocks=0, l2_eps=1e-6, norm_eps=1e-6,
+-               gates=None, z_offset=0, conv=None):
++               gates=None, z_offset=0, conv=None, raw=False):
+     import ttnn
+ 
+     heads, head_k, head_v = state.shape[1], state.shape[-2], state.shape[-1]
+@@ -133,5 +133,7 @@ def gdn_decode(q, k, v, z, decay_log, beta, state, norm_weight, *, groups, block
+         runtime_args=[(c, []) for c in head_coords], config=_compute_config(ttnn))
+     ttnn.generic_op(gate_tensors, ttnn.ProgramDescriptor(
+         kernels=[gate_reader, gate_writer, gate_compute], semaphores=[], cbs=gate_cbs))
++    if raw:
++        return gated, output
+     output.deallocate(True)
+     return gated
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tt/generator.py b/models/autoports/qwen_qwen3_5_35b_a3b/tt/generator.py
+index f41edd84..02859d8e 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tt/generator.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tt/generator.py
+@@ -23,6 +23,7 @@ CHECKPOINT = Path(os.environ.get("QWEN35_CHECKPOINT", "/home/hous/dev/qwen3.5-35
+ SAMPLER_ROWS = 32
+ DEFAULT_KV_BLOCKS = {1: 8256, 2: 16448, 4: 32832}
+ DEFAULT_REQUEST_SLOTS = {1: 32, 2: 32, 4: 32}
++SEED_MODES = ("skip", "host")
+ PREFILL_BUCKETS = (128, 256, 512, 1024, 2048, 4096, 8192)
+ WARMUP_FIRST = (1, 2, 128, 129, 256, 257, 512, 513, 1024, 1025, 2048, 2049, 4096, 4097, 8192)
+ WARMUP_CONTINUATION = WARMUP_FIRST
+@@ -37,9 +38,19 @@ def _greedy_params():
+ class Qwen35Generator(_ContractGenerator):
+     def __init__(self, model: Qwen35Model, tokenizer, *, kv_blocks: Optional[int] = None,
+                  decode_batches: Sequence[int] = (1,), max_top_k: int = 32, audit: bool = False,
+-                 warmup_first: Sequence[int] = WARMUP_FIRST, warmup_continuation: Sequence[int] = WARMUP_CONTINUATION):
++                 warmup_first: Sequence[int] = WARMUP_FIRST, warmup_continuation: Sequence[int] = WARMUP_CONTINUATION,
++                 seed_mode: str = "host", greedy_sampler: str = "topk"):
+         import ttnn
+ 
++        if seed_mode not in SEED_MODES:
++            raise ValueError(f"seed_mode must be one of {SEED_MODES}")
++        self.seed_mode = seed_mode
++        if greedy_sampler not in ("topk", "argmax"):
++            raise ValueError("greedy_sampler must be topk or argmax")
++        self.greedy_sampler = greedy_sampler
++
++        if seed_mode == "skip" and model.tp > 1:
++            raise ValueError("seed_mode='skip' lets device token copies diverge on multichip meshes")
+         self.model = model
+         model.audit = audit
+         self.warmup_first, self.warmup_continuation = tuple(warmup_first), tuple(warmup_continuation)
+@@ -68,6 +79,7 @@ class Qwen35Generator(_ContractGenerator):
+         self._live_slots = set()
+         self._sampling_mode = None
+         self._greedy_lanes = True
++        self._seeds_written = False
+         self._prepared = False
+         self.sampler = self._build_sampler()
+ 
+@@ -90,16 +102,32 @@ class Qwen35Generator(_ContractGenerator):
+             from models.common.modules.tt_ccl import TT_CCL
+ 
+             tt_ccl = TT_CCL(self.mesh_device)
++        import ttnn
++
++        model_config = {}
++        if self.greedy_sampler == "argmax":
++            model_config["SAMPLING_AG_CONFIG"] = dict(
++                allow_force_argmax=True, num_links=1,
++                topology=ttnn.Topology.Ring if self.tp == 4 else ttnn.Topology.Linear)
+         args = SimpleNamespace(vocab_size=self.vocab_size, padded_vocab_size=self.local_vocab * self.tp,
+                                cluster_shape=tuple(self.mesh_device.shape), max_batch_size=SAMPLER_ROWS,
+-                               max_top_k=32, pad_logits_to_power_of_2=self.tp > 1, model_config={})
++                               max_top_k=32, pad_logits_to_power_of_2=self.tp > 1, model_config=model_config)
+         return SamplingGenerator(args=args, mesh_device=self.mesh_device, tt_ccl=tt_ccl)
+ 
+     def _sample(self, logits, **kwargs):
+-        if not self._greedy_lanes:
+-            seeds = self.sampler.seed_manager
++        seeds = self.sampler.seed_manager
++        if self._greedy_lanes:
++            self.sampler.sample(logits, tt_out_tok=self.tt_tokens, **kwargs)
++            return
++        if self.seed_mode == "host":
+             seeds.write_device_seed_values([seeds._next_unseeded_device_seed() for _ in range(seeds.max_batch_size)])
+             self.counters["seed_writes"] += 1
++        else:
++            if not self._seeds_written:
++                seeds.reset_seed(None, list(range(seeds.max_batch_size)))
++                self._seeds_written = True
++            if seeds.get_new_values() is not None:
++                self.counters["seed_writes"] += 1
+         self.sampler.sample(logits, tt_out_tok=self.tt_tokens, **kwargs)
+ 
+     def _set_sampling(self, params):
+@@ -188,6 +216,35 @@ class Qwen35Generator(_ContractGenerator):
+         host = ttnn.to_torch(ttnn.get_device_tensors(self.tt_tokens)[0])
+         return host.reshape(-1)[:batch].to(torch.int64)
+ 
++    def _read_tokens_async(self):
++        import ttnn
++
++        return self.tt_tokens.cpu(blocking=False), ttnn.record_event(self.mesh_device, 0)
++
++    def _wait_tokens(self, pending, batch):
++        import ttnn
++
++        host, event = pending
++        ttnn.event_synchronize(event)
++        self.counters["token_readbacks"] += 1
++        return ttnn.to_torch(ttnn.get_device_tensors(host)[0]).reshape(-1)[:batch].to(torch.int64)
++
++    def decode_steps(self, batch, steps, sampling_params, stop=None):
++        self._set_sampling(sampling_params)
++        tokens, pending = [], None
++        for _ in range(steps):
++            self._replay(batch, sample=True)
++            current = self._read_tokens_async()
++            if pending is not None:
++                tokens.append(self._wait_tokens(pending, batch))
++                if stop is not None and stop(tokens[-1]):
++                    pending = None
++                    break
++            pending = current
++        if pending is not None:
++            tokens.append(self._wait_tokens(pending, batch))
++        return tokens
++
+     def _logits_to_host(self, logits, rows=None):
+         import ttnn
+ 
+@@ -392,6 +449,13 @@ class Qwen35Generator(_ContractGenerator):
+         self._write_positions(1, [length])
+         predictions = [predicted]
+         eos = getattr(self.tokenizer, "eos_token_id", None)
++        if next_input is None and not host_sampling:
++            if stop_on_eos and eos is not None and predicted == eos:
++                return predictions
++            stop = (lambda t: int(t[0]) == eos) if stop_on_eos and eos is not None else None
++            tokens = self.decode_steps(1, max_new_tokens - 1, params, stop=stop)
++            predictions += [int(t[0]) for t in tokens]
++            return predictions
+         for step in range(max_new_tokens - 1):
+             feed = predicted if next_input is None else int(next_input(step, predicted))
+             if feed != predicted:
+@@ -416,6 +480,7 @@ class Qwen35Generator(_ContractGenerator):
+ 
+     def reset(self) -> None:
+         self._live_slots.clear()
++        self._seeds_written = False
+         self.model.zero_kv_cache()
+         self.model.reset_request_state()
+         for batch in self.decode_batches:
+@@ -434,7 +499,18 @@ def build_generator(model_dir, mesh_device, **kwargs) -> Qwen35Generator:
+     model = Qwen35Model.from_checkpoint(checkpoint, mesh_device, layer_ids=layer_ids,
+                                         max_batch_size=kwargs.pop("max_batch_size", None)
+                                         or DEFAULT_REQUEST_SLOTS[mesh_device.get_num_devices()],
+-                                        tensor_cache_path=None if cache is None else Path(cache), kv_blocks=kv_blocks)
++                                        tensor_cache_path=None if cache is None else Path(cache), kv_blocks=kv_blocks,
++                                        lm_head_dram=kwargs.pop("lm_head_dram", False))
++    batched = kwargs.pop("batched_decode", True)
++    moe_overrides = kwargs.pop("moe_policy", None) or {}
++    for layer in model.layers:
++        layer.batched_decode = batched
++        moe = getattr(layer.layer.feed_forward, "module", None)
++        if moe_overrides and hasattr(moe, "policy"):
++            moe.policy = replace(moe.policy, **moe_overrides)
++            dispatch = getattr(getattr(moe.moe, "experts", None), "dispatch", None)
++            if dispatch is not None and hasattr(dispatch, "policy"):
++                dispatch.policy = replace(dispatch.policy, **moe_overrides)
+     tokenizer = AutoTokenizer.from_pretrained(checkpoint, local_files_only=True)
+     generator = Qwen35Generator(model, tokenizer, **kwargs)
+     generator.prepare()
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tt/model.py b/models/autoports/qwen_qwen3_5_35b_a3b/tt/model.py
+index 975b07c0..e866aed6 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tt/model.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tt/model.py
+@@ -217,6 +217,72 @@ class KVPool:
+         return self.num_blocks
+ 
+ 
++class _ShardedHead:
++    def __init__(self, mesh_device, weight, cached, *, readers=3, cores=64, chunk=62208):
++        import torch
++        import ttnn
++
++        tp = mesh_device.get_num_devices()
++        k, vocab = weight.shape
++        banks = mesh_device.dram_grid_size().x
++        unit = 32 * banks * readers
++        if chunk % unit:
++            raise ValueError("LM head chunk must divide into DRAM banks, readers and tiles")
++        local = -(-vocab // tp)
++        self.chunks = -(-local // chunk)
++        self.local_vocab = self.chunks * chunk
++        padded = torch.nn.functional.pad(weight, (0, tp * self.local_vocab - vocab))
++        memory = ttnn.MemoryConfig(
++            ttnn.TensorMemoryLayout.WIDTH_SHARDED, ttnn.BufferType.DRAM,
++            ttnn.ShardSpec(ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(banks - 1, 0))}),
++                           [k, chunk // banks], ttnn.ShardOrientation.ROW_MAJOR))
++        self.weights = []
++        for i in range(self.chunks):
++            part = torch.cat([padded[:, d * self.local_vocab + i * chunk: d * self.local_vocab + (i + 1) * chunk]
++                              for d in range(tp)], dim=-1)
++            self.weights.append(ttnn.as_tensor(part.reshape(1, 1, k, tp * chunk), dtype=ttnn.bfloat8_b,
++                                               layout=ttnn.TILE_LAYOUT, device=mesh_device,
++                                               mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=-1),
++                                               memory_config=memory,
++                                               cache_file_name=cached(f"lm_head_dram{chunk}_c{i}_bfp8")))
++        grid = ttnn.CoreGrid(x=8, y=cores // 8)
++        self.input_memory = ttnn.create_sharded_memory_config(
++            (32, k // cores), core_grid=grid, strategy=ttnn.ShardStrategy.WIDTH,
++            orientation=ttnn.ShardOrientation.ROW_MAJOR, use_height_and_width_as_shard_shape=True)
++        self.program = ttnn.MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig(
++            in0_block_w=k // cores // 32, per_core_M=1, per_core_N=chunk // banks // readers // 32,
++            num_workers_per_dram_bank=readers)
++        self.compute = ttnn.init_device_compute_kernel_config(
++            mesh_device.arch(), math_fidelity=ttnn.MathFidelity.HiFi2, math_approx_mode=False,
++            fp32_dest_acc_en=True, packer_l1_acc=True)
++
++    @property
++    def shape(self):
++        return (self.weights[0].shape[-2], self.local_vocab)
++
++    def __call__(self, x):
++        import ttnn
++
++        shape = tuple(x.shape)
++        rows = shape[-2]
++        x = ttnn.reshape(x, (1, 1, rows, shape[-1]))
++        blocks = []
++        for first in range(0, rows, 32):
++            block = x if rows <= 32 else x[:, :, first:first + 32, :]
++            source = ttnn.to_memory_config(block, self.input_memory)
++            parts = []
++            for weight in self.weights:
++                out = ttnn.linear(source, weight, program_config=self.program, compute_kernel_config=self.compute,
++                                  dtype=ttnn.bfloat16, memory_config=ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG)
++                parts.append(ttnn.sharded_to_interleaved(out, ttnn.DRAM_MEMORY_CONFIG))
++                out.deallocate(True)
++            source.deallocate(True)
++            blocks.append(parts[0] if len(parts) == 1 else ttnn.concat(parts, dim=-1,
++                                                                       memory_config=ttnn.DRAM_MEMORY_CONFIG))
++        out = blocks[0] if len(blocks) == 1 else ttnn.concat(blocks, dim=-2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
++        return ttnn.reshape(out, (*shape[:-1], self.local_vocab))
++
++
+ class Qwen35Model:
+     def __init__(self, mesh_device, hf_config, layers, embedding, norm, lm_head, layer_ids, load_seconds):
+         self.mesh_device = mesh_device
+@@ -259,6 +325,7 @@ class Qwen35Model:
+         max_batch_size: int = 32,
+         tensor_cache_path: Optional[Path] = None,
+         kv_blocks: Optional[int] = None,
++        lm_head_dram: bool = False,
+         log=print,
+     ) -> "Qwen35Model":
+         import gc
+@@ -289,10 +356,14 @@ class Qwen35Model:
+                                    device=mesh_device, mesh_mapper=replicate, memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                                    cache_file_name=cached("embed_tokens"))
+         norm = _FusedRMSNorm(mesh_device, top[names[1]], hf_config.rms_norm_eps)
+-        lm_head = ttnn.as_tensor(top[names[2]].to(torch.bfloat16).transpose(0, 1).contiguous(), dtype=ttnn.bfloat8_b,
+-                                 layout=ttnn.TILE_LAYOUT, device=mesh_device,
+-                                 mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=-1),
+-                                 memory_config=ttnn.DRAM_MEMORY_CONFIG, cache_file_name=cached("lm_head_bfp8"))
++        head_weight = top[names[2]].to(torch.bfloat16).transpose(0, 1).contiguous()
++        if lm_head_dram:
++            lm_head = _ShardedHead(mesh_device, head_weight, cached)
++        else:
++            lm_head = ttnn.as_tensor(head_weight, dtype=ttnn.bfloat8_b, layout=ttnn.TILE_LAYOUT, device=mesh_device,
++                                     mesh_mapper=ttnn.ShardTensorToMesh(mesh_device, dim=-1),
++                                     memory_config=ttnn.DRAM_MEMORY_CONFIG, cache_file_name=cached("lm_head_bfp8"))
++        del head_weight
+         del top
+         pool = None
+         if kv_blocks:
+@@ -382,6 +453,8 @@ class Qwen35Model:
+         if hidden.is_sharded():
+             hidden = ttnn.sharded_to_interleaved(hidden, ttnn.L1_MEMORY_CONFIG)
+         normalized = self.norm(hidden)
++        if isinstance(self.lm_head, _ShardedHead):
++            return self.lm_head(normalized)
+         return ttnn.matmul(normalized, self.lm_head, dtype=ttnn.bfloat16, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+ 
+     def physical_length(self, length: int) -> int:
+@@ -515,6 +588,11 @@ class Qwen35Model:
+             out = layer.decode_forward(hidden, **kw)
+             hidden.deallocate(True)
+             hidden = out
++        rows = hidden.shape[0]
++        if rows > 1:
++            if hidden.is_sharded():
++                hidden = ttnn.sharded_to_interleaved(hidden, ttnn.L1_MEMORY_CONFIG)
++            hidden = ttnn.reshape(hidden, (1, rows, hidden.shape[-1]))
+         logits = self.logits(hidden)
+         hidden.deallocate(True)
+         return logits
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tt/multichip_decoder.py b/models/autoports/qwen_qwen3_5_35b_a3b/tt/multichip_decoder.py
+index 8acc9881..e362e46a 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tt/multichip_decoder.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tt/multichip_decoder.py
+@@ -3,7 +3,7 @@
+ 
+ import copy
+ 
+-from .functional_decoder import FunctionalDecoderConfig, _text_config
++from .functional_decoder import FunctionalDecoderConfig, _text_config, decode_rows
+ from .optimized_decoder import (
+     DEFAULT_POLICIES,
+     OptimizedDecoder,
+@@ -17,7 +17,7 @@ from .optimized_decoder import (
+ )
+ 
+ MESH_POLICIES = {
+-    1: {"dispatch_weights": "stacked"},
++    1: {"dispatch_weights": "stacked", "moe_slot_rows": 16},
+     2: {
+         "dispatch_weights": "expert_parallel",
+         "prefill_moe_pieces": 2,
+@@ -420,7 +420,7 @@ class _AllReduceOutput:
+ 
+         partial = object.__getattribute__(self, "reduced_module").forward(*args, **kwargs)
+         topology = object.__getattribute__(self, "topology")
+-        if partial.shape[-2] == 1:
++        if decode_rows(partial.shape[-2]):
+             decode = object.__getattribute__(self, "decode")
+             semaphore = decode["semaphores"][decode["index"][0]]
+             decode["index"][0] ^= 1
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tt/optimized_decoder.py b/models/autoports/qwen_qwen3_5_35b_a3b/tt/optimized_decoder.py
+index d1256fa7..8a67a0a2 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tt/optimized_decoder.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tt/optimized_decoder.py
+@@ -4,6 +4,7 @@
+ 
+ from dataclasses import dataclass, field
+ 
++from .functional_decoder import DECODE_BATCH, decode_rows
+ from .fused_decoder import FusedDecoder, _CompactExperts, _PackedPrefillExperts
+ 
+ 
+@@ -51,6 +52,7 @@ class OptimizationPolicy:
+     decode_input_fill: bool = False
+     dispatch_combine: str = "post_combine"
+     dispatch_tiles_from: int = 0
++    dispatch_tiles_upto: int = 32
+     prefill_moe_batch: bool = False
+     prefill_moe_pieces: int = 1
+     prefill_moe_merge_min: int = 0
+@@ -93,6 +95,9 @@ class OptimizationPolicy:
+     gdn_decode_kernel: bool = False
+     gdn_decode_gates: bool = False
+     gdn_decode_blocks: int = 0
++    gdn_batch_kernel: bool = True
++    moe_row_loop_max: int = 8
++    moe_slot_rows: int = 32
+     expert_decode_kernel: bool = False
+     expert_decode_nper: int = 0
+     expert_decode_kb: int = 8
+@@ -872,7 +877,20 @@ class _PackedGateMoE:
+     def forward(self, x, mode="decode"):
+         import ttnn
+ 
+-        if x.shape[2] != 1:
++        rows = x.shape[2]
++        if 1 < rows <= self.policy.moe_slot_rows and decode_rows(rows):
++            logits = ttnn.linear(x, self.weight, compute_kernel_config=self.compute, memory_config=ttnn.L1_MEMORY_CONFIG)
++            values, indices = self.moe.router.module.route(logits[:, :, :, :256])
++            out = self.moe.experts.original.slotted(x, values, indices)
++            return ttnn.add(out, self.moe.shared.forward(x, gate=logits[:, :, :, 256:257]))
++        if 1 < rows <= self.policy.moe_row_loop_max and decode_rows(rows):
++            outs = [self.forward(x[:, :, r : r + 1, :], mode=mode) for r in range(rows)]
++            return ttnn.concat(outs, dim=2, memory_config=ttnn.L1_MEMORY_CONFIG)
++        if rows != 1 and decode_rows(rows):
++            padded = ttnn.pad(x, ((0, 0), (0, 0), (0, 32 - rows), (0, 0)), 0.0) if rows < 32 else x
++            out = self.moe.forward(padded, mode="prefill")
++            return out[:, :, :rows, :] if rows < 32 else out
++        if rows != 1:
+             return self.moe.forward(x, mode=mode)
+         logits = ttnn.linear(x, self.weight, compute_kernel_config=self.compute, program_config=self.program,
+                              memory_config=ttnn.L1_MEMORY_CONFIG)
+@@ -918,7 +936,7 @@ class _OptimizedShared:
+                                      memory_config=ttnn.L1_MEMORY_CONFIG)
+         else:
+             config = self.policy.shared_minimal_config
+-            if x.shape[-2] == 1 and self.policy.shared_decode_minimal_config:
++            if decode_rows(x.shape[-2]) and self.policy.shared_decode_minimal_config:
+                 config = self.policy.shared_decode_minimal_config
+             activated = ttnn.experimental.minimal_matmul(x,self.packed,fuse_swiglu=True,
+                 config=_minimal_config(config),
+@@ -1030,7 +1048,7 @@ class _DecodeNorm:
+     def __call__(self, x, *, mode=None, norm_config=None):
+         import ttnn
+ 
+-        if x.shape[-2] != 1:
++        if not decode_rows(x.shape[-2]):
+             if self.policy.prefill_norm:
+                 dram = ttnn.DRAM_MEMORY_CONFIG
+                 if self.policy.prefill_norm == "fp32":
+@@ -1141,6 +1159,53 @@ class _OptimizedSparseExperts:
+             self.up_weight = self.gate_up_weight[..., :512]
+             self.gate_weight = self.gate_up_weight[..., 512:]
+ 
++    def slotted(self, hidden, values, indices):
++        import torch
++        import ttnn
++
++        from models.autoports.qwen_qwen3_5_35b_a3b.tt.expert_decode import expert_swiglu_decode
++
++        rows = hidden.shape[2]
++        slots = 8 * rows
++        wide = ttnn.reshape(ttnn.typecast(indices, ttnn.uint32), (1, 1, rows, 8))
++
++        def stick(tensor, count):
++            flat = ttnn.reshape(tensor, (1, 1, 1, 8 * count))
++            return ttnn.to_layout(ttnn.typecast(flat, ttnn.uint16), ttnn.ROW_MAJOR_LAYOUT)
++        half = self.gate_up_weight.shape[-1] // 64
++        grid = hidden.device().compute_with_storage_grid_size()
++        workers = half // 2 if half % 2 == 0 else half
++        chunk = max(1, grid.x * grid.y // (8 * workers))
++        parts = []
++        for start in range(0, rows, chunk):
++            count = min(chunk, rows - start)
++            part = stick(wide[:, :, start:start + count, :], count)
++            parts.append(expert_swiglu_decode(hidden, part, self.gate_up_weight, nper=self.policy.expert_decode_nper,
++                                              kb=self.policy.expert_decode_kb))
++        activated = parts[0] if len(parts) == 1 else ttnn.concat(parts, dim=1, memory_config=ttnn.L1_MEMORY_CONFIG)
++        width = activated.shape[-1]
++        activated = ttnn.reshape(activated, (1, slots, rows, width), activated.padded_shape)
++        down = ttnn.sparse_matmul(activated, self.down_weight, sparsity=self.placeholder,
++            indices=stick(wide, rows), program_config=self.program_config("down", 2048),
++            compute_kernel_config=self.compute, memory_config=ttnn.L1_MEMORY_CONFIG, dtype=ttnn.bfloat16,
++            is_input_a_sparse=True, output_tile=ttnn.Tile([32, 32]))
++        activated.deallocate(True)
++        down = ttnn.reshape(down, (1, slots, rows, 2048))
++        selectors = self.__dict__.setdefault("_slot_selectors", {})
++        if rows not in selectors:
++            select = torch.zeros(1, slots, rows, 1, dtype=torch.bfloat16)
++            select[0, torch.arange(slots), torch.arange(rows).repeat_interleave(8), 0] = 1
++            selectors[rows] = ttnn.from_torch(select, device=hidden.device(), dtype=ttnn.bfloat16,
++                                              layout=ttnn.TILE_LAYOUT,
++                                              mesh_mapper=ttnn.ReplicateTensorToMesh(hidden.device()))
++        scale = ttnn.multiply(selectors[rows], ttnn.reshape(values, (1, slots, 1, 1)),
++                              memory_config=ttnn.L1_MEMORY_CONFIG)
++        weighted = ttnn.multiply(down, scale, memory_config=ttnn.L1_MEMORY_CONFIG)
++        down.deallocate(True)
++        reduced = ttnn.experimental.fast_reduce_nc(weighted, dims=[1], memory_config=ttnn.L1_MEMORY_CONFIG)
++        weighted.deallocate(True)
++        return ttnn.reshape(reduced, (1, 1, rows, 2048), reduced.padded_shape)
++
+     def program_config(self, role, n, activation=None):
+         import ttnn
+ 
+@@ -1349,15 +1414,15 @@ class _Projection:
+         length = x.shape[-2]
+         if self.parts:
+             return ttnn.concat([part(x,memory) for part in self.parts],dim=-1,memory_config=memory)
+-        if length == 1 and self.dram:
+-            source = ttnn.to_memory_config(ttnn.reshape(x, (1,1,1,self.k)), self.input_memory)
++        if decode_rows(length) and self.dram:
++            source = ttnn.to_memory_config(ttnn.reshape(x, (1,1,length,self.k)), self.input_memory)
+             y = ttnn.linear(source, self.decode_weight, program_config=self.program,
+                 compute_kernel_config=self.compute, dtype=ttnn.bfloat16,
+                 memory_config=ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG)
+             y = ttnn.to_memory_config(y, memory)[..., :self.n]
+             return ttnn.reshape(y, (*tuple(x.shape)[:-1], self.n))
+         pc = None
+-        if length == 1 and self.options.get("decode_grid"):
++        if decode_rows(length) and self.options.get("decode_grid"):
+             gx, gy = self.options["decode_grid"]
+             pn = self.options.get("per_n",math.ceil(self.n/32/(gx*gy)))
+             pc = ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
+@@ -1387,6 +1452,28 @@ from .fused_decoder import _FusedAttention, _FusedGDN
+ 
+ 
+ class _OptimizedAttention(_ProjectionMixin, _FusedAttention):
++    def _cache_memories(self, rows):
++        import ttnn
++
++        if rows == 1:
++            return self.cache_mem, self.value_cache_mem
++        cache = self.__dict__.setdefault("_row_cache_memories", {})
++        if rows not in cache:
++            grid = self.device.compute_with_storage_grid_size()
++            cores = ttnn.num_cores_to_corerangeset(2 * rows, grid, row_wise=True)
++            spans = list(cores.ranges())
++            flat = [ttnn.CoreCoord(x, y) for r in spans for y in range(r.start.y, r.end.y + 1)
++                    for x in range(r.start.x, r.end.x + 1)]
++
++            def memory(coords):
++                return ttnn.MemoryConfig(
++                    ttnn.TensorMemoryLayout.HEIGHT_SHARDED, ttnn.BufferType.L1,
++                    ttnn.ShardSpec(ttnn.CoreRangeSet({ttnn.CoreRange(c, c) for c in coords}),
++                                   [32, self.config.head_dim], ttnn.ShardOrientation.ROW_MAJOR))
++
++            cache[rows] = (memory(flat[:rows]), memory(flat[rows:2 * rows]))
++        return cache[rows]
++
+     def forward(
+         self,
+         x,
+@@ -1410,7 +1497,8 @@ class _OptimizedAttention(_ProjectionMixin, _FusedAttention):
+         batch, length = x.shape[0], x.shape[1]
+         assert batch == 1 and self.use_paged_attention
+         h, kv, d = self.config.num_heads, self.config.num_kv_heads, self.config.head_dim
+-        decode = length == 1
++        decode = decode_rows(length)
++        cache_mem, value_cache_mem = self._cache_memories(length) if decode else (None, None)
+         ckc = self.compute_kernel_config_decode if decode else self.compute_kernel_config
+         mc = (ttnn.L1_MEMORY_CONFIG if decode and self.optimization.attention_decode_memory == "l1"
+               else ttnn.DRAM_MEMORY_CONFIG)
+@@ -1463,10 +1551,10 @@ class _OptimizedAttention(_ProjectionMixin, _FusedAttention):
+                 query = ttnn.transpose(query, 1, 2)
+                 key = ttnn.transpose(key, 1, 2)
+         if decode:
+-            key = ttnn.to_memory_config(key, self.cache_mem)
++            key = ttnn.to_memory_config(key, cache_mem)
+             value = ttnn.to_memory_config(
+                 value if heads_in_decode else ttnn.transpose(value, 1, 2),
+-                self.value_cache_mem if "cache" in self.fusions else self.cache_mem,
++                value_cache_mem if "cache" in self.fusions else cache_mem,
+             )
+             if "cache" in self.fusions:
+                 ttnn.experimental.paged_fused_update_cache(
+@@ -1630,7 +1718,7 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
+         return (ttnn.reshape(output,(1,1,self.num_v_heads,self.head_v_dim)),
+                 ttnn.reshape(updated,(1,self.num_v_heads,self.head_k_dim,self.head_v_dim)))
+ 
+-    def _decode_kernel(self, mega, q, k, v, decay_log, beta, z_start, mc, residual, gates=None):
++    def _decode_kernel(self, mega, q, k, v, decay_log, beta, z_start, mc, residual, gates=None, gated_only=False):
+         import ttnn
+ 
+         from .gdn_decode import gdn_decode
+@@ -1645,6 +1733,8 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
+                            z_offset=z_start // 32 if direct else 0,
+                            conv=(self.fused_conv_state, current) if current is not None else None)
+         flat = ttnn.reshape(gated, (1, 1, self.cfg.v_dim))
++        if gated_only:
++            return flat
+         if residual is not None:
+             return self.residual_projection(flat, residual, self.compute_kernel_config, mc)
+         return self.project("attention_out", flat, self.output_weight, self.compute_kernel_config, mc)
+@@ -1704,13 +1794,61 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
+             return self.residual_projection(flat, residual, self.compute_kernel_config, mc)
+         return self.project("attention_out", flat, self.output_weight, self.compute_kernel_config, mc)
+ 
+-    def forward(self, x, mode="recurrent", chunk_size=None, valid_len=None, residual=None):
++    def _batch_kernel_ready(self, rows):
++        opt = self.optimization
++        grid = self.device.compute_with_storage_grid_size()
++        width = self.cfg.q_dim + self.cfg.k_dim + self.cfg.v_dim
++        return (opt.gdn_batch_kernel and opt.gdn_decode_gates and opt.gdn_decode_direct and opt.conv_state_rm
++                and "kda_conv" in self.fusions and self.num_v_heads * 4 <= grid.x * grid.y and width % 32 == 0
++                and (width + 2 * getattr(self, "ab_stride", self.num_v_heads)) % 32 == 0)
++
++    def _decode_batch(self, x, residual, states):
++        import ttnn
++
++        rows = x.shape[1]
++        mc = ttnn.L1_MEMORY_CONFIG if self.optimization.gdn_l1 else ttnn.DRAM_MEMORY_CONFIG
++        if self.optimization.gdn_ab_split:
++            mega = self.split_projection(x, mc)
++        else:
++            mega = self.project("attention_in", x, self.mega_weight, self.compute_kernel_config, mc)
++        if self._batch_kernel_ready(rows):
++            from .gdn_batch import conv_batch, gdn_decode_batch
++
++            width = self.cfg.q_dim + self.cfg.k_dim + self.cfg.v_dim
++            stride = getattr(self, "ab_stride", self.num_v_heads)
++            qkv = conv_batch(mega, self.kda_taps, [conv for _, conv in states], width)
++            gated = gdn_decode_batch(qkv, mega, [state for state, _ in states], self.norm_weight, self.dt_bias,
++                                     self.a_neg, q_dim=self.cfg.q_dim, k_dim=self.cfg.k_dim,
++                                     groups=self.num_v_heads // self.num_heads, a_start=width,
++                                     b_start=width + stride, z_offset=(width + 2 * stride) // 32,
++                                     norm_eps=self.norm_eps)
++            qkv.deallocate(True)
++            flat = ttnn.reshape(gated, (1, rows, self.cfg.v_dim))
++        else:
++            token = DECODE_BATCH.set(None)
++            try:
++                gated = []
++                for row, (state, conv) in enumerate(states):
++                    self.recurrent_state, self.fused_conv_state = state, conv
++                    gated.append(self.forward(None, _mega=mega[:, row : row + 1, :], _gated_only=True))
++            finally:
++                DECODE_BATCH.reset(token)
++            flat = ttnn.concat(gated, dim=1, memory_config=mc)
++        if residual is not None:
++            return self.residual_projection(flat, residual, self.compute_kernel_config, mc)
++        return self.project("attention_out", flat, self.output_weight, self.compute_kernel_config, mc)
++
++    def forward(self, x, mode="recurrent", chunk_size=None, valid_len=None, residual=None, _mega=None,
++                _gated_only=False):
+         """Consume one real token or an aligned real-token chunk, retaining state."""
+         import ttnn
+ 
+-        if len(x.shape) != 3 or x.shape[0] != 1 or x.shape[2] != self.hidden_size:
++        batch = DECODE_BATCH.get()
++        if batch is not None and x.shape[1] == batch["rows"] > 1:
++            return self._decode_batch(x, residual, batch["states"])
++        if _mega is None and (len(x.shape) != 3 or x.shape[0] != 1 or x.shape[2] != self.hidden_size):
+             raise ValueError("GDN expects a selected request [1,T,2048]")
+-        length = x.shape[1]
++        length = 1 if _mega is not None else x.shape[1]
+         if mode not in ("recurrent", "chunk") or length < 1:
+             raise ValueError("GDN mode must be recurrent or chunk, with at least one token")
+         masked = valid_len is not None and valid_len != length and getattr(self, "_tail_mask", None) is not None
+@@ -1719,7 +1857,9 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
+         if length > 1 and (mode != "chunk" or length % 32):
+             raise ValueError("The outer decoder must plan aligned chunks and single-token tails")
+         mc = ttnn.L1_MEMORY_CONFIG if length==1 and self.optimization.gdn_l1 else ttnn.DRAM_MEMORY_CONFIG
+-        if self.optimization.gdn_ab_split:
++        if _mega is not None:
++            mega = _mega
++        elif self.optimization.gdn_ab_split:
+             mega = self.split_projection(x, mc)
+         else:
+             mega = self.project("attention_in", x, self.mega_weight, self.compute_kernel_config, mc)
+@@ -1740,7 +1880,8 @@ class _OptimizedGDN(_ProjectionMixin, _FusedGDN):
+         fused_norm = "kda_norm_decode" in self.fusions or (length > 1 and "kda_norm" in self.fusions)
+         if (length == 1 and self.optimization.gdn_decode_kernel and self.optimization.gdn_decode_gates
+                 and isinstance(qkv, tuple) and not masked):
+-            return self._decode_kernel(mega, q, k, v, None, None, z_start, mc, residual, gates=(a_start, b_start))
++            return self._decode_kernel(mega, q, k, v, None, None, z_start, mc, residual, gates=(a_start, b_start),
++                                       gated_only=_gated_only)
+         a = ttnn.typecast(columns(mega, a_start, a_start + self.num_v_heads), ttnn.float32)
+         beta = ttnn.typecast(
+             ttnn.sigmoid(ttnn.typecast(columns(mega, b_start, b_start + self.num_v_heads), ttnn.float32),
+@@ -2110,7 +2251,8 @@ class _LocalDispatch:
+                         ttnn.ROW_MAJOR_LAYOUT))
+ 
+     def tiles(self, length):
+-        return self.policy.dispatch_combine == "tiles" or 0 < self.policy.dispatch_tiles_from <= length
++        return (self.policy.dispatch_combine == "tiles" or 0 < self.policy.dispatch_tiles_from <= length
++                or length <= self.policy.dispatch_tiles_upto)
+ 
+     def restore_table(self, result, capacity):
+         import ttnn
