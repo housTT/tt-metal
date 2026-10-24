@@ -992,7 +992,11 @@ runtime effect without the tracker).
 - `3cb8971d5e` final serving evidence on the shape-stable batched prefill.
 - `af32f9ea86` device sampler ceiling 32, slot-row terminal assembly, second-review remedies; this is
   the "final code" the final server ran (plus the inert scope wrappers removed in it).
-- The commit that adds this list records the third review.
+- `acea3bc852` records this commit list (reviewed by the third pass).
+- `d65c32f8bf` served top_k 32 default, default-recipe host-path measurement, third-review
+  remedies; the final server (18:37 UTC) ran the `af32f9ea86` model and adapter code with the
+  tooling of this commit.
+- The commit that adds these two lines precedes the fourth review.
 
 vLLM checkout `/home/hous/dev/vllm` and its in-tree plugin: unchanged at `f96662a7d`, no commit.
 
