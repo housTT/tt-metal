@@ -5,17 +5,13 @@
 
 from __future__ import annotations
 
-import json
-import math
 import os
 import time
-from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterator, List, Optional, Sequence
+from typing import Any, Callable, List, Optional, Sequence
 
 import torch
-from loguru import logger
 from transformers import AutoConfig, AutoTokenizer
 
 import ttnn
@@ -50,35 +46,6 @@ class TraceCounters:
     page_table_refreshes: int = 0
     synchronizations: int = 0
     token_readbacks: int = 0
-    captures: int = 0
-    releases: int = 0
-    unprepared_captures: int = 0
-    sampling_param_refreshes: int = 0
-    program_cache_growth_events: int = 0
-
-
-DRAM_ALLOCATION_ALIGNMENT = 64
-TRACE_FENCE_MAX_PLACEMENT_ATTEMPTS = 64
-
-
-@dataclass
-class TraceFence:
-    """Persistent DRAM buffers that own the address ranges the decode traces write.
-
-    Trace replay writes its intermediates to the addresses recorded at capture.
-    Those addresses are free after capture, so any later allocation (a prefill
-    temporary, a host-mode gather, or the kernel binaries of a newly compiled
-    program) could land there and be corrupted by the next replay. The fence
-    tensors occupy exactly the recorded intermediate ranges for the lifetime of
-    the traces, so the allocator can never hand those addresses to anyone else.
-    """
-
-    spans: list[tuple[int, int]] = field(default_factory=list)
-    tensors: list[ttnn.Tensor] = field(default_factory=list)
-    verified: bool = False
-    bytes_per_bank: int = 0
-    attempts: int = 0
-    detail: str = ""
 
 
 @dataclass(frozen=True)
@@ -98,7 +65,7 @@ class SamplingSpec:
 
 @dataclass
 class DecodeTrace:
-    model_trace_id: int | None
+    model_trace_id: int
     sampling_trace_id: int | None
     token_input: ttnn.Tensor
     current_pos: ttnn.Tensor
@@ -113,9 +80,6 @@ class DecodeTrace:
     sampling_params: tuple[ttnn.Tensor | None, ttnn.Tensor | None, ttnn.Tensor | None, ttnn.Tensor | None]
     seed_skip: ttnn.Tensor | None
     active_mask: torch.Tensor
-    prepared: bool = False
-    intermediate_spans: list[tuple[int, int]] = field(default_factory=list)
-    live_output_spans: list[tuple[int, int]] = field(default_factory=list)
 
 
 def _padded_prefill_len(logical_len: int) -> int:
@@ -125,6 +89,11 @@ def _padded_prefill_len(logical_len: int) -> int:
 
 
 TERMINAL_ROW_CHUNK = 2_048
+
+
+def _release_device_tensor(tensor: Any) -> None:
+    if isinstance(tensor, ttnn.Tensor):
+        ttnn.deallocate(tensor)
 
 
 def _contiguous_ranges(rows: Sequence[int]) -> list[tuple[int, int]]:
@@ -145,8 +114,8 @@ class Gemma4Generator(Generator):
     """
 
     model_capabilities = {
-        "supports_prefix_caching": True,
-        "supports_async_decode": True,
+        "supports_prefix_caching": False,
+        "supports_async_decode": False,
         "supports_mixed_prompt_lens": True,
         "supports_inactive_rows": True,
         "supports_on_device_sampling": True,
@@ -178,8 +147,7 @@ class Gemma4Generator(Generator):
         # them before any model trace pins allocator addresses; first-use
         # initialization between model and sampling trace capture is unsafe.
         self.sampler.load_device_buffers()
-        self._trace_cache: dict[tuple[int, str, int, tuple[int, ...]], DecodeTrace] = {}
-        self.trace_fence = TraceFence()
+        self._trace_cache: dict[tuple[int, str, tuple[Any, ...], int, tuple[int, ...]], DecodeTrace] = {}
         self.trace_counters = TraceCounters()
         self.last_perf: dict[str, float] = {}
         self._request_boundary = True
@@ -253,16 +221,19 @@ class Gemma4Generator(Generator):
                     source is previous for source, previous in zip(source_tables, previous_source_tables)
                 )
                 if not source_is_target and not source_is_previous:
-                    for source, target in zip(incoming_tables, state.page_tables):
-                        if tuple(source.shape) != tuple(target.shape):
-                            raise ValueError(
-                                f"page-table shape {tuple(source.shape)} does not match stable tensor "
-                                f"{tuple(target.shape)}"
-                            )
-                        if isinstance(source, ttnn.Tensor):
-                            ttnn.copy(input_a=source, input_b=target)
-                        else:
-                            self._refresh_device_input(target, torch.as_tensor(source, dtype=torch.int32))
+                    # These writes update buffers already pinned as trace
+                    # inputs. They are intentionally live and safe at replay.
+                    with ttnn.corruptible_allocation_scope(self.mesh_device):
+                        for source, target in zip(incoming_tables, state.page_tables):
+                            if tuple(source.shape) != tuple(target.shape):
+                                raise ValueError(
+                                    f"page-table shape {tuple(source.shape)} does not match stable tensor "
+                                    f"{tuple(target.shape)}"
+                                )
+                            if isinstance(source, ttnn.Tensor):
+                                ttnn.copy(input_a=source, input_b=target)
+                            else:
+                                self._refresh_device_input(target, torch.as_tensor(source, dtype=torch.int32))
                     state.host_page_tables = None
                     self.trace_counters.page_table_refreshes += 1
                 self._page_table_sources[id(state)] = source_tables
@@ -327,10 +298,7 @@ class Gemma4Generator(Generator):
         )
 
     def _refresh_device_input(self, target: ttnn.Tensor, values: torch.Tensor, *, rank4: bool = False) -> None:
-        if target.dtype == ttnn.bfloat16:
-            values = values.to(torch.bfloat16)
-        else:
-            values = values.to(torch.int64 if target.dtype == ttnn.uint32 else torch.int32)
+        values = values.to(torch.int64 if target.dtype == ttnn.uint32 else torch.int32)
         if rank4:
             flat = values.reshape(-1)
             values = torch.zeros(DECODE_SLOT_COUNT, dtype=torch.int32)
@@ -470,21 +438,16 @@ class Gemma4Generator(Generator):
         sampling; no caller reconstructs logits or implements another sampler.
         """
         spec = self._sampling_spec(batch_size, top_k=top_k, top_p=top_p, temperature=temperature, seeds=seeds)
-        with self._track_program_cache_growth("prefill_sampling"):
-            sampling_logits = self._pad_sampling_logits(logits)
-            k, p, temp, seed_tensor = self._sampling_params(spec)
-            sampled, _ = self.sampler.decode_forward(
-                sampling_logits,
-                k=k,
-                p=p,
-                temp=temp,
-                seeds=seed_tensor,
-                tt_out_tok=tt_out_tok,
-            )
-            for tensor in (k, p, temp, seed_tensor):
-                ttnn.deallocate(tensor)
-            if sampling_logits is not logits:
-                ttnn.deallocate(sampling_logits)
+        sampling_logits = self._pad_sampling_logits(logits)
+        k, p, temp, seed_tensor = self._sampling_params(spec)
+        sampled, _ = self.sampler.decode_forward(
+            sampling_logits,
+            k=k,
+            p=p,
+            temp=temp,
+            seeds=seed_tensor,
+            tt_out_tok=tt_out_tok,
+        )
         return sampled
 
     @staticmethod
@@ -584,14 +547,12 @@ class Gemma4Generator(Generator):
                 )
 
         def run_model_prefill(*args: Any, **model_kwargs: Any) -> ttnn.Tensor:
-            # Decode traces survive prefill. Prefill temporaries are released
-            # before the next replay and the trace fence owns every address a
-            # replay writes, so allocations made here (including the kernel
-            # binaries of a newly compiled prefill program) cannot overlap a
-            # trace. The scope only tells the temporal allocation tracker that;
-            # program-cache growth is still counted and, without a verified
-            # fence, releases the traces before the next replay.
-            with self._track_program_cache_growth("prefill"), ttnn.corruptible_allocation_scope(self.mesh_device):
+            # Decode traces intentionally survive reset/prefill so a new
+            # request can reuse their stable inputs. Prefill intermediates and
+            # logits are consumed before the next trace replay; only the
+            # caller-owned KV/page tables persist. Tell allocation diagnostics
+            # about that lifetime explicitly when a decode trace is active.
+            with ttnn.corruptible_allocation_scope(self.mesh_device):
                 return self.model.prefill_forward(*args, **model_kwargs)
 
         if len(prompt_lens) > 1:
@@ -686,10 +647,10 @@ class Gemma4Generator(Generator):
                     )
                 logits = self.model.terminal_logits(selected)
                 outputs.append(self._gather_logits_to_torch(logits, logical_len=chunk_end - chunk_start))
-                ttnn.deallocate(logits)
+                _release_device_tensor(logits)
                 if selected is not hidden:
-                    ttnn.deallocate(selected)
-        ttnn.deallocate(hidden)
+                    _release_device_tensor(selected)
+        _release_device_tensor(hidden)
         return torch.cat(outputs, dim=1) if len(outputs) > 1 else outputs[0]
 
     def prefill_logits(self, prompt_token_ids: List[int]) -> torch.Tensor:
@@ -735,7 +696,7 @@ class Gemma4Generator(Generator):
             prefix_logits = self.prefill_forward(
                 prefix, page_table=state.page_tables, kv_cache=state, prompt_lens=[start]
             )
-            ttnn.deallocate(prefix_logits)
+            _release_device_tensor(prefix_logits)
         suffix_len = length - start
         suffix = torch.nn.functional.pad(tokens[:, start:], (0, _padded_prefill_len(suffix_len) - suffix_len))
         absolute = list(range(start, length)) if positions is None else [int(p) for p in positions]
@@ -826,16 +787,20 @@ class Gemma4Generator(Generator):
         if sampling_changed:
             self._seeded_slots[state.active_mask] = False
         if enable_trace:
-            key = self._decode_trace_key(batch, mode, state)
+            key = (
+                batch,
+                mode,
+                spec.key,
+                id(state),
+                tuple(id(table) for table in state.page_tables),
+            )
             trace_was_cached = key in self._trace_cache
-            # Sampling parameters are runtime tensor inputs of the captured
-            # sampler, so a parameter change refreshes those tensors instead
-            # of recapturing. Explicit state page-table replacements were
-            # normalized into stable tensors above. During steady device
-            # decode, ``tokens`` may intentionally be stale because the prior
-            # sampling trace owns feedback. Keep that device tensor alive
-            # across any cache miss and reuse it as the new stable input;
-            # never fall back to the host argument.
+            # Sampling-parameter changes recapture the traces; explicit state
+            # page-table replacements were normalized into stable tensors
+            # above. During steady device decode, ``tokens`` may intentionally
+            # be stale because the prior sampling trace owns feedback. Keep
+            # that device tensor alive across any cache miss and reuse it as
+            # the new stable input; never fall back to the host argument.
             device_feedback_input = None
             if not trace_was_cached and not scheduler_boundary and mode == "device":
                 device_feedback_input = next(
@@ -856,8 +821,6 @@ class Gemma4Generator(Generator):
             )
             if device_feedback_input is not None:
                 self.trace_counters.device_feedback_reuses += 1
-            if trace.sampling_trace_id is not None and trace.sampling_spec != spec:
-                self._refresh_sampling_params(trace, spec)
             if mode == "teacher" or scheduler_boundary:
                 # Teacher forcing deliberately replaces device feedback, but
                 # still executes the full decode graph through its trace.
@@ -902,104 +865,70 @@ class Gemma4Generator(Generator):
         self._sampling_key = spec.key
         return sampled
 
-    @staticmethod
-    def _decode_trace_key(
-        batch: int, sampling_mode: str, state: FullModelState
-    ) -> tuple[int, str, int, tuple[int, ...]]:
-        return (batch, sampling_mode, id(state), tuple(id(table) for table in state.page_tables))
-
-    def _log_trace_event(self, kind: str, **fields: Any) -> None:
-        payload = {"event": kind, **fields}
-        logger.info("GEMMA4_TRACE_EVENT " + json.dumps(payload, sort_keys=True, default=str))
-
-    @contextmanager
-    def _track_program_cache_growth(self, phase: str) -> Iterator[None]:
-        if not self._trace_cache:
-            yield
-            return
-        before = self.mesh_device.num_program_cache_entries()
-        yield
-        after = self.mesh_device.num_program_cache_entries()
-        if after != before:
-            self.note_program_cache_growth(before, after, phase=phase)
-
-    def note_program_cache_growth(self, before: int, after: int, *, phase: str) -> bool:
-        """Programs compiled after capture allocate kernel binaries in DRAM.
-
-        With a verified fence those binaries cannot overlap a trace, so the
-        traces stay valid. Without one the only safe action is to release the
-        traces before the next replay, which the counters make visible.
-        """
-        self.trace_counters.program_cache_growth_events += 1
-        fenced = self.trace_fence.verified
-        self._log_trace_event(
-            "program_cache_growth",
-            phase=phase,
-            entries_before=before,
-            entries_after=after,
-            fence_verified=fenced,
-            traces_retained=fenced,
-        )
-        if not fenced:
-            self.release_decode_traces(reason=f"program_cache_growth_unfenced:{phase}")
-        return fenced
-
-    def release_decode_traces(self, *, reason: str) -> None:
-        if not self._trace_cache and not self.trace_fence.tensors:
-            return
-        for key, trace in list(self._trace_cache.items()):
-            if trace.model_trace_id is not None:
-                ttnn.release_trace(self.mesh_device, trace.model_trace_id)
-            if trace.sampling_trace_id is not None:
-                ttnn.release_trace(self.mesh_device, trace.sampling_trace_id)
-            self.trace_counters.releases += 1
-            self._log_trace_event(
-                "release",
-                reason=reason,
-                batch=trace.batch_size,
-                mode=trace.sampling_mode,
-                model_trace_id=trace.model_trace_id,
-                sampling_trace_id=trace.sampling_trace_id,
-                prepared=trace.prepared,
-            )
-        self._trace_cache.clear()
-        for tensor in self.trace_fence.tensors:
-            ttnn.deallocate(tensor)
-        self.trace_fence = TraceFence()
-
-    def _refresh_sampling_params(self, trace: DecodeTrace, spec: SamplingSpec) -> None:
-        k, p, temp, _ = trace.sampling_params
-        padded_k = torch.ones(DECODE_SLOT_COUNT, dtype=torch.int32)
-        padded_p = torch.zeros(DECODE_SLOT_COUNT, dtype=torch.float32)
-        padded_temp = torch.ones(DECODE_SLOT_COUNT, dtype=torch.float32)
-        if not spec.greedy:
-            active = len(spec.top_k)
-            padded_k[:active] = torch.tensor(spec.top_k, dtype=torch.int32)
-            padded_p[:active] = torch.tensor(spec.top_p, dtype=torch.float32)
-            padded_temp[:active] = torch.tensor(spec.temperature, dtype=torch.float32)
-        self._refresh_device_input(k, padded_k)
-        self._refresh_device_input(p, padded_p)
-        self._refresh_device_input(temp, padded_temp)
-        trace.sampling_spec = spec
-        self.trace_counters.sampling_param_refreshes += 1
-
-    def _allocate_decode_variant(
+    def _get_or_capture_decode_trace(
         self,
-        batch: int,
-        sampling_mode: str,
-        state: FullModelState,
-        sampling_spec: SamplingSpec,
+        tokens: torch.Tensor,
+        start_pos: torch.Tensor,
         *,
-        token_input: ttnn.Tensor | None = None,
+        state: FullModelState,
+        sampling_mode: str,
+        sampling_spec: SamplingSpec,
+        token_input_override: ttnn.Tensor | None = None,
     ) -> DecodeTrace:
-        """Allocate every persistent tensor of one decode variant before any capture."""
-        if token_input is None:
-            token_input = self._host_tokens_to_device(torch.zeros((batch, 1), dtype=torch.long), rank4=True)
+        page_table_ids = tuple(id(table) for table in state.page_tables)
+        key = (tokens.shape[0], sampling_mode, sampling_spec.key, id(state), page_table_ids)
+        if key in self._trace_cache:
+            return self._trace_cache[key]
+        # TT-Metal forbids allocating any device buffer while an active trace
+        # pins allocator addresses. Sampling-mode/parameter transitions need
+        # new persistent tensors, so intentionally release the prior trace set
+        # before allocating the next one. The semantic key still prevents
+        # accidental graph reuse; transitions safely recapture by design.
+        page_table_changed = any(
+            cached_key[0] == key[0]
+            and cached_key[1] == key[1]
+            and cached_key[3] == key[3]
+            and cached_key[4] != page_table_ids
+            for cached_key in self._trace_cache
+        )
+        for stale in self._trace_cache.values():
+            ttnn.release_trace(self.mesh_device, stale.model_trace_id)
+            if stale.sampling_trace_id is not None:
+                ttnn.release_trace(self.mesh_device, stale.sampling_trace_id)
+        self._trace_cache.clear()
+        if page_table_changed:
+            self.trace_counters.page_table_refreshes += 1
+        batch = tokens.shape[0]
+        token_input = (
+            token_input_override
+            if token_input_override is not None
+            else self._host_tokens_to_device(tokens, rank4=True)
+        )
+        feedback_backup = None
+        if token_input_override is not None:
+            # Trace capture executes the sampling graph and tt_out_tok aliases
+            # token_input. Save the prior device token before capture and
+            # restore it device-to-device afterward; no host token enters the
+            # same-request transition.
+            feedback_backup = self._host_tokens_to_device(torch.zeros_like(tokens), rank4=True)
+            ttnn.copy(input_a=token_input, input_b=feedback_backup)
+        runtime_positions = torch.full((DECODE_SLOT_COUNT,), -1, dtype=torch.int32)
+        runtime_positions[:batch] = torch.where(
+            state.active_mask[:batch],
+            start_pos.reshape(-1).to(torch.int32),
+            torch.full((batch,), -1, dtype=torch.int32),
+        )
+        # Trace setup must not touch caller-owned KV. All-negative current
+        # positions compile the exact graph while gating every cache update.
         capture_positions = torch.full((DECODE_SLOT_COUNT,), -1, dtype=torch.int32)
         current_pos = self._positions_to_device(capture_positions)
-        position_ids = self._positions_to_device(capture_positions.clamp_min(0), dtype=ttnn.uint32)
+        # UINT32 has no negative inactive sentinel; zero is safe because all
+        # cache/attention updates are gated by the INT32 current_pos=-1 rows.
+        capture_rope_positions = capture_positions.clamp_min(0)
+        runtime_rope_positions = runtime_positions.clamp_min(0)
+        position_ids = self._positions_to_device(capture_rope_positions, dtype=ttnn.uint32)
         sampled_mode = sampling_mode in ("device", "teacher")
-        params = self._sampling_params(sampling_spec) if sampled_mode else (None, None, None, None)
+        k, p, temp, seed_tensor = self._sampling_params(sampling_spec) if sampled_mode else (None, None, None, None)
         seed_skip = (
             ttnn.from_torch(
                 torch.full((DECODE_SLOT_COUNT,), MAX_UINT32, dtype=torch.int64),
@@ -1014,361 +943,85 @@ class Gemma4Generator(Generator):
             if sampled_mode
             else None
         )
-        return DecodeTrace(
-            model_trace_id=None,
-            sampling_trace_id=None,
-            token_input=token_input,
-            current_pos=current_pos,
-            position_ids=position_ids,
-            logits=token_input,
-            sampled_tokens=token_input,
-            state=state,
-            batch_size=batch,
-            sampling_mode=sampling_mode,
-            page_table_ids=tuple(id(table) for table in state.page_tables),
-            sampling_spec=sampling_spec,
-            sampling_params=params,
-            seed_skip=seed_skip,
-            active_mask=state.active_mask.clone(),
-        )
 
-    def _warm_decode_variant(self, trace: DecodeTrace) -> None:
-        """Compile the exact inactive model, sampler, seed-arm, and position graph."""
-        batch = trace.batch_size
-        capture_positions = torch.full((DECODE_SLOT_COUNT,), -1, dtype=torch.int32)
-        self._refresh_device_input(trace.current_pos, capture_positions)
-        self._refresh_device_input(trace.position_ids, capture_positions.clamp_min(0))
+        # Warm the exact inactive model, sampler, seed-arm, and position graph.
         logits = self.model.decode_forward(
-            trace.token_input,
-            state=trace.state,
-            current_pos=trace.current_pos,
-            position_ids=trace.position_ids,
-            batch_size=batch,
+            token_input, state=state, current_pos=current_pos, position_ids=position_ids, batch_size=batch
         )
-        if trace.sampling_trace_id is None and trace.sampling_mode in ("device", "teacher"):
-            k, p, temp, seed_tensor = trace.sampling_params
+        sampled_tokens = token_input
+        warm_sampled_tokens = None
+        if sampled_mode:
             sampling_logits = self._pad_sampling_logits(logits)
             # Compile the exact optional-output graph that capture will use.
             # Warming the allocator-output variant is insufficient: optional
             # output changes the program hash and would upload binaries during
             # capture, which the mesh command queue correctly rejects as a write.
-            warm_sampled_tokens = self._host_tokens_to_device(torch.zeros((batch, 1), dtype=torch.long), rank4=True)
+            warm_sampled_tokens = self._host_tokens_to_device(torch.zeros_like(tokens), rank4=True)
             _, _ = self.sampler.decode_forward(
                 sampling_logits, k=k, p=p, temp=temp, seeds=seed_tensor, tt_out_tok=warm_sampled_tokens
             )
-            ttnn.copy(input_a=trace.seed_skip, input_b=seed_tensor)
-            ttnn.deallocate(warm_sampled_tokens)
-            if sampling_logits is not logits:
-                ttnn.deallocate(sampling_logits)
-        ttnn.plus_one(trace.current_pos, skip_negative_entries=True)
-        ttnn.plus_one(trace.position_ids, skip_negative_entries=True)
+            ttnn.copy(input_a=seed_skip, input_b=seed_tensor)
+        ttnn.plus_one(current_pos, skip_negative_entries=True)
+        ttnn.plus_one(position_ids, skip_negative_entries=True)
         ttnn.synchronize_device(self.mesh_device)
-        ttnn.deallocate(logits)
-        self._refresh_device_input(trace.current_pos, capture_positions)
-        self._refresh_device_input(trace.position_ids, capture_positions.clamp_min(0))
+        if warm_sampled_tokens is not None:
+            ttnn.deallocate(warm_sampled_tokens)
+        self._refresh_device_input(current_pos, capture_positions)
+        self._refresh_device_input(position_ids, capture_rope_positions)
 
-    @staticmethod
-    def _dram_spans_from_graph(
-        nodes: Sequence[dict[str, Any]], device_id: int | None
-    ) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
-        """Return (intermediate spans, live output spans) of DRAM buffers allocated under capture.
-
-        Spans are per-bank address intervals ``[address, address + aligned_size_per_bank)``.
-        A buffer deallocated before capture ended is a trace intermediate; one still
-        allocated is a trace output.
-        """
-        allocated: dict[int, tuple[int, int]] = {}
-        intermediates: list[tuple[int, int]] = []
-        for node in nodes:
-            kind = node.get("node_type")
-            if kind not in ("buffer_allocate", "buffer_deallocate"):
-                continue
-            params = node.get("params") or {}
-            if params.get("type") != "DRAM":
-                continue
-            if device_id is not None and int(params.get("device_id", device_id)) != device_id:
-                continue
-            address = int(params["address"])
-            size = int(params.get("max_size_per_bank") or 0)
-            if size <= 0:
-                continue
-            if kind == "buffer_allocate":
-                allocated[address] = (address, address + size)
-            else:
-                span = allocated.pop(address, (address, address + size))
-                intermediates.append(span)
-        return intermediates, list(allocated.values())
-
-    @staticmethod
-    def _merge_spans(spans: Sequence[tuple[int, int]]) -> list[tuple[int, int]]:
-        merged: list[tuple[int, int]] = []
-        for start, end in sorted(spans):
-            if merged and start <= merged[-1][1]:
-                merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-            else:
-                merged.append((start, end))
-        return merged
-
-    def _capture_decode_variant(self, trace: DecodeTrace) -> None:
-        """Capture the model and sampling traces of a prepared variant and record their footprint."""
-        batch = trace.batch_size
-        capture_positions = torch.full((DECODE_SLOT_COUNT,), -1, dtype=torch.int32)
-        self._refresh_device_input(trace.current_pos, capture_positions)
-        self._refresh_device_input(trace.position_ids, capture_positions.clamp_min(0))
-        first_device = ttnn.get_device_ids(self.mesh_device)[0] if hasattr(ttnn, "get_device_ids") else None
-        ttnn.graph.begin_graph_capture(ttnn.graph.RunMode.NORMAL)
-        try:
+        # Every output/intermediate allocated by capture is part of that
+        # trace's stable graph.  The allocation tracker otherwise treats those
+        # deliberately pinned buffers as unrelated survivors at first replay.
+        with ttnn.corruptible_allocation_scope(self.mesh_device):
             model_trace_id = ttnn.begin_trace_capture(self.mesh_device, cq_id=0)
             logits = self.model.decode_forward(
-                trace.token_input,
-                state=trace.state,
-                current_pos=trace.current_pos,
-                position_ids=trace.position_ids,
-                batch_size=batch,
+                token_input, state=state, current_pos=current_pos, position_ids=position_ids, batch_size=batch
             )
-            ttnn.plus_one(trace.current_pos, skip_negative_entries=True)
-            ttnn.plus_one(trace.position_ids, skip_negative_entries=True)
+            ttnn.plus_one(current_pos, skip_negative_entries=True)
+            ttnn.plus_one(position_ids, skip_negative_entries=True)
             ttnn.end_trace_capture(self.mesh_device, model_trace_id, cq_id=0)
-        finally:
-            model_nodes = ttnn.graph.end_graph_capture()
-        intermediates, live = self._dram_spans_from_graph(model_nodes, first_device)
+
         sampling_trace_id = None
-        sampled_tokens = trace.token_input
-        sampled_mode = trace.sampling_mode in ("device", "teacher")
         if sampled_mode:
-            k, p, temp, seed_tensor = trace.sampling_params
-            ttnn.graph.begin_graph_capture(ttnn.graph.RunMode.NORMAL)
-            try:
+            with ttnn.corruptible_allocation_scope(self.mesh_device):
                 sampling_trace_id = ttnn.begin_trace_capture(self.mesh_device, cq_id=0)
                 sampling_logits = self._pad_sampling_logits(logits)
                 sampled_tokens, _ = self.sampler.decode_forward(
-                    sampling_logits, k=k, p=p, temp=temp, seeds=seed_tensor, tt_out_tok=trace.token_input
+                    sampling_logits, k=k, p=p, temp=temp, seeds=seed_tensor, tt_out_tok=token_input
                 )
-                ttnn.copy(input_a=trace.seed_skip, input_b=seed_tensor)
+                ttnn.copy(input_a=seed_skip, input_b=seed_tensor)
                 ttnn.end_trace_capture(self.mesh_device, sampling_trace_id, cq_id=0)
-            finally:
-                sampling_nodes = ttnn.graph.end_graph_capture()
-            sampling_intermediates, sampling_live = self._dram_spans_from_graph(sampling_nodes, first_device)
-            intermediates += sampling_intermediates
-            live += sampling_live
-            if sampling_logits is not logits:
-                ttnn.mark_corruptible(sampling_logits)
-        # The captured outputs are the only allocations that survive capture.
-        # They are rewritten by every replay and consumed by the sampling
-        # trace that follows immediately, before any other trace can run.
-        ttnn.mark_corruptible(logits)
-        trace.model_trace_id = model_trace_id
-        trace.sampling_trace_id = sampling_trace_id
-        trace.logits = logits
-        trace.sampled_tokens = sampled_tokens
-        trace.intermediate_spans = self._merge_spans(intermediates)
-        trace.live_output_spans = self._merge_spans(live)
-        trace.active_mask = trace.state.active_mask.clone()
-        self.trace_counters.captures += 1
-        self._log_trace_event(
-            "capture",
-            batch=batch,
-            mode=trace.sampling_mode,
-            model_trace_id=model_trace_id,
-            sampling_trace_id=sampling_trace_id,
-            prepared=trace.prepared,
-            token_input=trace.token_input.buffer_address(),
-            logits=logits.buffer_address(),
-            intermediate_spans=trace.intermediate_spans,
-            intermediate_bytes_per_bank=sum(end - start for start, end in trace.intermediate_spans),
-            live_output_spans=trace.live_output_spans,
-        )
 
-    def _install_trace_fence(self) -> TraceFence:
-        """Pin every recorded trace intermediate range with a persistent buffer."""
-        fence = TraceFence()
-        live = self._merge_spans([span for trace in self._trace_cache.values() for span in trace.live_output_spans])
-        wanted: list[tuple[int, int]] = []
-        for start, end in self._merge_spans(
-            [span for trace in self._trace_cache.values() for span in trace.intermediate_spans]
-        ):
-            cursor = start
-            for live_start, live_end in live:
-                if live_end <= cursor or live_start >= end:
-                    continue
-                if live_start > cursor:
-                    wanted.append((cursor, live_start))
-                cursor = max(cursor, live_end)
-            if cursor < end:
-                wanted.append((cursor, end))
-        try:
-            num_banks = int(ttnn.get_memory_view(self.mesh_device, ttnn.BufferType.DRAM).num_banks)
-        except Exception as error:  # pragma: no cover - depends on the ttnn build
-            fence.detail = f"memory view unavailable: {error}"
-            self.trace_fence = fence
-            self._log_trace_event("fence", verified=False, detail=fence.detail)
-            return fence
-        page_bytes = DRAM_ALLOCATION_ALIGNMENT
-        padding: list[ttnn.Tensor] = []
-        try:
-            for start, end in wanted:
-                length = ((end - start) // page_bytes) * page_bytes
-                if length <= 0:
-                    continue
-                pages = (length // page_bytes) * num_banks
-                shape = ttnn.Shape([pages, page_bytes // 4])
-                placed = None
-                for _ in range(TRACE_FENCE_MAX_PLACEMENT_ATTEMPTS):
-                    candidate = ttnn.allocate_tensor_on_device(
-                        shape, ttnn.uint32, ttnn.ROW_MAJOR_LAYOUT, self.mesh_device, ttnn.DRAM_MEMORY_CONFIG
-                    )
-                    fence.attempts += 1
-                    address = candidate.buffer_address()
-                    per_bank = candidate.buffer_aligned_page_size() * math.ceil(
-                        candidate.buffer_num_pages() / num_banks
-                    )
-                    if address == start and per_bank == length:
-                        placed = candidate
-                        break
-                    if address > start:
-                        ttnn.deallocate(candidate)
-                        fence.detail = f"span {start}:{end} skipped: allocator placed {per_bank} bytes at {address}"
-                        break
-                    padding.append(candidate)
-                if placed is None:
-                    fence.detail = fence.detail or f"span {start}:{end} could not be placed"
-                    break
-                fence.tensors.append(placed)
-                fence.spans.append((start, start + length))
-                fence.bytes_per_bank += length
-            else:
-                fence.verified = bool(wanted)
-        finally:
-            for tensor in padding:
-                ttnn.deallocate(tensor)
-        if not fence.verified:
-            for tensor in fence.tensors:
-                ttnn.deallocate(tensor)
-            fence.tensors = []
-        self.trace_fence = fence
-        self._log_trace_event(
-            "fence",
-            verified=fence.verified,
-            spans=fence.spans,
-            bytes_per_bank=fence.bytes_per_bank,
-            attempts=fence.attempts,
-            detail=fence.detail,
-            live_output_spans=live,
-        )
-        return fence
-
-    def prepare_decode_traces(
-        self,
-        state: FullModelState,
-        *,
-        batch_sizes: Sequence[int],
-        sampling_mode: str = "device",
-    ) -> dict[tuple[int, str, int, tuple[int, ...]], DecodeTrace]:
-        """Generator-owned two-phase preparation of every serving decode variant.
-
-        Phase one allocates the persistent inputs of every variant and compiles
-        its programs. Phase two captures each variant; nothing is released.
-        The fence is installed last so later allocations cannot reach any
-        recorded intermediate range. Repeated calls reuse prepared variants.
-        """
-        wanted = []
-        for batch in sorted({int(b) for b in batch_sizes}):
-            key = self._decode_trace_key(batch, sampling_mode, state)
-            if key not in self._trace_cache:
-                wanted.append((key, batch))
-        if not wanted:
-            return self._trace_cache
-        if self._trace_cache:
-            # A variant added after another capture allocates after that
-            # capture. Start over so every persistent input precedes every trace.
-            self.release_decode_traces(reason="prepare_additional_variant")
-            wanted = [
-                (self._decode_trace_key(batch, sampling_mode, state), batch)
-                for batch in sorted({int(b) for b in batch_sizes})
-            ]
-        began = time.perf_counter()
-        variants = []
-        for key, batch in wanted:
-            variant = self._allocate_decode_variant(batch, sampling_mode, state, SamplingSpec(greedy=True))
-            variant.prepared = True
-            variants.append((key, variant))
-        for _, variant in variants:
-            self._warm_decode_variant(variant)
-        warmed = time.perf_counter()
-        for key, variant in variants:
-            self._capture_decode_variant(variant)
-            self._trace_cache[key] = variant
-        self._install_trace_fence()
-        self._log_trace_event(
-            "prepare",
-            batch_sizes=[batch for _, batch in wanted],
-            mode=sampling_mode,
-            warm_s=round(warmed - began, 3),
-            capture_s=round(time.perf_counter() - warmed, 3),
-            program_cache_entries=self.mesh_device.num_program_cache_entries(),
-            fence_verified=self.trace_fence.verified,
-        )
-        return self._trace_cache
-
-    def _get_or_capture_decode_trace(
-        self,
-        tokens: torch.Tensor,
-        start_pos: torch.Tensor,
-        *,
-        state: FullModelState,
-        sampling_mode: str,
-        sampling_spec: SamplingSpec,
-        token_input_override: ttnn.Tensor | None = None,
-    ) -> DecodeTrace:
-        key = self._decode_trace_key(tokens.shape[0], sampling_mode, state)
-        trace = self._trace_cache.get(key)
-        if trace is not None:
-            return trace
-        # Unprepared variant: standalone generation and readiness modes reach
-        # this path for their single variant. Allocating a new variant after
-        # other captures would be unsafe, so release first; the counters make
-        # any such capture during serving visible.
-        if self._trace_cache:
-            self.trace_counters.unprepared_captures += 1
-            self.release_decode_traces(reason="unprepared_variant")
-        batch = tokens.shape[0]
-        feedback_backup = None
-        if token_input_override is not None:
-            # Trace capture executes the sampling graph and tt_out_tok aliases
-            # token_input. Save the prior device token before capture and
-            # restore it device-to-device afterward; no host token enters the
-            # same-request transition.
-            feedback_backup = self._host_tokens_to_device(torch.zeros_like(tokens), rank4=True)
-            ttnn.copy(input_a=token_input_override, input_b=feedback_backup)
-        trace = self._allocate_decode_variant(
-            batch,
-            sampling_mode,
-            state,
-            sampling_spec,
-            token_input=token_input_override
-            if token_input_override is not None
-            else self._host_tokens_to_device(tokens, rank4=True),
-        )
-        self._warm_decode_variant(trace)
-        self._capture_decode_variant(trace)
         if feedback_backup is not None:
-            ttnn.copy(input_a=feedback_backup, input_b=trace.token_input)
+            ttnn.copy(input_a=feedback_backup, input_b=token_input)
             ttnn.synchronize_device(self.mesh_device)
             ttnn.deallocate(feedback_backup)
             self.trace_counters.device_feedback_restores += 1
             self.trace_counters.synchronizations += 1
+
         # Setup executed only with inactive positions, so KV is unchanged.
         # Restore the caller's logical first-step inputs and request seeds.
-        runtime_positions = torch.full((DECODE_SLOT_COUNT,), -1, dtype=torch.int32)
-        runtime_positions[:batch] = torch.where(
-            state.active_mask[:batch],
-            start_pos.reshape(-1).to(torch.int32),
-            torch.full((batch,), -1, dtype=torch.int32),
+        self._refresh_device_input(current_pos, runtime_positions)
+        self._refresh_device_input(position_ids, runtime_rope_positions)
+        if seed_tensor is not None:
+            self._refresh_device_input(seed_tensor, self._seed_values(sampling_spec))
+        trace = DecodeTrace(
+            model_trace_id=model_trace_id,
+            sampling_trace_id=sampling_trace_id,
+            token_input=token_input,
+            current_pos=current_pos,
+            position_ids=position_ids,
+            logits=logits,
+            sampled_tokens=sampled_tokens,
+            state=state,
+            batch_size=batch,
+            sampling_mode=sampling_mode,
+            page_table_ids=page_table_ids,
+            sampling_spec=sampling_spec,
+            sampling_params=(k, p, temp, seed_tensor),
+            seed_skip=seed_skip,
+            active_mask=state.active_mask.clone(),
         )
-        self._refresh_device_input(trace.current_pos, runtime_positions)
-        self._refresh_device_input(trace.position_ids, runtime_positions.clamp_min(0))
-        if trace.sampling_params[3] is not None:
-            self._refresh_device_input(trace.sampling_params[3], self._seed_values(sampling_spec))
         self._trace_cache[key] = trace
         return trace
 
@@ -1417,12 +1070,17 @@ class Gemma4Generator(Generator):
         )
         if mode in ("device", "teacher"):
             # A retained decode trace can be reused across reset() and the
-            # next request. These first-token sampler tensors are consumed
-            # and read here, then released explicitly so none of them is
-            # alive at the next replay.
-            with self._track_program_cache_growth("first_token_sampling"):
+            # next request.  These first-token sampler tensors are consumed
+            # and read before any replay, so explicitly mark their lifetime
+            # as corruptible instead of leaving five live to_device buffers
+            # for the allocation tracker to reject at the first replay.
+            with ttnn.corruptible_allocation_scope(self.mesh_device):
                 k, p, temp, seed_tensor = self._sampling_params(spec)
-                sampling_logits = self._pad_sampling_logits(logits)
+                sampling_logits = ttnn.pad(
+                    logits,
+                    padding=[(0, 0), (0, 0), (0, DECODE_SLOT_COUNT - logits.shape[-2]), (0, 0)],
+                    value=0.0,
+                )
                 # Use the same explicit output contract as traced decode. The
                 # allocator-output sampler variant can expose an uninitialized
                 # asynchronous result on the first token on P300C.
@@ -1433,11 +1091,6 @@ class Gemma4Generator(Generator):
                 ttnn.synchronize_device(self.mesh_device)
                 self.trace_counters.synchronizations += 1
                 predicted = int(self._read_tokens(first_tt, 1)[0])
-                for tensor in (k, p, temp, seed_tensor, first_tt):
-                    ttnn.deallocate(tensor)
-                if sampling_logits is not logits:
-                    ttnn.deallocate(sampling_logits)
-                ttnn.deallocate(logits)
             self._seeded_slots[0] = True
             self._sampling_key = spec.key
         else:
@@ -1507,9 +1160,6 @@ class Gemma4Generator(Generator):
         self._sampling_key = None
         if state is not None:
             self._page_table_sources.pop(id(state), None)
-
-    def teardown(self) -> None:
-        self.release_decode_traces(reason="teardown")
 
 
 def build_generator(model_dir: str | Path, mesh_device: Any, **kwargs: Any) -> Gemma4Generator:

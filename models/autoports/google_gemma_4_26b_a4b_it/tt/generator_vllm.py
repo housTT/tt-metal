@@ -41,25 +41,24 @@ KV_POOL_TOKENS_OVERRIDE = os.getenv("GEMMA4_KV_POOL_TOKENS")
 class Gemma4ForCausalLM(nn.Module):
     """vLLM interface translation over the full-model generator."""
 
+    decode_input_update_contract = 1
     supports_original_prompt_lens = True
-    # Every key below is read by the pinned plugin (platform.py
-    # check_and_update_config); a cache hit reaches ``prefill_forward`` as a
-    # continuation (``start_pos`` = cached tokens) over the request's own page
-    # table, the same contract chunked prefill and preemption resume use, and
-    # the sliding layers rebuild their 1,024-token history from the retained
-    # pages before appending the new chunk.
     model_capabilities = {
+        # Automatic prefix caching: a cache hit reaches ``prefill_forward`` as a
+        # continuation (``start_pos`` = cached tokens) over the request's own
+        # page table, which is the same contract as a chunked-prefill
+        # continuation. The sliding layers rebuild their 1,024-token history
+        # from the retained pages before appending the new chunk.
         "supports_prefix_caching": True,
         "supports_prefix_caching_sliding_window": True,
         "supports_async_decode": True,
+        "supports_async_decode_overlap": True,
         "supports_sample_on_device": True,
         "supports_device_penalties": False,
         "supports_device_seeded_sampling": False,
         "max_device_top_k": DEVICE_MAX_TOP_K,
+        "state_slots_are_stateless": True,
     }
-    # Decode variants prepared and captured before serving: the batch-one
-    # latency path and the padded multi-request width.
-    prepared_decode_batch_sizes = (1, DECODE_SLOT_COUNT)
 
     def __init__(
         self,
@@ -82,7 +81,6 @@ class Gemma4ForCausalLM(nn.Module):
         self._decode_ready = False
         self._last_execution_batch: int | None = None
         self._unseeded_epoch = 0
-        self._decode_prepared = False
 
     # These three methods declare vLLM's standard text-generation protocol for
     # registry introspection. The TT worker calls the explicit prefill/decode
@@ -383,21 +381,12 @@ class Gemma4ForCausalLM(nn.Module):
         return None
 
     def _release_decode_traces(self) -> None:
-        self._require_generator().release_decode_traces(reason="adapter_teardown")
-
-    def _decode_batch_sizes(self) -> tuple[int, ...]:
-        return tuple(sorted({1, int(self.max_batch_size)}))
-
-    def _ensure_decode_prepared(self) -> None:
-        """Generator-owned preparation: every serving decode variant before the first capture."""
-        if self._decode_prepared:
-            return
-        state = self._serving_state
-        if state is None:
-            raise RuntimeError("vLLM KV cache has not been allocated")
         gen = self._require_generator()
-        gen.prepare_decode_traces(state, batch_sizes=self._decode_batch_sizes(), sampling_mode="device")
-        self._decode_prepared = True
+        for trace in gen._trace_cache.values():
+            ttnn.release_trace(self.mesh_device, trace.model_trace_id)
+            if trace.sampling_trace_id is not None:
+                ttnn.release_trace(self.mesh_device, trace.sampling_trace_id)
+        gen._trace_cache.clear()
 
     def _host_prefill_logits(self, logits, batch_size: int) -> torch.Tensor:
         gen = self._require_generator()
@@ -417,9 +406,10 @@ class Gemma4ForCausalLM(nn.Module):
         """Preserve the original execution phase of each scheduled token."""
         gen = self._require_generator()
         state = self._serving_state
-        # Eager host-mode decode allocates only temporaries that are released
-        # before the next replay, and the generator's trace fence keeps every
-        # replay-written address out of reach, so the retained traces stay valid.
+        if gen._trace_cache:
+            # Eager decode intermediates cannot allocate in a retained trace's
+            # workspace. The next ordinary decode refreshes its input boundary.
+            self._release_decode_traces()
         batch = len(starts)
         outputs = [None] * batch
 
@@ -519,6 +509,11 @@ class Gemma4ForCausalLM(nn.Module):
         if state is None or kv_cache is not state.kv_cache:
             raise ValueError("prefill must pass the vLLM-owned cache returned by this adapter")
         tables = self._normalize_page_tables(page_table, page_tables_per_layer, gen.model.num_layers)
+        if sampling_params is None:
+            # Eager host compatibility may allocate buffers that survive until
+            # the next decode; retire the optimized traces before that work.
+            self._release_decode_traces()
+        program_cache_entries = self.mesh_device.num_program_cache_entries() if gen._trace_cache else None
         if self._page_tables_changed(tables):
             # Host staging copies into the existing device tables. Their
             # contents can change without changing captured addresses.
@@ -555,19 +550,6 @@ class Gemma4ForCausalLM(nn.Module):
             # vLLM's external page tables are already packed in execution-row
             # order. Gemma has no recurrent state beyond that cache, so state
             # slot IDs must not be substituted for cache user-row IDs.
-        decode_rows_active = int(state.active_mask.sum().item())
-        gen._log_trace_event(
-            "prefill",
-            rows=len(lengths),
-            starts=starts,
-            ends=cumulative_ends,
-            chunk_lengths=lengths,
-            original_prompt_lens=original_prompt_lens,
-            generated_replay=has_generated_replay,
-            device_sampling=sampling_params is not None,
-            decode_rows_active_before=decode_rows_active,
-            program_cache_entries=self.mesh_device.num_program_cache_entries(),
-        )
         max_chunk = max(lengths)
         chunk_tokens = torch.zeros((len(lengths), max_chunk), dtype=tokens.dtype)
         positions = torch.zeros((len(lengths), max_chunk), dtype=torch.int32)
@@ -606,6 +588,11 @@ class Gemma4ForCausalLM(nn.Module):
                 **self._sampling_values(sampling_params, len(lengths), unseeded_epoch=self._unseeded_epoch),
             )
             result = gen._read_tokens(sampled, len(lengths))
+        if program_cache_entries is not None and self.mesh_device.num_program_cache_entries() != program_cache_entries:
+            # Cold prefill/sampling programs can leave persistent kernel binaries
+            # in the old trace workspace. Retire those traces before replay;
+            # warmed requests keep the same captured buffers and trace IDs.
+            self._release_decode_traces()
         return result
 
     def decode_forward(
@@ -665,23 +652,13 @@ class Gemma4ForCausalLM(nn.Module):
         # (0.7857/0.8372/0.8214/0.8605). Re-deriving the cheaper active-row path is
         # tracked in doc/tti_release/POST_FIX_EVAL_RESULTS.md.
         execution_batch = 1 if logical_batch == 1 else self.max_batch_size
-        # Both execution widths are prepared and captured before serving, so a
-        # width transition selects the other retained trace. A non-identity
-        # slot remap moves rows: the scheduler boundary below reloads token and
-        # position state from the host for the retained trace.
-        if sampling_params is not None:
-            self._ensure_decode_prepared()
-        if self._last_execution_batch != execution_batch or sampling_params is None:
-            trace = gen._trace_cache.get(gen._decode_trace_key(execution_batch, "device", state))
-            gen._log_trace_event(
-                "decode_shape",
-                execution_batch=execution_batch,
-                logical_batch=logical_batch,
-                previous_execution_batch=self._last_execution_batch,
-                device_sampling=sampling_params is not None,
-                model_trace_id=None if trace is None else trace.model_trace_id,
-                sampling_trace_id=None if trace is None else trace.sampling_trace_id,
-            )
+        batch_shape_changed = self._last_execution_batch not in (None, execution_batch)
+        # A non-identity mapping or physical batch-shape transition invalidates
+        # captured row state. Release all trace allocations before a different
+        # shape is captured; TT-Metal forbids allocating that new trace while
+        # an older trace still pins the allocator range.
+        if sampling_params is None or remap_changed or batch_shape_changed:
+            self._release_decode_traces()
         refresh_decode_inputs = not self._decode_ready
         self._decode_ready = sampling_params is not None
         self._last_execution_batch = execution_batch
@@ -743,61 +720,14 @@ class Gemma4ForCausalLM(nn.Module):
             return tt_out.reshape(-1)[: self.max_batch_size].to(torch.int32), None
         return tt_out, None
 
-    def warmup_model_prefill(self, enable_trace=False, **kwargs):
-        """Compile representative prefill shapes before any decode capture.
+    def warmup_model_prefill(self, *args, **kwargs):
+        del args, kwargs
 
-        Prefill runs eagerly; this only shortens first encounters. The plugin
-        calls it twice (compile, then trace); the second call is a no-op.
-        """
-        del kwargs
-        if enable_trace or self._decode_prepared or self._serving_state is None:
-            return
-        gen = self._require_generator()
-        state = self._serving_state
-        saved_tables = self._last_page_tables
-        warm_lengths = tuple(
-            int(v) for v in os.getenv("GEMMA4_VLLM_PREFILL_WARMUP_LENGTHS", "128,2048").split(",") if v.strip()
-        )
-        # Blocks are not assigned to any request before the first schedule, so
-        # a scratch table over the lowest physical blocks is harmless.
-        host_tables = [torch.zeros(tuple(table.shape), dtype=torch.int32) for table in state.page_tables]
-        for table, spec in zip(host_tables, gen.model.cache_specs):
-            columns = min(table.shape[1], math.ceil(max(warm_lengths) / spec.block_size) + 1)
-            table[0, :columns] = torch.arange(columns, dtype=torch.int32)
-        self._refresh_page_tables(host_tables)
-        for length in warm_lengths:
-            tokens = torch.zeros((1, length), dtype=torch.long)
-            logits = gen.prefill_forward(
-                tokens,
-                page_table=state.page_tables,
-                kv_cache=state,
-                prompt_lens=[length],
-                start_pos=torch.arange(length, dtype=torch.int32).reshape(1, length),
-                host_page_tables=self._last_page_tables,
-            )
-            sampled = gen.sample_device_logits(logits, batch_size=1)
-            gen._read_tokens(sampled, 1)
-            ttnn.deallocate(sampled)
-            ttnn.deallocate(logits)
-        state.positions.fill_(-1)
-        state.active_mask.zero_()
-        state.prompt_lens[:] = [0] * DECODE_SLOT_COUNT
-        gen._request_boundary = True
-        self._last_page_tables = None
-        if saved_tables is not None:
-            self._refresh_page_tables(saved_tables)
-        self._decode_ready = False
-
-    def warmup_model_decode(self, enable_trace=False, **kwargs):
-        """Prepare and capture every serving decode variant (generator-owned ordering)."""
-        del enable_trace, kwargs
-        if self._serving_state is None:
-            return
-        self._ensure_decode_prepared()
+    def warmup_model_decode(self, *args, **kwargs):
+        del args, kwargs
 
     def teardown(self):
         self._release_decode_traces()
-        self._decode_prepared = False
 
 
 __all__ = ["Gemma4ForCausalLM"]

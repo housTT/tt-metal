@@ -651,7 +651,9 @@ class Gemma4FullModel:
 
     def terminal_logits(self, hidden: ttnn.Tensor, *, sampler_ready: bool = False) -> ttnn.Tensor:
         """Final norm, LM head, and softcap over an explicit hidden-row selection."""
-        return self._terminal(hidden, sampler_ready=sampler_ready)
+        if sampler_ready:
+            return self._terminal(hidden, sampler_ready=True)
+        return self._terminal(hidden)
 
     def decode_forward(
         self,

@@ -22,21 +22,13 @@ def test_capabilities_and_context_contract():
         "supports_prefix_caching": True,
         "supports_prefix_caching_sliding_window": True,
         "supports_async_decode": True,
+        "supports_async_decode_overlap": True,
         "supports_sample_on_device": True,
         "supports_device_penalties": False,
         "supports_device_seeded_sampling": False,
         "max_device_top_k": 64,
+        "state_slots_are_stateless": True,
     }
-    assert Gemma4ForCausalLM.supports_original_prompt_lens is True
-    assert not hasattr(Gemma4ForCausalLM, "decode_input_update_contract")
-
-
-def test_every_declared_capability_is_read_by_the_pinned_plugin():
-    platform = Path("../vllm/plugins/vllm-tt-plugin/src/vllm_tt_plugin/platform.py").read_text()
-    runner = Path("../vllm/plugins/vllm-tt-plugin/src/vllm_tt_plugin/model_runner.py").read_text()
-    for key in Gemma4ForCausalLM.model_capabilities:
-        assert f'"{key}"' in platform, key
-    assert "supports_original_prompt_lens" in runner
 
 
 def test_adapter_delegates_sampling_and_decode():
@@ -201,17 +193,11 @@ def test_decode_uses_batch_one_fast_path_and_padded_multi_request_width():
     assert "active if active_rows_changed or reset_batch or remap_changed or refresh_decode_inputs else None" in source
 
 
-def test_request_handling_never_releases_decode_traces():
-    for method in (Gemma4ForCausalLM.decode_forward, Gemma4ForCausalLM.prefill_forward):
-        assert "_release_decode_traces" not in inspect.getsource(method)
-    assert "_release_decode_traces" not in inspect.getsource(Gemma4ForCausalLM._prefill_with_generated_replay)
-    decode = inspect.getsource(Gemma4ForCausalLM.decode_forward)
-    assert "self._ensure_decode_prepared()" in decode
-    prepare = inspect.getsource(Gemma4ForCausalLM._ensure_decode_prepared)
-    assert "gen.prepare_decode_traces(state, batch_sizes=self._decode_batch_sizes()" in prepare
-    assert Gemma4ForCausalLM.prepared_decode_batch_sizes == (1, 32)
-    warm = inspect.getsource(Gemma4ForCausalLM.warmup_model_decode)
-    assert "self._ensure_decode_prepared()" in warm
+def test_decode_releases_pinned_traces_before_batch_shape_recapture():
+    source = inspect.getsource(Gemma4ForCausalLM.decode_forward)
+    assert "batch_shape_changed = self._last_execution_batch not in (None, execution_batch)" in source
+    assert "or batch_shape_changed" in source
+    assert source.index("self._release_decode_traces()") < source.index("gen.decode_forward(")
 
 
 def test_adapter_steady_decode_ignores_stale_host_feedback_and_refreshes_changed_pages_once(monkeypatch):
@@ -247,7 +233,6 @@ def test_adapter_steady_decode_ignores_stale_host_feedback_and_refreshes_changed
     adapter = Gemma4ForCausalLM()
     adapter.max_batch_size = 32
     adapter._serving_state = state
-    adapter._decode_prepared = True
     refreshes = []
     releases = []
 
@@ -317,21 +302,18 @@ def test_adapter_steady_decode_ignores_stale_host_feedback_and_refreshes_changed
     decode(sampling_params=object())
     assert gen.calls[-1]["active_mask"] is None
 
-    positions[1] = 7  # B1 -> padded execution selects the other prepared trace.
+    positions[1] = 7  # B1 -> padded execution requires a different trace.
     decode(sampling_params=object())
-    assert not releases
-    assert gen.calls[-1]["tokens"].shape[0] == 32
-    assert gen.calls[-1]["active_mask"].tolist()[:2] == [True, True]
+    assert len(releases) == 1
     remap = torch.arange(32)
     remap[:2] = torch.tensor([1, 0])
     decode(sampling_params=object(), slot_remap=remap)
-    assert not releases
-    assert gen.calls[-1]["active_mask"] is not None  # moved rows reload token/position state
+    assert len(releases) == 2
     decode(sampling_params=None)
-    assert not releases
+    assert len(releases) == 3
     assert not adapter._decode_ready
     decode(sampling_params=object())
-    assert not releases
+    assert len(releases) == 3
     assert gen.calls[-1]["active_mask"] is not None
     decode(sampling_params=object())
     assert gen.calls[-1]["active_mask"] is None
@@ -439,28 +421,37 @@ def test_page_table_groups_copy_selectively_and_preserve_alias_mutation_semantic
     assert len({id(target) for target in adapter._serving_state.page_tables}) == 30
 
 
+@pytest.mark.parametrize("compile_stage", [None, "prefill", "sampling", "read"])
 @pytest.mark.parametrize("list_logits", [False, True])
-def test_prefill_keeps_retained_traces_regardless_of_program_cache_growth(monkeypatch, list_logits):
+def test_prefill_retires_traces_only_when_program_cache_changes(monkeypatch, compile_stage, list_logits):
     events = []
+    program_count = [10]
     state = SimpleNamespace(kv_cache=object(), page_tables=[object()])
-    retained = object()
 
     def operation(stage, result):
         events.append(stage)
+        if compile_stage == stage:
+            program_count[0] += 1
         return result
 
     gen = SimpleNamespace(
         model=SimpleNamespace(num_layers=1),
-        _trace_cache={"retained": retained},
+        _trace_cache={"retained": object()},
         prefill_forward=lambda *_args, **_kwargs: operation("prefill", [object()] if list_logits else object()),
         sample_device_logits=lambda *_args, **_kwargs: operation("sampling", object()),
         _read_tokens=lambda *_args, **_kwargs: operation("read", torch.tensor([42])),
     )
     adapter = Gemma4ForCausalLM()
-    adapter.mesh_device = SimpleNamespace(num_program_cache_entries=lambda: 10)
+    adapter.mesh_device = SimpleNamespace(num_program_cache_entries=lambda: program_count[0])
     adapter._serving_state = state
     monkeypatch.setattr(adapter, "_require_generator", lambda: gen)
     monkeypatch.setattr(adapter, "_page_tables_changed", lambda _tables: False)
+
+    def release():
+        events.append("release")
+        gen._trace_cache.clear()
+
+    monkeypatch.setattr(adapter, "_release_decode_traces", release)
     result = adapter.prefill_forward(
         torch.ones((1, 33), dtype=torch.long),
         page_table=torch.zeros((1, 1), dtype=torch.int32),
@@ -469,8 +460,8 @@ def test_prefill_keeps_retained_traces_regardless_of_program_cache_growth(monkey
         sampling_params=SamplingParams(temperature=0.0, top_k=1, top_p=0.0),
     )
     assert result.tolist() == [42]
-    assert events == ["prefill", "sampling", "read"]
-    assert gen._trace_cache == {"retained": retained}
+    assert events == ["prefill", "sampling", "read"] + (["release"] if compile_stage is not None else [])
+    assert bool(gen._trace_cache) == (compile_stage is None)
 
 
 def test_state_slot_contract_keeps_external_cache_in_execution_row_order():

@@ -72,3 +72,55 @@ The stage gate exited 2 at resume: `check_context_contract` flagged the
 did not exist, and no `readiness/prefill_resume_check.json`,
 `readiness_vllm/vllm_run_summary.json`, `prefix_cache_check.json`, or
 `vllm_prefill_burst_benchmark.json` existed.
+
+## Resume check and bisection (2026 Oct 23 to 24)
+
+`readiness/prefill_resume_check_attempt3_failing_cases.log` (L=2560; SDPA
+chunk knobs `GEMMA4_OPT_PREFILL_SDPA_Q_CHUNK=128` and `K_CHUNK=128` set, as in
+the server): s=2559 passes; s=2432 top-1 0.656; s=64, 128, 260, 1024, 1029
+top-1 0.28 to 0.40 with PCC mean 0.92 to 0.95; both negative controls fail as
+expected. `doc/vllm_integration/continuation_bisect/bisect_l2560.log`
+(`tests/probe_continuation_bisect.py`, same knobs): the sliding-attention
+layer 0 continuation matches the full prefill at every sampled row (PCC 0.99
+to 1.0) for s=128 and s=2432; the full-attention layer 5 run hung on the host
+(single thread at 100 percent CPU, no device work, 13 h) before its first
+tensor-cache write and was terminated with SIGTERM. The full-attention
+continuation path (`_full_chunked_prefill_attention` over the paged cache at
+nonzero `prefill_start`, or its cache fill) is the remaining suspect; the
+served `prefix_cache` check passed because its hit resumes one token before
+the prompt end. `readiness/prefill_resume_check.json` is not yet written.
+
+Two host-side stalls were observed while loading this model on chip 1: a
+generator build reading the existing `/tmp/gemma4_full_model_cache` tensor
+cache sat at 100 percent CPU for 17 min (`..._attempt1_stuck_load.log`), and
+the second model construction inside the bisect process hung as above. A
+fresh `GEMMA4_TENSOR_CACHE_PATH` avoided the first stall. Any pytest run with
+the repository `conftest.py` opens the visible chip, so host tests and a
+generator run cannot share chip 1 (`..._attempt2_sysmem_collision.log`).
+
+## Open requirements: trace lifetime and mixed-shape reuse
+
+Not done in this stage attempt. The adapter at `4f3c2b13fa` still releases
+and recaptures the decode traces on a B1/B32 execution-width change, on
+host-mode decode, on a slot remap, and after any prefill that compiled new
+programs, so the mixed-shape trace reuse check (zero captures, releases, or
+retirements across unseen lengths, chunked continuations with concurrent
+decode, batch recompositions, and sampling-mode switches) cannot pass, and it
+was not run. The adapter also declares `supports_async_decode_overlap`,
+`state_slots_are_stateless`, and `decode_input_update_contract`, which the
+pinned plugin never reads. The intended design, drafted and then reverted
+because it never ran on hardware: key traces by (batch, mode, state, page
+tables) only and refresh the sampler's k/p/temp tensors in place on a
+parameter change; prepare both execution widths (allocate every persistent
+input, warm, then capture B1 and B32 model plus sampling traces) from the
+plugin warmup hooks and from the first decode, with `ttnn.mark_corruptible`
+on the captured logits instead of a capture-wide scope; record each trace's
+DRAM intermediate footprint with `ttnn.graph` capture during trace capture
+and pin those address ranges with persistent fence buffers so later
+allocations (prefill temporaries, host-mode gathers, kernel binaries of newly
+compiled prefill programs) can never overlap a replay; count program-cache
+growth and keep traces when the fence is verified; log capture, release,
+prefill chunk start/end, and decode-shape events as `GEMMA4_TRACE_EVENT`
+lines for a serving-level mixed-shape check to parse. Batched prefill
+(dense work once for all rows) is also open; the generator runs the
+single-user prefill kernel per row, and no `prefill_burst` evidence exists.

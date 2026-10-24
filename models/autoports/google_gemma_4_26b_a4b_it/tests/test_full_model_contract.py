@@ -273,65 +273,21 @@ def test_sampler_choice_is_semantically_greedy_split_topk():
     init = inspect.getsource(Gemma4Generator.__init__)
     assert "return None, None, None" not in source
     assert "allow_force_argmax=False" in init
-    capture_source = inspect.getsource(Gemma4Generator._capture_decode_variant)
-    assert "ttnn.copy(input_a=trace.seed_skip, input_b=seed_tensor)" in capture_source
-    assert "MAX_UINT32" in inspect.getsource(Gemma4Generator._allocate_decode_variant)
+    trace_source = inspect.getsource(Gemma4Generator._get_or_capture_decode_trace)
+    assert "ttnn.copy(input_a=seed_skip, input_b=seed_tensor)" in trace_source
+    assert "MAX_UINT32" in trace_source
     assert "max_top_k=DEVICE_MAX_TOP_K" in init
     assert "ag_topology=ttnn.Topology.Ring if model.tp_size == 4 else ttnn.Topology.Linear" in init
     assert "Sampling1D" in init
 
 
-def test_retained_trace_first_token_sampling_releases_its_tensors_before_replay():
+def test_retained_trace_first_token_sampling_has_explicit_lifetime_scope():
     source = inspect.getsource(Gemma4Generator.generate)
-    assert "corruptible_allocation_scope" not in source
-    params = source.index("k, p, temp, seed_tensor = self._sampling_params(spec)")
+    scope = source.index("with ttnn.corruptible_allocation_scope(self.mesh_device):")
+    params = source.index("k, p, temp, seed_tensor = self._sampling_params(spec)", scope)
     readback = source.index("predicted = int(self._read_tokens(first_tt, 1)[0])", params)
-    released = source.index("for tensor in (k, p, temp, seed_tensor, first_tt):", readback)
-    seeded = source.index("self._seeded_slots[0] = True", released)
-    assert params < readback < released < seeded
-
-
-def test_decode_trace_key_excludes_sampling_parameters():
-    source = inspect.getsource(Gemma4Generator._decode_trace_key)
-    assert "sampling_spec" not in source and "spec.key" not in source
-    decode = inspect.getsource(Gemma4Generator.decode_forward)
-    assert "self._refresh_sampling_params(trace, spec)" in decode
-    capture = inspect.getsource(Gemma4Generator._capture_decode_variant)
-    assert "corruptible_allocation_scope" not in capture
-    assert "ttnn.mark_corruptible(logits)" in capture
-
-
-def test_trace_footprint_spans_and_fence_gaps():
-    nodes = [
-        {
-            "node_type": "buffer_allocate",
-            "params": {"type": "DRAM", "address": "1000", "max_size_per_bank": "64", "device_id": "1"},
-        },
-        {
-            "node_type": "buffer_allocate",
-            "params": {"type": "DRAM", "address": "1064", "max_size_per_bank": "128", "device_id": "1"},
-        },
-        {
-            "node_type": "buffer_allocate",
-            "params": {"type": "L1", "address": "5", "max_size_per_bank": "64", "device_id": "1"},
-        },
-        {
-            "node_type": "buffer_deallocate",
-            "params": {"type": "DRAM", "address": "1000", "max_size_per_bank": "64", "device_id": "1"},
-        },
-        {
-            "node_type": "buffer_allocate",
-            "params": {"type": "DRAM", "address": "4000", "max_size_per_bank": "64", "device_id": "1"},
-        },
-        {
-            "node_type": "buffer_deallocate",
-            "params": {"type": "DRAM", "address": "4000", "max_size_per_bank": "64", "device_id": "1"},
-        },
-    ]
-    intermediates, live = Gemma4Generator._dram_spans_from_graph(nodes, 1)
-    assert intermediates == [(1000, 1064), (4000, 4064)]
-    assert live == [(1064, 1192)]
-    assert Gemma4Generator._merge_spans([(10, 20), (20, 30), (40, 50), (45, 60)]) == [(10, 30), (40, 60)]
+    seeded = source.index("self._seeded_slots[0] = True", readback)
+    assert scope < params < readback < seeded
 
 
 def test_cache_spec_rounding():
