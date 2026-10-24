@@ -166,7 +166,7 @@ release:
 
 | Check | Result | Artifact |
 | --- | --- | --- |
-| Full plugin sampling suite (repo runner, `--sampling-profile full`, 32 slots) | 72 passed, 1 skipped (configured all-vocabulary logprobs skip), 5 min 29 s | `readiness_vllm/P150_prefill_features/sampling_tests.log` |
+| Full plugin sampling suite (repo runner, `--sampling-profile full`, 32 slots) | 72 passed, 1 skipped (configured all-vocabulary logprobs skip), 5 min 16 s | `readiness_vllm/P150_prefill_features/sampling_tests.log` |
 | Qualitative greedy and sampled outputs, degeneracy check | 6 chat prompts coherent; "No degenerate output detected"; greedy haiku identical to the earlier P150x2 output | `readiness_vllm/vllm_qualitative_outputs.json` |
 | Served prefix cache (2305-token prompt cold/warm/reset, long 257-token resume, shared-prefix bench) | pass: cold TTFT 1473 ms, warm 136 to 148 ms (ratio 0.094, hit 0.9996), long resume first token and 16 greedy tokens identical (hit 0.899), shared-prefix hit 0.824 | `readiness_vllm/prefix_cache_check.json`, `vllm_shared_prefix_benchmark.json` |
 | Generator-level resume check (current runner, natural text, L = 2560 and 16384) | pass 14/14, PCC min 0.9999, top-1 1.0, both controls fail at every start | `readiness/prefill_resume_check.json` |

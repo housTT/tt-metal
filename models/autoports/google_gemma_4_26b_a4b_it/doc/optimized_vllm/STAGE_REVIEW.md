@@ -132,6 +132,28 @@ bench); burst run-to-run variance; B1 versus 32-slot lane divergence; stale `dec
 diagnostic between bursts; `vllm_run_summary.json` nulls in attached mode; the live server log keeps
 growing (0 invalid ids over all 4,296 lines).
 
-## Seventh review
+## Seventh review (2026 Oct 24, commit 71a42cd3ad): more-work-needed
 
-Latest verdict: pending.
+All four sixth-review fixes verified against the raw artifacts; no new code defect. Required work
+as returned, condensed:
+
+- P2, human authorization: inherited plugin interface items (`plugin_changes.md` sections 1, 5, 6
+  and "Chunked prefill for Gemma 4").
+- P2, human authorization: served default `--override-generation-config '{"top_k":32}'`.
+- P2, documentation: the serving contract's warmup row cited a `GEMMA4_TRACE_EVENT prepare` line
+  that does not exist; it now cites the `GEMMA4_BATCHED_PREFILL_WARMUP` line (commit `ba87c8b0cd`),
+  together with the suite duration (5 min 16 s) and the scope of the README trace-lifetime totals
+  (the commit after this entry).
+
+Other concerns recorded: 1 and 4 program-cache entries of unexplained growth across warm CI-burst
+repeats (no trace alive in that window); the chain-run single-user stall; before run and serial
+reference from the per-row server; mixed-shape `fail` (open item); every 2048-budget overflow burst
+pays a host-sampled prefill step by plugin design; B1 versus 32-slot lane divergence; stale
+`decode_rows_active_before` diagnostic; `vllm_run_summary.json` nulls in attached mode.
+
+## Final state of the stage
+
+The stage cannot reach `clean-pass` on autonomous evidence: the two remaining required items are
+operator decisions (plugin interface authorization; served `top_k` 32 default). Every other finding
+of the seven passes is fixed and re-verified, and the stage gate exits 0. The documentation fixes
+after the seventh pass were not re-reviewed.

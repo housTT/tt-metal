@@ -999,7 +999,11 @@ runtime effect without the tracker).
 - `2bd0d7aeb7` extends this list (reviewed by the fourth pass).
 - `bfa7a081e6` fourth-review documentation fixes (reviewed by the fifth pass).
 - `ab94214b14` fifth-review documentation fixes (reviewed by the sixth pass).
-- `2a56514481` and the commit that adds this line carry the sixth-review documentation fixes.
+- `2a56514481`, `71a42cd3ad` sixth-review documentation fixes (reviewed by the seventh pass).
+- `ba87c8b0cd` and the commit that adds this line carry the seventh-review documentation fixes
+  (serving-contract warmup row evidence, suite duration, scope of the README trace-lifetime totals)
+  and the final review record. The seventh review left two human-authorization items (plugin
+  interface items; served `top_k` 32 default) as the only required work; see `STAGE_REVIEW.md`.
 
 vLLM checkout `/home/hous/dev/vllm` and its in-tree plugin: unchanged at `f96662a7d`, no commit.
 
