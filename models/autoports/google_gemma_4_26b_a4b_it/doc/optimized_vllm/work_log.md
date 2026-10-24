@@ -979,3 +979,16 @@ runtime effect without the tracker).
   `prefill_program_cache_growth` 19, `slot_remap` 16, `host_sampling_prefill` 10,
   `batch_shape_change` 3; no `trace_key_miss` (27 on the `27c84d5e4d` server log); 90 batched
   groups, no `batched_prefill_unprepared`.
+
+### Commits (worktree /home/hous/dev/tt-metal-wt-prefill, branch hous/gemma4-prefill-features, never pushed)
+
+- `067b6fc879` stage base (keep only the prefill-feature work from the stage 9 resume).
+- `09de79d395` M-independent prefill numerics and batched prefill.
+- `45376c17e2` expert-sorted MoE prefill for routed-only expert compute.
+- `27c84d5e4d` shape-stable batched prefill and review follow-up (first review).
+- `3cb8971d5e` final serving evidence on the shape-stable batched prefill.
+- `af32f9ea86` device sampler ceiling 32, slot-row terminal assembly, second-review remedies; this is
+  the "final code" the final server ran (plus the inert scope wrappers removed in it).
+- The commit that adds this list records the third review.
+
+vLLM checkout `/home/hous/dev/vllm` and its in-tree plugin: unchanged at `f96662a7d`, no commit.
