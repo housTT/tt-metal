@@ -588,11 +588,14 @@ class Gemma4FullModel:
         user_id: int = 0,
         chunk_page_tables: Sequence[ttnn.Tensor | None] | None = None,
         return_all_logits: bool = False,
+        return_hidden: bool = False,
     ) -> ttnn.Tensor:
         """Device-only prefill over explicit externally owned state.
 
         ``tokens`` and ``position_ids`` are already padded physical tensors;
         ``prompt_lens`` remains the logical contract and selects final rows.
+        ``return_hidden`` returns the logical-length final hidden state before
+        the terminal norm and LM head so the caller can select rows first.
         """
         if len(prompt_lens) != 1:
             raise ValueError("Gemma4FullModel prefill consumes one logical user at a time")
@@ -637,12 +640,18 @@ class Gemma4FullModel:
                     state.sliding_cache_position_modulo if _layer_kind(layer_type) is SLIDING_KIND else None
                 ),
             )
+        if return_hidden:
+            return hidden
         if not return_all_logits:
             if len(set(prompt_lens)) != 1:
                 raise NotImplementedError("mixed-length terminal prefill slicing is owned by the generator")
             last = logical_seq_len - 1
             hidden = ttnn.slice(hidden, (0, 0, last, 0), (hidden.shape[0], 1, last + 1, HIDDEN_SIZE))
         return self._terminal(hidden)
+
+    def terminal_logits(self, hidden: ttnn.Tensor, *, sampler_ready: bool = False) -> ttnn.Tensor:
+        """Final norm, LM head, and softcap over an explicit hidden-row selection."""
+        return self._terminal(hidden, sampler_ready=sampler_ready)
 
     def decode_forward(
         self,

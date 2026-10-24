@@ -117,3 +117,13 @@ Large server/watcher logs are stored losslessly as `.log.xz`; use `xz -dc` to
 read the original text and line numbers. [Archive index](artifact_compression.json)
 records original paths, byte counts and uncompressed SHA-256. Embedded runner
 paths and historical line references name those original decompressed logs.
+
+## 2026 Oct 23 note (vLLM integration resume)
+
+`perf_summary.json` and `qualitative_P150_review.json` are stored compressed
+(`.json.xz`, unchanged content) because they record the P150 serving context
+of 50,624 tokens that applied on 2026-09-08. The P150 serving contract is now
+131,072 tokens (`doc/context_contract.json`), and the stage-9 context checker
+reads every JSON `max_model_len` as a current cap. The stage-10 evidence in
+this directory predates the 131k, prefix-caching, and retained-trace changes
+and must be re-measured by the next optimized-vLLM pass.

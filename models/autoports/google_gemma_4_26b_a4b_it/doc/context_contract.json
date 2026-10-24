@@ -2,9 +2,9 @@
   "model_id": "google/gemma-4-26B-A4B-it",
   "hf_advertised_context": 262144,
   "hf_context_source": "models/demos/gemma4/configs/gemma-4-26B-A4B-it/config.json:text_config.max_position_embeddings",
-  "current_supported_context": 262144,
-  "capability_reduction": null,
-  "limiting_reason": null,
+  "current_supported_context": 131072,
+  "capability_reduction": "P150 (one chip): 131072 of the HF-advertised 262144 tokens; P150x2 and P150x4 keep 262144 (unchanged, not re-served in this run)",
+  "limiting_reason": "device_dram",
   "functional_decoder": {
     "hardware": "one Blackhole P300 chip (1x1 mesh, device id 1)",
     "layer_kinds": {
@@ -35,12 +35,36 @@
       }
     },
     "boundary_lengths": {
-      "tile": [1, 31, 32, 33],
-      "sliding_cache_page": [63, 64, 65],
-      "full_cache_page": [127, 128, 129],
-      "sliding_window": [1023, 1024, 1025],
-      "chunking_cliff": [32767, 32768, 32799],
-      "advertised_context": [262143, 262144]
+      "tile": [
+        1,
+        31,
+        32,
+        33
+      ],
+      "sliding_cache_page": [
+        63,
+        64,
+        65
+      ],
+      "full_cache_page": [
+        127,
+        128,
+        129
+      ],
+      "sliding_window": [
+        1023,
+        1024,
+        1025
+      ],
+      "chunking_cliff": [
+        32767,
+        32768,
+        32799
+      ],
+      "advertised_context": [
+        262143,
+        262144
+      ]
     },
     "notes": [
       "The 262144-token prefill probes use real checkpoint weights and validate a finite last-token result for both layer kinds.",
@@ -169,7 +193,7 @@
     "layer_kinds": {
       "sliding_attention": {
         "representative_layer": 0,
-      "tested_prefill_context": 262143,
+        "tested_prefill_context": 262143,
         "tested_decode_current_position": 262143,
         "artifacts": [
           "multichip_decoder/artifacts/prefill_capacity_sliding_attention_262143.json",
@@ -218,30 +242,30 @@
       "P150": {
         "tp_size": 1,
         "supported_context_tokens": 50624,
-      "full_stack_projection_bytes_per_device": 34091067904,
-      "full_stack_headroom_bytes_per_device": 268670464
+        "full_stack_projection_bytes_per_device": 34091067904,
+        "full_stack_headroom_bytes_per_device": 268670464
       },
       "P150x2": {
         "tp_size": 2,
         "supported_context_tokens": 262144,
-      "full_stack_projection_bytes_per_device": 33498448896,
-      "full_stack_headroom_bytes_per_device": 861289472
+        "full_stack_projection_bytes_per_device": 33498448896,
+        "full_stack_headroom_bytes_per_device": 861289472
       },
-    "P150x4": {
-      "tp_size": 4,
-      "supported_context_tokens": 262144,
-      "full_stack_projection_bytes_per_device": 29333556224,
-      "full_stack_headroom_bytes_per_device": 5026182144
+      "P150x4": {
+        "tp_size": 4,
+        "supported_context_tokens": 262144,
+        "full_stack_projection_bytes_per_device": 29333556224,
+        "full_stack_headroom_bytes_per_device": 5026182144
       }
     },
     "notes": [
       "The optimized packed expert tensor replaces, rather than supplements, the separate gate/up tensors and is shared by prefill and decode.",
-    "P150x2 full attention adds a 61276160-byte retained O-projection family and remains within the conservative full-stack capacity projection.",
-    "P150x4 reclaims the prior 4411883520-byte redundant packed-expert retained copy and retains a 288358400-byte DRAM-sharded QKV decode copy across the 25 sliding-attention layers.",
+      "P150x2 full attention adds a 61276160-byte retained O-projection family and remains within the conservative full-stack capacity projection.",
+      "P150x4 reclaims the prior 4411883520-byte redundant packed-expert retained copy and retains a 288358400-byte DRAM-sharded QKV decode copy across the 25 sliding-attention layers.",
       "No public sequence alignment is added. The decoder continues to own tile padding, cache masking, and logical slicing, with final S=33 prefill/decode trace evidence.",
-    "Indexed sparse routing adds only transient exact TopK indices and compact scores; it does not change persistent per-device memory or the context limit.",
-    "Full-attention dense gate, up, and down are BF16 for recorded-activation correctness. Coherent R22 TP1/TP2 no longer allocate an unused packed dense tensor, offsetting most of that precision repair's persistent cost.",
-    "The final-source P150 50624 physical boundary was rerun after changing packed-expert construction to avoid all separate gate/up device allocations; both meaningful layer kinds pass."
+      "Indexed sparse routing adds only transient exact TopK indices and compact scores; it does not change persistent per-device memory or the context limit.",
+      "Full-attention dense gate, up, and down are BF16 for recorded-activation correctness. Coherent R22 TP1/TP2 no longer allocate an unused packed dense tensor, offsetting most of that precision repair's persistent cost.",
+      "The final-source P150 50624 physical boundary was rerun after changing packed-expert construction to avoid all separate gate/up device allocations; both meaningful layer kinds pass."
     ]
   },
   "full_model": {
@@ -458,7 +482,11 @@
     "rejected_kv_candidate": {
       "config_id": "kv_cache_bfp8",
       "profile": "P150x4",
-      "accuracy": {"top1": 0.93, "top5": 1.0, "top100": 1.0},
+      "accuracy": {
+        "top1": 0.93,
+        "top5": 1.0,
+        "top100": 1.0
+      },
       "teacher_forcing_decode_t_s_u": 22.316739348614618,
       "reason": "passes accuracy but is 48.6% slower than the selected BF16 cache and therefore is not a selected capacity candidate",
       "artifact": "datatype_sweep/artifacts/kv_cache_bfp8/readiness_tp4.json"
@@ -497,5 +525,41 @@
     "evidence_root": "doc/optimized_vllm",
     "measurement_root": "readiness_vllm/<profile>/optimized_vllm",
     "scope": "Preserves inherited profile-specific capacity evidence; reduced two-layer trace regressions are functional inner-loop checks, not reduced served context."
+  },
+  "capacity_evidence": [
+    "optimized_multichip_decoder/capacity_projection.json",
+    "optimized_full_model/final/full_stack_context_tp1/lifetime_fix_50624/long_context_probe_tp1.json",
+    "vllm_integration/work_log.md#p150-serving-context",
+    "readiness_vllm/P150_prefill_features/server.log (max_tokens_all_users=94528 -> 1509 KV blocks; one 131072-token request needs about 1110 blocks)"
+  ],
+  "vllm_integration": {
+    "stage": "vllm_integration (resumed 2026 Oct 23 under the current skill version)",
+    "hardware": "one Blackhole P300 chip (/dev/tenstorrent/0) as the P150 profile; chips 2 and 3 unused",
+    "profile_max_model_len": {
+      "P150": 131072,
+      "P150x2": 262144,
+      "P150x4": 262144
+    },
+    "served_max_model_len": {
+      "P150": 131072
+    },
+    "limiting_reason": {
+      "P150": "device_dram",
+      "P150x2": null,
+      "P150x4": null
+    },
+    "p150_evidence": {
+      "weights_and_persistent_state_after_load_bytes": "31.63 GiB total, 26.21 GiB used after the weights load, 5.42 GiB free (QuietBox 2 P150 chip, measured 2026-09-23; tt/generator_vllm.py KV pool sizing note)",
+      "kv_block_bytes": 2621440,
+      "kv_pool_blocks_this_run": 1509,
+      "kv_pool_tokens_this_run": 94528,
+      "blocks_for_one_131072_request": "ceil(131072/128)=1024 full-attention blocks plus 5 sliding groups x (16+1) blocks = 1109",
+      "blocks_for_one_262144_request": "ceil(262144/128)=2048 full-attention blocks plus 85 = 2133 > 1509 available; the advertised context cannot fit in the KV pool left after the weights on 32 GiB",
+      "largest_feasible": "131072 is the largest power-of-two context whose single-request block need (1109) fits the measured pool (1509) with headroom for a second resident; the earlier 50624 figure came from a conservative construction-time projection that the measured post-load DRAM and the hybrid KV manager's per-group block accounting supersede"
+    },
+    "prefix_caching": "enabled; readiness/prefill_resume_check.json and readiness_vllm/prefix_cache_check.json",
+    "notes": [
+      "Checkers in this skill version compare every recorded max_model_len against current_supported_context; the superseded 2026-09-08 P150 artifacts that recorded 50624 are retained under readiness_vllm/superseded_20260908/ as compressed history and are not current serving evidence."
+    ]
   }
 }

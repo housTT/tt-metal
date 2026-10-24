@@ -1,11 +1,10 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Opt-in real-adapter request-boundary regression; run profiles serially."""
+"""Opt-in real-adapter trace retention probe; run profiles serially with allocation tracking on."""
 
 import json
 import os
-import traceback
 from pathlib import Path
 
 import pytest
@@ -18,22 +17,21 @@ from models.autoports.google_gemma_4_26b_a4b_it.tt.generator_vllm import PRECISI
 from models.autoports.google_gemma_4_26b_a4b_it.tt.model import DECODE_SLOT_COUNT, Gemma4FullModel
 from models.common.sampling.sampling_params import SamplingParams
 
+PROBE_MAX_SEQ_LEN = 512
+
 
 def _host(tensor):
     return ttnn.to_torch(ttnn.get_device_tensors(tensor)[0]).clone()
 
 
-def _identity(trace):
-    return {
-        "model_trace_id": str(trace.model_trace_id),
-        "sampling_trace_id": str(trace.sampling_trace_id),
-        "token": trace.token_input.buffer_address(),
-        "sampled": trace.sampled_tokens.buffer_address(),
-        "position": trace.current_pos.buffer_address(),
-        "rope": trace.position_ids.buffer_address(),
-        "tables": [table.buffer_address() for table in trace.state.page_tables],
-        "cache": [tensor.buffer_address() for pair in trace.state.kv_cache for tensor in pair],
-    }
+def _trace_ids(gen):
+    return sorted(
+        (trace.batch_size, trace.model_trace_id, trace.sampling_trace_id) for trace in gen._trace_cache.values()
+    )
+
+
+def _spans_overlap(spans, start, end):
+    return any(start < span_end and end > span_start for span_start, span_end in spans)
 
 
 @pytest.mark.skipif(
@@ -43,28 +41,21 @@ def _identity(trace):
 @pytest.mark.parametrize(
     "mesh_device,device_params,profile_tp_size",
     [
-        ((1, 1), {"trace_region_size": 67_108_864}, 1),
-        ((2, 2), {"fabric_config": ttnn.FabricConfig.FABRIC_2D, "trace_region_size": 67_108_864}, 2),
-        ((1, 4), {"fabric_config": ttnn.FabricConfig.FABRIC_1D_RING, "trace_region_size": 134_217_728}, 4),
+        ((1, 1), {"trace_region_size": 134_217_728}, 1),
     ],
-    ids=["p150", "p150x2", "p150x4"],
+    ids=["p150"],
     indirect=["mesh_device", "device_params"],
 )
-def test_adapter_request_trace_reuse(mesh_device, profile_tp_size, monkeypatch):
+def test_adapter_retains_decode_traces_across_mixed_shapes(mesh_device, profile_tp_size, monkeypatch):
     assert os.environ.get("TT_METAL_TRACE_ALLOC_TRACKING") == "1", "enable allocator checks before importing TTNN"
-    target_mesh = (
-        mesh_device
-        if mesh_device.get_num_devices() == profile_tp_size
-        else mesh_device.create_submesh(ttnn.MeshShape((1, profile_tp_size)), offset=ttnn.MeshCoordinate(0, 0))
-    )
     model = Gemma4FullModel(
-        mesh_device=target_mesh,
+        mesh_device=mesh_device,
         hf_config=_config(),
         state_dict=_load_probe_state(full_stack=False),
-        max_seq_len=128,
+        max_seq_len=PROBE_MAX_SEQ_LEN,
         max_batch_size=DECODE_SLOT_COUNT,
         layer_indices=[0, 5],
-        tensor_cache_path="/tmp/gemma4_full_model_probe_cache",
+        tensor_cache_path=os.environ.get("GEMMA4_TENSOR_CACHE_PATH", "/tmp/gemma4_full_model_probe_cache"),
         create_kv_cache=False,
         precision_config_path=PRECISION_CONFIG,
     )
@@ -86,276 +77,157 @@ def test_adapter_request_trace_reuse(mesh_device, profile_tp_size, monkeypatch):
         )
         for spec in model.cache_specs
     ]
-    # Change only the sliding layer's scheduler mapping; full-attention tables
-    # keep their contents and must receive no upload at this boundary.
-    changed_tables = [tables[0].roll(1, dims=0), tables[1]]
-    page_uploads = []
-    original_copy = ttnn.copy_host_to_device_tensor
-
-    def record_page_copy(source, destination, *args, **kwargs):
-        for index, table in enumerate(adapter._serving_state.page_tables):
-            if destination is table:
-                page_uploads.append(index)
-        return original_copy(source, destination, *args, **kwargs)
-
-    monkeypatch.setattr(ttnn, "copy_host_to_device_tensor", record_page_copy)
-    greedy = SamplingParams(temperature=0.0, top_k=1, top_p=0.0)
-    refreshed_inputs = {}
-    original_refresh = gen._refresh_device_input
-
-    def record_refresh(target, values, **kwargs):
-        refreshed_inputs[target.buffer_address()] = values.clone()
-        return original_refresh(target, values, **kwargs)
-
-    monkeypatch.setattr(gen, "_refresh_device_input", record_refresh)
     operations = {"captures": 0, "releases": 0}
-    trace_events = []
-
-    def cached_traces():
-        return [
-            {"key": repr(key), "batch_size": trace.batch_size, "identity": _identity(trace)}
-            for key, trace in gen._trace_cache.items()
-        ]
-
-    original_get_trace = gen._get_or_capture_decode_trace
-
-    def record_get_trace(tokens, start_pos, *, state, sampling_mode, sampling_spec, **kwargs):
-        requested_key = (
-            tokens.shape[0],
-            sampling_mode,
-            sampling_spec.key,
-            id(state),
-            tuple(map(id, state.page_tables)),
-        )
-        trace_events.append(
-            {
-                "operation": "get_trace",
-                "requested_key": repr(requested_key),
-                "cache_hit": requested_key in gen._trace_cache,
-                "cached_keys": [repr(key) for key in gen._trace_cache],
-                "request_boundary": gen._request_boundary,
-            }
-        )
-        return original_get_trace(
-            tokens, start_pos, state=state, sampling_mode=sampling_mode, sampling_spec=sampling_spec, **kwargs
-        )
-
-    monkeypatch.setattr(gen, "_get_or_capture_decode_trace", record_get_trace)
     for name, key in (("begin_trace_capture", "captures"), ("release_trace", "releases")):
         original = getattr(ttnn, name)
 
         def counted(*args, _original=original, _key=key, **kwargs):
             operations[_key] += 1
-            trace_events.append(
-                {
-                    "operation": _key,
-                    "callers": [f"{frame.name}:{frame.lineno}" for frame in traceback.extract_stack(limit=4)[:-1]],
-                    "decode_ready": adapter._decode_ready,
-                    "last_execution_batch": adapter._last_execution_batch,
-                }
-            )
             return _original(*args, **kwargs)
 
         monkeypatch.setattr(ttnn, name, counted)
-
-    def consume(output):
-        host, events = adapter.read_decode_output(output, async_read=True)
-        assert len(events) == 1
-        for event in events:
-            ttnn.event_synchronize(event)
-        tokens, auxiliary = adapter.process_decode_output_host(host, is_tokens=True)
-        assert auxiliary is None
-        return tokens.clone()
-
-    def run_request(lengths, token_offset, scheduler_tables, *, reset=False, force_release=False, phase="warm"):
-        result = {
-            "lengths": lengths,
-            "reset_batch": reset,
-            "role": "explicit_release_control" if force_release else "candidate",
-            "phase": phase,
-            "stage": "before_prefill",
-            "traces_before_prefill": cached_traces(),
-        }
-        report["cases"].append(result)
-        if force_release:
-            adapter._release_decode_traces()
-        before = operations.copy()
-        before_refresh = adapter._page_table_refreshes
-        before_upload = len(page_uploads)
-        page_changed = adapter._page_tables_changed(scheduler_tables)
-        expected_uploads = [
-            index
-            for index, table in enumerate(scheduler_tables)
-            if adapter._last_page_tables is None or not torch.equal(table, adapter._last_page_tables[index])
-        ]
-        prompt = torch.stack(
-            [(torch.arange(max(lengths)) + token_offset + row * 13) % 2000 + 1 for row in range(len(lengths))]
-        )
-        program_count_before = target_mesh.num_program_cache_entries()
-        first = adapter.prefill_forward(
-            prompt,
-            page_table=None,
-            page_tables_per_layer=scheduler_tables,
-            kv_cache=cache,
-            prompt_lens=lengths,
-            sampling_params=greedy,
-        )
-        program_count_after = target_mesh.num_program_cache_entries()
-        result.update(
-            stage="after_prefill",
-            traces_after_prefill=cached_traces(),
-            program_count_before_prefill=program_count_before,
-            program_count_after_prefill=program_count_after,
-            prefill_releases=operations["releases"] - before["releases"],
-            page_upload_layers=page_uploads[before_upload:],
-        )
-        assert page_uploads[before_upload:] == expected_uploads
-        if result["traces_before_prefill"] and not force_release and program_count_after != program_count_before:
-            assert not result["traces_after_prefill"]
-            assert result["prefill_releases"] == 2
-        assert adapter._page_table_refreshes - before_refresh == int(page_changed)
-        counts_before_decode = vars(gen.trace_counters).copy()
-        positions = torch.full((DECODE_SLOT_COUNT,), -1, dtype=torch.int32)
-        positions[: len(lengths)] = torch.tensor(lengths, dtype=torch.int32)
-        token_input = torch.zeros((DECODE_SLOT_COUNT, 1), dtype=torch.long)
-        token_input[: len(lengths), 0] = first.reshape(-1)
-        steps, logits = [first.reshape(-1).tolist()], []
-        identity = None
-        for step in range(3):
-            output = adapter.decode_forward(
-                token_input,
-                positions,
-                page_table=None,
-                page_tables_per_layer=scheduler_tables,
-                kv_cache=cache,
-                sampling_params=greedy,
-                reset_batch=reset and step == 0,
-                read_from_device=False,
-            )
-            sampled = consume(output)
-            trace = next(iter(gen._trace_cache.values()))
-            current_identity = _identity(trace)
-            result.update(stage=f"decode_step_{step}", identity=current_identity)
-            assert current_identity["token"] == current_identity["sampled"]
-            if identity is None:
-                identity = current_identity
-                assert (
-                    refreshed_inputs[identity["token"]].reshape(-1)[: len(lengths)].tolist()
-                    == first.reshape(-1).tolist()
-                )
-                assert refreshed_inputs[identity["position"]].reshape(-1)[: len(lengths)].tolist() == lengths
-                assert refreshed_inputs[identity["rope"]].reshape(-1)[: len(lengths)].tolist() == lengths
-            else:
-                assert current_identity == identity
-            expected = [length + step + 1 for length in lengths] + [-1] * (32 - len(lengths))
-            assert _host(trace.current_pos).reshape(-1).tolist() == expected
-            assert _host(trace.position_ids).reshape(-1)[: len(lengths)].tolist() == expected[: len(lengths)]
-            assert _host(trace.token_input).reshape(-1)[: len(lengths)].tolist() == sampled[: len(lengths)].tolist()
-            steps.append(sampled[: len(lengths)].tolist())
-            # Read the actual terminal output, including all vocabulary shards;
-            # keep only host tensors so no extra device allocations survive replay.
-            logits.append(
-                torch.cat(
-                    [
-                        ttnn.to_torch(shard).reshape(-1, shard.shape[-1])[: len(lengths)].clone()
-                        for shard in ttnn.get_device_tensors(trace.logits)
-                    ],
-                    dim=-1,
-                )
-            )
-            # Intentionally stale host feedback must be ignored on steady steps.
-            token_input.zero_()
-            positions[: len(lengths)] = 99
-        for key in ("token_refreshes", "position_refreshes", "rope_refreshes"):
-            assert getattr(gen.trace_counters, key) - counts_before_decode[key] == 1
-        assert adapter._page_table_refreshes - before_refresh == int(page_changed)
-        assert page_uploads[before_upload:] == expected_uploads
-        assert gen.trace_counters.page_table_refreshes == 0
-        for actual, supplied in zip(adapter._serving_state.page_tables, scheduler_tables):
-            host_table = _host(actual)
-            assert torch.equal(host_table[: supplied.shape[0], : supplied.shape[1]], supplied)
-        result.update(
-            {
-                "stage": "request_complete",
-                "page_changed": page_changed,
-                "tokens": steps,
-                "identity": identity,
-                "captures": operations["captures"] - before["captures"],
-                "releases": operations["releases"] - before["releases"],
-                "refreshes": {
-                    key: getattr(gen.trace_counters, key) - counts_before_decode[key]
-                    for key in ("token_refreshes", "position_refreshes", "rope_refreshes")
-                },
-            }
-        )
-        return result, logits
 
     report = {
         "profile": model.precision_policy["resolved_profile"],
         "precision_config": model.precision_policy["config_id"],
         "allocator_tracking": True,
-        "watcher": os.environ.get("TT_METAL_WATCHER"),
-        "watcher_noinline": os.environ.get("TT_METAL_WATCHER_NOINLINE"),
-        "watcher_disabled_features": {
-            name: value for name, value in os.environ.items() if name.startswith("TT_METAL_WATCHER_DISABLE_")
-        },
-        "cases": [],
-        "trace_events": trace_events,
+        "requests": [],
     }
-    try:
-        request_groups = (
-            [([33], 10, tables, False), ([47], 90, tables, False), ([33], 10, changed_tables, True)],
-            [([33, 47], 10, tables, False), ([35, 45, 39], 90, tables, True), ([33, 47], 10, changed_tables, True)],
-        )
-        cold_groups = []
-        # Keep the original cold B1/B2/B3 sequence: new prefill or first-token
-        # programs must retire retained traces before replay. Shape changes
-        # remain an independent reason to recapture.
-        for requests in request_groups:
-            cold = []
-            for lengths, offset, mapping, reset in requests:
-                result, logits = run_request(lengths, offset, mapping, reset=reset, phase="cold")
-                previous = result["traces_before_prefill"]
-                execution_batch = 1 if len(lengths) == 1 else DECODE_SLOT_COUNT
-                programs_changed = result["program_count_after_prefill"] != result["program_count_before_prefill"]
-                recapture = not previous or previous[0]["batch_size"] != execution_batch or programs_changed
-                assert result["captures"] == (2 if recapture else 0)
-                assert result["releases"] == (2 if previous and recapture else 0)
-                cold.append((result, logits))
-            cold_groups.append(cold)
-        cold_three_rows = cold_groups[1][1][0]
-        assert cold_three_rows["program_count_after_prefill"] > cold_three_rows["program_count_before_prefill"]
-        assert cold_three_rows["prefill_releases"] == cold_three_rows["captures"] == 2
+    greedy = SamplingParams(temperature=0.0, top_k=1, top_p=0.0)
 
-        # Repeat every warmed boundary with changed token/position/table data.
-        # The first request creates the group's trace; every following request
-        # must retain it with exactly zero captures and releases.
-        for requests, cold in zip(request_groups, cold_groups):
-            adapter._release_decode_traces()
-            retained = []
-            for i, (lengths, offset, mapping, reset) in enumerate(requests):
-                result, logits = run_request(lengths, offset, mapping, reset=reset)
-                retained.append((result, logits))
-                assert result["program_count_after_prefill"] == result["program_count_before_prefill"]
-                if i:
-                    assert result["identity"] == retained[0][0]["identity"]
-                    assert result["captures"] == result["releases"] == 0
-                else:
-                    assert result["captures"] == 2
-            for (lengths, offset, mapping, reset), candidates in zip(requests, zip(cold, retained)):
-                control, control_logits = run_request(lengths, offset, mapping, reset=reset, force_release=True)
-                assert control["captures"] == 2
-                for candidate, candidate_logits in candidates:
-                    assert candidate["tokens"] == control["tokens"]
-                    max_delta = 0.0
-                    for actual, expected in zip(candidate_logits, control_logits):
-                        torch.testing.assert_close(actual, expected, rtol=0.005, atol=0.0625)
-                        max_delta = max(max_delta, float((actual - expected).abs().max()))
-                    candidate["control_max_logit_delta"] = max_delta
-                    candidate["explicit_release_control_tokens_match"] = True
+    def consume(output):
+        host, events = adapter.read_decode_output(output, async_read=True)
+        for event in events:
+            ttnn.event_synchronize(event)
+        tokens, _ = adapter.process_decode_output_host(host, is_tokens=True)
+        return tokens.clone()
+
+    def prompt_for(lengths, offset):
+        return torch.stack([(torch.arange(max(lengths)) + offset + row * 13) % 2000 + 1 for row in range(len(lengths))])
+
+    def run_request(lengths, offset, *, sampling=greedy, steps=3, start=0, slot_remap=None, label=""):
+        before = dict(operations)
+        entries_before = mesh_device.num_program_cache_entries()
+        prompt = prompt_for(lengths, offset)
+        start_pos = None
+        if start:
+            start_pos = torch.full((len(lengths), 1), start, dtype=torch.int32)
+        first = adapter.prefill_forward(
+            prompt,
+            page_table=None,
+            page_tables_per_layer=tables,
+            kv_cache=cache,
+            prompt_lens=lengths,
+            start_pos=start_pos,
+            sampling_params=sampling,
+        )
+        positions = torch.full((DECODE_SLOT_COUNT,), -1, dtype=torch.int32)
+        positions[: len(lengths)] = torch.tensor(lengths, dtype=torch.int32)
+        token_input = torch.zeros((DECODE_SLOT_COUNT, 1), dtype=torch.long)
+        if sampling is not None:
+            token_input[: len(lengths), 0] = first.reshape(-1)
+        else:
+            token_input[: len(lengths), 0] = first.reshape(len(lengths), -1).argmax(dim=-1)
+        tokens = [token_input[: len(lengths), 0].tolist()]
+        for step in range(steps):
+            output = adapter.decode_forward(
+                token_input,
+                positions,
+                page_table=None,
+                page_tables_per_layer=tables,
+                kv_cache=cache,
+                sampling_params=sampling,
+                slot_remap=slot_remap if step == 0 else None,
+                read_from_device=False,
+            )
+            if sampling is None:
+                sampled = output.reshape(output.shape[0], -1).argmax(dim=-1)
+                token_input[: len(lengths), 0] = sampled[: len(lengths)]
+            else:
+                sampled = consume(output)
+                token_input.zero_()  # intentionally stale host feedback on steady steps
+            tokens.append(sampled[: len(lengths)].tolist())
+            positions[: len(lengths)] = 99
+        record = {
+            "label": label,
+            "lengths": lengths,
+            "start": start,
+            "sampling": "host" if sampling is None else ("greedy" if sampling.temperature == 0.0 else "sampled"),
+            "slot_remap": None if slot_remap is None else slot_remap.tolist()[: len(lengths)],
+            "tokens": tokens,
+            "captures": operations["captures"] - before["captures"],
+            "releases": operations["releases"] - before["releases"],
+            "program_cache_growth": mesh_device.num_program_cache_entries() - entries_before,
+            "trace_ids": _trace_ids(gen),
+        }
+        report["requests"].append(record)
+        return record
+
+    try:
+        adapter.warmup_model_prefill(enable_trace=False, kv_cache=cache)
+        adapter.warmup_model_decode(enable_trace=False, kv_cache=cache)
+        adapter.warmup_model_prefill(enable_trace=True, kv_cache=cache)
+        adapter.warmup_model_decode(enable_trace=True, kv_cache=cache)
+        prepared_ids = _trace_ids(gen)
+        report["prepared_trace_ids"] = prepared_ids
+        report["fence"] = {
+            "verified": gen.trace_fence.verified,
+            "spans": gen.trace_fence.spans,
+            "bytes_per_bank": gen.trace_fence.bytes_per_bank,
+            "attempts": gen.trace_fence.attempts,
+            "detail": gen.trace_fence.detail,
+            "addresses": [tensor.buffer_address() for tensor in gen.trace_fence.tensors],
+        }
+        assert operations == {"captures": 4, "releases": 0}, operations
+        assert [batch for batch, _, _ in prepared_ids] == [1, DECODE_SLOT_COUNT]
+        assert gen.trace_fence.verified, gen.trace_fence.detail
+        assert report["fence"]["addresses"] == [start for start, _ in gen.trace_fence.spans]
+        entries_after_prepare = mesh_device.num_program_cache_entries()
+        report["program_cache_entries_after_prepare"] = entries_after_prepare
+
+        a = run_request([33], 10, label="b1_warm")
+        b = run_request([35, 47], 90, label="b2_concurrent")
+        c = run_request([129], 7, label="b1_unseen_129")
+        run_request([130], 8, label="b1_unseen_130")
+        run_request([131], 9, label="b1_unseen_131")
+        sampled = SamplingParams(temperature=[0.7, 0.7, 0.7], top_k=[32, 32, 32], top_p=[0.95, 0.95, 0.95])
+        run_request([33, 129, 47], 10, sampling=sampled, label="b3_sampled_mixed_lengths")
+        f = run_request([33], 10, label="b1_warm_repeat_after_sampled")
+        g = run_request([33], 10, sampling=None, label="b1_host_mode_control")
+        remap = torch.arange(DECODE_SLOT_COUNT)
+        remap[:2] = torch.tensor([1, 0])
+        run_request([35, 47], 90, slot_remap=remap, label="b2_slot_remap")
+        run_request([65], 7, start=64, label="b1_continuation_start_64")
+        run_request([35, 47], 90, label="b2_repeat")
+
+        assert gen.trace_counters.unprepared_captures == 0
+        assert operations == {"captures": 4, "releases": 0}, operations
+        assert all(record["trace_ids"] == prepared_ids for record in report["requests"])
+        assert c["program_cache_growth"] > 0, "an unseen prefill length should compile new programs"
+        assert gen.trace_counters.program_cache_growth_events > 0
+        assert gen.trace_counters.sampling_param_refreshes >= 2
+        assert f["tokens"] == a["tokens"], "greedy repeat after sampled traffic must reproduce the warm request"
+        assert g["tokens"] == a["tokens"], "eager host-mode greedy control must match the traced path"
+
+        # Allocation-disjointness proof for the fence: every DRAM allocation of a
+        # fresh eager prefill (new programs and all) lies outside the fenced spans.
+        ttnn.graph.begin_graph_capture(ttnn.graph.RunMode.NORMAL)
+        try:
+            run_request([257], 3, label="b1_unseen_257_under_graph_capture", steps=1)
+        finally:
+            nodes = ttnn.graph.end_graph_capture()
+        intermediates, live = Gemma4Generator._dram_spans_from_graph(nodes, ttnn.get_device_ids(mesh_device)[0])
+        overlaps = [span for span in intermediates + live if _spans_overlap(gen.trace_fence.spans, *span)]
+        report["post_fence_allocations"] = {
+            "dram_allocations": len(intermediates) + len(live),
+            "overlapping_fence": overlaps,
+        }
+        assert not overlaps, overlaps
+        report["counters"] = vars(gen.trace_counters)
         report["verdict"] = "pass"
     finally:
         adapter.teardown()
+        report["teardown_releases"] = operations["releases"]
         output_dir = os.environ.get("GEMMA4_VLLM_TRACE_REUSE_OUTPUT_DIR")
         if output_dir:
             path = Path(output_dir)

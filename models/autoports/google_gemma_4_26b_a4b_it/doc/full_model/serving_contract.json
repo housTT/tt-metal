@@ -1,0 +1,195 @@
+{
+  "plugin": {
+    "repository": "tenstorrent/vllm (in-tree plugins/vllm-tt-plugin; checkout /home/hous/dev/vllm selected by the run environment)",
+    "commit": "f96662a7d239c077e1435b658c0e7d316f9c4799",
+    "upstream_base": "5ffebf4128f (last upstream tenstorrent/vllm commit before the local Gemma 4 plugin commits)"
+  },
+  "vllm": {
+    "version": "0.1.dev14202+gf96662a7d",
+    "source": "/home/hous/dev/vllm at f96662a7d239c077e1435b658c0e7d316f9c4799 (same checkout as the plugin)"
+  },
+  "documents_read": [
+    "plugins/vllm-tt-plugin/README.md",
+    "plugins/vllm-tt-plugin/docs/SCHEDULING.md",
+    "plugins/vllm-tt-plugin/docs/install-vllm-tt.sh",
+    "plugins/vllm-tt-plugin/src/vllm_tt_plugin/platform.py (model_capabilities reader and prefix-caching gate)",
+    "plugins/vllm-tt-plugin/src/vllm_tt_plugin/model_runner.py (_can_sample_on_device, submit_prefill, decode submission, warmup_model)",
+    "plugins/vllm-tt-plugin/src/vllm_tt_plugin/worker.py",
+    "plugins/vllm-tt-plugin/tests/tt/*.py"
+  ],
+  "notes": [
+    "This pinned checkout has no docs/MODEL_INTERFACE.md; the adapter contract was derived from platform.py, model_runner.py, worker.py, and the tests/tt suite.",
+    "model_capabilities keys read by the pinned plugin: supports_prefix_caching, supports_prefix_caching_sliding_window, supports_async_decode, supports_sample_on_device, supports_device_penalties, supports_device_seeded_sampling, max_device_top_k. Class attribute read: supports_original_prompt_lens."
+  ],
+  "rows": [
+    {
+      "item": "initialize_vllm_model",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "tests/test_vllm_adapter_contract.py::test_selected_precision_and_external_cache_are_explicit; readiness_vllm/P150_prefill_features/server.log (model class resolved to models.autoports.google_gemma_4_26b_a4b_it.tt.generator_vllm.Gemma4ForCausalLM)"
+    },
+    {
+      "item": "get_kv_cache_spec",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "readiness_vllm/P150_prefill_features/server.log (hybrid SlidingWindowSpec block 64 / FullAttentionSpec block 128); tests/test_full_model_contract.py::test_full_model_architecture_and_cache_geometry_contract"
+    },
+    {
+      "item": "allocate_kv_cache_per_layer",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "tests/test_vllm_adapter_contract.py::test_selected_precision_and_external_cache_are_explicit; readiness_vllm/P150_prefill_features/server.log"
+    },
+    {
+      "item": "get_max_tokens_all_users",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "tests/test_vllm_adapter_contract.py::test_capabilities_and_context_contract; readiness_vllm/P150_prefill_features/server.log (max_tokens_all_users=94528 -> 1509 blocks)"
+    },
+    {
+      "item": "prefill_forward (start_pos continuation, prompt_lens as chunk end, page_tables_per_layer)",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "readiness/prefill_resume_check.json; tests/test_continuation_prefill.py; readiness_vllm/prefix_cache_check.json"
+    },
+    {
+      "item": "prefill_forward original_prompt_lens (preemption resume replays generated tokens through decode)",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "tests/test_generated_replay_adapter.py"
+    },
+    {
+      "item": "prefill_forward empty_slots",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "tests/test_vllm_adapter_contract.py::test_state_slot_contract_keeps_external_cache_in_execution_row_order (stateless model: slots validated, cache rows stay in execution-row order)"
+    },
+    {
+      "item": "batched_prefill",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "tests/test_vllm_adapter_contract.py::test_full_model_multi_user_prefill_uses_single_user_kernel_rows; readiness_vllm/vllm_prefill_burst_benchmark.json; readiness_vllm/vllm_batched_equals_solo.json. Multi-row calls are correct but execute the single-user prefill kernel per row; dense-work batching is not implemented (Stage 9 advisory)."
+    },
+    {
+      "item": "decode_forward traced with async split (read_from_device=False, read_decode_output(async_read=True), process_decode_output_host)",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "tests/test_vllm_adapter_contract.py::test_async_split_is_implemented; readiness_vllm/sampling_tests.log; readiness_vllm/vllm_benchmark.json"
+    },
+    {
+      "item": "decode_forward reset_batch / slot_remap",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "tests/test_vllm_adapter_contract.py::test_adapter_steady_decode_ignores_stale_host_feedback_and_refreshes_changed_pages_once; tests/test_vllm_adapter_contract.py::test_slot_remap_is_validated_and_recaptures_without_a_second_rng_path"
+    },
+    {
+      "item": "warmup_model_prefill / warmup_model_decode",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "readiness_vllm/P150_prefill_features/server.log (generator-owned two-phase preparation logged as GEMMA4_TRACE_EVENT prepare); tt/generator.py Gemma4Generator.prepare_decode_traces"
+    },
+    {
+      "item": "teardown",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "tt/generator_vllm.py Gemma4ForCausalLM.teardown; readiness_vllm/runtime_cleanup_audit.json"
+    },
+    {
+      "item": "supports_original_prompt_lens",
+      "kind": "capability",
+      "status": "supported",
+      "evidence": "tests/test_generated_replay_adapter.py::test_authoritative_prompt_boundary_capability_is_declared"
+    },
+    {
+      "item": "supports_prefix_caching",
+      "kind": "capability",
+      "status": "supported",
+      "evidence": "readiness/prefill_resume_check.json; readiness_vllm/prefix_cache_check.json; readiness_vllm/vllm_run_summary.json"
+    },
+    {
+      "item": "supports_prefix_caching_sliding_window",
+      "kind": "capability",
+      "status": "supported",
+      "evidence": "readiness/prefill_resume_check.json (window_start and window_plus_unaligned resume starts over the 1024-token sliding layers); tests/test_continuation_prefill.py"
+    },
+    {
+      "item": "supports_async_decode",
+      "kind": "capability",
+      "status": "supported",
+      "evidence": "readiness_vllm/sampling_tests.log; readiness_vllm/async_overlap_state_test.json; server launched with --async-scheduling"
+    },
+    {
+      "item": "supports_sample_on_device",
+      "kind": "capability",
+      "status": "supported",
+      "evidence": "readiness_vllm/vllm_benchmark.json (sample_on_device_mode=all); readiness_vllm/vllm_qualitative_outputs.json"
+    },
+    {
+      "item": "supports_device_penalties",
+      "kind": "capability",
+      "status": "not_supported",
+      "declaration": "model_capabilities['supports_device_penalties'] = False",
+      "reason": "Sampling1D (the selected common sampler) implements temperature/top-k/top-p only. The pinned plugin routes requests with presence, frequency, or repetition penalties to vLLM's canonical host sampler (model_runner._can_sample_on_device), so those requests leave the traced device path and run slower; tests/tt/test_tt_penalties.py passes through that route."
+    },
+    {
+      "item": "supports_device_seeded_sampling",
+      "kind": "capability",
+      "status": "not_supported",
+      "declaration": "model_capabilities['supports_device_seeded_sampling'] = False",
+      "reason": "The device RNG is per-row and positional; a seeded request that moves rows under scheduler compaction cannot reproduce its stream. The pinned plugin routes explicitly seeded requests to the host sampler; unseeded and greedy requests stay on device."
+    },
+    {
+      "item": "max_device_top_k",
+      "kind": "capability",
+      "status": "supported",
+      "evidence": "model_capabilities['max_device_top_k'] = 64 (Sampling1D max_top_k=64, two candidate tiles per vocabulary chunk); stochastic requests above 64 use the host sampler by the pinned plugin's documented routing; readiness_vllm/sampling_tests.log"
+    },
+    {
+      "item": "temperature / top_k <= 64 / top_p",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "readiness_vllm/sampling_tests.log (tests/tt/test_seeding_and_variety.py, test_request_isolation.py)"
+    },
+    {
+      "item": "seed",
+      "kind": "request_feature",
+      "status": "not_supported",
+      "declaration": "model_capabilities['supports_device_seeded_sampling'] = False",
+      "reason": "Seeded requests run through the plugin's host sampler; readiness_vllm/sampling_tests.log covers them."
+    },
+    {
+      "item": "presence / frequency / repetition penalties",
+      "kind": "request_feature",
+      "status": "not_supported",
+      "declaration": "model_capabilities['supports_device_penalties'] = False",
+      "reason": "Penalised requests run through the plugin's host sampler with full token history; readiness_vllm/sampling_tests.log covers them."
+    },
+    {
+      "item": "logprobs",
+      "kind": "request_feature",
+      "status": "not_supported",
+      "declaration": "pinned plugin default: on a single-device mesh every logprobs request uses the host sampler (model_runner._can_sample_on_device, num_devices not in (8, 32))",
+      "reason": "Sampling1D's device logprob calculator exists only for 8- and 32-device meshes; on P150 logprobs requests take the host route. tests/tt/test_logprobs.py passes; the all-vocabulary chat logprobs case is the suite's expected skip."
+    },
+    {
+      "item": "structured_output",
+      "kind": "request_feature",
+      "status": "not_supported",
+      "declaration": "pinned plugin default: structured-output requests use the host sampler",
+      "reason": "The device sampler has no grammar bitmask path; tests/tt/test_structured_output_dp1.py passes through the host route."
+    },
+    {
+      "item": "min_p / bad_words / logit_bias / allowed_token_ids / min_tokens",
+      "kind": "request_feature",
+      "status": "not_supported",
+      "declaration": "pinned plugin default: always-host sampling parameters",
+      "reason": "These are applied by vLLM's host logits processors; tests/tt/test_host_only_params.py passes through the host route."
+    },
+    {
+      "item": "chunked_prefill",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "readiness_vllm/prefix_cache_check.json (2305-token prompts over the 2048-token scheduler budget); readiness_vllm/trace_reuse/mixed_shape_check.json"
+    }
+  ]
+}
