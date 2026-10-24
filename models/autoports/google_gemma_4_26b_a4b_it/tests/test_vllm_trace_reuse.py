@@ -81,8 +81,8 @@ def test_adapter_request_trace_reuse(mesh_device, profile_tp_size, monkeypatch):
         ]
     )
     tables = [
-        torch.arange(DECODE_SLOT_COUNT * spec.blocks_per_slot, dtype=torch.int32).reshape(
-            DECODE_SLOT_COUNT, spec.blocks_per_slot
+        torch.arange(DECODE_SLOT_COUNT * -(-adapter.max_seq_len // spec.block_size), dtype=torch.int32).reshape(
+            DECODE_SLOT_COUNT, -(-adapter.max_seq_len // spec.block_size)
         )
         for spec in model.cache_specs
     ]

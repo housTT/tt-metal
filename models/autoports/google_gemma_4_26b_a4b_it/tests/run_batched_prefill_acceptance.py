@@ -191,11 +191,15 @@ def run_acceptance(gen, state, *, batches: list[int], decode_steps: int, prompts
                 gen.reset()
                 gen.batched_prefill_enabled = arm == "batched"
                 entries_before = device.num_program_cache_entries()
+                group_records_before = len(gen.batched_prefill_group_growth)
                 began = time.perf_counter()
                 logits = gen.prefill_forward(tokens, page_table=state.page_tables, kv_cache=state, prompt_lens=lens)
                 ttnn.synchronize_device(device)
                 seconds = time.perf_counter() - began
                 entries_after = device.num_program_cache_entries()
+                group_growth = [
+                    g["program_cache_growth"] for g in gen.batched_prefill_group_growth[group_records_before:]
+                ]
                 host = _host_logits(gen, logits)
                 caches = {
                     "sliding": _cache_rows(state, sliding_idx, list(range(batch)), lens),
@@ -211,6 +215,7 @@ def run_acceptance(gen, state, *, batches: list[int], decode_steps: int, prompts
                     "continuations": continuations,
                     "seconds": seconds,
                     "program_cache_growth": entries_after - entries_before,
+                    "group_growth": group_growth,
                 }
             rows = []
             for row in range(batch):
@@ -255,6 +260,9 @@ def run_acceptance(gen, state, *, batches: list[int], decode_steps: int, prompts
                 "solo_seconds": round(arms["solo"]["seconds"], 4),
                 "batched_seconds": round(arms["batched"]["seconds"], 4),
                 "batched_program_cache_growth": arms["batched"]["program_cache_growth"],
+                "batched_group_program_cache_growth": arms["batched"]["group_growth"],
+                "single_row_program_cache_growth": arms["batched"]["program_cache_growth"]
+                - sum(arms["batched"]["group_growth"]),
                 "solo_program_cache_growth": arms["solo"]["program_cache_growth"],
                 "rows": rows,
                 "all_top1_equal": all(r["top1_equal"] for r in rows),
@@ -274,6 +282,7 @@ def run_acceptance(gen, state, *, batches: list[int], decode_steps: int, prompts
             and c["min_pcc"] >= 0.999
             and c["all_kv_equal"]
             and c["all_continuations_identical_through_8"]
+            and sum(c["batched_group_program_cache_growth"]) == 0
             for c in cases
         )
         else "fail"

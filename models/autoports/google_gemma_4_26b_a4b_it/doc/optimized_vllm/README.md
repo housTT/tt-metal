@@ -4,13 +4,18 @@ Primary single-user **128 input / 128 output / 1 request / concurrency 1**, gree
 vLLM TT plugin (`tt/generator_vllm.py`), one Blackhole P300 chip as the P150 profile, 32 scheduler
 slots, block size 64, `max_model_len` 131072, prefix caching on, trace mode `all`,
 `sample_on_device_mode=all`, async scheduling. Before is the per-row prefill code (`4f3c2b13fa`);
-after is this stage's code.
+after is this stage's code (`45376c17e2`, the stage head at the time of the final measurements; the review fixes below are in later commits recorded in the work log).
 
 | Workload | TTFT median ms, before -> after | TPOT mean ms, before -> after | ITL median / p99 ms, after | Output tok/s, after | Decode t/s/u (1000 / TPOT mean), before -> after |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | 128/128/1, C1 | 173.23 -> 173.48 | 27.945 -> 27.870 | 27.025 / 27.883 | 34.471 | 35.79 -> 35.88 |
 
-Decode t/s/u is 1000 / mean TPOT, not aggregate throughput or a burst value. The optimized-vLLM
+Decode t/s/u is 1000 / mean TPOT, not aggregate throughput or a burst value. The before run was taken
+on the live per-row server that the run environment provided (code `4f3c2b13fa`, two commits before the
+stage base `067b6fc879`; those two commits touch the resumed-prefill driver and terminal, not the
+128/128/1 path) and the same server supplied the burst serial reference, as the task defined it; the
+prescribed A/B through the environment override on the final code was not repeated, and the direction
+of that bias is conservative (FP32 accumulation makes the final per-row path slightly slower). The optimized-vLLM
 decode path is unchanged in this resume; the work is prefill: prefix caching (resumed prefill),
 batched prefill, and an expert-sorted MoE prefill. Device-time, roofline and profiler fields stay
 null: no Tracy, tt-perf-report or device profiler ran against serving (see `perf_summary.json`).
@@ -72,11 +77,13 @@ capacity context, not headline decode):
    (`doc/vllm_integration/continuation_bisect/sorted_moe_layer5.json`). Below 512 rows the union
    path is kept, so the 128-token single-user prefill is unchanged.
 
-Environment knobs added (all default on): `GEMMA4_BATCHED_PREFILL`, `GEMMA4_BATCHED_PREFILL_BUCKETS`,
-`GEMMA4_BATCHED_PREFILL_MAX_TOKENS`, `GEMMA4_BATCHED_PREFILL_MIN_ROWS`, `GEMMA4_PREFILL_FP32_ACC`,
-`GEMMA4_OPT_PREFILL_SDPA_FP32_ACC`, `GEMMA4_SORTED_MOE_PREFILL`, `GEMMA4_SORTED_MOE_MIN_ROWS`,
-`GEMMA4_SORTED_MOE_CHUNK_ROWS`, `GEMMA4_SORTED_MOE_PROFILE`. None is read by the plugin; the plugin
-and vLLM checkouts are unchanged at `f96662a7d`.
+Environment knobs added: `GEMMA4_BATCHED_PREFILL` (default 1), `GEMMA4_BATCHED_PREFILL_BUCKETS`
+(128,256,512,1024), `GEMMA4_BATCHED_PREFILL_MAX_TOKENS` (4096), `GEMMA4_BATCHED_PREFILL_MIN_ROWS` (2),
+`GEMMA4_PREFILL_FP32_ACC` (1), `GEMMA4_OPT_PREFILL_SDPA_FP32_ACC` (1), `GEMMA4_SORTED_MOE_PREFILL` (1),
+`GEMMA4_SORTED_MOE_MIN_ROWS` (512), `GEMMA4_SORTED_MOE_CHUNK_ROWS` (2048), and the diagnostic
+`GEMMA4_SORTED_MOE_PROFILE` (default off). None is read by the plugin; the plugin and vLLM checkouts
+are unchanged at `f96662a7d`. The adapter no longer declares the two capability keys the pinned plugin
+does not read (`supports_async_decode_overlap`, `state_slots_are_stateless`).
 
 ## Serving correctness evidence (final server)
 
@@ -92,7 +99,7 @@ warmed with two single and one paired chat request, then every stage in sequence
 | Generator-level resume check (current runner, natural text, L = 2560 and 16384) | pass 14/14, PCC min 0.9999, top-1 1.0, both controls fail at every start | `readiness/prefill_resume_check.json` |
 | Batched equals solo (full model, 2 to 16 rows) | pass | `readiness_vllm/vllm_batched_equals_solo.json` |
 | Non-aligned prompt lengths through serving | 129, 130, 131, 257, 300, 2200, 3100, 4500 tokens all completed (mixed-shape workload); 2305 (prefix-cache stage) | `readiness_vllm/trace_reuse/mixed_shape_check.json` |
-| Mixed-shape trace reuse | fail (open item below): 13 captures / 12 releases during 23 requests | same |
+| Mixed-shape trace reuse | fail (open item below) with four recorded reasons: 13 decode trace captures and 12 releases during 23 requests; the greedy 129-token raw prompt gave one text in the batch-1 decode lane and another in the 32-slot lane (first token identical, prefill path identical; decode-width program configs, pre-existing); one raw completion tripped the check's word-repetition heuristic, and several other raw continuations loop (see the raw-prompt control in the work log) | same, `readiness_vllm/trace_reuse/raw_prompt_control.json` |
 | Plugin and vLLM checkout | unchanged at `f96662a7d`, working tree clean | `doc/vllm_integration/plugin_changes.md` |
 
 
@@ -135,4 +142,4 @@ checks: `readiness_check.run_prefill_resume_check --lengths 2560,16384 --block-s
 | Sampling, qualitative, prefix cache, run summary | `../../readiness_vllm/P150_prefill_features/sampling_tests.log`, `../../readiness_vllm/vllm_qualitative_outputs.json`, `prefix_cache_check.json`, `vllm_run_summary.json` |
 | Mixed-shape trace reuse observation | `../../readiness_vllm/trace_reuse/mixed_shape_check.json` |
 | Decisions, failed attempts, commands, commit SHAs | [work_log.md](work_log.md) |
-| Independent review | [STAGE_REVIEW.md](STAGE_REVIEW.md) |
+| Independent review of this attempt | [STAGE_REVIEW.md](STAGE_REVIEW.md) (the 2026 Sep 08 review is archived as STAGE_REVIEW_20260908.md) |

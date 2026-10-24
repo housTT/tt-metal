@@ -1256,6 +1256,7 @@ class MultichipDecoder(OptimizedDecoder):
         row_lens: Sequence[int],
         segment_len: int,
         user_ids: Sequence[int],
+        user_id_tensors: Sequence[ttnn.Tensor | None] | None = None,
         cache_position_modulo: int | None = None,
     ) -> ttnn.Tensor:
         """Run the dense prefill work once over ``[1, 1, B * S, H]`` with per-row attention.
@@ -1263,7 +1264,12 @@ class MultichipDecoder(OptimizedDecoder):
         Every row starts at absolute position 0 and occupies one ``segment_len``
         segment of the flattened sequence. ``row_lens[i]`` is that row's logical
         length (0 marks a padding row that writes no cache), and ``user_ids[i]``
-        is its page-table row.
+        is its page-table row. A row's K/V are written up to the end of its last
+        allocated block in one fill, so the fill programs depend only on the
+        block-aligned length; the padding positions inside that block belong to
+        the request and decode overwrites them before they are read. Under a ring
+        modulo this holds because every batched segment fits the ring, so no
+        position wraps during the fill.
         """
         rows = hidden_states.shape[-2]
         if segment_len < TILE_SIZE or segment_len % TILE_SIZE or rows % segment_len:
@@ -1292,6 +1298,7 @@ class MultichipDecoder(OptimizedDecoder):
                 row_lens=row_lens,
                 segment_len=segment_len,
                 user_ids=user_ids,
+                user_id_tensors=user_id_tensors,
                 cache_position_modulo=cache_position_modulo,
             )
 
@@ -1312,6 +1319,7 @@ class MultichipDecoder(OptimizedDecoder):
         segment_len: int,
         user_ids: Sequence[int],
         cache_position_modulo: int | None,
+        user_id_tensors: Sequence[ttnn.Tensor | None] | None = None,
     ) -> ttnn.Tensor:
         self.optimized_path_counters["prefill_attention"] += 1
         self.optimized_path_counters["prefill_attention_batched"] = (
@@ -1338,23 +1346,50 @@ class MultichipDecoder(OptimizedDecoder):
         q_heads = ttnn.experimental.rotary_embedding_hf(q_heads, position_cos, position_sin, is_decode_mode=False)
         k_heads = ttnn.experimental.rotary_embedding_hf(k_heads, position_cos, position_sin, is_decode_mode=False)
         key_cache, value_cache = kv_cache
+        block_size = kind.block_size
+        k_rows = ttnn.split(k_heads, 1, dim=0) if batch > 1 else [k_heads]
+        v_rows = ttnn.split(v_heads, 1, dim=0) if batch > 1 else [v_heads]
         for row, (user_id, logical_len) in enumerate(zip(user_ids, row_lens)):
             if logical_len < 1:
                 continue
-            k_row = ttnn.slice(k_heads, [row, 0, 0, 0], [row + 1, local_kv_heads, segment_len, kind.head_dim])
-            v_row = ttnn.slice(v_heads, [row, 0, 0, 0], [row + 1, local_kv_heads, segment_len, kind.head_dim])
+            if cache_position_modulo is None or segment_len <= cache_position_modulo:
+                fill_len = min(segment_len, -(-logical_len // block_size) * block_size)
+                fill_kwargs = self._cache_view_kwargs(prefill=True, cache_position_modulo=cache_position_modulo)
+                for cache, heads in ((key_cache, k_rows[row]), (value_cache, v_rows[row])):
+                    rows_for_fill = (
+                        heads
+                        if fill_len == segment_len
+                        else ttnn.slice(heads, [0, 0, 0, 0], [1, local_kv_heads, fill_len, kind.head_dim])
+                    )
+                    if rows_for_fill.dtype != cache.dtype:
+                        cast = ttnn.typecast(rows_for_fill, cache.dtype, memory_config=rows_for_fill.memory_config())
+                        rows_for_fill.deallocate(True)
+                        rows_for_fill = cast
+                    row_tensor = user_id_tensors[row] if user_id_tensors is not None else None
+                    if row_tensor is not None:
+                        ttnn.experimental.paged_fill_cache(
+                            cache, rows_for_fill, page_table, batch_idx_tensor=row_tensor, **fill_kwargs
+                        )
+                    else:
+                        ttnn.experimental.paged_fill_cache(
+                            cache, rows_for_fill, page_table, batch_idx=user_id, **fill_kwargs
+                        )
+                    if rows_for_fill is not heads:
+                        rows_for_fill.deallocate(True)
+                continue
             self._fill_prefill_cache(
                 key_cache,
                 value_cache,
-                k_row,
-                v_row,
+                k_rows[row],
+                v_rows[row],
                 page_table,
                 user_id=user_id,
                 logical_seq_len=logical_len,
                 cache_position_modulo=cache_position_modulo,
             )
-            k_row.deallocate(True)
-            v_row.deallocate(True)
+        if batch > 1:
+            for tensor in [*k_rows, *v_rows]:
+                tensor.deallocate(True)
         attn_out = ttnn.transformer.scaled_dot_product_attention(
             q_heads,
             k_heads,

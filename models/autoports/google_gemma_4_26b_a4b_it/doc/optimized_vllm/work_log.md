@@ -671,3 +671,78 @@ page-table equality check on its very first single-row request (before any batch
 reruns with the diagnostic print stalled after mesh creation (0 percent CPU for 15 minutes) and were
 stopped with SIGTERM. Not reproduced in this attempt; recorded as an open check
 (`doc/optimized_vllm/trace_reuse_probe/batched_prefill/`).
+
+### Independent review and follow-up
+
+The first independent review (`$stage-review`, fresh subagent, 2026 Oct 24 15:20 UTC) returned
+`more-work-needed` with one P1 and five P2 findings. Each is treated as work:
+
+- P1, batched path not shape-stable after warmup (program-cache growth and
+  `prefill_program_cache_growth` releases after batched groups; README and work log claimed
+  otherwise). Root causes confirmed in code: the sorted MoE sized its call count from the actual
+  routing, and the per-row cache fill compiled per-logical-length tail programs while warmup only
+  ran full-segment lengths. Fix: `_moe_prefill_sorted` now uses the fixed per-length budget
+  `sorted_moe_group_budget(seq_len)` (shapes depend only on the row count; at 2048 rows 32 calls
+  instead of 24, about 5 ms more per layer); the batched fill under vLLM (no ring modulo) writes
+  each row's K/V up to the end of its last allocated block in one `paged_fill_cache`, so the only
+  program variants are the block-aligned fill lengths (at most S/64 per bucket), and
+  `prepare_batched_prefill` warms every such length per bucket (`fill_length_steps` in the warmup
+  record); the acceptance now fails unless `batched_program_cache_growth` is 0 in every case. The
+  padding positions written inside the last allocated block belong to the request and are
+  overwritten by decode before any read; the single-row and ring-modulo paths are unchanged.
+  The earlier README and work-log sentences claiming no growth were wrong and are replaced by the
+  measured statement below.
+- P2, undocumented `model_capabilities` keys: `supports_async_decode_overlap` and
+  `state_slots_are_stateless` are removed from the adapter and the contract test; the serving
+  contract's capability note already listed only the keys the pinned plugin reads.
+- P2, allocation-tracking probe: its page tables were `blocks_per_slot` wide (16 columns for sliding
+  layers) while the adapter stores `ceil(max_seq_len / block_size)` columns (2 at `max_seq_len` 128),
+  so the equality assertion compared columns the adapter never stores; the probe now builds tables at
+  the adapter's width. Result recorded below.
+- P2, stale documentation: `STAGE_REVIEW.md` was the 2026 Sep 08 file; it now holds this attempt's
+  verdict pointer. The served commit is `45376c17e2` (the `36dddb9fa6` SHA was amended away). The
+  knob statement names the one diagnostic default-off knob. The README mixed-shape row lists all four
+  recorded reasons and the before/serial provenance.
+- P2, raw-prompt degeneracy control and P2, 32-row batched equivalence: results recorded below.
+
+Raw-prompt control (`tests/probe_raw_prompt_control.py`, chip 1, full 30-layer standalone
+generator, same token ids as the mixed-shape requests, greedy, 16 tokens;
+`readiness_vllm/trace_reuse/raw_prompt_control.json`): the standalone generator reproduces the
+served text token for token (16 of 16) for `decode_b` (33 tokens, `-and-and-and-...`),
+`unseen_257` ("science is the science of the science"), `decode_d` (300 tokens, "the development of
+the development of"), `unseen_130` ("ownledgers-ownledgers") and `unseen_129`; `decode_a` (64 tokens,
+served inside the 7-request batch) matches the first 5 tokens and then diverges, which is the
+batch-1 versus 32-slot decode-lane split recorded above. The loops are therefore this model's
+greedy behaviour on these raw mid-paragraph prompts (the check's `_token_prompt` cuts a corpus at
+an arbitrary offset without the chat template), not a serving defect: the single-row and batched
+prefill paths and both decode lanes agree with the standalone generator on the first token, and the
+chat-formatted qualitative suite is clean. Limit of the control: it shares the TTNN model code with
+serving; an HF-side greedy control for these exact raw prompts was not run (the 26B MoE does not
+fit a timely CPU run here), so model-level correctness of raw continuations rests on the earlier
+full-model and datatype-sweep evidence, not on this check.
+
+Allocation-tracking adapter probe after the table-width fix
+(`tests/test_vllm_trace_reuse.py`, chip 2, `TT_METAL_TRACE_ALLOC_TRACKING=1`,
+`doc/optimized_vllm/trace_reuse_probe/batched_prefill/pytest_p150_fixed_tables.log`): the run
+stopped after the conftest created the mesh, before any model-construction output, with no device
+activity (`fuser` on the chip empty) and the `timeout` parent blocked in `sigsuspend`; four of the
+five probe launches in this attempt stopped at that same point, the state loader that reads the
+safetensors shards. This is the host-side loading stall the task described, not a device hang, and
+the probe is recorded as not reproduced after its first run. The batched path's allocation safety
+therefore rests on the acceptance (full model, decode traces live during batched groups, no tracker)
+and the serving runs; an allocation-tracked run of the batched path remains an open check.
+
+P1 closure, shape stability of the batched path. After the block-aligned fill and the fixed MoE
+budget, the acceptance still showed per-group growth that depended on row order. A two-layer probe
+(`tests/probe_batched_growth.py`, chip 3) isolated it: growth equalled the number of rows the first
+time a `(padded batch, row index, fill length)` triple appeared (B=2 with one unwarmed row: 1;
+B=4: 4; B=8: 8) and was 0 for repeats and for other lengths with the same fill length. The per-row
+`ttnn.slice` that cut row `i` out of the `[B, heads, S, D]` head tensors carries the row offset as a
+compile-time argument, so every row index was its own program. The rows are now split once per
+call with `ttnn.split(..., dim=0)` (keyed by shape only) and each row is sliced only along the
+sequence to its block-aligned fill length (keyed by `(S, fill_len)`), and `paged_fill_cache` takes
+the row through `batch_idx_tensor` rather than the scalar `batch_idx`. With that, the probe shows
+zero growth for every case (same lengths as warmup, 2 to 8 rows at length 5, 21, 64, 65, 100,
+mixed ascending and descending, repeats). The acceptance records
+`batched_group_program_cache_growth` per group and `single_row_program_cache_growth` for rows that
+took the single-row path, and requires zero group growth.

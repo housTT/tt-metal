@@ -22,12 +22,10 @@ def test_capabilities_and_context_contract():
         "supports_prefix_caching": True,
         "supports_prefix_caching_sliding_window": True,
         "supports_async_decode": True,
-        "supports_async_decode_overlap": True,
         "supports_sample_on_device": True,
         "supports_device_penalties": False,
         "supports_device_seeded_sampling": False,
         "max_device_top_k": 64,
-        "state_slots_are_stateless": True,
     }
 
 
@@ -467,7 +465,7 @@ def test_prefill_retires_traces_only_when_program_cache_changes(monkeypatch, com
 def test_state_slot_contract_keeps_external_cache_in_execution_row_order():
     prefill = inspect.getsource(Gemma4ForCausalLM.prefill_forward)
     capabilities = Gemma4ForCausalLM.model_capabilities
-    assert capabilities["state_slots_are_stateless"] is True
+    assert "state_slots_are_stateless" not in capabilities
     assert "one unique state slot per prefill row" in prefill
     assert "state slot outside the serving batch" in prefill
     assert "external page tables are already packed" in prefill

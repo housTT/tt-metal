@@ -57,12 +57,10 @@ class Gemma4ForCausalLM(nn.Module):
         "supports_prefix_caching": True,
         "supports_prefix_caching_sliding_window": True,
         "supports_async_decode": True,
-        "supports_async_decode_overlap": True,
         "supports_sample_on_device": True,
         "supports_device_penalties": False,
         "supports_device_seeded_sampling": False,
         "max_device_top_k": DEVICE_MAX_TOP_K,
-        "state_slots_are_stateless": True,
     }
 
     def __init__(

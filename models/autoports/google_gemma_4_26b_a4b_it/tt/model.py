@@ -678,6 +678,21 @@ class Gemma4FullModel:
         real_rows = [index for index, length in enumerate(row_lens) if length > 0]
         if not real_rows:
             raise ValueError("batched prefill needs at least one real row")
+        user_id_tensors = [
+            (
+                ttnn.from_torch(
+                    torch.tensor([int(user_ids[index])], dtype=torch.int32),
+                    dtype=ttnn.int32,
+                    layout=ttnn.ROW_MAJOR_LAYOUT,
+                    device=self.mesh_device,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    mesh_mapper=self._replicate,
+                )
+                if row_lens[index] > 0
+                else None
+            )
+            for index in range(batch)
+        ]
         hidden = self.embed_tokens(tokens)
         for state_idx, (layer_idx, layer) in enumerate(zip(self.layer_indices, self.layers)):
             layer_type = self.hf_config.layer_types[layer_idx]
@@ -691,10 +706,14 @@ class Gemma4FullModel:
                 row_lens=row_lens,
                 segment_len=segment_len,
                 user_ids=user_ids,
+                user_id_tensors=user_id_tensors,
                 cache_position_modulo=(
                     state.sliding_cache_position_modulo if _layer_kind(layer_type) is SLIDING_KIND else None
                 ),
             )
+        for tensor in user_id_tensors:
+            if tensor is not None:
+                ttnn.deallocate(tensor)
         last_rows = [index * segment_len + row_lens[index] - 1 for index in real_rows]
         return self._terminal_rows(hidden, last_rows)
 

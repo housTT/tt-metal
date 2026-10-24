@@ -3189,7 +3189,7 @@ class OptimizedDecoder(FunctionalDecoder):
         mark("start")
         routing_host = ttnn.to_torch(ttnn.get_device_tensors(routing_weights)[0]).reshape(seq_len, NUM_EXPERTS)
         mark("readback")
-        layout = sorted_moe_layout(routing_host.float(), seq_len)
+        layout = sorted_moe_layout(routing_host.float(), seq_len, sorted_moe_group_budget(seq_len))
         groups = int(layout["groups"])
         calls = groups // per_call
         mark("layout")

@@ -237,6 +237,7 @@ class Gemma4Generator(Generator):
         self._trace_cache: dict[tuple[int, str, tuple[Any, ...], int, tuple[int, ...]], DecodeTrace] = {}
         self.batched_prefill_enabled = BATCHED_PREFILL_ENABLED
         self._batched_logits_rows: int | None = None
+        self.batched_prefill_group_growth: list[dict[str, int]] = []
         self._batched_prefill_prepared = False
         self.batched_prefill_warmup: dict[str, Any] = {}
         self.trace_counters = TraceCounters()
@@ -753,6 +754,7 @@ class Gemma4Generator(Generator):
         tt_pos = self._positions_to_device(
             torch.arange(segment_len, dtype=torch.int32).reshape(1, segment_len), dtype=ttnn.uint32
         )
+        entries_before = self.mesh_device.num_program_cache_entries()
         with ttnn.corruptible_allocation_scope(self.mesh_device):
             logits = self.model.prefill_forward_batched(
                 tt_tokens,
@@ -764,6 +766,14 @@ class Gemma4Generator(Generator):
             )
         _release_device_tensor(tt_tokens)
         _release_device_tensor(tt_pos)
+        self.batched_prefill_group_growth.append(
+            {
+                "segment_len": segment_len,
+                "padded_batch": group.padded_batch,
+                "rows": len(group.rows),
+                "program_cache_growth": self.mesh_device.num_program_cache_entries() - entries_before,
+            }
+        )
         return logits
 
     def prepare_batched_prefill(self, state: FullModelState | None = None) -> dict[str, Any]:
@@ -813,11 +823,46 @@ class Gemma4Generator(Generator):
                     "program_cache_entries": self.mesh_device.num_program_cache_entries(),
                 }
             )
+        fill_steps: list[dict[str, Any]] = []
+        smallest_block = min(spec.block_size for spec in target.cache_specs)
+        for segment_len in sorted({segment for _, segment in variants}):
+            lengths = list(range(smallest_block, segment_len + 1, smallest_block))
+            for index in range(0, len(lengths), 2):
+                pair = lengths[index : index + 2]
+                row_lens = (pair + [pair[-1]])[:2]
+                step_began = time.perf_counter()
+                flat = torch.ones((1, 2 * segment_len), dtype=torch.long)
+                tt_tokens = self._host_tokens_to_device(flat)
+                tt_pos = self._positions_to_device(
+                    torch.arange(segment_len, dtype=torch.int32).reshape(1, segment_len), dtype=ttnn.uint32
+                )
+                with ttnn.corruptible_allocation_scope(self.mesh_device):
+                    logits = self.model.prefill_forward_batched(
+                        tt_tokens,
+                        state=target,
+                        row_lens=row_lens,
+                        segment_len=segment_len,
+                        user_ids=[0, 1],
+                        position_ids=tt_pos,
+                    )
+                ttnn.synchronize_device(self.mesh_device)
+                _release_device_tensor(logits)
+                _release_device_tensor(tt_tokens)
+                _release_device_tensor(tt_pos)
+                fill_steps.append(
+                    {
+                        "segment_len": segment_len,
+                        "row_lens": row_lens,
+                        "seconds": round(time.perf_counter() - step_began, 3),
+                        "program_cache_entries": self.mesh_device.num_program_cache_entries(),
+                    }
+                )
         for cache_pair in target.kv_cache:
             for cache in cache_pair:
                 ttnn.fill(cache, 0.0, memory_config=cache.memory_config(), output_tensor=cache)
         ttnn.synchronize_device(self.mesh_device)
         self.batched_prefill_warmup = {
+            "fill_length_steps": fill_steps,
             "variants": [{"batch": b, "segment_len": s} for b, s in variants if b <= target.max_batch_size],
             "program_cache_entries_before": entries_before,
             "program_cache_entries_after": self.mesh_device.num_program_cache_entries(),
