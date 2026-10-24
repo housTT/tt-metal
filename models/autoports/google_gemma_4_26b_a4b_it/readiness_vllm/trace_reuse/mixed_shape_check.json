@@ -3,8 +3,8 @@
   "hf_model": "google/gemma-4-26B-A4B-it",
   "server_log": "models/autoports/google_gemma_4_26b_a4b_it/readiness_vllm/P150_prefill_features/server.log",
   "log_window": {
-    "first_line": 2964,
-    "events": 50
+    "first_line": 2985,
+    "events": 51
   },
   "baseline": {
     "captures_before_workload": [
@@ -345,21 +345,21 @@
         "sampling_trace_id": "MeshTraceId(95)"
       },
       {
-        "batch": 32,
+        "batch": 1,
         "greedy": false,
         "mode": "device",
         "model_trace_id": "MeshTraceId(96)",
         "sampling_trace_id": "MeshTraceId(97)"
       },
       {
-        "batch": 32,
+        "batch": 1,
         "greedy": false,
         "mode": "device",
         "model_trace_id": "MeshTraceId(98)",
         "sampling_trace_id": "MeshTraceId(99)"
       },
       {
-        "batch": 32,
+        "batch": 1,
         "greedy": false,
         "mode": "device",
         "model_trace_id": "MeshTraceId(100)",
@@ -422,14 +422,14 @@
         "sampling_trace_id": "MeshTraceId(117)"
       },
       {
-        "batch": 1,
+        "batch": 32,
         "greedy": false,
         "mode": "device",
         "model_trace_id": "MeshTraceId(118)",
         "sampling_trace_id": "MeshTraceId(119)"
       },
       {
-        "batch": 1,
+        "batch": 32,
         "greedy": false,
         "mode": "device",
         "model_trace_id": "MeshTraceId(120)",
@@ -479,27 +479,13 @@
       },
       {
         "batch": 32,
-        "greedy": false,
+        "greedy": true,
         "mode": "device",
         "model_trace_id": "MeshTraceId(134)",
         "sampling_trace_id": "MeshTraceId(135)"
-      },
-      {
-        "batch": 32,
-        "greedy": false,
-        "mode": "device",
-        "model_trace_id": "MeshTraceId(136)",
-        "sampling_trace_id": "MeshTraceId(137)"
-      },
-      {
-        "batch": 32,
-        "greedy": true,
-        "mode": "device",
-        "model_trace_id": "MeshTraceId(138)",
-        "sampling_trace_id": "MeshTraceId(139)"
       }
     ],
-    "releases_before_workload": 70
+    "releases_before_workload": 68
   },
   "workload": {
     "requests": 23,
@@ -511,22 +497,22 @@
       {
         "phase": "chunked_while_decoding",
         "requests": 7,
-        "elapsed_s": 80.06021886502276
+        "elapsed_s": 52.77349615501589
       },
       {
         "phase": "repeat_mixed_order_1",
         "requests": 3,
-        "elapsed_s": 2.8149972670071293
+        "elapsed_s": 1.851660563988844
       },
       {
         "phase": "sampled_switch",
         "requests": 3,
-        "elapsed_s": 4.139070976001676
+        "elapsed_s": 1.9308156949991826
       },
       {
         "phase": "repeat_mixed_order_2",
         "requests": 3,
-        "elapsed_s": 2.674492547987029
+        "elapsed_s": 1.8152751220040955
       },
       {
         "phase": "prefix_resume",
@@ -547,12 +533,12 @@
     ],
     "completed": 23,
     "ttft_ms": {
-      "p50": 1414.0320259903092,
-      "p95": 48626.03609901271,
-      "p99": 66907.0362939965,
-      "max": 66907.0362939965
+      "p50": 241.84595901169814,
+      "p95": 28862.040706997504,
+      "p99": 39634.10610999563,
+      "max": 39634.10610999563
     },
-    "completed_request_throughput_per_s": 0.25644233412709366
+    "completed_request_throughput_per_s": 0.3940296116818777
   },
   "trace_events": {
     "captures": [
@@ -561,8 +547,26 @@
         "event": "capture",
         "greedy": true,
         "mode": "device",
+        "model_trace_id": "MeshTraceId(136)",
+        "program_cache_entries": 3440,
+        "sampling_trace_id": "MeshTraceId(137)"
+      },
+      {
+        "batch": 1,
+        "event": "capture",
+        "greedy": true,
+        "mode": "device",
+        "model_trace_id": "MeshTraceId(138)",
+        "program_cache_entries": 3454,
+        "sampling_trace_id": "MeshTraceId(139)"
+      },
+      {
+        "batch": 1,
+        "event": "capture",
+        "greedy": true,
+        "mode": "device",
         "model_trace_id": "MeshTraceId(140)",
-        "program_cache_entries": 3108,
+        "program_cache_entries": 3466,
         "sampling_trace_id": "MeshTraceId(141)"
       },
       {
@@ -571,25 +575,25 @@
         "greedy": true,
         "mode": "device",
         "model_trace_id": "MeshTraceId(142)",
-        "program_cache_entries": 3122,
+        "program_cache_entries": 3470,
         "sampling_trace_id": "MeshTraceId(143)"
       },
       {
-        "batch": 1,
+        "batch": 32,
         "event": "capture",
         "greedy": true,
         "mode": "device",
         "model_trace_id": "MeshTraceId(144)",
-        "program_cache_entries": 3134,
+        "program_cache_entries": 4950,
         "sampling_trace_id": "MeshTraceId(145)"
       },
       {
-        "batch": 1,
+        "batch": 32,
         "event": "capture",
         "greedy": true,
         "mode": "device",
         "model_trace_id": "MeshTraceId(146)",
-        "program_cache_entries": 3136,
+        "program_cache_entries": 4950,
         "sampling_trace_id": "MeshTraceId(147)"
       },
       {
@@ -598,16 +602,16 @@
         "greedy": true,
         "mode": "device",
         "model_trace_id": "MeshTraceId(148)",
-        "program_cache_entries": 4624,
+        "program_cache_entries": 4950,
         "sampling_trace_id": "MeshTraceId(149)"
       },
       {
-        "batch": 32,
+        "batch": 1,
         "event": "capture",
         "greedy": true,
         "mode": "device",
         "model_trace_id": "MeshTraceId(150)",
-        "program_cache_entries": 4624,
+        "program_cache_entries": 4965,
         "sampling_trace_id": "MeshTraceId(151)"
       },
       {
@@ -616,16 +620,16 @@
         "greedy": true,
         "mode": "device",
         "model_trace_id": "MeshTraceId(152)",
-        "program_cache_entries": 4624,
+        "program_cache_entries": 4979,
         "sampling_trace_id": "MeshTraceId(153)"
       },
       {
-        "batch": 1,
+        "batch": 32,
         "event": "capture",
-        "greedy": true,
+        "greedy": false,
         "mode": "device",
         "model_trace_id": "MeshTraceId(154)",
-        "program_cache_entries": 4633,
+        "program_cache_entries": 5012,
         "sampling_trace_id": "MeshTraceId(155)"
       },
       {
@@ -634,44 +638,26 @@
         "greedy": true,
         "mode": "device",
         "model_trace_id": "MeshTraceId(156)",
-        "program_cache_entries": 4664,
+        "program_cache_entries": 5029,
         "sampling_trace_id": "MeshTraceId(157)"
       },
       {
-        "batch": 32,
+        "batch": 1,
         "event": "capture",
-        "greedy": false,
+        "greedy": true,
         "mode": "device",
         "model_trace_id": "MeshTraceId(158)",
-        "program_cache_entries": 4697,
+        "program_cache_entries": 5029,
         "sampling_trace_id": "MeshTraceId(159)"
       },
       {
-        "batch": 32,
+        "batch": 1,
         "event": "capture",
         "greedy": true,
         "mode": "device",
         "model_trace_id": "MeshTraceId(160)",
-        "program_cache_entries": 4716,
+        "program_cache_entries": 5083,
         "sampling_trace_id": "MeshTraceId(161)"
-      },
-      {
-        "batch": 1,
-        "event": "capture",
-        "greedy": true,
-        "mode": "device",
-        "model_trace_id": "MeshTraceId(162)",
-        "program_cache_entries": 4716,
-        "sampling_trace_id": "MeshTraceId(163)"
-      },
-      {
-        "batch": 1,
-        "event": "capture",
-        "greedy": true,
-        "mode": "device",
-        "model_trace_id": "MeshTraceId(164)",
-        "program_cache_entries": 4752,
-        "sampling_trace_id": "MeshTraceId(165)"
       }
     ],
     "releases": [
@@ -758,7 +744,7 @@
           130
         ],
         "event": "prefill",
-        "program_cache_entries": 3108,
+        "program_cache_entries": 3440,
         "retained_traces": 1,
         "rows": 1,
         "starts": [
@@ -771,7 +757,7 @@
           131
         ],
         "event": "prefill",
-        "program_cache_entries": 3122,
+        "program_cache_entries": 3454,
         "retained_traces": 1,
         "rows": 1,
         "starts": [
@@ -784,7 +770,7 @@
           257
         ],
         "event": "prefill",
-        "program_cache_entries": 3134,
+        "program_cache_entries": 3466,
         "retained_traces": 1,
         "rows": 1,
         "starts": [
@@ -794,10 +780,10 @@
       {
         "decode_rows_active_before": 1,
         "ends": [
-          300
+          64
         ],
         "event": "prefill",
-        "program_cache_entries": 3136,
+        "program_cache_entries": 3470,
         "retained_traces": 1,
         "rows": 1,
         "starts": [
@@ -807,10 +793,10 @@
       {
         "decode_rows_active_before": 1,
         "ends": [
-          64,
           33,
           129,
-          1822
+          300,
+          1586
         ],
         "event": "prefill",
         "program_cache_entries": null,
@@ -826,7 +812,7 @@
       {
         "decode_rows_active_before": 4,
         "ends": [
-          1670,
+          1434,
           2200
         ],
         "event": "prefill",
@@ -835,35 +821,48 @@
         "rows": 2,
         "starts": [
           0,
-          1822
+          1586
         ]
       },
       {
         "decode_rows_active_before": 2,
         "ends": [
           3100,
-          618
+          382
         ],
         "event": "prefill",
         "program_cache_entries": null,
         "retained_traces": 0,
         "rows": 2,
         "starts": [
-          1670,
+          1434,
           0
         ]
       },
       {
         "decode_rows_active_before": 2,
         "ends": [
-          2666
+          2430
         ],
         "event": "prefill",
         "program_cache_entries": null,
         "retained_traces": 0,
         "rows": 1,
         "starts": [
-          618
+          382
+        ]
+      },
+      {
+        "decode_rows_active_before": 1,
+        "ends": [
+          4478
+        ],
+        "event": "prefill",
+        "program_cache_entries": null,
+        "retained_traces": 0,
+        "rows": 1,
+        "starts": [
+          2430
         ]
       },
       {
@@ -876,7 +875,7 @@
         "retained_traces": 0,
         "rows": 1,
         "starts": [
-          2666
+          4478
         ]
       },
       {
@@ -885,7 +884,7 @@
           129
         ],
         "event": "prefill",
-        "program_cache_entries": 4624,
+        "program_cache_entries": 4950,
         "retained_traces": 1,
         "rows": 1,
         "starts": [
@@ -895,10 +894,38 @@
       {
         "decode_rows_active_before": 1,
         "ends": [
+          129
+        ],
+        "event": "prefill",
+        "program_cache_entries": 4965,
+        "retained_traces": 1,
+        "rows": 1,
+        "starts": [
+          128
+        ]
+      },
+      {
+        "decode_rows_active_before": 1,
+        "ends": [
+          33,
           257
         ],
         "event": "prefill",
-        "program_cache_entries": 4633,
+        "program_cache_entries": 4965,
+        "retained_traces": 1,
+        "rows": 2,
+        "starts": [
+          0,
+          256
+        ]
+      },
+      {
+        "decode_rows_active_before": 3,
+        "ends": [
+          300
+        ],
+        "event": "prefill",
+        "program_cache_entries": 4979,
         "retained_traces": 1,
         "rows": 1,
         "starts": [
@@ -908,39 +935,39 @@
       {
         "decode_rows_active_before": 1,
         "ends": [
-          33,
-          129
+          129,
+          33
         ],
         "event": "prefill",
         "program_cache_entries": null,
         "retained_traces": 0,
         "rows": 2,
         "starts": [
-          0,
-          128
+          128,
+          0
         ]
       },
       {
         "decode_rows_active_before": 3,
         "ends": [
-          33
+          129
         ],
         "event": "prefill",
-        "program_cache_entries": 4664,
+        "program_cache_entries": 5012,
         "retained_traces": 1,
         "rows": 1,
         "starts": [
-          0
+          128
         ]
       },
       {
         "decode_rows_active_before": 1,
         "ends": [
-          300,
-          129
+          257,
+          130
         ],
         "event": "prefill",
-        "program_cache_entries": 4664,
+        "program_cache_entries": 5012,
         "retained_traces": 1,
         "rows": 2,
         "starts": [
@@ -954,35 +981,7 @@
           129
         ],
         "event": "prefill",
-        "program_cache_entries": 4697,
-        "retained_traces": 1,
-        "rows": 1,
-        "starts": [
-          128
-        ]
-      },
-      {
-        "decode_rows_active_before": 1,
-        "ends": [
-          130,
-          257
-        ],
-        "event": "prefill",
-        "program_cache_entries": 4697,
-        "retained_traces": 1,
-        "rows": 2,
-        "starts": [
-          128,
-          256
-        ]
-      },
-      {
-        "decode_rows_active_before": 3,
-        "ends": [
-          129
-        ],
-        "event": "prefill",
-        "program_cache_entries": 4716,
+        "program_cache_entries": 5029,
         "retained_traces": 1,
         "rows": 1,
         "starts": [
@@ -995,7 +994,7 @@
           2200
         ],
         "event": "prefill",
-        "program_cache_entries": 4716,
+        "program_cache_entries": 5029,
         "retained_traces": 1,
         "rows": 1,
         "starts": [
@@ -1006,18 +1005,11 @@
     "prefill_groups": [
       {
         "event": "prefill_groups",
-        "groups": [
-          [
-            [
-              0,
-              1
-            ],
-            128,
-            2
-          ]
-        ],
+        "groups": [],
         "rows": 4,
         "single_rows": [
+          0,
+          1,
           2,
           3
         ]
@@ -1068,7 +1060,7 @@
         ]
       }
     ],
-    "batched_prefill_calls": 1
+    "batched_prefill_calls": 0
   },
   "greedy_repeat_129": {
     "texts": [
@@ -1082,8 +1074,8 @@
     "prompt_len": 2200,
     "max_tokens": 16,
     "temperature": 0.0,
-    "ttft_ms": 2438.0311440036166,
-    "e2e_ms": 2960.0220999855082,
+    "ttft_ms": 215.0122309976723,
+    "e2e_ms": 738.6601759935729,
     "text": " the social sciences. Science is a body of empirical, theoretical, and practical knowledge",
     "label": "prefix_resume_2200",
     "seed": 5
@@ -1094,8 +1086,8 @@
       "prompt_len": 129,
       "max_tokens": 24,
       "temperature": 0.0,
-      "ttft_ms": 242.60912198224105,
-      "e2e_ms": 968.7379719980527,
+      "ttft_ms": 241.84595901169814,
+      "e2e_ms": 969.2156400124077,
       "text": " and sciences. including both the natural and social sciences. including both the natural and social sciences.\n\n***\n\n***\n\n",
       "label": "unseen_129",
       "seed": 129
@@ -1105,8 +1097,8 @@
       "prompt_len": 130,
       "max_tokens": 24,
       "temperature": 0.0,
-      "ttft_ms": 1542.1081249951385,
-      "e2e_ms": 2267.2250529867597,
+      "ttft_ms": 227.39277401706204,
+      "e2e_ms": 950.0704030215275,
       "text": " sciences.\n\nText 1: ownledgers-ownledgers-ownledgers-ownledgers-own",
       "label": "unseen_130",
       "seed": 130
@@ -1116,8 +1108,8 @@
       "prompt_len": 131,
       "max_tokens": 24,
       "temperature": 0.0,
-      "ttft_ms": 1414.0320259903092,
-      "e2e_ms": 2141.660346009303,
+      "ttft_ms": 231.13060099422,
+      "e2e_ms": 963.3578799839597,
       "text": " Science is it is a body of Science is it is a body of empirical, theoretical, and practical knowledge about the\ud835\udc65",
       "label": "unseen_131",
       "seed": 131
@@ -1127,8 +1119,8 @@
       "prompt_len": 257,
       "max_tokens": 24,
       "temperature": 0.0,
-      "ttft_ms": 357.9360019939486,
-      "e2e_ms": 1088.8199070177507,
+      "ttft_ms": 359.22500799642876,
+      "e2e_ms": 1090.8171629998833,
       "text": " sciences of science. science is the science of the science. science is the science of the science. science is the science",
       "label": "unseen_257",
       "seed": 257
@@ -1138,8 +1130,8 @@
       "prompt_len": 4500,
       "max_tokens": 16,
       "temperature": 0.0,
-      "ttft_ms": 66907.0362939965,
-      "e2e_ms": 68416.77200800041,
+      "ttft_ms": 39634.10610999563,
+      "e2e_ms": 41132.87394598592,
       "text": " sciences. Science is a body of empirical, theoretical, and practical knowledge about the",
       "label": "chunked_while_decoding:chunked_4500",
       "seed": 7
@@ -1149,8 +1141,8 @@
       "prompt_len": 3100,
       "max_tokens": 16,
       "temperature": 0.0,
-      "ttft_ms": 48626.03609901271,
-      "e2e_ms": 68419.53981900588,
+      "ttft_ms": 28862.040706997504,
+      "e2e_ms": 41135.32476199907,
       "text": " the natural world, produced by scientists who emphasize the observation, explanation-and-",
       "label": "chunked_while_decoding:chunked_3100",
       "seed": 6
@@ -1160,8 +1152,8 @@
       "prompt_len": 2200,
       "max_tokens": 16,
       "temperature": 0.0,
-      "ttft_ms": 35837.44049700908,
-      "e2e_ms": 68422.54729999695,
+      "ttft_ms": 19651.92123898305,
+      "e2e_ms": 41138.24382398161,
       "text": " the social sciences. Science is a body of empirical, theoretical, and practical knowledge",
       "label": "chunked_while_decoding:chunked_2200",
       "seed": 5
@@ -1171,8 +1163,8 @@
       "prompt_len": 129,
       "max_tokens": 160,
       "temperature": 0.0,
-      "ttft_ms": 20484.28196099121,
-      "e2e_ms": 78130.89993299218,
+      "ttft_ms": 11066.46253701183,
+      "e2e_ms": 50844.13969001616,
       "text": " scientific knowledge, and the history of science is the history of human civilization-the history of human civilization-the history of human civilization-the history of human civilization-the history of the enough.\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n******\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***\n\n***",
       "label": "chunked_while_decoding:decode_c",
       "seed": 3
@@ -1182,41 +1174,41 @@
       "prompt_len": 300,
       "max_tokens": 160,
       "temperature": 0.0,
-      "ttft_ms": 10021.876958984649,
-      "e2e_ms": 78130.90881099924,
+      "ttft_ms": 11066.890315007186,
+      "e2e_ms": 50844.65011602151,
       "text": " the development of the development of the development of the development of the development of the development of the development of the development of the development of the development of the development of of the development of...\n\n*The history of science is the study of the development of science and scientific knowledge, integral-to-integral-to-integral-to-integral-to-integral-to-integral-thought\u00a0\n\n*The history of science is the study of the development of science and scientific knowledge, integral-to-integral-to-integral-to-integral-to-integral-to-integral-to-integral-to-integral-to-integral-to-integral-to-integral-to-integral-to-integral-to-integral-to-integral-to-",
       "label": "chunked_while_decoding:decode_d",
       "seed": 4
     },
     {
       "status": 200,
-      "prompt_len": 64,
-      "max_tokens": 192,
-      "temperature": 0.0,
-      "ttft_ms": 20484.95706199901,
-      "e2e_ms": 80059.07146100071,
-      "text": " unique in its ability to $\\text{\\underline{space}}$ is the study of the much-more-complex-and-much-more-complex-and-much-more-complex-and-much-more-complex-and-much-more-complex-and-much-more-complex-and-much-more-complex-and--and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and--and-and-and-and-and--and-and-and-and-and-and--and-and-and-and-and-and-and-and-and-and-and-and-and--and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-",
-      "label": "chunked_while_decoding:decode_a",
-      "seed": 1
-    },
-    {
-      "status": 200,
       "prompt_len": 33,
       "max_tokens": 192,
       "temperature": 0.0,
-      "ttft_ms": 20485.112670023227,
-      "e2e_ms": 80059.32596800267,
+      "ttft_ms": 11067.64342499082,
+      "e2e_ms": 52772.44772997801,
       "text": "-and-and-and-and-and-and-and-and-and-and-and-and-and-and-of-and-and-and-of-and-and-of-and-and-of-and-and-of-and-and-of-and-and-of-and-and-of-and-and-of-and-and-of-and-and-of-and-and-of-and-and-of-and-and-of-and-and-of-and-and-of--and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-",
       "label": "chunked_while_decoding:decode_b",
       "seed": 2
     },
     {
       "status": 200,
+      "prompt_len": 64,
+      "max_tokens": 192,
+      "temperature": 0.0,
+      "ttft_ms": 118.24876102036797,
+      "e2e_ms": 52772.4725480075,
+      "text": " unique in its ability to $\\text{\\underline{space}}$ is the study of the much-more-complex-and-much-more-complex-and-much-more-complex-and-much-more-complex-and-much-more-complex-and-much-more-complex-and-much-more-complex-and--and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and--and-and-and-and-and--and-and-and-and-and-and--and-and-and-and-and-and-and-and-and-and-and-and-and--and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-and-",
+      "label": "chunked_while_decoding:decode_a",
+      "seed": 1
+    },
+    {
+      "status": 200,
       "prompt_len": 129,
       "max_tokens": 24,
       "temperature": 0.0,
-      "ttft_ms": 1033.7605680106208,
-      "e2e_ms": 1760.4187010147143,
+      "ttft_ms": 84.00376298232004,
+      "e2e_ms": 806.5475540061016,
       "text": " and sciences. including both the natural and social sciences. including both the natural and social sciences.\n\n***\n\n***\n\n",
       "label": "repeat_129_solo",
       "seed": 129
@@ -1226,53 +1218,42 @@
       "prompt_len": 33,
       "max_tokens": 24,
       "temperature": 0.0,
-      "ttft_ms": 1214.4123490143102,
-      "e2e_ms": 2814.0490330115426,
+      "ttft_ms": 252.605802990729,
+      "e2e_ms": 1850.8364179870114,
       "text": "-and-and-and-and-and-and-and-and-and-and-and-and",
       "label": "repeat_mixed_order_1:r33",
       "seed": 2
     },
     {
       "status": 200,
-      "prompt_len": 129,
-      "max_tokens": 24,
-      "temperature": 0.0,
-      "ttft_ms": 1213.9835900161415,
-      "e2e_ms": 2813.6978020193055,
-      "text": " and social sciences.\n\n\n\nIt appears your text contains a repetitive definition of science and the history of science.",
-      "label": "repeat_mixed_order_1:r129",
-      "seed": 129
-    },
-    {
-      "status": 200,
       "prompt_len": 257,
       "max_tokens": 24,
       "temperature": 0.0,
-      "ttft_ms": 1038.5313900187612,
-      "e2e_ms": 2813.466570019955,
+      "ttft_ms": 251.84905499918386,
+      "e2e_ms": 1850.1340950024314,
       "text": " sciences.\n\n---\n\n**Task:** The provided text is highly repetitive and repetitive. highly repetitive and repetitive. highly repetitive",
       "label": "repeat_mixed_order_1:r257",
       "seed": 257
     },
     {
       "status": 200,
-      "prompt_len": 300,
+      "prompt_len": 129,
       "max_tokens": 24,
-      "temperature": 0.8,
-      "ttft_ms": 2551.235518010799,
-      "e2e_ms": 4137.423635984305,
-      "text": " the development of the development of the development of the development of the development of the development of the development of the development of",
-      "label": "sampled_switch:s300",
-      "seed": 4
+      "temperature": 0.0,
+      "ttft_ms": 75.76034998055547,
+      "e2e_ms": 1850.5541579797864,
+      "text": " and social sciences.\n\n\n\nIt appears your text contains a repetitive definition of science and the history of science.",
+      "label": "repeat_mixed_order_1:r129",
+      "seed": 129
     },
     {
       "status": 200,
       "prompt_len": 129,
       "max_tokens": 24,
       "temperature": 0.8,
-      "ttft_ms": 2551.978498988319,
-      "e2e_ms": 4138.24242199189,
-      "text": " and social sciences including regular-sized-less-less-less-less-less-less-less-less-",
+      "ttft_ms": 328.6731400003191,
+      "e2e_ms": 1929.8489869979676,
+      "text": " and social sciences.\n\nstringthought\nIt appears that your text contains significant repetition, essentially defining \"science\"",
       "label": "sampled_switch:s129",
       "seed": 129
     },
@@ -1281,41 +1262,52 @@
       "prompt_len": 33,
       "max_tokens": 24,
       "temperature": 0.8,
-      "ttft_ms": 110.4990580060985,
-      "e2e_ms": 4138.44123200397,
-      "text": "-and-and-and-and-and-and-and-and-and-and-and-and",
+      "ttft_ms": 328.8289780030027,
+      "e2e_ms": 1930.0870419829153,
+      "text": "-and-and-and-and-and-and-and-and-and-         way of a single",
       "label": "sampled_switch:s33",
       "seed": 2
     },
     {
       "status": 200,
-      "prompt_len": 130,
+      "prompt_len": 300,
       "max_tokens": 24,
-      "temperature": 0.0,
-      "ttft_ms": 1079.844141000649,
-      "e2e_ms": 2673.522011988098,
-      "text": " sciences.\n\nEach question is question de forma-\n\nEach question is question de forma-\n\nEach question is question de",
-      "label": "repeat_mixed_order_2:r130",
-      "seed": 130
+      "temperature": 0.8,
+      "ttft_ms": 157.6527450233698,
+      "e2e_ms": 1929.5902620069683,
+      "text": " the development of the development of the development of the development of the development of the development of the development of the development of",
+      "label": "sampled_switch:s300",
+      "seed": 4
     },
     {
       "status": 200,
       "prompt_len": 257,
       "max_tokens": 24,
       "temperature": 0.0,
-      "ttft_ms": 1078.9689680095762,
-      "e2e_ms": 2672.7333849994466,
+      "ttft_ms": 222.55648599821143,
+      "e2e_ms": 1814.1410730022471,
       "text": " sciences.\n\n---\n\n**Task:** The provided text is highly repetitive and repetitive. highly repetitive and repetitive. highly repetitive",
       "label": "repeat_mixed_order_2:r257",
       "seed": 257
     },
     {
       "status": 200,
+      "prompt_len": 130,
+      "max_tokens": 24,
+      "temperature": 0.0,
+      "ttft_ms": 221.89956001238897,
+      "e2e_ms": 1813.6027040018234,
+      "text": " sciences.\n\nEach question is question de forma-\n\nEach question is question de forma-\n\nEach question is question de",
+      "label": "repeat_mixed_order_2:r130",
+      "seed": 130
+    },
+    {
+      "status": 200,
       "prompt_len": 129,
       "max_tokens": 24,
       "temperature": 0.0,
-      "ttft_ms": 75.26985599542968,
-      "e2e_ms": 2673.5894620069303,
+      "ttft_ms": 74.73318598931655,
+      "e2e_ms": 1814.5110410114285,
       "text": " and social sciences.\n\n\n\nIt appears your text contains a repetitive definition of science and the history of science.",
       "label": "repeat_mixed_order_2:r129",
       "seed": 129
@@ -1325,8 +1317,8 @@
       "prompt_len": 129,
       "max_tokens": 24,
       "temperature": 0.0,
-      "ttft_ms": 74.1463270096574,
-      "e2e_ms": 800.5891359935049,
+      "ttft_ms": 73.29052800196223,
+      "e2e_ms": 803.7346359924413,
       "text": " and sciences. including both the natural and social sciences. including both the natural and social sciences.\n\n***\n\n***\n\n",
       "label": "repeat_129_solo_again",
       "seed": 129
@@ -1336,8 +1328,8 @@
       "prompt_len": 2200,
       "max_tokens": 16,
       "temperature": 0.0,
-      "ttft_ms": 2438.0311440036166,
-      "e2e_ms": 2960.0220999855082,
+      "ttft_ms": 215.0122309976723,
+      "e2e_ms": 738.6601759935729,
       "text": " the social sciences. Science is a body of empirical, theoretical, and practical knowledge",
       "label": "prefix_resume_2200",
       "seed": 5

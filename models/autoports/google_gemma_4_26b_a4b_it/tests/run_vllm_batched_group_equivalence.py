@@ -1,13 +1,14 @@
 # SPDX-FileCopyrightText: © 2026 Tenstorrent USA, Inc.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Serving-level check that a 31-row batched prefill group equals solo prefill per row.
+"""Serving-level check that a 32-slot batched prefill group equals solo prefill per row.
 
-Sends 31 short chat prompts at once so the scheduler admits them in one prefill step and the
-generator forms one 32-padded batched group, then sends every prompt alone. Compares the first
-greedy token per row (prefill equivalence) and records the 8-token greedy continuations, which may
-differ between the batch-1 and 32-slot decode lanes. Reads the server log for the ``prefill_groups``
-event of the burst.
+Sends 32 short chat prompts at once, then sends every prompt alone. The engine admits the first
+arrival in a prefill step of its own, so a client burst of N forms a group of at most N - 1 rows; the
+check requires a group of at least N - 1 rows padded to the 32-slot variant. Compares the first greedy
+token per row (prefill equivalence) and records the 8-token greedy continuations, which may differ
+between the batch-1 and 32-slot decode lanes. Reads the server log for the ``prefill_groups`` event of
+the burst.
 
 Usage:
     python -m models.autoports.google_gemma_4_26b_a4b_it.tests.run_vllm_batched_group_equivalence \
@@ -105,7 +106,8 @@ def main() -> int:
     parser.add_argument("--hf-model", required=True)
     parser.add_argument("--server-log", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--rows", type=int, default=31)
+    parser.add_argument("--rows", type=int, default=32)
+    parser.add_argument("--padded-batch", type=int, default=32)
     parser.add_argument("--max-tokens", type=int, default=8)
     args = parser.parse_args()
     tokenizer = AutoTokenizer.from_pretrained(args.hf_model)
@@ -115,7 +117,14 @@ def main() -> int:
         extra = " Keep it short." * (index % 3)
         prompts.append(f"Write one sentence about {topic}.{extra}")
     prompt_tokens = [
-        len(tokenizer.apply_chat_template([{"role": "user", "content": p}], add_generation_prompt=True, tokenize=True))
+        len(
+            tokenizer(
+                tokenizer.apply_chat_template(
+                    [{"role": "user", "content": p}], add_generation_prompt=True, tokenize=False
+                ),
+                add_special_tokens=False,
+            )["input_ids"]
+        )
         for p in prompts
     ]
     log_start = _count_lines(args.server_log)
@@ -152,13 +161,18 @@ def main() -> int:
             }
         )
     groups = [e for e in burst_events if e.get("event") == "prefill_groups" and e.get("groups")]
-    largest = max((max(len(g[0]) for g in e["groups"]) for e in groups), default=0)
+    group_shapes = [tuple(g) for e in groups for g in e["groups"]]
+    largest_group = max(group_shapes, key=lambda g: len(g[0]), default=None)
+    largest = len(largest_group[0]) if largest_group else 0
+    largest_padded = largest_group[2] if largest_group else 0
     record = {
         "rows": args.rows,
         "max_tokens": args.max_tokens,
         "total_prompt_tokens": sum(prompt_tokens),
         "burst_prefill_groups": [e["groups"] for e in groups],
         "largest_group_rows": largest,
+        "largest_group_padded_batch": largest_padded,
+        "required_group_rows": args.rows - 1,
         "burst_releases": [e for e in burst_events if e.get("event") == "release"],
         "solo_releases": [e for e in solo_events if e.get("event") == "release"],
         "all_first_tokens_equal": all(r["first_token_equal"] for r in rows),
@@ -167,12 +181,17 @@ def main() -> int:
         "per_row": rows,
     }
     record["status"] = (
-        "pass" if record["all_first_tokens_equal"] and record["all_completed"] and largest >= args.rows else "fail"
+        "pass"
+        if record["all_first_tokens_equal"]
+        and record["all_completed"]
+        and largest >= args.rows - 1
+        and largest_padded == args.padded_batch
+        else "fail"
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(record, indent=2) + "\n")
     print(
-        f"batched group equivalence: {record['status']} largest_group_rows={largest} "
+        f"batched group equivalence: {record['status']} largest_group_rows={largest} padded_batch={largest_padded} "
         f"first_tokens_equal={record['all_first_tokens_equal']} identical_through_8={record['rows_identical_through_8']}/{args.rows} -> {args.output}"
     )
     return 0 if record["status"] == "pass" else 1

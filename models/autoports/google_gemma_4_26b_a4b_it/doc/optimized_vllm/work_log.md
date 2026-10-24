@@ -746,3 +746,64 @@ zero growth for every case (same lengths as warmup, 2 to 8 rows at length 5, 21,
 mixed ascending and descending, repeats). The acceptance records
 `batched_group_program_cache_growth` per group and `single_row_program_cache_growth` for rows that
 took the single-row path, and requires zero group growth.
+
+### Final server and serving evidence (code 27c84d5e4d)
+
+The server was relaunched at 16:01 UTC on `27c84d5e4d` (runner pid 697913, fresh
+`GEMMA4_TENSOR_CACHE_PATH`, `VLLM_SERVER_DEV_MODE=1`, all other arguments unchanged), healthy at
+16:04:47; warmup prepared the 14 (B, S) variants and the fill-length pass. Every stage then ran in
+sequence on that server (`readiness_vllm/P150_prefill_features/*_runner_final2.log`, server log
+`readiness_vllm/P150_prefill_features/server.log`; the previous server's log is kept as
+`server_sorted_moe_45376c17e2_run2.log`). These numbers replace the 36dddb9fa6 numbers above in the
+README and `perf_summary.json`.
+
+- `prefill_burst` (32 x 128/32, concurrency 32, greedy): TTFT p50 1121.5 / p99 2027.3 / mean
+  1517.4 ms; serial reference p50 3645.5 / p99 6712.7 / mean 4981.8 ms; ratios p99 0.302, mean
+  0.305, p50 0.308; gate pass; 32 of 32 completed. About 6 percent slower than the 45376c17e2 run
+  (0.284 / 0.287); the shape-stable fill splits the rows once per call and slices each row along the
+  sequence, which costs more ops per group than the single offset slice it replaced.
+- Primary 128/128/1: TTFT 173.67 ms (before 173.23, +0.25 percent), TPOT 27.861 ms (before 27.945,
+  -0.30 percent), ITL p50 27.024 / p99 28.210 ms, 34.479 tok/s, decode 35.89 t/s/u (before 35.78).
+- CI burst 100/100/32: TTFT mean 2285.0 / p99 3065.7 ms (before 10277.4 / 14089.3), TPOT mean
+  87.571 / p99 103.124 ms (before 114.288 / 174.934), ITL p50 78.536 / p99 125.091 ms, 292.07 tok/s
+  (before 148.19); 32 of 32 completed, no missing tokens.
+- Qualitative: the six chat prompts (haiku, supervised versus unsupervised, story, thermodynamics,
+  French translation, Fibonacci) are coherent and on topic in both greedy and sampled form, with no
+  repetition, gibberish, language drift, or content from another request; the greedy haiku is the
+  same text as every earlier run. `check_degenerate_output` (scope vllm) reports no degenerate
+  output.
+- `prefix_cache`: pass; cold TTFT 1480 ms, warm ratio 0.094, long 257-token resume checked (first
+  token and 16 greedy tokens identical), shared-prefix hit rate 0.824.
+- Sampling (repo runner, full profile): 72 passed, 1 skipped (all-vocabulary logprobs cap), 5 min 3 s.
+- Mixed-shape trace reuse: 23 of 23 completed at the same lengths; status fail with the same four
+  reasons as before (13 captures, 12 releases: `prefill_program_cache_growth` x 9, `slot_remap` x 2,
+  `batch_shape_change` x 1; the 129-token raw prompt splits across decode lanes; one raw completion
+  trips the repetition heuristic). TTFT p50 242 ms (was 1414), p95 28.9 s, p99 39.6 s (was 66.9 s):
+  the 2200/3100/4500-token prompts paid 19.7 / 28.9 / 39.6 s because every chunk of a first-seen
+  length compiles single-row programs, and the three short requests queued behind them paid 11.1 s.
+  The repeats of those lengths later in the workload took 73 to 329 ms. Open item, unchanged.
+
+### Served 32-slot batched group equals solo
+
+`tests/run_vllm_batched_group_equivalence.py` on the same server
+(`readiness_vllm/trace_reuse/batched_group_equivalence.json`,
+`readiness_vllm/P150_prefill_features/group_equivalence_runner_final{2,3,4}.log`). The first run
+sent 31 prompts and required a 31-row group; the engine admitted the first arrival in a prefill step
+of its own (every burst in the server log shows this: one row, then the rest) and the group had 30
+rows, so the run reported fail with every first token equal. The check now sends 32 prompts and
+requires a group of at least 31 rows padded to the 32-slot variant; it also counted prompt tokens
+as the length of a `BatchEncoding` (2) and now tokenizes the rendered chat text. Result (run 4,
+after the fix): pass; one group of 31 rows padded to 32 at segment 128 (prompt lengths 20 to 30);
+first greedy token equal on all 32 rows; 28 of 32 eight-token continuations identical, the other 4
+(rows 7, 14, 16, 21) split at token 3 to 8 and are the same 4 rows with the same split points in
+every run, which is the deterministic batch-1 versus 32-slot decode-lane difference recorded above;
+program-cache entries 5129 before the group and 5129 at the capture after it (no growth from the
+served 32-variant group); the one release in the burst was `slot_remap`, the one in the solo pass
+`batch_shape_change`.
+
+### Stage gate and commit
+
+`10-optimized-vllm.check.sh` (MODEL_DIR and HF_MODEL set, worktree root): degeneracy check clean,
+context contract OK (target 262144, supported 131072, DRAM-limited; advisory lines come from the
+archived 50624-context logs), prefill features check passed; exit 0. Host tests: 38 passed
+(`test_batched_prefill_plan.py`, `test_vllm_adapter_contract.py`).

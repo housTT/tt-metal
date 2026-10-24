@@ -4,11 +4,11 @@ Primary single-user **128 input / 128 output / 1 request / concurrency 1**, gree
 vLLM TT plugin (`tt/generator_vllm.py`), one Blackhole P300 chip as the P150 profile, 32 scheduler
 slots, block size 64, `max_model_len` 131072, prefix caching on, trace mode `all`,
 `sample_on_device_mode=all`, async scheduling. Before is the per-row prefill code (`4f3c2b13fa`);
-after is this stage's code (`45376c17e2`, the stage head at the time of the final measurements; the review fixes below are in later commits recorded in the work log).
+after is this stage's final code (`27c84d5e4d`; the final server ran that commit).
 
 | Workload | TTFT median ms, before -> after | TPOT mean ms, before -> after | ITL median / p99 ms, after | Output tok/s, after | Decode t/s/u (1000 / TPOT mean), before -> after |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 128/128/1, C1 | 173.23 -> 173.48 | 27.945 -> 27.870 | 27.025 / 27.883 | 34.471 | 35.79 -> 35.88 |
+| 128/128/1, C1 | 173.23 -> 173.67 | 27.945 -> 27.861 | 27.024 / 28.210 | 34.479 | 35.78 -> 35.89 |
 
 Decode t/s/u is 1000 / mean TPOT, not aggregate throughput or a burst value. The before run was taken
 on the live per-row server that the run environment provided (code `4f3c2b13fa`, two commits before the
@@ -32,7 +32,8 @@ configuration. Serial reference measured on the per-row server before any change
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
 | serial (per-row prefill, `vllm_prefill_burst_serial_benchmark.json`) | 3645.5 | 6712.7 | 4981.8 | 1 | 1 | reference |
 | batched dense pass only (first batched run) | 2463.1 | 4685.6 | 3434.1 | 0.698 | 0.689 | fail (0.6 / 0.5) |
-| batched + expert-sorted MoE (final, `vllm_prefill_burst_benchmark.json`) | 1061.6 | 1907.9 | 1431.4 | 0.284 | 0.287 | pass |
+| batched + expert-sorted MoE on `45376c17e2` (run 1) | 1061.6 | 1907.9 | 1431.4 | 0.284 | 0.287 | pass |
+| batched + expert-sorted MoE, shape-stable groups on `27c84d5e4d` (final, `vllm_prefill_burst_benchmark.json`) | 1121.5 | 2027.3 | 1517.4 | 0.302 | 0.305 | pass |
 
 Secondary CI serving burst **100/100/32**, unbounded client concurrency (vLLM-nightly parity and
 capacity context, not headline decode):
@@ -40,7 +41,7 @@ capacity context, not headline decode):
 | Phase | TTFT mean / p99 ms | TPOT mean / p99 ms | ITL median / p99 ms | Output tok/s |
 | --- | ---: | ---: | ---: | ---: |
 | before (per-row) | 10277.4 / 14089.3 | 114.288 / 174.934 | 74.357 / 121.513 | 148.19 |
-| after (final) | 2345.9 / 3145.0 | 87.802 / 103.800 | 78.348 / 126.306 | 289.84 |
+| after (final, `27c84d5e4d`) | 2285.0 / 3065.7 | 87.571 / 103.124 | 78.536 / 125.091 | 292.07 |
 
 ## What changed and why
 
@@ -61,7 +62,10 @@ capacity context, not headline decode):
    dense work once as `[1, 1, B x S, H]`, with per-row cache fill, one batched SDPA and an index-gather
    terminal; the row count pads to a power of two and all 14 (B, S) variants are prepared before the
    first decode trace (`Gemma4Generator.prepare_batched_prefill`, called from the adapter's
-   `warmup_model_prefill`). Continuations and rows above 1024 tokens keep the single-row path. Batched
+   `warmup_model_prefill`). A prepared group adds no programs afterwards: the rows are split by
+   shape, each row's cache fill is cut to its block-aligned length along the sequence only, and
+   `paged_fill_cache` takes the row index as a tensor (acceptance: zero growth in every group of 2 to
+   16 rows; served 31-row group: 5129 entries before and after). Continuations and rows above 1024 tokens keep the single-row path. Batched
    equals solo on the full model for 2 to 16 rows: top-1 equal on every row, PCC min 0.99998, K/V
    pages bit-identical, 32-token greedy continuations identical through 8 tokens
    (`readiness_vllm/vllm_batched_equals_solo.json`). 32 rows cannot be allocated in the
@@ -87,17 +91,20 @@ does not read (`supports_async_decode_overlap`, `state_slots_are_stateless`).
 
 ## Serving correctness evidence (final server)
 
-Final server: relaunched 14:38 UTC on `36dddb9fa6` (runner pid 424864), healthy at 14:41:53,
+Final server: relaunched 16:01 UTC on `27c84d5e4d` (runner pid 697913), healthy at 16:04:47,
 warmed with two single and one paired chat request, then every stage in sequence on the same server
-(`readiness_vllm/P150_prefill_features/*_runner_final.log`):
+(`readiness_vllm/P150_prefill_features/*_runner_final2.log`, server log
+`readiness_vllm/P150_prefill_features/server.log`):
 
 | Check | Result | Artifact |
 | --- | --- | --- |
 | Full plugin sampling suite (repo runner, `--sampling-profile full`, 32 slots) | 72 passed, 1 skipped (configured all-vocabulary logprobs skip) | `readiness_vllm/P150_prefill_features/sampling_tests.log` |
 | Qualitative greedy and sampled outputs, degeneracy check | 6 chat prompts coherent; "No degenerate output detected"; greedy haiku identical to the earlier P150x2 output | `readiness_vllm/vllm_qualitative_outputs.json` |
-| Served prefix cache (2305-token prompt cold/warm/reset, long 257-token resume, shared-prefix bench) | pass: warm hit 0.9996, cold TTFT 1446 ms, warm 137 ms (ratio 0.095), long resume first token and 16 greedy tokens identical, shared-prefix hit 0.824 | `readiness_vllm/prefix_cache_check.json`, `vllm_run_summary.json` |
+| Served prefix cache (2305-token prompt cold/warm/reset, long 257-token resume, shared-prefix bench) | pass: cold TTFT 1480 ms, warm ratio 0.094, long resume first token and 16 greedy tokens identical, shared-prefix hit 0.824 | `readiness_vllm/prefix_cache_check.json`, `vllm_run_summary.json` |
 | Generator-level resume check (current runner, natural text, L = 2560 and 16384) | pass 14/14, PCC min 0.9999, top-1 1.0, both controls fail at every start | `readiness/prefill_resume_check.json` |
 | Batched equals solo (full model, 2 to 16 rows) | pass | `readiness_vllm/vllm_batched_equals_solo.json` |
+| Batched group program-cache stability (full model, groups of 2 to 16 rows, all buckets, mixed fill lengths) | pass: zero program-cache growth in every batched group after warmup | `readiness_vllm/batched_prefill_acceptance_final.log` |
+| Served 32-slot group equals solo (32 chat prompts of 20 to 30 tokens sent at once, then each alone, greedy, 8 tokens) | pass: one batched group of 31 rows padded to 32 (the engine admits the first arrival in its own step), first greedy token equal on all 32 rows, 28 of 32 continuations identical through 8 tokens (the other 4 split at token 3 to 8 on the batch-1 versus 32-slot decode lane), program-cache entries 5129 before and after the group (no growth), the one release in the burst was `slot_remap` | `readiness_vllm/trace_reuse/batched_group_equivalence.json` |
 | Non-aligned prompt lengths through serving | 129, 130, 131, 257, 300, 2200, 3100, 4500 tokens all completed (mixed-shape workload); 2305 (prefix-cache stage) | `readiness_vllm/trace_reuse/mixed_shape_check.json` |
 | Mixed-shape trace reuse | fail (open item below) with four recorded reasons: 13 decode trace captures and 12 releases during 23 requests; the greedy 129-token raw prompt gave one text in the batch-1 decode lane and another in the 32-slot lane (first token identical, prefill path identical; decode-width program configs, pre-existing); one raw completion tripped the check's word-repetition heuristic, and several other raw continuations loop (see the raw-prompt control in the work log) | same, `readiness_vllm/trace_reuse/raw_prompt_control.json` |
 | Plugin and vLLM checkout | unchanged at `f96662a7d`, working tree clean | `doc/vllm_integration/plugin_changes.md` |

@@ -3,7 +3,7 @@
   "profile": "P150 (one Blackhole P300 chip as N150 mesh)",
   "code": {
     "before": "4f3c2b13fa (per-row prefill)",
-    "after": "36dddb9fa6 (batched prefill, expert-sorted MoE prefill, M-independent prefill numerics)"
+    "after": "27c84d5e4d (batched prefill with shape-stable groups, expert-sorted MoE prefill, M-independent prefill numerics)"
   },
   "workload": {
     "profile": "single_user_decode",
@@ -15,15 +15,15 @@
   },
   "ttft_ms": {
     "before": 173.23276700335555,
-    "after": 173.4756169898901
+    "after": 173.6739840125665
   },
   "decode_ms_per_token_e2e": {
     "before": 27.945048653559144,
-    "after": 27.869838259896028
+    "after": 27.860927244045175
   },
   "decode_tokens_per_second_per_user": {
     "before": 35.78451454485615,
-    "after": 35.8810837248013
+    "after": 35.89255990084587
   },
   "itl_ms": {
     "before": {
@@ -32,14 +32,14 @@
       "mean": 27.94505244095289
     },
     "after": {
-      "p50": 27.025354997022077,
-      "p99": 27.88259526249021,
-      "mean": 27.86984165358599
+      "p50": 27.024423994589597,
+      "p99": 28.21044596144929,
+      "mean": 27.860931425142713
     }
   },
   "output_throughput_tok_per_s": {
     "before": 34.3844625015244,
-    "after": 34.470641484307215
+    "after": 34.479231112740386
   },
   "decode_ms_per_token_device": null,
   "roofline_ms_per_token_estimate": null,
@@ -65,21 +65,21 @@
     },
     "after": {
       "ttft_ms": {
-        "p50": 2013.859742495697,
-        "p99": 3144.985215671186,
-        "mean": 2345.9263898466816
+        "p50": 1960.053221002454,
+        "p99": 3065.719531700888,
+        "mean": 2284.9675277784627
       },
       "tpot_ms": {
-        "p50": 91.16180881304017,
-        "p99": 103.79992247524443,
-        "mean": 87.80167800125697
+        "p50": 90.85867033328864,
+        "p99": 103.12440016079695,
+        "mean": 87.57111181318459
       },
       "itl_ms": {
-        "p50": 78.34797349642031,
-        "p99": 126.30592074768121,
-        "mean": 87.80167890056349
+        "p50": 78.53559900831897,
+        "p99": 125.0906896620198,
+        "mean": 87.57111266387449
       },
-      "output_throughput_tok_per_s": 289.84476522652864
+      "output_throughput_tok_per_s": 292.0656844814441
     }
   },
   "prefill_burst_32x128_c32": {
@@ -89,12 +89,13 @@
       "mean": 4981.815612095488
     },
     "batched_ttft_ms": {
-      "p50": 1061.598407497513,
-      "p99": 1907.9411791282473,
-      "mean": 1431.3597071268305
+      "p50": 1121.4563679968705,
+      "p99": 2027.311172707996,
+      "mean": 1517.3659737192793
     },
-    "ttft_ratio_p99": 0.2842269899409354,
-    "ttft_ratio_mean": 0.2873168777366213,
+    "ttft_ratio_p99": 0.3020095999792296,
+    "ttft_ratio_mean": 0.30458091825703554,
+    "ttft_ratio_p50": 0.3076243811127893,
     "gate": {
       "p99_max": 0.6,
       "mean_max": 0.5,
@@ -102,9 +103,10 @@
     }
   },
   "named_limitations": [
-    "Decode traces are still released and recaptured on execution-width changes, slot remaps, host-mode decode, and after a prefill that compiled new programs; the mixed-shape trace reuse check therefore fails (open item, trace lifetime redesign excluded from this resume).",
+    "Decode traces are still released and recaptured on execution-width changes, slot remaps, host-mode decode, and after a prefill that compiled new programs (first-seen single-row lengths and chunk continuations); the mixed-shape trace reuse check therefore fails and first-seen long chunked prompts pay compile time in TTFT (open item, trace lifetime redesign excluded from this resume).",
     "Prefills below 512 rows keep the expert-union MoE path; the sorted path is bit-identical but not faster there.",
     "The expert-sorted MoE prefill synchronizes the host once per layer to read the routing (about 2.6 ms of layout work per layer at 2048 rows).",
-    "Greedy decode differs between the batch-1 execution and the 32-slot lane (different DRAM-sharded decode program configs); each width is self-consistent. Pre-existing, not changed here."
+    "Greedy decode differs between the batch-1 execution and the 32-slot lane (different DRAM-sharded decode program configs); each width is self-consistent. Pre-existing, not changed here.",
+    "The engine admits the first request of a client burst in a prefill step of its own, so a burst of N short prompts forms a batched group of N - 1 rows; the 32x128 burst over the 2048-token prefill budget splits into 16 + 15 (+1) row groups."
   ]
 }
