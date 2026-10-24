@@ -224,6 +224,7 @@ class FunctionalDecoder(LightweightModule):
         # normalization and sparse expert gate projection. Every other
         # operation uses the framework-default compute kernel configuration.
         self.correctness_compute_config = _make_correctness_compute_config(mesh_device)
+        self.prefill_sdpa_compute_config = _prefill_sdpa_compute_config(mesh_device)
 
     @classmethod
     def from_state_dict(
@@ -1268,6 +1269,25 @@ def _make_correctness_compute_config(device: Any) -> ttnn.DeviceComputeKernelCon
         math_fidelity=ttnn.MathFidelity.HiFi4,
         math_approx_mode=False,
         fp32_dest_acc_en=True,
+        packer_l1_acc=False,
+    )
+
+
+def _prefill_sdpa_compute_config(device: Any) -> ttnn.DeviceComputeKernelConfig:
+    """One SDPA compute config for fresh, chunked, continuation and batched prefill attention.
+
+    The fresh path and the paged continuation path must accumulate the same
+    way, or a resumed prefill drifts from a fresh prefill of the same prompt
+    by more than BF16 rounding; FP32 accumulation also makes the result
+    independent of where the key chunks fall.
+    """
+    arch = device.arch() if hasattr(device, "arch") else ttnn.device.GetDefaultDevice().arch()
+    fp32_acc = os.getenv("GEMMA4_OPT_PREFILL_SDPA_FP32_ACC", "1") == "1"
+    return ttnn.init_device_compute_kernel_config(
+        arch,
+        math_fidelity=ttnn.MathFidelity.HiFi2,
+        math_approx_mode=False,
+        fp32_dest_acc_en=fp32_acc,
         packer_l1_acc=False,
     )
 

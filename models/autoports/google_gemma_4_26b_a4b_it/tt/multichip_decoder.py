@@ -1245,6 +1245,142 @@ class MultichipDecoder(OptimizedDecoder):
             self.multichip_prefill_page_table = None
             self.multichip_execution_phase = "idle"
 
+    def prefill_forward_batched(
+        self,
+        hidden_states: ttnn.Tensor,
+        *,
+        position_cos: ttnn.Tensor,
+        position_sin: ttnn.Tensor,
+        page_table: ttnn.Tensor,
+        kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
+        row_lens: Sequence[int],
+        segment_len: int,
+        user_ids: Sequence[int],
+        cache_position_modulo: int | None = None,
+    ) -> ttnn.Tensor:
+        """Run the dense prefill work once over ``[1, 1, B * S, H]`` with per-row attention.
+
+        Every row starts at absolute position 0 and occupies one ``segment_len``
+        segment of the flattened sequence. ``row_lens[i]`` is that row's logical
+        length (0 marks a padding row that writes no cache), and ``user_ids[i]``
+        is its page-table row.
+        """
+        rows = hidden_states.shape[-2]
+        if segment_len < TILE_SIZE or segment_len % TILE_SIZE or rows % segment_len:
+            raise ValueError(
+                f"batched prefill needs tile-aligned segments dividing the sequence, got {rows=} {segment_len=}"
+            )
+        batch = rows // segment_len
+        if len(row_lens) != batch or len(user_ids) != batch:
+            raise ValueError("batched prefill needs one logical length and one page-table row per segment")
+        if any(length < 0 or length > segment_len for length in row_lens):
+            raise ValueError(f"batched prefill logical lengths must lie in [0, {segment_len}]")
+        if hidden_states.shape[-2] > _prefill_context_limit(self.tp_size):
+            raise ValueError("batched prefill exceeds the full-stack capacity contract")
+        self._in_decode_forward = False
+        self.multichip_prefill_start = 0
+        self.multichip_prefill_page_table = None
+        self.multichip_execution_phase = "prefill"
+
+        def attention(attn_in: ttnn.Tensor) -> ttnn.Tensor:
+            return self._attention_prefill_batched(
+                attn_in,
+                position_cos=position_cos,
+                position_sin=position_sin,
+                page_table=page_table,
+                kv_cache=kv_cache,
+                row_lens=row_lens,
+                segment_len=segment_len,
+                user_ids=user_ids,
+                cache_position_modulo=cache_position_modulo,
+            )
+
+        try:
+            return self._prefill_residual_block(hidden_states, attention=attention, logical_rows=rows)
+        finally:
+            self.multichip_execution_phase = "idle"
+
+    def _attention_prefill_batched(
+        self,
+        x: ttnn.Tensor,
+        *,
+        position_cos: ttnn.Tensor,
+        position_sin: ttnn.Tensor,
+        page_table: ttnn.Tensor,
+        kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
+        row_lens: Sequence[int],
+        segment_len: int,
+        user_ids: Sequence[int],
+        cache_position_modulo: int | None,
+    ) -> ttnn.Tensor:
+        self.optimized_path_counters["prefill_attention"] += 1
+        self.optimized_path_counters["prefill_attention_batched"] = (
+            self.optimized_path_counters.get("prefill_attention_batched", 0) + 1
+        )
+        self.multichip_path_counters["attention_tp"] += 1
+        kind = self.layer_kind
+        rows = x.shape[-2]
+        batch = rows // segment_len
+        local_kv_heads = self.local_full_kv_heads if kind.name == "full_attention" else self.local_sliding_kv_heads
+        xqkv = self._linear(x, "qkv", compute_kernel_config=self.prefill_attention_compute_config)
+        xqkv = ttnn.reshape(xqkv, (batch, 1, segment_len, xqkv.shape[-1]))
+        q_heads, k_heads, v_heads = ttnn.experimental.nlp_create_qkv_heads(
+            xqkv,
+            num_heads=self.local_q_heads,
+            num_kv_heads=local_kv_heads,
+            transpose_k_heads=False,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        xqkv.deallocate(True)
+        q_heads = self._rms_norm(q_heads, self.weights.q_norm)
+        k_heads = self._rms_norm(k_heads, self.weights.k_norm)
+        v_heads = self._rms_norm(v_heads, None)
+        q_heads = ttnn.experimental.rotary_embedding_hf(q_heads, position_cos, position_sin, is_decode_mode=False)
+        k_heads = ttnn.experimental.rotary_embedding_hf(k_heads, position_cos, position_sin, is_decode_mode=False)
+        key_cache, value_cache = kv_cache
+        for row, (user_id, logical_len) in enumerate(zip(user_ids, row_lens)):
+            if logical_len < 1:
+                continue
+            k_row = ttnn.slice(k_heads, [row, 0, 0, 0], [row + 1, local_kv_heads, segment_len, kind.head_dim])
+            v_row = ttnn.slice(v_heads, [row, 0, 0, 0], [row + 1, local_kv_heads, segment_len, kind.head_dim])
+            self._fill_prefill_cache(
+                key_cache,
+                value_cache,
+                k_row,
+                v_row,
+                page_table,
+                user_id=user_id,
+                logical_seq_len=logical_len,
+                cache_position_modulo=cache_position_modulo,
+            )
+            k_row.deallocate(True)
+            v_row.deallocate(True)
+        attn_out = ttnn.transformer.scaled_dot_product_attention(
+            q_heads,
+            k_heads,
+            v_heads,
+            is_causal=True,
+            sliding_window_size=kind.sliding_window,
+            scale=1.0,
+            program_config=_prefill_sdpa_program_config(self.mesh_device),
+            compute_kernel_config=getattr(self, "prefill_sdpa_compute_config", None),
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        q_heads.deallocate(True)
+        k_heads.deallocate(True)
+        v_heads.deallocate(True)
+        attn_out = ttnn.experimental.nlp_concat_heads(attn_out, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        attn_out = ttnn.reshape(attn_out, (1, 1, rows, attn_out.shape[-1]))
+        return self._all_reduce_hidden(
+            ttnn.linear(
+                attn_out,
+                self.weights.o_proj,
+                dtype=self._activation_dtype_for("attention"),
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                compute_kernel_config=self.prefill_attention_compute_config,
+            )
+        )
+
     def decode_forward(self, *args, **kwargs) -> ttnn.Tensor:
         self.multichip_execution_phase = "decode"
         try:
@@ -1461,6 +1597,7 @@ class MultichipDecoder(OptimizedDecoder):
                 sliding_window_size=kind.sliding_window,
                 scale=1.0,
                 program_config=_prefill_sdpa_program_config(self.mesh_device),
+                compute_kernel_config=getattr(self, "prefill_sdpa_compute_config", None),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
         attn_out = ttnn.reshape(attn_out, [1, self.local_q_heads, seq_len, kind.head_dim])
@@ -1482,6 +1619,9 @@ class MultichipDecoder(OptimizedDecoder):
         if table is None:
             raise ValueError("sliding continuation prefill requires the current host page-table metadata")
         first_position = max(0, prefill_start - window + 1)
+        program_config = _prefill_sdpa_program_config(self.mesh_device)
+        grid_align = program_config.k_chunk_size if program_config is not None else TILE_SIZE
+        front_pad = first_position % grid_align
         block_size = self.layer_kind.block_size
         first_page = first_position // block_size
         last_page = (prefill_start - 1) // block_size
@@ -1511,6 +1651,18 @@ class MultichipDecoder(OptimizedDecoder):
             # A complete slice can share its input buffer.
             if drop or history.shape[2] != joined.shape[2]:
                 joined.deallocate(True)
+            if front_pad:
+                front = ttnn.zeros(
+                    [1, shape[1], front_pad, shape[3]],
+                    dtype=history.dtype,
+                    layout=ttnn.TILE_LAYOUT,
+                    device=self.mesh_device,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                )
+                padded = ttnn.concat([front, history], dim=2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                front.deallocate(True)
+                history.deallocate(True)
+                history = padded
             result.append(history)
         return result
 
@@ -1560,7 +1712,9 @@ class MultichipDecoder(OptimizedDecoder):
         """Run the baseline paged long-prefill algorithm with four local Q heads."""
         original_len = q_heads.shape[2]
         logical_seq_len = original_len if logical_seq_len is None else logical_seq_len
-        leading = prefill_start % TILE_SIZE
+        program_config = _prefill_sdpa_program_config(self.mesh_device)
+        grid_align = program_config.q_chunk_size if program_config is not None else TILE_SIZE
+        leading = prefill_start % grid_align
         aligned_start = prefill_start - leading
         # Only the query axis is aligned. Cache addresses and causal positions
         # retain their absolute values, including a nonaligned logical tail.
@@ -1598,18 +1752,10 @@ class MultichipDecoder(OptimizedDecoder):
                 value_cache,
                 user_page_table,
                 chunk_start_idx=aligned_start + start,
-                program_config=(
-                    ttnn.SDPAProgramConfig(
-                        compute_with_storage_grid_size=self.mesh_device.compute_with_storage_grid_size(),
-                        q_chunk_size=32,
-                        k_chunk_size=32,
-                    )
-                    if (aligned_start + start) % 128
-                    else _prefill_sdpa_program_config(self.mesh_device)
-                ),
+                program_config=program_config,
                 scale=1.0,
                 **self._sdpa_cache_view_kwargs(),
-                compute_kernel_config=self.correctness_compute_config,
+                compute_kernel_config=getattr(self, "prefill_sdpa_compute_config", None),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
             q_chunk.deallocate(True)
@@ -1670,6 +1816,7 @@ class MultichipDecoder(OptimizedDecoder):
                 sliding_window_size=self.layer_kind.sliding_window,
                 scale=1.0,
                 program_config=_prefill_sdpa_program_config(self.mesh_device),
+                compute_kernel_config=getattr(self, "prefill_sdpa_compute_config", None),
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
             q_slice.deallocate(True)

@@ -18,7 +18,12 @@ import torch
 from torch import nn
 
 import ttnn
-from models.autoports.google_gemma_4_26b_a4b_it.tt.generator import DEVICE_MAX_TOP_K, Gemma4Generator, build_generator
+from models.autoports.google_gemma_4_26b_a4b_it.tt.generator import (
+    DEVICE_MAX_TOP_K,
+    Gemma4Generator,
+    build_generator,
+    trace_event,
+)
 from models.autoports.google_gemma_4_26b_a4b_it.tt.model import DECODE_SLOT_COUNT, SLIDING_CACHE_TOKENS, FullModelState
 from models.common.sampling import format_sampling_params
 
@@ -380,8 +385,10 @@ class Gemma4ForCausalLM(nn.Module):
         del host_tables, start_pos, prompt_lens
         return None
 
-    def _release_decode_traces(self) -> None:
+    def _release_decode_traces(self, reason: str = "unspecified") -> None:
         gen = self._require_generator()
+        if gen._trace_cache:
+            trace_event("release", reason=reason, count=len(gen._trace_cache))
         for trace in gen._trace_cache.values():
             ttnn.release_trace(self.mesh_device, trace.model_trace_id)
             if trace.sampling_trace_id is not None:
@@ -409,7 +416,7 @@ class Gemma4ForCausalLM(nn.Module):
         if gen._trace_cache:
             # Eager decode intermediates cannot allocate in a retained trace's
             # workspace. The next ordinary decode refreshes its input boundary.
-            self._release_decode_traces()
+            self._release_decode_traces("generated_replay_host_decode")
         batch = len(starts)
         outputs = [None] * batch
 
@@ -512,7 +519,7 @@ class Gemma4ForCausalLM(nn.Module):
         if sampling_params is None:
             # Eager host compatibility may allocate buffers that survive until
             # the next decode; retire the optimized traces before that work.
-            self._release_decode_traces()
+            self._release_decode_traces("host_sampling_prefill")
         program_cache_entries = self.mesh_device.num_program_cache_entries() if gen._trace_cache else None
         if self._page_tables_changed(tables):
             # Host staging copies into the existing device tables. Their
@@ -551,6 +558,15 @@ class Gemma4ForCausalLM(nn.Module):
             # order. Gemma has no recurrent state beyond that cache, so state
             # slot IDs must not be substituted for cache user-row IDs.
         max_chunk = max(lengths)
+        trace_event(
+            "prefill",
+            rows=len(lengths),
+            starts=starts,
+            ends=cumulative_ends,
+            decode_rows_active_before=int(getattr(state, "active_mask", torch.zeros(0, dtype=torch.bool)).sum()),
+            program_cache_entries=program_cache_entries,
+            retained_traces=len(gen._trace_cache),
+        )
         chunk_tokens = torch.zeros((len(lengths), max_chunk), dtype=tokens.dtype)
         positions = torch.zeros((len(lengths), max_chunk), dtype=torch.int32)
         for row, (start, end, length) in enumerate(zip(starts, cumulative_ends, lengths)):
@@ -592,7 +608,7 @@ class Gemma4ForCausalLM(nn.Module):
             # Cold prefill/sampling programs can leave persistent kernel binaries
             # in the old trace workspace. Retire those traces before replay;
             # warmed requests keep the same captured buffers and trace IDs.
-            self._release_decode_traces()
+            self._release_decode_traces("prefill_program_cache_growth")
         return result
 
     def decode_forward(
@@ -658,7 +674,11 @@ class Gemma4ForCausalLM(nn.Module):
         # shape is captured; TT-Metal forbids allocating that new trace while
         # an older trace still pins the allocator range.
         if sampling_params is None or remap_changed or batch_shape_changed:
-            self._release_decode_traces()
+            self._release_decode_traces(
+                "host_sampling_decode"
+                if sampling_params is None
+                else ("slot_remap" if remap_changed else "batch_shape_change")
+            )
         refresh_decode_inputs = not self._decode_ready
         self._decode_ready = sampling_params is not None
         self._last_execution_batch = execution_batch
@@ -721,13 +741,20 @@ class Gemma4ForCausalLM(nn.Module):
         return tt_out, None
 
     def warmup_model_prefill(self, *args, **kwargs):
+        """Prepare every batched prefill variant before the first decode trace exists."""
         del args, kwargs
+        gen = self._require_generator()
+        if self._serving_state is None or not gen.batched_prefill_enabled:
+            return
+        if gen._trace_cache:
+            raise RuntimeError("batched prefill preparation must precede decode trace capture")
+        gen.prepare_batched_prefill(self._serving_state)
 
     def warmup_model_decode(self, *args, **kwargs):
         del args, kwargs
 
     def teardown(self):
-        self._release_decode_traces()
+        self._release_decode_traces("teardown")
 
 
 __all__ = ["Gemma4ForCausalLM"]

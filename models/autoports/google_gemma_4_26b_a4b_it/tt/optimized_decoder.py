@@ -18,7 +18,7 @@ import math
 import os
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import ttnn
 from models.autoports.google_gemma_4_26b_a4b_it.tt.functional_decoder import (
@@ -691,6 +691,9 @@ def _r22_dram_weight_and_config(
     return sharded_weight, program_config, input_config, output_config, geometry
 
 
+PREFILL_FP32_ACC = _bool_from_env("GEMMA4_PREFILL_FP32_ACC", True)
+
+
 def _compute_config(
     device: Any,
     *,
@@ -904,7 +907,10 @@ class OptimizedDecoder(FunctionalDecoder):
             else (residual_full_attention_math_fidelity if residual_shard_cores else full_attention_math_fidelity)
         )
         self.prefill_attention_compute_config = _compute_config(
-            self.mesh_device, fidelity=resolved_prefill_attention_fidelity
+            self.mesh_device, fidelity=resolved_prefill_attention_fidelity, fp32_dest_acc_en=PREFILL_FP32_ACC
+        )
+        self.prefill_mlp_compute_config = _compute_config(
+            self.mesh_device, fidelity=mlp_math_fidelity, fp32_dest_acc_en=PREFILL_FP32_ACC
         )
         self.decode_attention_compute_config = _compute_config(
             self.mesh_device, fidelity=resolved_decode_attention_fidelity
@@ -1466,7 +1472,10 @@ class OptimizedDecoder(FunctionalDecoder):
             else (residual_full_attention_math_fidelity if residual_shard_cores else full_attention_math_fidelity)
         )
         decoder.prefill_attention_compute_config = _compute_config(
-            mesh_device, fidelity=resolved_prefill_attention_fidelity
+            mesh_device, fidelity=resolved_prefill_attention_fidelity, fp32_dest_acc_en=PREFILL_FP32_ACC
+        )
+        decoder.prefill_mlp_compute_config = _compute_config(
+            mesh_device, fidelity=mlp_math_fidelity, fp32_dest_acc_en=PREFILL_FP32_ACC
         )
         decoder.decode_attention_compute_config = _compute_config(
             mesh_device, fidelity=resolved_decode_attention_fidelity
@@ -2179,19 +2188,33 @@ class OptimizedDecoder(FunctionalDecoder):
             position_cos = ttnn.pad(position_cos, pad, 0.0)
             position_sin = ttnn.pad(position_sin, pad, 0.0)
 
+        def attention(attn_in: ttnn.Tensor) -> ttnn.Tensor:
+            return self._attention_prefill(
+                attn_in,
+                position_cos=position_cos,
+                position_sin=position_sin,
+                page_table=page_table,
+                chunk_page_table=chunk_page_table,
+                kv_cache=kv_cache,
+                user_id=user_id,
+                cache_position_modulo=cache_position_modulo,
+                logical_seq_len=logical_seq_len,
+            )
+
+        return self._prefill_residual_block(hidden_states, attention=attention, logical_rows=logical_seq_len)
+
+    def _prefill_residual_block(
+        self,
+        hidden_states: ttnn.Tensor,
+        *,
+        attention: Callable[[ttnn.Tensor], ttnn.Tensor],
+        logical_rows: int,
+    ) -> ttnn.Tensor:
+        """Run the padded prefill residual chain around one attention implementation."""
+        padded_seq_len = hidden_states.shape[-2]
         residual = hidden_states
         attn_in = self._rms_norm(hidden_states, self.weights.input_ln)
-        attn_out = self._attention_prefill(
-            attn_in,
-            position_cos=position_cos,
-            position_sin=position_sin,
-            page_table=page_table,
-            chunk_page_table=chunk_page_table,
-            kv_cache=kv_cache,
-            user_id=user_id,
-            cache_position_modulo=cache_position_modulo,
-            logical_seq_len=logical_seq_len,
-        )
+        attn_out = attention(attn_in)
         attn_out = self._rms_norm(attn_out, self.weights.post_attn_ln)
         hidden_states = ttnn.add(residual, attn_out, memory_config=ttnn.DRAM_MEMORY_CONFIG)
 
@@ -2217,11 +2240,11 @@ class OptimizedDecoder(FunctionalDecoder):
             hidden_states,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
-        if padded_seq_len != logical_seq_len:
+        if padded_seq_len != logical_rows:
             hidden_states = ttnn.slice(
                 hidden_states,
                 starts=[0, 0, 0, 0],
-                ends=[1, 1, logical_seq_len, HIDDEN_SIZE],
+                ends=[1, 1, logical_rows, HIDDEN_SIZE],
                 steps=[1, 1, 1, 1],
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
@@ -2691,10 +2714,17 @@ class OptimizedDecoder(FunctionalDecoder):
             )
         return attn_out
 
+    def _dense_mlp_compute_config(self) -> ttnn.DeviceComputeKernelConfig:
+        """Prefill accumulates in FP32 so its results do not depend on the physical row count."""
+        if getattr(self, "_in_decode_forward", False):
+            return self.mlp_compute_config
+        return getattr(self, "prefill_mlp_compute_config", self.mlp_compute_config)
+
     def _dense_mlp(self, x: ttnn.Tensor) -> ttnn.Tensor:
         self.optimized_path_counters["dense_mlp"] += 1
         if self.residual_shard_cores != 0 and x.is_sharded():
             return self._dense_mlp_residual_sharded(x)
+        mlp_compute_config = self._dense_mlp_compute_config()
         if self.packed_dense_gate_up and self.packed_mlp_gate_up is not None and not self.r22_packed_dense_gate_up:
             decode_candidate = self._use_decode_dram_weight(x, "packed_mlp_gate_up")
             packed_weight = (
@@ -2719,7 +2749,7 @@ class OptimizedDecoder(FunctionalDecoder):
                 packed_weight,
                 dtype=self._activation_dtype_for("dense_mlp"),
                 memory_config=kwargs.pop("memory_config", ttnn.DRAM_MEMORY_CONFIG),
-                compute_kernel_config=self.mlp_compute_config,
+                compute_kernel_config=mlp_compute_config,
                 **kwargs,
             )
             if decode_candidate:
@@ -2756,15 +2786,15 @@ class OptimizedDecoder(FunctionalDecoder):
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
         else:
-            gate = self._linear(x, "mlp_gate", compute_kernel_config=self.mlp_compute_config)
-            up = self._linear(x, "mlp_up", compute_kernel_config=self.mlp_compute_config)
+            gate = self._linear(x, "mlp_gate", compute_kernel_config=mlp_compute_config)
+            up = self._linear(x, "mlp_up", compute_kernel_config=mlp_compute_config)
         hidden = ttnn.mul(
             gate,
             up,
             input_tensor_a_activations=[ttnn.UnaryWithParam(ttnn.UnaryOpType.GELU_TANH)],
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
-        return self._linear(hidden, "mlp_down", compute_kernel_config=self.mlp_compute_config)
+        return self._linear(hidden, "mlp_down", compute_kernel_config=mlp_compute_config)
 
     def _dense_mlp_residual_sharded(self, x: ttnn.Tensor) -> ttnn.Tensor:
         """Keep the split gate/up/down family coherent with the residual grid."""

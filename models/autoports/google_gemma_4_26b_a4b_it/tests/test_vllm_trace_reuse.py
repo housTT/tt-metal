@@ -271,9 +271,17 @@ def test_adapter_request_trace_reuse(mesh_device, profile_tp_size, monkeypatch):
         assert adapter._page_table_refreshes - before_refresh == int(page_changed)
         assert page_uploads[before_upload:] == expected_uploads
         assert gen.trace_counters.page_table_refreshes == 0
-        for actual, supplied in zip(adapter._serving_state.page_tables, scheduler_tables):
+        for layer, (actual, supplied) in enumerate(zip(adapter._serving_state.page_tables, scheduler_tables)):
             host_table = _host(actual)
-            assert torch.equal(host_table[: supplied.shape[0], : supplied.shape[1]], supplied)
+            window = host_table[: supplied.shape[0], : supplied.shape[1]]
+            if not torch.equal(window, supplied):
+                mismatch = torch.nonzero(window != supplied)[:8].tolist()
+                values = [(int(window[r, c]), int(supplied[r, c])) for r, c in mismatch]
+                print(
+                    f"PAGE_TABLE_MISMATCH layer={layer} entries(row,col)={mismatch} device_vs_supplied={values}",
+                    flush=True,
+                )
+            assert torch.equal(window, supplied)
         result.update(
             {
                 "stage": "request_complete",

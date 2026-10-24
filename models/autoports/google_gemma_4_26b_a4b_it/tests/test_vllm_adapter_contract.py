@@ -157,7 +157,7 @@ def test_chunked_prefill_propagates_absolute_positions_and_scheduler_tables():
     assert "tokens[row, start:end]" in adapter
     assert "torch.arange(start, end" in adapter
     assert "return None" in inspect.getsource(Gemma4ForCausalLM._chunk_page_tables)
-    assert "position_rows[row]" in generator
+    assert "first_positions[row]" in generator
     assert "chunk_page_tables=chunk_page_tables" in generator
     assert "physical_len = _padded_prefill_len(logical_len)" in generator
     assert "first_position + physical_len" in generator
@@ -197,7 +197,7 @@ def test_decode_releases_pinned_traces_before_batch_shape_recapture():
     source = inspect.getsource(Gemma4ForCausalLM.decode_forward)
     assert "batch_shape_changed = self._last_execution_batch not in (None, execution_batch)" in source
     assert "or batch_shape_changed" in source
-    assert source.index("self._release_decode_traces()") < source.index("gen.decode_forward(")
+    assert source.index("self._release_decode_traces(") < source.index("gen.decode_forward(")
 
 
 def test_adapter_steady_decode_ignores_stale_host_feedback_and_refreshes_changed_pages_once(monkeypatch):
@@ -238,7 +238,7 @@ def test_adapter_steady_decode_ignores_stale_host_feedback_and_refreshes_changed
 
     monkeypatch.setattr(adapter, "_require_generator", lambda: gen)
     monkeypatch.setattr(adapter, "_sampling_values", lambda *_args, **_kwargs: {})
-    monkeypatch.setattr(adapter, "_release_decode_traces", lambda: releases.append(True))
+    monkeypatch.setattr(adapter, "_release_decode_traces", lambda *_reason: releases.append(True))
 
     def refresh(tables):
         refreshes.append([table.clone() for table in tables])
@@ -447,7 +447,7 @@ def test_prefill_retires_traces_only_when_program_cache_changes(monkeypatch, com
     monkeypatch.setattr(adapter, "_require_generator", lambda: gen)
     monkeypatch.setattr(adapter, "_page_tables_changed", lambda _tables: False)
 
-    def release():
+    def release(*_reason):
         events.append("release")
         gen._trace_cache.clear()
 

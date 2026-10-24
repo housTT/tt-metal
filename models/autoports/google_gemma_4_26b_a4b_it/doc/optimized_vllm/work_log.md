@@ -364,3 +364,159 @@ is reported in the final handoff to avoid a self-referential commit hash.
 | `/home/hous/dev/vllm` | `dev` | `7b24b0e5904dac2f3859d9ab36577dbdfb5b7d55` |
 
 Both checkpoints were created locally after clean-pass; nothing was pushed. The tt-metal checkpoint hook log is `checkpoint_commit.log`. All applicable hooks passed except the two intentionally skipped raw-capture formatting hooks described above.
+
+## 2026 Oct 24 resume: prefix caching and batched prefill (P150)
+
+Resumed stage 10 under skills commit `62814d62` (`/home/hous/dev/skills/plugins/tt-model-bringup`),
+worktree `/home/hous/dev/tt-metal-wt-prefill` at `067b6fc879`, serving pair
+`/home/hous/dev/vllm` at `f96662a7d` (unchanged). Chip 0 serves; chips 1 and 3 run
+generator-level checks, one model construction per process, a fresh
+`GEMMA4_TENSOR_CACHE_PATH` per process (a reused cache path stalled one load at
+100 percent CPU for five minutes and was terminated with SIGTERM).
+
+### Gate state at resume
+
+`10-optimized-vllm.check.sh` exited 2: `readiness/prefill_resume_check.json` missing,
+`readiness_vllm/vllm_prefill_burst_benchmark.json` missing. The previous attempt
+recorded that the generator-level resume check failed for multi-token continuations
+(top-1 0.28 to 0.66 at L=2560) with both negative controls failing as expected.
+
+### Burst serial reference and before metrics (live per-row server, code 4f3c2b13fa)
+
+- `readiness_vllm/vllm_prefill_burst_serial_benchmark.json` (copy of the stage output,
+  also under `readiness_vllm/P150_prefill_features/burst_serial/`): 32 x 128/32 at
+  concurrency 32, TTFT p50 3645.5 ms, p99 6712.7 ms, mean 4981.8 ms, 32/32 completed.
+  Gate for the batched run: p99 <= 4027.6 ms and mean <= 2490.9 ms.
+- `readiness_vllm/optimized_vllm_batched_prefill/before/vllm_benchmark.json` (repo runner
+  `models.common.readiness_check.run_vllm_server --stages benchmark`, 128/128/1, C1,
+  greedy): TTFT 173.23 ms, TPOT 27.945 ms, ITL p50 27.043 / p99 27.887 ms, 34.384 tok/s,
+  decode 35.785 t/s/u.
+- `.../before/vllm_ci_serving_benchmark.json` (100/100/32): TTFT mean 10277.4 ms,
+  p99 14089.3 ms, TPOT mean 114.288 ms, ITL p50 74.357 / p99 121.513 ms, 148.19 tok/s.
+
+### Resume-check root cause: matmul numerics depend on the physical row count
+
+Bisection artifacts are under `doc/vllm_integration/continuation_bisect/`:
+
+1. `bisect_l2560_layer5.json`: layer 5 (full attention) alone, continuation hidden
+   state versus fresh prefill, PCC 0.9994 to 0.9998 at s = 64, 128, 260, 2432. Layer 0
+   had passed in the previous attempt. Each layer kind looked correct in isolation.
+2. `resume_driver_l05_default.json`, `resume_driver_l05_4096.json`: the real
+   `prefill_logits_continuation` driver on layers [0, 5] gives PCC min 0.982, top-1
+   0.969 (s=64) and 0.953 (s=2432); identical at `max_seq_len` 4096 and 131072.
+   `resume_driver_l0to5.json` (6 layers): top-1 0.94/0.96; `resume_driver_l0to11.json`
+   (12 layers): top-1 0.78/0.85, PCC min 0.45. Monotone degradation with depth, so a
+   per-layer deviation compounds through the MoE stack; not a cliff at one layer.
+3. `resume_driver_l0.json` / `resume_driver_l5.json` (single layers through the
+   driver): sliding PCC min 0.993, full PCC min 0.958 to 0.962.
+4. `resume_driver_l5_fp32sdpa.json`: a symmetric SDPA compute config (HiFi2, FP32
+   accumulate, exact exp) for the fresh and chunked paths changed nothing
+   (0.9560 / 0.9599 / 0.9614), so accumulation precision in attention was not it.
+5. `resume_driver_l5_forced_chunked2.json`: forcing the fresh full-attention path through
+   the same paged chunked SDPA kernel (marker `FORCED_FULL_CHUNKED` confirmed) still gave
+   PCC min 0.9598, so the attention kernel was not it either.
+6. `sdpa_kernels.json` (op level, random Q/K/V at the real head geometry): non-chunked
+   versus paged chunked SDPA at start 0 are bit-exact; chunked at 128-aligned starts with
+   the 128/128 program config is bit-exact; the 32/32 config used at non-128-aligned
+   starts drifts (row PCC min 0.9994); the sliding history construction is bit-exact when
+   the history front is padded to a 128-aligned absolute position and drifts otherwise.
+7. `resume_driver_l5_kcache.json`: the K cache written by the continuation differs from
+   the fresh K cache in 85 percent of elements for the positions computed by forwards of
+   physical length 64, 128, 1024 or 1536, and is bit-identical for forwards of length
+   2432, 2496 or 2560.
+8. `m_dependence_layer5.json` (per op, same input rows at M = 64 ... 2432 versus 2560):
+   embedding, both RMS norms, RoPE and the FP32 router are bit-identical at every M;
+   the QKV `ttnn.linear` output differs in 83 percent of elements for M <= 1536, and the
+   dense MLP differs for M <= 128. The automatic matmul program config changes its
+   K-blocking with M, and with BF16 packer accumulation each block boundary rounds.
+9. `tests/probe_linear_m_dependence.py` (op level, QKV shape, BFP8 weights): the output
+   depends only on `in0_block_w`; the output subblock shape and M do not matter once
+   `in0_block_w` is fixed; FP32 destination accumulation makes the automatically
+   configured matmul bit-identical for every M. Timing (`/tmp/probe_linear_timing.py`):
+   at M=128 FP32 accumulation costs nothing measurable (QKV 0.151 vs 0.152 ms); at
+   M=2048 QKV 0.562 to 1.443 ms and o_proj 0.332 to 1.140 ms per layer, dense gate/up
+   0.204 to 0.288 ms, down 0.124 to 0.186 ms.
+
+Remedy (model-owned, no plugin change):
+
+- `tt/optimized_decoder.py`: `PREFILL_FP32_ACC` (env `GEMMA4_PREFILL_FP32_ACC`, default
+  on) gives the prefill attention linears and a new `prefill_mlp_compute_config` FP32
+  destination accumulation; decode configs are untouched (`_dense_mlp_compute_config`
+  selects by phase). Expert sparse matmuls already pin `in0_block_w` and were
+  M-independent in the probes.
+- `tt/multichip_decoder.py`: `_full_chunked_prefill_attention` front-pads Q to the
+  configured SDPA q-chunk (128) instead of the tile, so every continuation uses the
+  128/128 grid; `_prefill_sliding_history` front-pads the history with zero rows to a
+  k-chunk-aligned absolute position (masked out by the window for every real query).
+- `tt/functional_decoder.py`: one `prefill_sdpa_compute_config` (HiFi2, exact exp, FP32
+  accumulate, env `GEMMA4_OPT_PREFILL_SDPA_FP32_ACC`) for the fresh, chunked, sliding
+  continuation and batched attention calls, so the two arms share one configuration.
+
+Result (`resume_driver_l5_fp32acc.json`, `resume_driver_l5_aligned.json`,
+`resume_driver_l0_aligned.json`): the K cache is bit-identical between arms at every
+start; layer 5 PCC min 0.9996 to 0.9997 and top-1 1.0 at s = 64, 260, 1029, 2432, 2559;
+layer 0 PCC min 0.9997 and top-1 1.0 at s = 64, 260, 1024, 1029, 2432, 2559. The
+remaining 3e-4 is the expert-chunk membership of window rows (1024-token MoE chunks
+start at the continuation offset).
+
+### Resume check runner change during the run
+
+The installed `readiness_check.run_prefill_resume_check` changed to natural text
+from `models/tt_transformers/tests/tale-of-two-cities.txt.bz2` (skills commit
+`d51f6767`) while the first full-model run was in flight. The coordinator reported
+that the previous prompt source repeats text, which makes the negative controls
+stop failing; that result is a check defect. The first run's log is kept as
+`readiness/prefill_resume_check_superseded_prompt_source.log` and is not evidence.
+The gate artifact `readiness/prefill_resume_check.json` comes from the rerun with
+the current runner, launched from the worktree root with
+`GEMMA4_TENSOR_CACHE_PATH=/tmp/gemma4_resume_cache`.
+The superseded first run already shows the model side of the fix on all 30 layers:
+all 14 cases (L = 2560 and 16384; s = 64, 128, 260, 1024, 1029, prefix-cache hit,
+last token) pass with PCC mean 1.0000, PCC min 0.9998 to 1.0000 and top-1 1.000;
+only its negative controls at the short starts did not fail, for the prompt
+reason above (`readiness/prefill_resume_check_superseded_prompt_source.json`).
+
+### Batched prefill: implementation, acceptance and calibration
+
+Design 1 from the prefill-features reference (equal padded length): rows that start at
+position 0 are grouped by physical bucket (128, 256, 512, 1024 tokens), the row count is
+padded to a power of two, and the group runs once as `[1, 1, B * S, H]` through the
+dense work (`MultichipDecoder.prefill_forward_batched` -> `_prefill_residual_block`);
+attention reshapes to `[B, heads, S, D]` with one batched SDPA, cache fill stays per row
+through the existing `_fill_prefill_cache` (logical length per row, no padding written),
+and the terminal gathers each row's last real hidden row with an index-tensor
+`ttnn.embedding` lookup so no program depends on the logical length
+(`Gemma4FullModel.prefill_forward_batched`, `_terminal_rows`). Continuations
+(`start_pos > 0`), rows above 1024 tokens and groups under two rows keep the single-row
+path. Env: `GEMMA4_BATCHED_PREFILL` (1/0), `GEMMA4_BATCHED_PREFILL_BUCKETS`,
+`GEMMA4_BATCHED_PREFILL_MAX_TOKENS` (4096), `GEMMA4_BATCHED_PREFILL_MIN_ROWS` (2).
+`Gemma4Generator.prepare_batched_prefill` compiles all 14 (B, S) variants before any
+decode trace; the adapter's `warmup_model_prefill` hook calls it and refuses to run
+after a trace exists; a request that arrives unprepared falls back to single rows and
+logs `batched_prefill_unprepared` (the lazy variant would have written placeholder K/V
+through live page-table rows).
+
+Evidence on the full 30-layer model, chip 3, `max_batch_size` 16, `max_seq_len` 32768
+(`readiness_vllm/vllm_batched_equals_solo.json`, log
+`readiness_vllm/batched_prefill_acceptance_b16.log`): B in {2, 4, 8, 16}, two row
+orders, lengths {5, 31, 32, 33, 127, 128, 129, 257, 640, 1000, 1024} plus two chat
+prompts per case; every row top-1 equal, PCC min 0.99998, K and V pages bit-identical
+at every real position for a sliding and a full layer, 32-token greedy continuations
+(decode with one active row) identical through 8 tokens, status `pass`. B = 32 cannot be
+allocated in the generator-owned cache layout on one chip: 32 rows x 1024-token sliding
+windows x 25 layers need 6.7 GB and the full-attention state another 2.7 GB at 131072
+tokens; the allocator reported 27 MB free for a 268 MB buffer
+(`readiness_vllm/batched_prefill_acceptance_b32_oom.log`). Serving covers 32 rows
+through the shared vLLM pool; the burst exercises 16-row groups.
+
+Calibration (`readiness_vllm/batched_prefill_calibration.json`, same process, warm):
+single-row prefill 128/256/512/1024 tokens and each (B, S) variant versus B single rows.
+Batched over serial: 0.92 (2x128), 0.89 (4x128), 0.87 (8x128), 0.87 (16x128), 0.93 to
+0.96 at S=256, 0.96 to 0.98 at S=512, 0.99 to 1.00 at S=1024. The dense pass removes
+the repeated weight traffic, but this model's prefill is dominated by the MoE expert
+path, which computes the per-group expert union (for 128 natural-text tokens with
+top-8 routing that is nearly all 128 experts, in both arms), so the per-token cost is
+about 1.1 ms in either arm. A 2.5x burst gain needs a token-sorted per-expert prefill
+that computes only routed experts; gpt-oss's expert prefill also runs the all-expert
+sparsity, so there is no reusable path in the tree. That rewrite is the next lever for
+both the burst and single-user TTFT and is outside this attempt.

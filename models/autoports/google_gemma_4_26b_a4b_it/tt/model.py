@@ -649,6 +649,87 @@ class Gemma4FullModel:
             hidden = ttnn.slice(hidden, (0, 0, last, 0), (hidden.shape[0], 1, last + 1, HIDDEN_SIZE))
         return self._terminal(hidden)
 
+    def prefill_forward_batched(
+        self,
+        tokens: ttnn.Tensor,
+        *,
+        state: FullModelState,
+        row_lens: Sequence[int],
+        segment_len: int,
+        user_ids: Sequence[int],
+        position_ids: ttnn.Tensor,
+    ) -> ttnn.Tensor:
+        """Prefill several fresh rows in one dense pass and return their last-token logits.
+
+        ``tokens`` is the flattened ``[1, B * segment_len]`` physical token
+        tensor: row ``i`` occupies segment ``i`` with its logical prompt in the
+        first ``row_lens[i]`` positions. ``position_ids`` is ``[1, segment_len]``
+        and every row starts at absolute position 0. Rows with ``row_lens[i] == 0``
+        are padding rows: they take part in the dense work, write no cache, and
+        return no logits. The result is ``[1, 1, R, vocab]`` for the ``R`` real
+        rows in segment order.
+        """
+        if len(row_lens) != len(user_ids) or not row_lens:
+            raise ValueError("batched prefill needs one logical length and one cache row per segment")
+        batch = len(row_lens)
+        if tokens.shape[-1] != batch * segment_len:
+            raise ValueError(f"tokens must hold {batch} segments of {segment_len}, got {tuple(tokens.shape)}")
+        real_rows = [index for index, length in enumerate(row_lens) if length > 0]
+        if not real_rows:
+            raise ValueError("batched prefill needs at least one real row")
+        hidden = self.embed_tokens(tokens)
+        for state_idx, (layer_idx, layer) in enumerate(zip(self.layer_indices, self.layers)):
+            layer_type = self.hf_config.layer_types[layer_idx]
+            cos, sin = self._rope_rows(layer_type, position_ids)
+            hidden = layer.prefill_forward_batched(
+                hidden,
+                position_cos=cos,
+                position_sin=sin,
+                page_table=state.page_tables[state_idx],
+                kv_cache=state.kv_cache[state_idx],
+                row_lens=row_lens,
+                segment_len=segment_len,
+                user_ids=user_ids,
+                cache_position_modulo=(
+                    state.sliding_cache_position_modulo if _layer_kind(layer_type) is SLIDING_KIND else None
+                ),
+            )
+        last_rows = [index * segment_len + row_lens[index] - 1 for index in real_rows]
+        return self._terminal_rows(hidden, last_rows)
+
+    def _terminal_rows(self, hidden: ttnn.Tensor, rows: Sequence[int]) -> ttnn.Tensor:
+        """Gather selected hidden rows on device and run the terminal over them.
+
+        The gather is an embedding lookup over the row-major hidden state, so
+        its program does not depend on the selected row indices: any logical
+        prompt length reuses the same compiled programs for a given shape.
+        """
+        if len(rows) < 1 or len(rows) > DECODE_SLOT_COUNT:
+            raise ValueError(f"terminal row selection must hold 1 to {DECODE_SLOT_COUNT} rows")
+        indices = torch.zeros((1, DECODE_SLOT_COUNT), dtype=torch.int32)
+        indices[0, : len(rows)] = torch.tensor(list(rows), dtype=torch.int32)
+        tt_indices = ttnn.from_torch(
+            indices,
+            dtype=ttnn.uint32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            device=self.mesh_device,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=self._replicate,
+        )
+        table = ttnn.to_layout(hidden, ttnn.ROW_MAJOR_LAYOUT)
+        ttnn.deallocate(hidden)
+        selected = ttnn.embedding(tt_indices, table, dtype=table.dtype, layout=ttnn.TILE_LAYOUT)
+        ttnn.deallocate(table)
+        ttnn.deallocate(tt_indices)
+        selected = ttnn.unsqueeze_to_4D(selected) if len(selected.shape) == 3 else selected
+        logits = self._terminal(selected)
+        ttnn.deallocate(selected)
+        if len(rows) == DECODE_SLOT_COUNT:
+            return logits
+        trimmed = ttnn.slice(logits, (0, 0, 0, 0), (logits.shape[0], 1, len(rows), logits.shape[-1]))
+        ttnn.deallocate(logits)
+        return trimmed
+
     def terminal_logits(self, hidden: ttnn.Tensor, *, sampler_ready: bool = False) -> ttnn.Tensor:
         """Final norm, LM head, and softcap over an explicit hidden-row selection."""
         if sampler_ready:

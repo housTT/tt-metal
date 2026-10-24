@@ -128,7 +128,10 @@ def test_actual_prefill_writes_absolute_rows_and_preserves_ring(monkeypatch, tp,
     caches = [Tensor((columns, heads, block, owner.layer_kind.head_dim), cache=previous.copy()) for _ in range(2)]
     if kind == "sliding_attention" and start:
         history = owner._prefill_sliding_history(*caches, start, modulo)
-        assert history[0].rows == list(range(max(0, start - 1023), start))
+        first_position = max(0, start - 1023)
+        front_pad = first_position % 32
+        assert history[0].rows == [None] * front_pad + list(range(first_position, start))
+        assert (first_position - front_pad) % 32 == 0
     physical = (length + 31) // 32 * 32
     values = [
         Tensor(

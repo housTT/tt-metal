@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from dataclasses import dataclass
@@ -90,6 +91,92 @@ def _padded_prefill_len(logical_len: int) -> int:
 
 TERMINAL_ROW_CHUNK = 2_048
 
+BATCHED_PREFILL_BUCKETS = tuple(
+    int(value) for value in os.getenv("GEMMA4_BATCHED_PREFILL_BUCKETS", "128,256,512,1024").split(",") if value
+)
+BATCHED_PREFILL_MAX_TOKENS = int(os.getenv("GEMMA4_BATCHED_PREFILL_MAX_TOKENS", "4096"))
+BATCHED_PREFILL_MIN_ROWS = int(os.getenv("GEMMA4_BATCHED_PREFILL_MIN_ROWS", "2"))
+BATCHED_PREFILL_ENABLED = os.getenv("GEMMA4_BATCHED_PREFILL", "1") == "1"
+
+
+@dataclass(frozen=True)
+class PrefillGroup:
+    """One batched prefill call: ``rows`` share ``segment_len`` and start at position 0."""
+
+    rows: tuple[int, ...]
+    segment_len: int
+    padded_batch: int
+
+
+def _padded_batch(rows: int) -> int:
+    padded = 1
+    while padded < rows:
+        padded *= 2
+    return padded
+
+
+def batched_prefill_variants(
+    *,
+    buckets: Sequence[int] = BATCHED_PREFILL_BUCKETS,
+    max_tokens: int = BATCHED_PREFILL_MAX_TOKENS,
+    max_rows: int = DECODE_SLOT_COUNT,
+) -> list[tuple[int, int]]:
+    """Every (padded batch, segment length) pair the batched path can execute."""
+    variants = []
+    for segment_len in sorted(set(int(value) for value in buckets)):
+        batch = 2
+        while batch <= max_rows and batch * segment_len <= max_tokens:
+            variants.append((batch, segment_len))
+            batch *= 2
+    return variants
+
+
+def plan_prefill_groups(
+    prompt_lens: Sequence[int],
+    first_positions: Sequence[int],
+    *,
+    enabled: bool = BATCHED_PREFILL_ENABLED,
+    buckets: Sequence[int] = BATCHED_PREFILL_BUCKETS,
+    max_tokens: int = BATCHED_PREFILL_MAX_TOKENS,
+    min_rows: int = BATCHED_PREFILL_MIN_ROWS,
+    max_rows: int = DECODE_SLOT_COUNT,
+) -> tuple[list[PrefillGroup], list[int]]:
+    """Split prefill rows into batched groups and single-row leftovers.
+
+    Only rows that start at absolute position 0 and whose tile-padded length
+    fits a bucket are batched; continuations and long rows keep the single-row
+    path. Groups and leftovers both preserve ascending row order.
+    """
+    singles: list[int] = []
+    if not enabled or len(prompt_lens) < 2:
+        return [], list(range(len(prompt_lens)))
+    ordered_buckets = sorted(set(int(value) for value in buckets))
+    by_bucket: dict[int, list[int]] = {}
+    for row, (logical_len, first_position) in enumerate(zip(prompt_lens, first_positions)):
+        padded = _padded_prefill_len(int(logical_len))
+        bucket = next((size for size in ordered_buckets if size >= padded), None)
+        if int(first_position) != 0 or bucket is None:
+            singles.append(row)
+            continue
+        by_bucket.setdefault(bucket, []).append(row)
+    groups: list[PrefillGroup] = []
+    for bucket, rows in sorted(by_bucket.items()):
+        while rows:
+            take = rows[:max_rows]
+            rows = rows[max_rows:]
+            while take and _padded_batch(len(take)) * bucket > max_tokens:
+                rows.insert(0, take.pop())
+            if len(take) < min_rows or len(take) < 2:
+                singles.extend(take)
+                continue
+            groups.append(PrefillGroup(rows=tuple(take), segment_len=bucket, padded_batch=_padded_batch(len(take))))
+    return groups, sorted(singles)
+
+
+def trace_event(event: str, **fields: Any) -> None:
+    """Emit one machine-readable trace lifecycle line for serving-log analysis."""
+    print("GEMMA4_TRACE_EVENT " + json.dumps({"event": event, **fields}, sort_keys=True, default=str), flush=True)
+
 
 def _release_device_tensor(tensor: Any) -> None:
     if isinstance(tensor, ttnn.Tensor):
@@ -148,6 +235,9 @@ class Gemma4Generator(Generator):
         # initialization between model and sampling trace capture is unsafe.
         self.sampler.load_device_buffers()
         self._trace_cache: dict[tuple[int, str, tuple[Any, ...], int, tuple[int, ...]], DecodeTrace] = {}
+        self.batched_prefill_enabled = BATCHED_PREFILL_ENABLED
+        self._batched_prefill_prepared = False
+        self.batched_prefill_warmup: dict[str, Any] = {}
         self.trace_counters = TraceCounters()
         self.last_perf: dict[str, float] = {}
         self._request_boundary = True
@@ -556,33 +646,49 @@ class Gemma4Generator(Generator):
                 return self.model.prefill_forward(*args, **model_kwargs)
 
         if len(prompt_lens) > 1:
-            # The decoder prefill kernel is single-user: batching equal-length
-            # prompts would place the user count in the kernel's sequence axis.
-            # Execute every request through that canonical path; each logical
-            # row still owns its cache/page-table row and outputs stay ordered.
-            outputs = []
-            for row, logical_len in enumerate(prompt_lens):
+            first_positions = [int(row[0]) for row in position_rows]
+            groups, single_rows = plan_prefill_groups(
+                prompt_lens, first_positions, enabled=self.batched_prefill_enabled and not return_all_logits
+            )
+            if groups and not self._batched_prefill_prepared:
+                trace_event("batched_prefill_unprepared", rows=len(prompt_lens), groups=len(groups))
+                single_rows = sorted(single_rows + [row for group in groups for row in group.rows])
+                groups = []
+            trace_event(
+                "prefill_groups",
+                rows=len(prompt_lens),
+                groups=[[list(group.rows), group.segment_len, group.padded_batch] for group in groups],
+                single_rows=single_rows,
+            )
+            outputs: list[Any] = [None] * len(prompt_lens)
+            for group in groups:
+                group_logits = self._run_batched_prefill_group(tokens, prompt_lens, group, state)
+                if len(groups) == 1 and not single_rows:
+                    return group_logits
+                for index, row in enumerate(group.rows):
+                    outputs[row] = ttnn.slice(group_logits, (0, 0, index, 0), (1, 1, index + 1, group_logits.shape[-1]))
+                _release_device_tensor(group_logits)
+            for row in single_rows:
+                logical_len = prompt_lens[row]
                 physical_len = _padded_prefill_len(logical_len)
                 row_tokens = tokens[row : row + 1, :physical_len]
                 if row_tokens.shape[1] < physical_len:
                     row_tokens = torch.nn.functional.pad(row_tokens, (0, physical_len - row_tokens.shape[1]))
                 tt_tokens = self._host_tokens_to_device(row_tokens)
-                first_position = int(position_rows[row][0])
+                first_position = first_positions[row]
                 physical_positions = torch.arange(
                     first_position, first_position + physical_len, dtype=torch.int32
                 ).reshape(1, physical_len)
                 tt_pos = self._positions_to_device(physical_positions, dtype=ttnn.uint32)
-                outputs.append(
-                    run_model_prefill(
-                        tt_tokens,
-                        state=state,
-                        prompt_lens=[logical_len],
-                        position_ids=tt_pos,
-                        prefill_start=first_position,
-                        user_id=row,
-                        chunk_page_tables=chunk_page_tables,
-                        return_hidden=return_all_logits,
-                    )
+                outputs[row] = run_model_prefill(
+                    tt_tokens,
+                    state=state,
+                    prompt_lens=[logical_len],
+                    position_ids=tt_pos,
+                    prefill_start=first_position,
+                    user_id=row,
+                    chunk_page_tables=chunk_page_tables,
+                    return_hidden=return_all_logits,
                 )
             if return_all_logits:
                 max_logical_len = max(prompt_lens)
@@ -623,6 +729,102 @@ class Gemma4Generator(Generator):
         if return_all_logits:
             return self._hidden_rows_to_host_logits(logits, range(logical_len))
         return logits
+
+    def _run_batched_prefill_group(
+        self,
+        tokens: torch.Tensor,
+        prompt_lens: Sequence[int],
+        group: PrefillGroup,
+        state: FullModelState,
+    ) -> ttnn.Tensor:
+        """Run one batched group and return ``[1, 1, len(group.rows), vocab]`` logits in row order."""
+        segment_len = group.segment_len
+        flat = torch.zeros((1, group.padded_batch * segment_len), dtype=tokens.dtype)
+        row_lens = [0] * group.padded_batch
+        user_ids = [0] * group.padded_batch
+        for index, row in enumerate(group.rows):
+            logical_len = int(prompt_lens[row])
+            flat[0, index * segment_len : index * segment_len + logical_len] = tokens[row, :logical_len]
+            row_lens[index] = logical_len
+            user_ids[index] = row
+        tt_tokens = self._host_tokens_to_device(flat)
+        tt_pos = self._positions_to_device(
+            torch.arange(segment_len, dtype=torch.int32).reshape(1, segment_len), dtype=ttnn.uint32
+        )
+        with ttnn.corruptible_allocation_scope(self.mesh_device):
+            logits = self.model.prefill_forward_batched(
+                tt_tokens,
+                state=state,
+                row_lens=row_lens,
+                segment_len=segment_len,
+                user_ids=user_ids,
+                position_ids=tt_pos,
+            )
+        _release_device_tensor(tt_tokens)
+        _release_device_tensor(tt_pos)
+        return logits
+
+    def prepare_batched_prefill(self, state: FullModelState | None = None) -> dict[str, Any]:
+        """Compile every batched prefill variant once, before any decode trace is captured.
+
+        Each (padded batch, segment length) pair runs over cache rows 0..B-1 of
+        ``state`` with placeholder tokens; the caches are zeroed afterwards so
+        no placeholder K/V survives. Repeated calls reuse the prepared state.
+        """
+        if self._batched_prefill_prepared:
+            return self.batched_prefill_warmup
+        target = state or self.model.state
+        if target is None:
+            raise ValueError("batched prefill preparation requires an allocated state")
+        variants = batched_prefill_variants()
+        began = time.perf_counter()
+        entries_before = self.mesh_device.num_program_cache_entries()
+        timings: list[dict[str, Any]] = []
+        for batch, segment_len in variants:
+            if batch > target.max_batch_size:
+                continue
+            step_began = time.perf_counter()
+            flat = torch.ones((1, batch * segment_len), dtype=torch.long)
+            tt_tokens = self._host_tokens_to_device(flat)
+            tt_pos = self._positions_to_device(
+                torch.arange(segment_len, dtype=torch.int32).reshape(1, segment_len), dtype=ttnn.uint32
+            )
+            with ttnn.corruptible_allocation_scope(self.mesh_device):
+                logits = self.model.prefill_forward_batched(
+                    tt_tokens,
+                    state=target,
+                    row_lens=[segment_len] * batch,
+                    segment_len=segment_len,
+                    user_ids=list(range(batch)),
+                    position_ids=tt_pos,
+                )
+            ttnn.synchronize_device(self.mesh_device)
+            _release_device_tensor(logits)
+            _release_device_tensor(tt_tokens)
+            _release_device_tensor(tt_pos)
+            timings.append(
+                {
+                    "batch": batch,
+                    "segment_len": segment_len,
+                    "tokens": batch * segment_len,
+                    "seconds": round(time.perf_counter() - step_began, 3),
+                    "program_cache_entries": self.mesh_device.num_program_cache_entries(),
+                }
+            )
+        for cache_pair in target.kv_cache:
+            for cache in cache_pair:
+                ttnn.fill(cache, 0.0, memory_config=cache.memory_config(), output_tensor=cache)
+        ttnn.synchronize_device(self.mesh_device)
+        self.batched_prefill_warmup = {
+            "variants": [{"batch": b, "segment_len": s} for b, s in variants if b <= target.max_batch_size],
+            "program_cache_entries_before": entries_before,
+            "program_cache_entries_after": self.mesh_device.num_program_cache_entries(),
+            "seconds": round(time.perf_counter() - began, 3),
+            "steps": timings,
+        }
+        self._batched_prefill_prepared = True
+        print(f"GEMMA4_BATCHED_PREFILL_WARMUP {self.batched_prefill_warmup}", flush=True)
+        return self.batched_prefill_warmup
 
     def _hidden_rows_to_host_logits(self, hidden: ttnn.Tensor, rows: Sequence[int]) -> torch.Tensor:
         """Terminal norm/LM head over selected hidden rows, read back as [1, rows, vocab].
@@ -891,6 +1093,8 @@ class Gemma4Generator(Generator):
             and cached_key[4] != page_table_ids
             for cached_key in self._trace_cache
         )
+        if self._trace_cache:
+            trace_event("release", reason="trace_key_miss", count=len(self._trace_cache), new_key=[key[0], key[1]])
         for stale in self._trace_cache.values():
             ttnn.release_trace(self.mesh_device, stale.model_trace_id)
             if stale.sampling_trace_id is not None:
@@ -1023,6 +1227,15 @@ class Gemma4Generator(Generator):
             active_mask=state.active_mask.clone(),
         )
         self._trace_cache[key] = trace
+        trace_event(
+            "capture",
+            batch=batch,
+            mode=sampling_mode,
+            greedy=sampling_spec.greedy,
+            model_trace_id=model_trace_id,
+            sampling_trace_id=sampling_trace_id,
+            program_cache_entries=self.mesh_device.num_program_cache_entries(),
+        )
         return trace
 
     def generate(
