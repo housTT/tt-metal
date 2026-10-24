@@ -403,6 +403,8 @@ section `optimized_full_model_validation`, from `evidence5/`
 
 ## Provenance
 
+- Stage commit: `e9e7ebd0058d9c0e3e15c1eab4524f961eb7dfa9` (branch `feat/qwen3-5-35b-a3b`; pushed to fork `housTT/tt-metal` branch
+  `hous/qwen3.5-35b-a3b`). Review 3 (`stage_review3.md`): rereview clean-pass.
 - Batched claims use `evidence5/`; B1 and prefill claims use `evidence3/`.
 - `evidence5/` p150x4 and p150x2: chain `/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage07/evidence_chain5.sh`
   (Oct 24 02:11 to 07:49), 48 of 48 steps rc 0, full `source_manifest_end.txt` equals `source_manifest_start.txt`

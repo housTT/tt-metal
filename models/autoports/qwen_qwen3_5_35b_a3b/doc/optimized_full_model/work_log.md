@@ -587,3 +587,11 @@ Full model, greedy, ms per step (`runs/main/stage07/projfix/`, `SOURCE_STABLE`):
   - Added to `memory_handoff_recheck.json` and README context section.
 - `perf_summary.json` `named_limitations` now computed from evidence5 accounting.
 - README wording: p150 matmul net change, all-reduce spread, calibration positions.
+
+## Review 3 rereview and commit (Oct 24)
+
+- Rereview (`stage_review3.md`, "Rereview"): clean-pass, no required work.
+- Wording fixes from its concerns: L1 census note, timestamp, replay drift cause.
+- Stage commit `e9e7ebd0058d9c0e3e15c1eab4524f961eb7dfa9` on `feat/qwen3-5-35b-a3b`.
+- Committed tt/ and tests/ hashes equal `evidence5/source_manifest_end_m1b.txt`.
+- Left out: `*.pt` dumps, raw ops CSVs, stage 06 `csv.gz` dumps.
