@@ -404,7 +404,8 @@ class Gemma4ForCausalLM(nn.Module):
             # Multi-user canonical prefill concatenates last-token logits on
             # the TT batch axis. Preserve that axis for vLLM's optional host
             # compatibility sampler instead of flattening all rows into one.
-            result = gen._gather_logits_to_torch(logits).reshape(batch_size, 1, -1)
+            host = gen._gather_logits_to_torch(logits)
+            result = host.reshape(-1, host.shape[-1])[:batch_size].reshape(batch_size, 1, -1)
         if result.shape[0] != batch_size:
             raise ValueError(f"expected {batch_size} prefill outputs, got {result.shape[0]}")
         return result

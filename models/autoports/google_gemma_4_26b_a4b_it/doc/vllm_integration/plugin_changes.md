@@ -199,3 +199,13 @@ git -C /home/hous/dev/vllm rev-parse HEAD        # f96662a7d239c077e1435b658c0e7
 git -C /home/hous/dev/vllm status --short        # clean
 python -m pip show vllm vllm-tt-plugin           # editable installs from /home/hous/dev/vllm
 ```
+
+## Stage 10 resume (2026 Oct 24)
+
+No plugin or vLLM change. `git -C /home/hous/dev/vllm status --short` is empty and
+`HEAD` is `f96662a7d239c077e1435b658c0e7d316f9c4799` before and after this stage.
+Prefix caching, batched prefill, the expert-sorted MoE prefill and the resume-check
+remedy are model and generator changes under `models/autoports/google_gemma_4_26b_a4b_it/tt`.
+The adapter declares no new `model_capabilities` key; the new environment variables
+(`GEMMA4_BATCHED_PREFILL*`, `GEMMA4_PREFILL_FP32_ACC`, `GEMMA4_OPT_PREFILL_SDPA_FP32_ACC`,
+`GEMMA4_SORTED_MOE_*`) are read by the model code only.

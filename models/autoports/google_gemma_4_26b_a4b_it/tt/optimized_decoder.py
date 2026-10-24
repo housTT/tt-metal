@@ -16,9 +16,12 @@ from __future__ import annotations
 
 import math
 import os
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable
+
+import torch
 
 import ttnn
 from models.autoports.google_gemma_4_26b_a4b_it.tt.functional_decoder import (
@@ -692,6 +695,91 @@ def _r22_dram_weight_and_config(
 
 
 PREFILL_FP32_ACC = _bool_from_env("GEMMA4_PREFILL_FP32_ACC", True)
+SORTED_MOE_PREFILL = _bool_from_env("GEMMA4_SORTED_MOE_PREFILL", True)
+SORTED_MOE_MIN_ROWS = int(os.getenv("GEMMA4_SORTED_MOE_MIN_ROWS", "512"))
+SORTED_MOE_CHUNK_ROWS = int(os.getenv("GEMMA4_SORTED_MOE_CHUNK_ROWS", "2048"))
+SORTED_MOE_PROFILE = _bool_from_env("GEMMA4_SORTED_MOE_PROFILE", False)
+SORTED_MOE_ROWS_PER_GROUP = 128
+SORTED_MOE_GROUPS_PER_CALL = 8
+
+
+def sorted_moe_group_budget(seq_len: int, top_k: int = 8, experts: int = 128) -> int:
+    """Fixed group count for a sequence length: every routed pair plus one partial group per expert."""
+    rows = SORTED_MOE_ROWS_PER_GROUP
+    groups = -(-(seq_len * top_k) // rows) + experts
+    return -(-groups // SORTED_MOE_GROUPS_PER_CALL) * SORTED_MOE_GROUPS_PER_CALL
+
+
+def sorted_moe_layout(routing: torch.Tensor, seq_len: int, groups: int | None = None) -> dict[str, torch.Tensor]:
+    """Expert-sorted row layout for one-expert-per-group sparse matmuls.
+
+    ``routing`` is ``[seq_len, experts]`` with nonzero weights at routed experts.
+    Returns the gather indices of the ``groups * rows`` sorted rows (padding rows
+    repeat a real row of the same expert, spare groups point at row 0 with expert 0),
+    the one-hot expert per group, and for each token its ``top_k`` sorted-row
+    indices and weights in ascending expert order.
+    """
+    rows = SORTED_MOE_ROWS_PER_GROUP
+    experts = routing.shape[1]
+    pairs = routing.nonzero(as_tuple=False)
+    tokens = pairs[:, 0]
+    pair_experts = pairs[:, 1]
+    order = torch.argsort(pair_experts * seq_len + tokens)
+    tokens = tokens[order]
+    pair_experts = pair_experts[order]
+    counts = torch.bincount(pair_experts, minlength=experts)
+    group_counts = -(-counts // rows)
+    padded_counts = group_counts * rows
+    if groups is None:
+        call_groups = SORTED_MOE_GROUPS_PER_CALL * 8
+        groups = max(call_groups, -(-int(group_counts.sum()) // call_groups) * call_groups)
+    expert_starts = torch.cumsum(padded_counts, 0) - padded_counts
+    rank_in_expert = torch.arange(tokens.numel()) - (torch.cumsum(counts, 0) - counts)[pair_experts]
+    sorted_rows = expert_starts[pair_experts] + rank_in_expert
+    total_rows = groups * rows
+    if int(padded_counts.sum()) > total_rows:
+        raise ValueError("sorted MoE group budget is too small for this routing")
+    gather = torch.zeros(total_rows, dtype=torch.int32)
+    gather[sorted_rows] = tokens.to(torch.int32)
+    for expert in torch.nonzero(counts, as_tuple=False).reshape(-1).tolist():
+        start = int(expert_starts[expert])
+        used = int(counts[expert])
+        end = start + int(padded_counts[expert])
+        if used < end - start:
+            gather[start + used : end] = gather[start + used - 1]
+    group_expert = torch.zeros(groups, dtype=torch.long)
+    group_offsets = torch.cumsum(group_counts, 0) - group_counts
+    for expert in torch.nonzero(group_counts, as_tuple=False).reshape(-1).tolist():
+        begin = int(group_offsets[expert])
+        group_expert[begin : begin + int(group_counts[expert])] = expert
+    one_hot = torch.zeros(1, groups, 1, experts, dtype=torch.bfloat16)
+    one_hot[0, torch.arange(groups), 0, group_expert] = 1.0
+    per_token = torch.bincount(tokens, minlength=seq_len)
+    top_k = int(per_token.max())
+    token_order = torch.argsort(tokens * experts + pair_experts)
+    ordered_tokens = tokens[token_order]
+    ordered_rows = sorted_rows[token_order]
+    ordered_weights = routing[ordered_tokens, pair_experts[token_order]].float()
+    if bool((per_token == top_k).all()):
+        combine_rows = ordered_rows.reshape(seq_len, top_k).T.contiguous().to(torch.int32)
+        combine_weights = ordered_weights.reshape(seq_len, top_k).T.contiguous()
+    else:
+        combine_rows = torch.zeros(top_k, seq_len, dtype=torch.int32)
+        combine_weights = torch.zeros(top_k, seq_len, dtype=torch.float32)
+        slot = torch.zeros(seq_len, dtype=torch.long)
+        for pair in range(ordered_tokens.numel()):
+            token = int(ordered_tokens[pair])
+            k = int(slot[token])
+            combine_rows[k, token] = int(ordered_rows[pair])
+            combine_weights[k, token] = float(ordered_weights[pair])
+            slot[token] = k + 1
+    return {
+        "gather": gather,
+        "one_hot": one_hot,
+        "combine_rows": combine_rows,
+        "combine_weights": combine_weights,
+        "groups": groups,
+    }
 
 
 def _compute_config(
@@ -3028,6 +3116,31 @@ class OptimizedDecoder(FunctionalDecoder):
     def _moe_prefill(self, hidden_states: ttnn.Tensor, routing_weights: ttnn.Tensor) -> ttnn.Tensor:
         self.optimized_path_counters["expert_prefill"] += 1
         seq_len = hidden_states.shape[-2]
+        if (
+            SORTED_MOE_PREFILL
+            and seq_len >= SORTED_MOE_MIN_ROWS
+            and self.packed_expert_prefill_gate_up
+            and self.prefill_packed_expert_gate_up is not None
+            and self.prefill_routed_active
+        ):
+            if seq_len <= SORTED_MOE_CHUNK_ROWS:
+                return self._moe_prefill_sorted(hidden_states, routing_weights)
+            chunks = []
+            for start in range(0, seq_len, SORTED_MOE_CHUNK_ROWS):
+                end = min(start + SORTED_MOE_CHUNK_ROWS, seq_len)
+                hidden_chunk = ttnn.slice(
+                    hidden_states, [0, 0, start, 0], [1, 1, end, HIDDEN_SIZE], memory_config=ttnn.DRAM_MEMORY_CONFIG
+                )
+                routing_chunk = ttnn.slice(
+                    routing_weights, [0, 0, start, 0], [1, 1, end, NUM_EXPERTS], memory_config=ttnn.DRAM_MEMORY_CONFIG
+                )
+                chunks.append(self._moe_prefill_sorted(hidden_chunk, routing_chunk))
+                ttnn.deallocate(hidden_chunk)
+                ttnn.deallocate(routing_chunk)
+            result = ttnn.concat(chunks, dim=2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            for chunk in chunks:
+                ttnn.deallocate(chunk)
+            return result
         if seq_len <= PREFILL_MOE_CHUNK_SIZE:
             return self._moe_prefill_chunk(hidden_states, routing_weights)
 
@@ -3050,6 +3163,182 @@ class OptimizedDecoder(FunctionalDecoder):
             )
             chunks.append(self._moe_prefill_chunk(hidden_chunk, routing_chunk))
         return ttnn.concat(chunks, dim=2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+
+    def _moe_prefill_sorted(self, hidden_states: ttnn.Tensor, routing_weights: ttnn.Tensor) -> ttnn.Tensor:
+        """Run only routed experts: rows sorted by expert, one expert per 128-row group.
+
+        The expert matmuls use the union path's program configs, so each row's
+        expert output is identical to the union path; the combine multiplies the
+        eight routed outputs by their routing weights and reduces them in
+        ascending expert order, which is the union path's reduction over all
+        experts with the zero terms removed.
+        """
+        self.optimized_path_counters["expert_prefill_sorted"] = (
+            self.optimized_path_counters.get("expert_prefill_sorted", 0) + 1
+        )
+        seq_len = hidden_states.shape[2]
+        rows = SORTED_MOE_ROWS_PER_GROUP
+        per_call = SORTED_MOE_GROUPS_PER_CALL
+        profile: list[tuple[str, float]] = []
+
+        def mark(stage: str) -> None:
+            if SORTED_MOE_PROFILE:
+                ttnn.synchronize_device(self.mesh_device)
+                profile.append((stage, time.perf_counter()))
+
+        mark("start")
+        routing_host = ttnn.to_torch(ttnn.get_device_tensors(routing_weights)[0]).reshape(seq_len, NUM_EXPERTS)
+        mark("readback")
+        layout = sorted_moe_layout(routing_host.float(), seq_len)
+        groups = int(layout["groups"])
+        calls = groups // per_call
+        mark("layout")
+        top_k = layout["combine_rows"].shape[0]
+        device = self.mesh_device
+        replicate = ttnn.ReplicateTensorToMesh(device) if isinstance(device, ttnn.MeshDevice) else None
+
+        def upload(values: torch.Tensor, dtype: Any, layout_kind: Any = ttnn.ROW_MAJOR_LAYOUT) -> ttnn.Tensor:
+            return ttnn.from_torch(
+                values,
+                dtype=dtype,
+                layout=layout_kind,
+                device=device,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                mesh_mapper=replicate,
+            )
+
+        hidden_rows = ttnn.to_layout(hidden_states, ttnn.ROW_MAJOR_LAYOUT)
+        gather = upload(layout["gather"].reshape(1, -1), ttnn.uint32)
+        gathered = ttnn.embedding(gather, hidden_rows, dtype=hidden_states.dtype, layout=ttnn.TILE_LAYOUT)
+        ttnn.deallocate(gather)
+        ttnn.deallocate(hidden_rows)
+        gathered = ttnn.reshape(ttnn.unsqueeze_to_4D(gathered), (1, groups, rows, HIDDEN_SIZE))
+        mark("gather")
+        one_hot = upload(layout["one_hot"], ttnn.bfloat16)
+        packed_expert_width = getattr(self, "packed_expert_width", _PACKED_EXPERT_WIDTH)
+        activation_dtype = self._activation_dtype_for("moe")
+        gate_up_config = _optimized_sparse_prefill_config(
+            device,
+            n=packed_expert_width,
+            groups=per_call,
+            requested_per_core_n=self.prefill_expert_per_core_n,
+            in0_block_w=self.prefill_expert_gate_in0_block_w,
+            per_core_m=rows // TILE_SIZE,
+        )
+        down_config = _optimized_sparse_prefill_config(
+            device,
+            n=HIDDEN_SIZE,
+            groups=per_call,
+            requested_per_core_n=self.prefill_expert_per_core_n,
+            in0_block_w=self.prefill_expert_down_in0_block_w,
+            per_core_m=rows // TILE_SIZE,
+        )
+        sparsity_calls = [
+            ttnn.slice(one_hot, [0, call * per_call, 0, 0], [1, (call + 1) * per_call, 1, NUM_EXPERTS])
+            for call in range(calls)
+        ]
+        gate_up_outputs = []
+        for call in range(calls):
+            start = call * per_call
+            x_call = ttnn.slice(gathered, [0, start, 0, 0], [1, start + per_call, rows, HIDDEN_SIZE])
+            gate_up_out = ttnn.empty(
+                (1, per_call, rows, packed_expert_width),
+                activation_dtype,
+                ttnn.TILE_LAYOUT,
+                device,
+                ttnn.DRAM_MEMORY_CONFIG,
+            )
+            ttnn.sparse_matmul(
+                x_call,
+                self.prefill_packed_expert_gate_up,
+                sparsity=sparsity_calls[call],
+                nnz=per_call,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                dtype=activation_dtype,
+                program_config=gate_up_config,
+                compute_kernel_config=self.expert_gate_compute_config,
+                optional_output_tensor=gate_up_out,
+            )
+            ttnn.deallocate(x_call)
+            gate_up_outputs.append(gate_up_out)
+        ttnn.deallocate(gathered)
+        mark("gate_up_calls")
+        gate_up_all = (
+            gate_up_outputs[0]
+            if calls == 1
+            else ttnn.concat(gate_up_outputs, dim=1, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        )
+        if calls > 1:
+            for tensor in gate_up_outputs:
+                ttnn.deallocate(tensor)
+        activation_all = self._packed_expert_activation(gate_up_all)
+        ttnn.deallocate(gate_up_all)
+        mark("activation")
+        down_outputs = []
+        for call in range(calls):
+            start = call * per_call
+            down_input = (
+                activation_all
+                if calls == 1
+                else ttnn.slice(activation_all, [0, start, 0, 0], [1, start + per_call, rows, activation_all.shape[-1]])
+            )
+            down_out = ttnn.empty(
+                (1, per_call, rows, HIDDEN_SIZE), activation_dtype, ttnn.TILE_LAYOUT, device, ttnn.DRAM_MEMORY_CONFIG
+            )
+            ttnn.sparse_matmul(
+                down_input,
+                self.expert_weights.down_proj,
+                sparsity=sparsity_calls[call],
+                nnz=per_call,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                dtype=activation_dtype,
+                program_config=down_config,
+                compute_kernel_config=self.expert_compute_config,
+                optional_output_tensor=down_out,
+            )
+            if down_input is not activation_all:
+                ttnn.deallocate(down_input)
+            ttnn.deallocate(sparsity_calls[call])
+            down_outputs.append(down_out)
+        ttnn.deallocate(activation_all)
+        ttnn.deallocate(one_hot)
+        mark("down_calls")
+        down_all = (
+            down_outputs[0] if calls == 1 else ttnn.concat(down_outputs, dim=1, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        )
+        if calls > 1:
+            for tensor in down_outputs:
+                ttnn.deallocate(tensor)
+        down_rows = ttnn.to_layout(ttnn.reshape(down_all, (1, 1, groups * rows, HIDDEN_SIZE)), ttnn.ROW_MAJOR_LAYOUT)
+        ttnn.deallocate(down_all)
+        mark("concat_untilize")
+        combine_rows = upload(layout["combine_rows"].reshape(top_k, 1, seq_len), ttnn.uint32)
+        slots = []
+        for k in range(top_k):
+            index = ttnn.slice(combine_rows, [k, 0, 0], [k + 1, 1, seq_len])
+            picked = ttnn.embedding(index, down_rows, dtype=activation_dtype, layout=ttnn.TILE_LAYOUT)
+            ttnn.deallocate(index)
+            slots.append(ttnn.unsqueeze_to_4D(picked))
+        ttnn.deallocate(combine_rows)
+        ttnn.deallocate(down_rows)
+        stacked = ttnn.concat(slots, dim=1, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        for tensor in slots:
+            ttnn.deallocate(tensor)
+        weights_rows = upload(
+            layout["combine_weights"].reshape(1, top_k, seq_len, 1).to(torch.float32), routing_weights.dtype
+        )
+        weights = ttnn.to_layout(weights_rows, ttnn.TILE_LAYOUT)
+        ttnn.deallocate(weights_rows)
+        weighted = ttnn.mul(stacked, weights)
+        ttnn.deallocate(stacked)
+        ttnn.deallocate(weights)
+        reduced = ttnn.unsqueeze_to_4D(ttnn.experimental.fast_reduce_nc(weighted, dims=[1]))
+        ttnn.deallocate(weighted)
+        mark("combine")
+        if SORTED_MOE_PROFILE:
+            spans = {b[0]: round((b[1] - a[1]) * 1000, 2) for a, b in zip(profile, profile[1:])}
+            print(f"GEMMA4_SORTED_MOE_PROFILE seq_len={seq_len} calls={calls} {spans}", flush=True)
+        return ttnn.reshape(reduced, (1, 1, seq_len, HIDDEN_SIZE))
 
     def _moe_prefill_chunk(self, hidden_states: ttnn.Tensor, routing_weights: ttnn.Tensor) -> ttnn.Tensor:
         chunk_size = max(self.prefill_expert_chunk_size, self.prefill_expert_rows_per_group)

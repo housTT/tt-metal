@@ -666,8 +666,9 @@ class Gemma4FullModel:
         first ``row_lens[i]`` positions. ``position_ids`` is ``[1, segment_len]``
         and every row starts at absolute position 0. Rows with ``row_lens[i] == 0``
         are padding rows: they take part in the dense work, write no cache, and
-        return no logits. The result is ``[1, 1, R, vocab]`` for the ``R`` real
-        rows in segment order.
+        return no logits. The result is the fixed ``[1, 1, 32, vocab]`` terminal
+        tile: the first ``R`` rows are the real rows in segment order and the
+        rest are padding, so no program depends on the row count.
         """
         if len(row_lens) != len(user_ids) or not row_lens:
             raise ValueError("batched prefill needs one logical length and one cache row per segment")
@@ -724,11 +725,7 @@ class Gemma4FullModel:
         selected = ttnn.unsqueeze_to_4D(selected) if len(selected.shape) == 3 else selected
         logits = self._terminal(selected)
         ttnn.deallocate(selected)
-        if len(rows) == DECODE_SLOT_COUNT:
-            return logits
-        trimmed = ttnn.slice(logits, (0, 0, 0, 0), (logits.shape[0], 1, len(rows), logits.shape[-1]))
-        ttnn.deallocate(logits)
-        return trimmed
+        return logits
 
     def terminal_logits(self, hidden: ttnn.Tensor, *, sampler_ready: bool = False) -> ttnn.Tensor:
         """Final norm, LM head, and softcap over an explicit hidden-row selection."""

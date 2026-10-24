@@ -236,6 +236,7 @@ class Gemma4Generator(Generator):
         self.sampler.load_device_buffers()
         self._trace_cache: dict[tuple[int, str, tuple[Any, ...], int, tuple[int, ...]], DecodeTrace] = {}
         self.batched_prefill_enabled = BATCHED_PREFILL_ENABLED
+        self._batched_logits_rows: int | None = None
         self._batched_prefill_prepared = False
         self.batched_prefill_warmup: dict[str, Any] = {}
         self.trace_counters = TraceCounters()
@@ -664,6 +665,7 @@ class Gemma4Generator(Generator):
             for group in groups:
                 group_logits = self._run_batched_prefill_group(tokens, prompt_lens, group, state)
                 if len(groups) == 1 and not single_rows:
+                    self._batched_logits_rows = len(group.rows)
                     return group_logits
                 for index, row in enumerate(group.rows):
                     outputs[row] = ttnn.slice(group_logits, (0, 0, index, 0), (1, 1, index + 1, group_logits.shape[-1]))

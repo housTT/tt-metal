@@ -63,7 +63,7 @@ def main() -> int:
 
         prompts_file = Path(module.__file__).parent / "vllm_prompts.txt"
     mesh = ttnn.open_mesh_device(mesh_shape=ttnn.MeshShape(1, 1), trace_region_size=0)
-    report = {"length": args.length, "layers": args.layers, "max_seq_len": args.max_seq_len, "cases": []}
+    report = {"length": args.length, "layers": args.layers, "probe_model_max_seq_len": args.max_seq_len, "cases": []}
     try:
         began = time.perf_counter()
         state_dict = _load_probe_state(full_stack=load_full_state)

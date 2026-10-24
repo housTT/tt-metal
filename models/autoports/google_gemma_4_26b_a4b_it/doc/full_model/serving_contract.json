@@ -68,7 +68,7 @@
       "item": "batched_prefill",
       "kind": "call",
       "status": "supported",
-      "evidence": "tests/test_vllm_adapter_contract.py::test_full_model_multi_user_prefill_uses_single_user_kernel_rows; readiness_vllm/vllm_prefill_burst_benchmark.json; readiness_vllm/vllm_batched_equals_solo.json. Multi-row calls are correct but execute the single-user prefill kernel per row; dense-work batching is not implemented (Stage 9 advisory)."
+      "evidence": "readiness_vllm/vllm_batched_equals_solo.json (full 30-layer model, 2 to 16 rows, top-1 equal, PCC min 0.99998, K/V pages bit-identical, greedy continuations identical through 8 tokens); readiness_vllm/batched_prefill_calibration.json; readiness_vllm/vllm_prefill_burst_benchmark.json with serial_reference from readiness_vllm/vllm_prefill_burst_serial_benchmark.json. Dense work runs once per same-bucket group (tt/generator.py plan_prefill_groups, tt/multichip_decoder.py prefill_forward_batched) and the MoE expert path computes only routed experts for prefills of 512 rows or more (tt/optimized_decoder.py _moe_prefill_sorted). 32 rows cannot be allocated in the generator-owned cache layout on one chip (readiness_vllm/batched_prefill_acceptance_b32_oom.log); serving covers 32 slots through the vLLM pool."
     },
     {
       "item": "decode_forward traced with async split (read_from_device=False, read_decode_output(async_read=True), process_decode_output_host)",
@@ -104,13 +104,13 @@
       "item": "supports_prefix_caching",
       "kind": "capability",
       "status": "supported",
-      "evidence": "readiness/prefill_resume_check.json; readiness_vllm/prefix_cache_check.json; readiness_vllm/vllm_run_summary.json"
+      "evidence": "readiness/prefill_resume_check.json (current runner, natural text, 14 cases at L=2560 and 16384, PCC min 0.9999, top-1 1.0, both controls fail at every start); readiness_vllm/prefix_cache_check.json (status pass, long resume checked); readiness_vllm/vllm_run_summary.json; doc/optimized_vllm/work_log.md (resume-check root cause and remedy)"
     },
     {
       "item": "supports_prefix_caching_sliding_window",
       "kind": "capability",
       "status": "supported",
-      "evidence": "readiness/prefill_resume_check.json (window_start and window_plus_unaligned resume starts over the 1024-token sliding layers); tests/test_continuation_prefill.py"
+      "evidence": "readiness/prefill_resume_check.json (window_start and window_plus_unaligned starts over the 1024-token sliding layers at L=2560 and 16384); tests/test_continuation_prefill.py (aligned history front pad)"
     },
     {
       "item": "supports_async_decode",
