@@ -81,7 +81,7 @@
       },
       "output_throughput_tok_per_s": 290.28970857151876
     },
-    "after_note": "chain run on the final server, device-sampled throughout (covered by invalid_token_scan_final4.json)",
+    "after_note": "chain run on the final server; its first 21-row prefill step (20 x 100 tokens + one 48-token partial chunk) was host-sampled by the plugin as every intermediate-chunk step is, with no release line because the trace cache was already empty",
     "repeats_on_final_server": {
       "after_rep2": {
         "ttft_ms": {
@@ -138,7 +138,7 @@
         "output_throughput_tok_per_s": 293.68128792384874
       }
     },
-    "repeats_note": "each repeat had its first 21-row prefill step host-sampled by the plugin (release host_sampling_prefill before the 21-row prefill in server.log); the chain run did not; cause not determined; repeats are supplementary"
+    "repeats_note": "each repeat had the same first 21-row prefill step host-sampled by the plugin (intermediate chunk rule; release host_sampling_prefill visible before the 21-row prefill because traces were alive); same step shape and sampling in all four runs; repeats are supplementary"
   },
   "prefill_burst_32x128_c32": {
     "serial_ttft_ms": {

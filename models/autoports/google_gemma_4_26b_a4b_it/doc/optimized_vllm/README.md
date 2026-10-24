@@ -20,8 +20,10 @@ all four single-user measurements on that server (same command, `readiness_vllm/
 | 128/128/1, C1 (rep3) | 174.05 | 27.917 | 27.035 / 27.876 | 34.410 | 35.82 |
 | 128/128/1, C1 (rep4) | 174.63 | 27.933 | 27.021 / 28.073 | 34.385 | 35.80 |
 
-The chain run's TPOT carries one 111 ms token interval (ITL p99) in an otherwise 27.06 ms median
-stream; the three repeats have ITL p99 of 27.9 to 28.1 ms. Decode t/s/u is 1000 / mean TPOT, not aggregate throughput or a burst value. The before run was taken
+The chain run's TPOT (mean 31.90 ms over a 27.06 ms median stream, ITL standard deviation 27.98 ms
+against about 10 ms in the before run and the repeats) carries about 0.6 s of stalled intervals,
+at least one of them in the 300 ms class; its cause is not established. The three repeats have ITL
+p99 of 27.9 to 28.1 ms and TPOT within 0.1 percent of the before run. Decode t/s/u is 1000 / mean TPOT, not aggregate throughput or a burst value. The before run was taken
 on the live per-row server that the run environment provided (code `4f3c2b13fa`, two commits before the
 stage base `067b6fc879`; those two commits touch the resumed-prefill driver and terminal, not the
 128/128/1 path) and the same server supplied the burst serial reference, as the task defined it; the
@@ -146,14 +148,21 @@ review-era probes `server_27c84d5e4d_final_and_probes.log`; the top-k 64 experim
 `server_topk64_probe.log`; the final code without the served override (17:45 UTC, `*_runner_final3.log`)
 `server_final3_ceiling32_default_recipe64.log`. Sampling modes over the whole final log
 up to the end of the chain (`invalid_token_scan_final4.json`, 4,086 lines): 116 device sampled captures, 67
-device greedy captures, 6 `host_sampling_prefill` releases (4 from the suite's logprobs and penalty
-tests, 1 from the prefix-cache stage's cold request, which asks for the first-token logprob, and 1
-from the `top_k` 50 phase of the k32 probe, host by design), no host-mode decode. The three
-benchmark repeats that followed the chain are outside that scan; in each of them the plugin
-host-sampled the CI burst's first 21-row prefill step (`release host_sampling_prefill` right before
-the 21-row prefill), while the chain run's identical step was device-sampled; the bench commands and
-payloads are identical and the cause was not determined (recorded under the trace-lifetime open
-item). The single-user repeats are greedy batch-1 device captures with no host release:
+device greedy captures, 6 `host_sampling_prefill` releases (4 in the suite: its host-only-parameter
+and logprobs tests, the 32-request structured-output test and the penalty tests; 1 from the
+prefix-cache stage's cold request; 1 from the `top_k` 50 phase of the k32 probe), and 0
+`host_sampling_decode` release events. Those are release events, which the adapter emits only while
+a decode trace is alive, so they undercount host-sampled steps: the plugin host-samples every
+request that asks for logprobs on a single device, so the seven prefix-cache requests (`logprobs 1`)
+decoded on the host at 52 to 53 ms per token, as did the k32 probe's `top_k` 50 phase; the
+device-sampled cache-hit path is covered by the mixed-shape `prefix_resume_2200` request (TTFT 210 ms
+against 3461 ms cold, identical 16-token greedy text) and the greedy shared-prefix bench. The plugin
+also host-samples any prefill step that carries an intermediate chunk (prefill-features.md), so the
+CI burst's first 21-row step (twenty 100-token rows plus one 48-token partial chunk at the 2048-token
+budget) was host-sampled in the chain run and in all three repeats; the release line is visible
+only in the repeats because in the chain run a first-seen 100-token single row had already released
+the traces one step earlier. The single-user runs are greedy batch-1 device captures with no host
+release:
 
 | Check | Result | Artifact |
 | --- | --- | --- |
