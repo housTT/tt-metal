@@ -496,7 +496,7 @@
   },
   "optimized_vllm": {
     "profile_max_model_len": {
-      "P150": 50624,
+      "P150": 131072,
       "P150x2": 262144,
       "P150x4": 262144
     },
@@ -523,8 +523,18 @@
       }
     },
     "evidence_root": "doc/optimized_vllm",
-    "measurement_root": "readiness_vllm/<profile>/optimized_vllm",
-    "scope": "Preserves inherited profile-specific capacity evidence; reduced two-layer trace regressions are functional inner-loop checks, not reduced served context."
+    "measurement_root": "readiness_vllm/optimized_vllm_batched_prefill (2026 Oct 24 resume; the 2026 Sep 08 50,624-token runs are under readiness_vllm/<profile>/optimized_vllm)",
+    "scope": "Preserves inherited profile-specific capacity evidence; reduced two-layer trace regressions are functional inner-loop checks, not reduced served context.",
+    "stage_10_resume_2026_10_24": {
+      "served_max_model_len_P150": 131072,
+      "measurement_root": "readiness_vllm/optimized_vllm_batched_prefill",
+      "served_sampling_default": {
+        "override_generation_config": {
+          "top_k": 32
+        },
+        "status": "proposed, pending operator acceptance"
+      }
+    }
   },
   "capacity_evidence": [
     "optimized_multichip_decoder/capacity_projection.json",

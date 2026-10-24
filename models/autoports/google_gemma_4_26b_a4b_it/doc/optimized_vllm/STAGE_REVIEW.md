@@ -66,6 +66,29 @@ text and the retained log; the final server ran inert scope wrappers; no samplin
 existed; the readiness batched-equals-solo copies predate the slot-row assembly; the passing tracked
 logs carry no tracker fingerprint.
 
-## Fourth review
+## Fourth review (2026 Oct 24, commit 2bd0d7aeb7): more-work-needed
 
-Latest verdict: pending re-review after the remedies.
+The reviewer verified all three third-review remedies against the raw artifacts and found no new
+correctness defect in the model or adapter code paths. Required work as returned, condensed:
+
+- P2, human authorization: the inherited serving-plugin interface items the adapter relies on
+  (`plugin_changes.md` items 1, 5, 6 and the `proposed` chunked-prefill key).
+- P2, human authorization: the served default `--override-generation-config {"top_k":32}` (model
+  card `top_k` 64; shared `ttnn.sampling` op limited to 32 candidates; host path measured at 97 ms
+  per token without it).
+- P2, documentation: README reproduction command quoting; stale `optimized_vllm` block in
+  `doc/context_contract.json`; merged README table rows; sampling-mode counts attributed to
+  over-wide line brackets; CI-burst "after" row labelled chain run but holding repeat-4 numbers;
+  serving-contract `top_k <= 64` row and the `batched_prefill` row's pre-assembly citation.
+
+Other concerns recorded: unexplained burst run-to-run variance (single run per server); the chain
+run's single 111 ms ITL interval; the 32-slot lane halves per-user decode speed when a second user
+joins (pre-existing); partial-chunk prefill steps are host-sampled by the plugin; mixed-shape trace
+reuse stays `fail` (open item excluded by the task owner); padding K/V rows in live blocks rely on
+position-gated reads; `decode_steps 8` in the final-code acceptance copies; no sliding-window
+history-snapshot control (covered indirectly by the `no_history` control failing at the window
+starts).
+
+## Fifth review
+
+Latest verdict: pending re-review after the documentation fixes.

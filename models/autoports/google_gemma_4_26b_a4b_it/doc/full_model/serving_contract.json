@@ -68,7 +68,7 @@
       "item": "batched_prefill",
       "kind": "call",
       "status": "supported",
-      "evidence": "readiness_vllm/vllm_batched_equals_solo.json (full 30-layer model, 2 to 16 rows, top-1 equal, PCC min 0.99998, K/V pages bit-identical, greedy continuations identical through 8 tokens); readiness_vllm/batched_prefill_calibration.json; readiness_vllm/vllm_prefill_burst_benchmark.json with serial_reference from readiness_vllm/vllm_prefill_burst_serial_benchmark.json. Dense work runs once per same-bucket group (tt/generator.py plan_prefill_groups, tt/multichip_decoder.py prefill_forward_batched) and the MoE expert path computes only routed experts for prefills of 512 rows or more (tt/optimized_decoder.py _moe_prefill_sorted). 32 rows cannot be allocated in the generator-owned cache layout on one chip (readiness_vllm/batched_prefill_acceptance_b32_oom.log); serving covers 32 slots through the vLLM pool."
+      "evidence": "doc/optimized_vllm/trace_reuse_probe/batched_prefill_tracked_scopes_off/vllm_batched_equals_solo.json and .../batched_prefill_tracked/vllm_batched_equals_solo.json (final code, allocation tracker on, 8 cases of 2 to 16 rows with mixed singles and two groups per step, top-1 equal and K/V equal on every row, zero program-cache growth, decode_steps 8); readiness_vllm/vllm_batched_equals_solo.json is the 27c84d5e4d run before the slot-row assembly (decode_steps 32, continuations identical through 8 tokens, PCC min 0.99998); readiness_vllm/batched_prefill_calibration.json; readiness_vllm/vllm_prefill_burst_benchmark.json with serial_reference from readiness_vllm/vllm_prefill_burst_serial_benchmark.json. Dense work runs once per same-bucket group (tt/generator.py plan_prefill_groups, tt/multichip_decoder.py prefill_forward_batched) and the MoE expert path computes only routed experts for prefills of 512 rows or more (tt/optimized_decoder.py _moe_prefill_sorted). 32 rows cannot be allocated in the generator-owned cache layout on one chip (readiness_vllm/batched_prefill_acceptance_b32_oom.log); serving covers 32 slots through the vLLM pool."
     },
     {
       "item": "decode_forward traced with async split (read_from_device=False, read_decode_output(async_read=True), process_decode_output_host)",
@@ -145,10 +145,10 @@
       "evidence": "model_capabilities['max_device_top_k'] = 32 (Sampling1D max_top_k=32, one candidate tile per user). The sampler draws only from the first 32 sorted candidates whatever k is passed (doc/optimized_vllm/sampler_probe/sampling1d_topk_probe.json: k=64 and k=32 give identical draws, maximum sampled rank 31), so 64 was a false ceiling that let the op read past the user's row (out-of-vocabulary ids in slot 31, readiness_vllm/P150_prefill_features/invalid_token_scan_topk64.json). Stochastic requests above 32 use the host sampler by the pinned plugin's routing. The model's generation_config.json default top_k is 64, so the server is launched with --override-generation-config {\"top_k\":32} (proposed served default, pending operator acceptance); without it every default-recipe sampled request is host-sampled at 97 ms per token (readiness_vllm/P150_prefill_features/default_recipe_latency_ceiling32_no_override.json)."
     },
     {
-      "item": "temperature / top_k <= 64 / top_p",
+      "item": "temperature / top_k <= 32 / top_p",
       "kind": "request_feature",
       "status": "supported",
-      "evidence": "readiness_vllm/P150_prefill_features/sampling_tests.log (tests/tt/test_seeding_and_variety.py, test_request_isolation.py)"
+      "evidence": "readiness_vllm/P150_prefill_features/sampling_tests.log (tests/tt/test_seeding_and_variety.py, test_request_isolation.py) on the device sampler with the served top_k 32 default (readiness_vllm/P150_prefill_features/invalid_token_scan_final4.json sampling_modes). Stochastic requests that name top_k in 33..64 are routed to the plugin host sampler (97 ms per token, readiness_vllm/P150_prefill_features/default_recipe_latency_ceiling32_no_override.json); see the max_device_top_k row."
     },
     {
       "item": "seed",
