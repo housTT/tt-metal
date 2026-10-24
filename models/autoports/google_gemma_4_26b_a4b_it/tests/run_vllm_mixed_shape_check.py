@@ -4,8 +4,9 @@
 """Mixed-shape trace reuse check against a live Gemma 4 vLLM server.
 
 Sends unseen prompt lengths, chunked long prompts while short requests decode,
-repeated lengths in changed batch compositions, sampling-mode switches, and a
-prefix-cache resume. Then it reads the generator's ``GEMMA4_TRACE_EVENT`` lines
+a burst of eight short prompts while a long request decodes (so a batched
+prefill group forms next to live decode rows), repeated lengths in changed
+batch compositions, sampling-mode switches, and a prefix-cache resume. Then it reads the generator's ``GEMMA4_TRACE_EVENT`` lines
 from the server log for the request window and maps captures, releases,
 program-cache growth, prefill chunk starts, and decode shapes to the traffic.
 
@@ -170,6 +171,21 @@ def main() -> int:
             ("chunked_4500", 4500, 7, 16, 0.0),
         ],
     )
+
+    began = time.perf_counter()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=9) as pool:
+        long_decode = pool.submit(run, "batched_group_while_decoding:decode_long", 64, 11, max_tokens=160)
+        time.sleep(1.0)
+        short_futures = [
+            pool.submit(
+                run, f"batched_group_while_decoding:short_{index}", 40 + index, 20 + index, max_tokens=args.max_tokens
+            )
+            for index in range(8)
+        ]
+        long_decode.result()
+        for future in short_futures:
+            future.result()
+    phases.append({"phase": "batched_group_while_decoding", "requests": 9, "elapsed_s": time.perf_counter() - began})
 
     greedy_repeat_a = run("repeat_129_solo", 129, seed=129)
     run_concurrent(

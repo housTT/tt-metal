@@ -25,7 +25,7 @@ def test_capabilities_and_context_contract():
         "supports_sample_on_device": True,
         "supports_device_penalties": False,
         "supports_device_seeded_sampling": False,
-        "max_device_top_k": 64,
+        "max_device_top_k": 32,
     }
 
 

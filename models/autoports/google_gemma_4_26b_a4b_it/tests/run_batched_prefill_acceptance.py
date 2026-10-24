@@ -162,6 +162,40 @@ def run_calibration(gen, state, *, repeats: int) -> dict:
     return report
 
 
+def warm_single_lengths(gen, state, *, prompts_file: Path) -> list[int]:
+    """Compile the single-row programs for every acceptance length before any decode trace.
+
+    Each length runs once alone and once as a single row of a two-row step whose other row is
+    above the largest bucket, so the single-row path and the mixed-step gather are both warm.
+    """
+    chat = [
+        ids for ids in _chat_prompts(gen.tokenizer, prompts_file, 4) if 1 <= len(ids) <= max(BATCHED_PREFILL_BUCKETS)
+    ]
+    lengths = sorted(set(ACCEPTANCE_LENGTHS) | {len(ids) for ids in chat})
+    gen.batched_prefill_enabled = False
+    for length in lengths:
+        gen.reset()
+        tokens = torch.ones((1, _padded_prefill_len(length)), dtype=torch.long)
+        logits = gen.prefill_forward(tokens, page_table=state.page_tables, kv_cache=state, prompt_lens=[length])
+        ttnn.synchronize_device(gen.mesh_device)
+        if isinstance(logits, ttnn.Tensor):
+            ttnn.deallocate(logits)
+    over_bucket = max(BATCHED_PREFILL_BUCKETS) + 76
+    for length in lengths + [over_bucket]:
+        gen.reset()
+        pair = [length, over_bucket]
+        width = max(_padded_prefill_len(value) for value in pair)
+        tokens = torch.ones((2, width), dtype=torch.long)
+        logits = gen.prefill_forward(tokens, page_table=state.page_tables, kv_cache=state, prompt_lens=pair)
+        ttnn.synchronize_device(gen.mesh_device)
+        if isinstance(logits, ttnn.Tensor):
+            ttnn.deallocate(logits)
+    gen.batched_prefill_enabled = True
+    gen.reset()
+    print(f"warmed single-row lengths {lengths}", flush=True)
+    return lengths
+
+
 def run_acceptance(gen, state, *, batches: list[int], decode_steps: int, prompts_file: Path, seed: int) -> dict:
     device = gen.mesh_device
     rng = torch.Generator().manual_seed(seed)
@@ -302,6 +336,12 @@ def main() -> int:
     parser.add_argument("--prompts-file", type=Path, default=None)
     parser.add_argument("--max-batch-size", type=int, default=DECODE_SLOT_COUNT)
     parser.add_argument("--max-seq-len", type=int, default=None)
+    parser.add_argument(
+        "--warm-lengths",
+        action="store_true",
+        help="before the first decode trace, prefill every single-row length the acceptance uses once, so a "
+        "tracked run (TT_METAL_TRACE_ALLOC_TRACKING=1) reports only allocations of the batched path",
+    )
     args = parser.parse_args()
     prompts_file = args.prompts_file
     if prompts_file is None:
@@ -326,6 +366,8 @@ def main() -> int:
         print(f"generator built in {time.perf_counter() - began:.1f}s", flush=True)
         warmup = gen.prepare_batched_prefill(state)
         report["warmup"] = warmup
+        if args.warm_lengths and args.phase in ("acceptance", "both"):
+            report["warmed_lengths"] = warm_single_lengths(gen, state, prompts_file=prompts_file)
         args.output_dir.mkdir(parents=True, exist_ok=True)
         if args.phase in ("calibrate", "both"):
             calibration = run_calibration(gen, state, repeats=args.repeats)

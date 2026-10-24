@@ -149,12 +149,17 @@ authorization of the pair, not of each item, and lists it as a residual risk.
 6. **Authorization.** Adds shared interface: the `tt` config option
    `kv_admission_reserve_blocks_per_seq` and the capability key
    `supports_prefix_caching_sliding_window`. Per-item authorization: not
-   recorded.
+   recorded; the 2026 Oct 24 stage 10 review requires the operator's
+   authorization of this item before the stage can pass. The item is held as
+   `proposed` for that authorization; the stage 10 adapter depends on the key
+   for served prefix caching on the sliding-window layers and makes no
+   further plugin change.
 7. **Validation.** `tests/test_block_table_width.py`,
    `tests/test_admission_reserve.py`, `tests/test_admission_reserve_cpu.py`,
    `tests/test_scheduler_cache_pressure_cpu.py`; served
    `readiness_vllm/prefix_cache_check.json` (status pass).
-8. **Status.** `implemented`, commit `cd25e660210f1e9132e6539f222b6580fa194e8f`.
+8. **Status.** `implemented`, commit `cd25e660210f1e9132e6539f222b6580fa194e8f`;
+   authorization of item 6 `proposed` (pending operator decision).
 
 ## 7. `f96662a7d` Size the KV admission reserve per KV group and count in-flight prefills
 

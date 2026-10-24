@@ -257,11 +257,11 @@ def test_sampling_specs_are_validated_and_trace_distinct(expect_error):
     assert sampled.temperature == (0.8,)
     assert sampled.seeds == (42,)
     assert greedy.key != sampled.key
-    # The model card's recipe (top_k 64) is the device ceiling; 65 must fall back to the host.
-    card = generator._sampling_spec(1, top_k=64, top_p=0.95, temperature=1.0)
-    assert card.top_k == (64,)
+    # The device sampler draws from one 32-candidate tile per user; 33 must fall back to the host.
+    ceiling = generator._sampling_spec(1, top_k=32, top_p=0.95, temperature=1.0)
+    assert ceiling.top_k == (32,)
     with expect_error(ValueError, "top_k"):
-        generator._sampling_spec(1, top_k=65, top_p=0.9, temperature=1.0)
+        generator._sampling_spec(1, top_k=33, top_p=0.9, temperature=1.0)
     with expect_error(ValueError, "top_p"):
         generator._sampling_spec(1, top_k=8, top_p=1.1, temperature=1.0)
     with expect_error(ValueError, "seeds"):
@@ -883,7 +883,7 @@ def test_reduced_real_weight_full_model_probe(mesh_device, profile_tp_size, expe
             vocab_size=model.vocab_size,
             mesh_device=target_mesh,
             max_batch_size=32,
-            max_top_k=64,
+            max_top_k=32,
             allow_force_argmax=True,
             pad_to_power_of_2=True,
             num_gather_links=2 if tp_size == 4 else 1,

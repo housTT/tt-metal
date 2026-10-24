@@ -16,14 +16,16 @@ import torch
 from transformers import AutoConfig, AutoTokenizer
 
 import ttnn
-from models.autoports.google_gemma_4_26b_a4b_it.tt.model import DECODE_SLOT_COUNT, FullModelState, Gemma4FullModel
+from models.autoports.google_gemma_4_26b_a4b_it.tt.model import (
+    DECODE_SLOT_COUNT,
+    HIDDEN_SIZE,
+    FullModelState,
+    Gemma4FullModel,
+)
 from models.common.modules.sampling.sampling_1d import Sampling1D
 from models.common.modules.sampling.seed_manager_1d import MAX_UINT32
 
-# Device sampler top-k ceiling. The model card's sampling recipe is top_k 64; the TTTv2
-# sampler takes its top-k per vocabulary chunk, and 64 keeps the candidate row at two
-# tiles. Requests above this ceiling fall back to host sampling in the vLLM plugin.
-DEVICE_MAX_TOP_K = 64
+DEVICE_MAX_TOP_K = int(os.environ.get("GEMMA4_DEVICE_MAX_TOP_K", "32"))
 
 # The autonomous readiness package was removed from the source tree after this
 # autoport was seeded.  Keep the exact interface when that optional harness is
@@ -663,14 +665,13 @@ class Gemma4Generator(Generator):
                 single_rows=single_rows,
             )
             outputs: list[Any] = [None] * len(prompt_lens)
+            if len(groups) == 1 and not single_rows:
+                self._batched_logits_rows = len(groups[0].rows)
+                return self._run_batched_prefill_group(tokens, prompt_lens, groups[0], state)
+            assembled: ttnn.Tensor | None = None
             for group in groups:
-                group_logits = self._run_batched_prefill_group(tokens, prompt_lens, group, state)
-                if len(groups) == 1 and not single_rows:
-                    self._batched_logits_rows = len(group.rows)
-                    return group_logits
-                for index, row in enumerate(group.rows):
-                    outputs[row] = ttnn.slice(group_logits, (0, 0, index, 0), (1, 1, index + 1, group_logits.shape[-1]))
-                _release_device_tensor(group_logits)
+                rows_tile = self._run_batched_prefill_group(tokens, prompt_lens, group, state, return_rows=True)
+                assembled = self._accumulate_slot_rows(assembled, rows_tile, group.rows)
             for row in single_rows:
                 logical_len = prompt_lens[row]
                 physical_len = _padded_prefill_len(logical_len)
@@ -683,7 +684,7 @@ class Gemma4Generator(Generator):
                     first_position, first_position + physical_len, dtype=torch.int32
                 ).reshape(1, physical_len)
                 tt_pos = self._positions_to_device(physical_positions, dtype=ttnn.uint32)
-                outputs[row] = run_model_prefill(
+                hidden = run_model_prefill(
                     tt_tokens,
                     state=state,
                     prompt_lens=[logical_len],
@@ -691,8 +692,15 @@ class Gemma4Generator(Generator):
                     prefill_start=first_position,
                     user_id=row,
                     chunk_page_tables=chunk_page_tables,
-                    return_hidden=return_all_logits,
+                    return_hidden=True,
                 )
+                if return_all_logits:
+                    outputs[row] = hidden
+                    continue
+                slot_rows: list[int | None] = [None] * DECODE_SLOT_COUNT
+                slot_rows[row] = logical_len - 1
+                rows_tile = self.model.gather_hidden_rows(hidden, slot_rows)
+                assembled = self._accumulate_slot_rows(assembled, rows_tile, [row])
             if return_all_logits:
                 max_logical_len = max(prompt_lens)
                 logical_rows = []
@@ -700,7 +708,11 @@ class Gemma4Generator(Generator):
                     row = self._hidden_rows_to_host_logits(output, range(logical_len))
                     logical_rows.append(torch.nn.functional.pad(row, (0, 0, 0, max_logical_len - logical_len)))
                 return torch.cat(logical_rows, dim=0)
-            return ttnn.concat(outputs, dim=2)
+            assert assembled is not None
+            logits = self.model.terminal_over_slots(assembled)
+            _release_device_tensor(assembled)
+            self._batched_logits_rows = len(prompt_lens)
+            return logits
 
         logical_len = int(prompt_lens[0])
         physical_len = _padded_prefill_len(logical_len)
@@ -733,12 +745,44 @@ class Gemma4Generator(Generator):
             return self._hidden_rows_to_host_logits(logits, range(logical_len))
         return logits
 
+    def _accumulate_slot_rows(
+        self, accumulated: ttnn.Tensor | None, rows_tile: ttnn.Tensor, rows: Sequence[int]
+    ) -> ttnn.Tensor:
+        """Add the named slots of ``rows_tile`` (``[1, 1, 32, hidden]``) into the running slot tile.
+
+        Each source is gathered with its own rows already in their request
+        slots; the mask zeroes the other slots, so the sum over sources is the
+        request-ordered terminal input. Every op here has a fixed shape, so no
+        program depends on which rows came from which source.
+        """
+        mask = torch.zeros((1, 1, DECODE_SLOT_COUNT, int(rows_tile.shape[-1])), dtype=torch.bfloat16)
+        mask[0, 0, list(rows), :] = 1.0
+        tt_mask = ttnn.from_torch(
+            mask,
+            dtype=rows_tile.dtype,
+            layout=ttnn.TILE_LAYOUT,
+            device=self.mesh_device,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+        )
+        masked = ttnn.mul(rows_tile, tt_mask, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        ttnn.deallocate(tt_mask)
+        ttnn.deallocate(rows_tile)
+        if accumulated is None:
+            return masked
+        total = ttnn.add(accumulated, masked, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        ttnn.deallocate(accumulated)
+        ttnn.deallocate(masked)
+        return total
+
     def _run_batched_prefill_group(
         self,
         tokens: torch.Tensor,
         prompt_lens: Sequence[int],
         group: PrefillGroup,
         state: FullModelState,
+        *,
+        return_rows: bool = False,
     ) -> ttnn.Tensor:
         """Run one batched group and return ``[1, 1, len(group.rows), vocab]`` logits in row order."""
         segment_len = group.segment_len
@@ -755,15 +799,16 @@ class Gemma4Generator(Generator):
             torch.arange(segment_len, dtype=torch.int32).reshape(1, segment_len), dtype=ttnn.uint32
         )
         entries_before = self.mesh_device.num_program_cache_entries()
-        with ttnn.corruptible_allocation_scope(self.mesh_device):
-            logits = self.model.prefill_forward_batched(
-                tt_tokens,
-                state=state,
-                row_lens=row_lens,
-                segment_len=segment_len,
-                user_ids=user_ids,
-                position_ids=tt_pos,
-            )
+        logits = self.model.prefill_forward_batched(
+            tt_tokens,
+            state=state,
+            row_lens=row_lens,
+            segment_len=segment_len,
+            user_ids=user_ids,
+            position_ids=tt_pos,
+            row_slots=user_ids if return_rows else None,
+            return_rows=return_rows,
+        )
         _release_device_tensor(tt_tokens)
         _release_device_tensor(tt_pos)
         self.batched_prefill_group_growth.append(
@@ -801,15 +846,14 @@ class Gemma4Generator(Generator):
             tt_pos = self._positions_to_device(
                 torch.arange(segment_len, dtype=torch.int32).reshape(1, segment_len), dtype=ttnn.uint32
             )
-            with ttnn.corruptible_allocation_scope(self.mesh_device):
-                logits = self.model.prefill_forward_batched(
-                    tt_tokens,
-                    state=target,
-                    row_lens=[segment_len] * batch,
-                    segment_len=segment_len,
-                    user_ids=list(range(batch)),
-                    position_ids=tt_pos,
-                )
+            logits = self.model.prefill_forward_batched(
+                tt_tokens,
+                state=target,
+                row_lens=[segment_len] * batch,
+                segment_len=segment_len,
+                user_ids=list(range(batch)),
+                position_ids=tt_pos,
+            )
             ttnn.synchronize_device(self.mesh_device)
             _release_device_tensor(logits)
             _release_device_tensor(tt_tokens)
@@ -836,15 +880,14 @@ class Gemma4Generator(Generator):
                 tt_pos = self._positions_to_device(
                     torch.arange(segment_len, dtype=torch.int32).reshape(1, segment_len), dtype=ttnn.uint32
                 )
-                with ttnn.corruptible_allocation_scope(self.mesh_device):
-                    logits = self.model.prefill_forward_batched(
-                        tt_tokens,
-                        state=target,
-                        row_lens=row_lens,
-                        segment_len=segment_len,
-                        user_ids=[0, 1],
-                        position_ids=tt_pos,
-                    )
+                logits = self.model.prefill_forward_batched(
+                    tt_tokens,
+                    state=target,
+                    row_lens=row_lens,
+                    segment_len=segment_len,
+                    user_ids=[0, 1],
+                    position_ids=tt_pos,
+                )
                 ttnn.synchronize_device(self.mesh_device)
                 _release_device_tensor(logits)
                 _release_device_tensor(tt_tokens)
@@ -857,11 +900,30 @@ class Gemma4Generator(Generator):
                         "program_cache_entries": self.mesh_device.num_program_cache_entries(),
                     }
                 )
+        assembly_began = time.perf_counter()
+        slot_tiles = [
+            ttnn.from_torch(
+                torch.zeros((1, 1, DECODE_SLOT_COUNT, HIDDEN_SIZE), dtype=torch.bfloat16),
+                dtype=ttnn.bfloat16,
+                layout=ttnn.TILE_LAYOUT,
+                device=self.mesh_device,
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                mesh_mapper=ttnn.ReplicateTensorToMesh(self.mesh_device),
+            )
+            for _ in range(2)
+        ]
+        assembled = self._accumulate_slot_rows(None, slot_tiles[0], [0])
+        assembled = self._accumulate_slot_rows(assembled, slot_tiles[1], [1])
+        assembled_logits = self.model.terminal_over_slots(assembled)
+        ttnn.synchronize_device(self.mesh_device)
+        _release_device_tensor(assembled_logits)
+        _release_device_tensor(assembled)
         for cache_pair in target.kv_cache:
             for cache in cache_pair:
                 ttnn.fill(cache, 0.0, memory_config=cache.memory_config(), output_tensor=cache)
         ttnn.synchronize_device(self.mesh_device)
         self.batched_prefill_warmup = {
+            "slot_assembly_seconds": round(time.perf_counter() - assembly_began, 3),
             "fill_length_steps": fill_steps,
             "variants": [{"batch": b, "segment_len": s} for b, s in variants if b <= target.max_batch_size],
             "program_cache_entries_before": entries_before,

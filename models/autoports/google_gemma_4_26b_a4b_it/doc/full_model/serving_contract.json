@@ -74,7 +74,7 @@
       "item": "decode_forward traced with async split (read_from_device=False, read_decode_output(async_read=True), process_decode_output_host)",
       "kind": "call",
       "status": "supported",
-      "evidence": "tests/test_vllm_adapter_contract.py::test_async_split_is_implemented; readiness_vllm/sampling_tests.log; readiness_vllm/vllm_benchmark.json"
+      "evidence": "tests/test_vllm_adapter_contract.py::test_async_split_is_implemented; readiness_vllm/P150_prefill_features/sampling_tests.log; readiness_vllm/optimized_vllm_batched_prefill/after/vllm_benchmark.json"
     },
     {
       "item": "decode_forward reset_batch / slot_remap",
@@ -116,13 +116,13 @@
       "item": "supports_async_decode",
       "kind": "capability",
       "status": "supported",
-      "evidence": "readiness_vllm/sampling_tests.log; readiness_vllm/async_overlap_state_test.json; server launched with --async-scheduling"
+      "evidence": "readiness_vllm/P150_prefill_features/sampling_tests.log; readiness_vllm/P150x2/async_overlap_state_test.json (inherited from the 2026 Sep 08 P150x2 run; the stage 10 resume did not rerun it); server launched with --async-scheduling"
     },
     {
       "item": "supports_sample_on_device",
       "kind": "capability",
       "status": "supported",
-      "evidence": "readiness_vllm/vllm_benchmark.json (sample_on_device_mode=all); readiness_vllm/vllm_qualitative_outputs.json"
+      "evidence": "readiness_vllm/optimized_vllm_batched_prefill/after/vllm_benchmark.json (sample_on_device_mode=all); readiness_vllm/vllm_qualitative_outputs.json"
     },
     {
       "item": "supports_device_penalties",
@@ -142,27 +142,27 @@
       "item": "max_device_top_k",
       "kind": "capability",
       "status": "supported",
-      "evidence": "model_capabilities['max_device_top_k'] = 64 (Sampling1D max_top_k=64, two candidate tiles per vocabulary chunk); stochastic requests above 64 use the host sampler by the pinned plugin's documented routing; readiness_vllm/sampling_tests.log"
+      "evidence": "model_capabilities['max_device_top_k'] = 32 (Sampling1D max_top_k=32, one candidate tile per user). The sampler draws only from the first 32 sorted candidates whatever k is passed (doc/optimized_vllm/sampler_probe/sampling1d_topk_probe.json: k=64 and k=32 give identical draws, maximum sampled rank 31), so 64 was a false ceiling; stochastic requests above 32 use the host sampler by the pinned plugin's routing (served: top_k 33 and 64 ran on device under the old ceiling, 65 went to the host; readiness_vllm/P150_prefill_features/sampling_tests.log)"
     },
     {
       "item": "temperature / top_k <= 64 / top_p",
       "kind": "request_feature",
       "status": "supported",
-      "evidence": "readiness_vllm/sampling_tests.log (tests/tt/test_seeding_and_variety.py, test_request_isolation.py)"
+      "evidence": "readiness_vllm/P150_prefill_features/sampling_tests.log (tests/tt/test_seeding_and_variety.py, test_request_isolation.py)"
     },
     {
       "item": "seed",
       "kind": "request_feature",
       "status": "not_supported",
       "declaration": "model_capabilities['supports_device_seeded_sampling'] = False",
-      "reason": "Seeded requests run through the plugin's host sampler; readiness_vllm/sampling_tests.log covers them."
+      "reason": "Seeded requests run through the plugin's host sampler; readiness_vllm/P150_prefill_features/sampling_tests.log covers them."
     },
     {
       "item": "presence / frequency / repetition penalties",
       "kind": "request_feature",
       "status": "not_supported",
       "declaration": "model_capabilities['supports_device_penalties'] = False",
-      "reason": "Penalised requests run through the plugin's host sampler with full token history; readiness_vllm/sampling_tests.log covers them."
+      "reason": "Penalised requests run through the plugin's host sampler with full token history; readiness_vllm/P150_prefill_features/sampling_tests.log covers them."
     },
     {
       "item": "logprobs",

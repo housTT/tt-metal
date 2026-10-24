@@ -807,3 +807,175 @@ served 32-variant group); the one release in the burst was `slot_remap`, the one
 context contract OK (target 262144, supported 131072, DRAM-limited; advisory lines come from the
 archived 50624-context logs), prefill features check passed; exit 0. Host tests: 38 passed
 (`test_batched_prefill_plan.py`, `test_vllm_adapter_contract.py`).
+
+### Second independent review (2026 Oct 24, after 3cb8971d5e): findings and remedies
+
+The re-review returned `more-work-needed` with one P1 and four P2 items. Each is handled below;
+the review text is kept in `STAGE_REVIEW.md`.
+
+P1, out-of-vocabulary token ids in served sampled output. The reviewer found 42 detokenizer
+`Encountered invalid token id` lines in the final server log, all during the sampling suite's
+`test_temperature_varied_in_batch` (prompt "Random letter: ", temperature 5, batch sizes 7 to 37),
+each cluster after a `slot_remap` release and a batch-32 sampled recapture, and the same error on
+the two earlier batched-prefill servers. Investigation, in order:
+
+1. Served probe with the suite's workload shape but every request run to `max_tokens`
+   (`tests/run_vllm_invalid_token_probe.py --scenario arrangements`,
+   `readiness_vllm/P150_prefill_features/invalid_token_probe.json`): 5,640 sampled tokens at
+   concurrency 1, 2, 7, 10, 19, 32, 37 and the suite's temperature-1 / top_k-50 profile, 0 invalid.
+2. Served probe with rows leaving the batch while others decode (`--scenario endings`,
+   `invalid_token_probe_endings.json`): EOS allowed at 32 and 37, staggered lengths at temperature
+   5, temperature 1 / top_k 50 and greedy; 7,094 sampled tokens, 100 slot-remap recaptures,
+   0 invalid. The remap and recapture path alone does not produce the ids.
+3. Device-level probe of the sampler as the generator configures it, no model
+   (`tests/probe_sampling1d_topk.py`, `doc/optimized_vllm/sampler_probe/sampling1d_topk_probe.json`
+   and `_dirty_l1.json`): every user has a disjoint known 64-candidate set; 3,200 samples per case
+   at k = 64, 50 and 32, temperature 5 and 1, with and without a 2048 x 2048 random matmul before
+   every call. No invalid id and no id outside the user's own set, but with k = 64 the sampled rank
+   never exceeds 31 and the draws are identical to k = 32: `ttnn.sampling` draws from one
+   32-candidate tile per user whatever k says. The writer kernel
+   (`ttnn/cpp/ttnn/operations/reduction/sampling/device/kernels/dataflow/writer_interleaved.cpp`)
+   reads `k - 16` entries from the second face, so for k > 32 it reads past the user's own 32
+   sorted values, and for users 30 and 31 past the end of the tile, into whatever the previous
+   kernels left in that L1.
+4. Reproduction on the live server: the five temperature tests alone
+   (`readiness_vllm/P150_prefill_features/sampling_subset_temperature.log`, server log window
+   recorded in `sampling_subset_window.txt`) gave 2 invalid ids in 14 s, one of them
+   (`-1431490047`) the same value as in the full suite run. The server was then relaunched on the
+   same code with the adapter's new `invalid_sampled_token` check (every sampled vector is range
+   checked on the host and logged with its row, the active mask and the trace ids) and
+   `GEMMA4_DEVICE_MAX_TOP_K=64`: the same five tests
+   (`sampling_subset_temperature_topk64.log`, server log `server_topk64_probe.log`) produced five
+   out-of-range ids, every one in slot 31, with k = 64 on all 32 rows and 32 active rows. The plugin
+   routes an unspecified `top_k` to the device with the model's ceiling (served checks: top_k 33 and
+   64 ran on device, 65 went to the host), so every sampled request without `top_k` ran at k = 64.
+
+Root cause: `DEVICE_MAX_TOP_K = 64` declared a top-k the shared sampler does not have. With k > 32
+the sampler's candidate reads overrun the user's row; slots 30 and 31 overrun the tile and can
+return garbage ids, and every user samples from only 32 candidates with wrong weights. Remedy:
+`DEVICE_MAX_TOP_K = 32` (`tt/generator.py`, Sampling1D `max_top_k=32`, `model_capabilities`
+`max_device_top_k` 32, `tt/model.py` harness args, tests, serving contract row). Stochastic requests
+with `top_k` in 33..64 now go to the plugin's host sampler; requests without `top_k` run on device at
+k = 32, which is what the device computed before. The adapter keeps the range check so a recurrence
+is logged as a `GEMMA4_TRACE_EVENT invalid_sampled_token` line. Verification on the final server is
+recorded in the final serving section below (temperature tests and the full sampling suite with a
+log scan for both the detokenizer error and the new event).
+
+P2, allocation safety of the batched path. A tracked acceptance run (chip 2,
+`TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0
+TT_METAL_TRACE_ALLOC_TRACEBACKS=1`, scopes on,
+`doc/optimized_vllm/trace_reuse_probe/batched_prefill_tracked/acceptance_tracked_scopes_on_before_row_assembly_fix.log`)
+stopped at the first replay after a mixed group-plus-singles prefill with "Found 8 device buffer(s)
+still alive before trace replay": the program-cache allocations of `SliceDeviceOperation`,
+`UntilizeCodegenDeviceOperation` and `TilizeWithValPadding` for `tt/generator.py` line 678, the
+per-row `ttnn.slice` of the group's `[1, 1, 32, 262144]` logits. That slice carried the row index as
+a compile-time argument (one program per row index, compiled after warmup, which is also what the
+served `prefill_program_cache_growth` releases after batched groups were), and it untilized and
+re-tilized a 262,144-wide tensor per row. The mixed path now assembles the terminal input instead of
+the logits: each source (a batched group, or a single row) gathers its last hidden rows into their
+request slots of a fixed `[1, 1, 32, 2816]` tile with the existing runtime-index embedding gather
+(`Gemma4FullModel.gather_hidden_rows`, `prefill_forward_batched(row_slots=..., return_rows=True)`),
+the tile is multiplied by a slot mask and summed over sources (`Gemma4Generator._accumulate_slot_rows`),
+and one terminal runs over the sum (`terminal_over_slots`). Every op in the assembly has a fixed
+shape; `prepare_batched_prefill` warms it. The single-group fast path is unchanged. The acceptance
+got `--warm-lengths` so its single-row lengths (alone, and as the single row of a mixed two-row step)
+compile before the first decode trace and a tracked run reports only the batched path. Tracked runs
+after the change (`TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0
+TT_METAL_TRACE_ALLOC_TRACEBACKS=1`, acceptance groups of 2 to 16 rows, 8 cases including mixed
+groups plus singles and two groups per step, decode traces live between the batched prefills):
+
+- chip 2, scopes still wrapping the batched forwards
+  (`trace_reuse_probe/batched_prefill_tracked/acceptance_tracked_scopes_on.log`,
+  `vllm_batched_equals_solo.json` there): clean, status pass, zero program-cache growth in every
+  group and every step, top-1 equal and K/V equal on every row.
+- chip 3, scopes switched off: the only allocation the tracker found alive at a replay was the
+  program-cache allocation of the `EmbeddingsDeviceOperation` for the single-row gather at a
+  first-seen logical length (`acceptance_tracked_scopes_off_gather_unwarmed.log`), that is a
+  per-length program compile, the same class the serving adapter retires traces for
+  (`prefill_program_cache_growth`). No tensor of the batched path was alive at replay.
+- The scopes therefore enclosed nothing that needed an exemption, and they have been removed from
+  the batched path (`_run_batched_prefill_group`, `prepare_batched_prefill`, the slot assembly);
+  the pre-existing single-row scope (`run_model_prefill`) and the capture scopes are unchanged. The
+  no-scope tracked run on chip 3, with the mixed-step gather warmed per length
+  (`acceptance_tracked_no_scopes.log`, `vllm_batched_equals_solo.json` beside it): clean, status
+  pass, all 8 cases, zero growth in every group and step, no buffer alive at any replay. (A first
+  attempt of that run reused the previous process's tensor cache directory and spent 15 minutes of
+  host CPU in the loader before it was stopped; a fresh `GEMMA4_TENSOR_CACHE_PATH` built the
+  generator in 141 s. The same reuse stall is recorded earlier in this log.) The allocator warning "Allocating device buffers is
+  potentially unsafe due to the existence of an active trace" appears once per process at the
+  first decode capture (model trace then sampling trace); it is the runtime's generic notice that
+  the sampling-trace setup allocates while the model trace exists, pre-existing at the stage base
+  and covered by the capture scopes.
+- The final server ran the code with the inert scope wrappers still present; they do nothing
+  without the tracker and were deleted before the final commit.
+
+P2, serving contract paths: `doc/full_model/serving_contract.json` rows now cite
+`readiness_vllm/P150_prefill_features/sampling_tests.log`,
+`readiness_vllm/optimized_vllm_batched_prefill/after/vllm_benchmark.json` and name the async-overlap
+evidence as inherited from the archived `readiness_vllm/P150x2/async_overlap_state_test.json`.
+
+P2, trace-release classes: the README open item and `perf_summary.json` now list the sampling-spec
+key miss (`trace_key_miss`: every greedy-to-sampled or sampled-to-greedy change, and every change of
+request seeds, recaptures the traces) with its count from the final server log.
+
+P2, plugin interface authorization: `doc/vllm_integration/plugin_changes.md` item 6 now records that
+the `supports_prefix_caching_sliding_window` capability key (plugin commit `cd25e6602`, inherited
+from the earlier stage) is `proposed` for operator authorization; no plugin change was made in this
+resume and the stage cannot close that item itself.
+
+### Final server and serving evidence (code after the second review)
+
+Relaunch 17:45:10 UTC (runner pid 1034593, fresh `GEMMA4_TENSOR_CACHE_PATH`, `VLLM_SERVER_DEV_MODE=1`,
+`GEMMA4_DEVICE_MAX_TOP_K` unset so the ceiling is 32, all other arguments unchanged), healthy at
+17:48:30; warmup prepared the 14 (B, S) variants, the fill-length pass and the slot-row assembly
+(25.2 s, program-cache entries 8 to 1002). Every stage then ran in sequence on that server
+(`readiness_vllm/P150_prefill_features/*_runner_final3.log`, server log
+`readiness_vllm/P150_prefill_features/server.log`, chain output in the job directory). The code the
+server ran is the working tree committed right after this section (SHA in "Commits" below), except
+that the inert batched-path allocation scopes were still present (removed before the commit, no
+runtime effect without the tracker).
+
+- Temperature-5 batch tests first (`sampling_subset_runner_final3.log`, 5 passed, 19 s): 0
+  detokenizer errors, 0 `invalid_sampled_token` events (`sampling_subset_final3_window.txt` records
+  the log window). This is the test that gave 2 and 5 out-of-range ids on the two previous servers.
+- `prefill_burst` (32 x 128/32, concurrency 32, greedy): TTFT p50 1123.0 / p99 2032.6 / mean
+  1520.3 ms; serial reference p50 3645.5 / p99 6712.7 / mean 4981.8 ms; ratios p99 0.303, mean
+  0.305, p50 0.308; gate pass; 32 of 32 completed.
+- Primary 128/128/1: TTFT 173.20 ms (before 173.23, -0.02 percent), TPOT 27.897 ms (before 27.945,
+  -0.17 percent), ITL p50 27.033 / p99 28.266 ms, 34.440 tok/s, decode 35.85 t/s/u (before 35.78).
+- CI burst 100/100/32: TTFT mean 2304.3 / p99 3093.3 ms (before 10277.4 / 14089.3), TPOT mean
+  87.674 / p99 103.371 ms (before 114.288 / 174.934), ITL p50 78.467 / p99 125.010 ms, 291.27 tok/s
+  (before 148.19); 32 of 32 completed, no missing tokens.
+- Qualitative: the six chat prompts are coherent and on topic in greedy and sampled form, no
+  repetition, gibberish, language drift or cross-request content; the greedy haiku is the same text
+  as every earlier run ("Data feeds the code, / Patterns rise from silent math, / Learning to
+  decide."); the sampled haiku differs from the previous run's sampled haiku as expected.
+  `check_degenerate_output` (scope vllm) reports no degenerate output.
+- `prefix_cache`: pass; cold TTFT 1474 ms, warm 136 to 149 ms (ratio 0.094, hit 0.9996), long
+  257-token resume checked (first token and 16 greedy tokens identical, hit 0.899), shared-prefix
+  hit rate 0.824.
+- Sampling (repo runner, full profile): 72 passed, 1 skipped (all-vocabulary logprobs cap),
+  5 min 29 s; 0 detokenizer errors and 0 `invalid_sampled_token` events in the suite's window and
+  in the whole final server log (`tests/scan_server_log_tokens.py`,
+  `invalid_token_scan_final3.json`: pass; the same scan over the `27c84d5e4d` server log reports 9
+  detokenizer errors and over the top-k 64 experiment log 1 error and 5 adapter events, all in
+  slot 31).
+- Mixed-shape trace reuse (`mixed_shape_check.json`): 32 of 32 requests completed; status fail with
+  the same four reasons (16 captures, 15 releases: `prefill_program_cache_growth` 10, `slot_remap` 4,
+  `batch_shape_change` 1; the 129-token raw prompt splits across decode lanes; one raw completion
+  trips the repetition heuristic). The new `batched_group_while_decoding` phase formed an 8-row
+  batched group (TTFT 816 to 819 ms for the eight short prompts) and a 2-row group while a 64-token
+  request decoded 160 tokens, so the batched path now runs inside the mixed-shape workload. TTFT
+  p50 456 ms, p95 4.2 s, p99 8.6 s (the 2200/3100/4500-token first-seen chunk lengths; 39.6 s on
+  the previous server). Open item, unchanged.
+- Served 32-slot group equivalence (`batched_group_equivalence.json`): pass; 31-row group padded to
+  32; first greedy token equal on all 32 rows; 28 of 32 continuations identical through 8 tokens
+  (rows 7, 14, 16, 21 split, same rows as before). On this fresh server the burst's two releases were
+  `prefill_program_cache_growth` from the first-seen single-row prompt lengths admitted before the
+  group (program-cache entries unknown before the group because no trace was retained, 5267 at the
+  capture after it); the zero-growth observation for the 32-variant group stands from the
+  `27c84d5e4d` server run where those lengths were already warm (5129 before and after).
+- Final server trace events over the whole log (486 events): 49 captures; releases
+  `prefill_program_cache_growth` 19, `slot_remap` 16, `host_sampling_prefill` 10,
+  `batch_shape_change` 3; no `trace_key_miss` (27 on the `27c84d5e4d` server log); 90 batched
+  groups, no `batched_prefill_unprepared`.

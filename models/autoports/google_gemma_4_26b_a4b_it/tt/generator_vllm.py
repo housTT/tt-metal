@@ -736,8 +736,32 @@ class Gemma4ForCausalLM(nn.Module):
         if not isinstance(tt_out, torch.Tensor):
             tt_out = ttnn.to_torch(tt_out, mesh_composer=ttnn.ConcatMeshToTensor(self.mesh_device, dim=0))
         if is_tokens:
-            return tt_out.reshape(-1)[: self.max_batch_size].to(torch.int32), None
+            tokens = tt_out.reshape(-1)[: self.max_batch_size]
+            self._check_sampled_tokens(tokens)
+            return tokens.to(torch.int32), None
         return tt_out, None
+
+    def _check_sampled_tokens(self, tokens: torch.Tensor) -> None:
+        gen = self._require_generator()
+        raw = tokens.to(torch.int64)
+        bad = (raw < 0) | (raw >= gen.model.vocab_size)
+        if not bool(bad.any()):
+            return
+        state = self._serving_state
+        trace_event(
+            "invalid_sampled_token",
+            rows=torch.nonzero(bad).reshape(-1).tolist(),
+            values=raw[bad].tolist(),
+            raw_tokens=raw.tolist(),
+            active_mask=state.active_mask.tolist() if state is not None else None,
+            execution_batch=self._last_execution_batch,
+            sampling_key=repr(gen._sampling_key)[:400],
+            traces=[
+                [str(trace.model_trace_id), str(trace.sampling_trace_id), trace.batch_size, trace.sampling_mode]
+                for trace in gen._trace_cache.values()
+            ],
+            device_max_top_k=DEVICE_MAX_TOP_K,
+        )
 
     def warmup_model_prefill(self, *args, **kwargs):
         """Prepare every batched prefill variant before the first decode trace exists."""

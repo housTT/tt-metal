@@ -28,7 +28,9 @@ def make_adapter():
         concat=lambda values, dim, **_: torch.cat(values, dim=dim),
         release_trace=lambda *_args: events.append("release"),
     )
-    namespace = dict(torch=torch, ttnn=runtime, DECODE_SLOT_COUNT=32, DEVICE_MAX_TOP_K=64)
+    namespace = dict(
+        torch=torch, ttnn=runtime, DECODE_SLOT_COUNT=32, DEVICE_MAX_TOP_K=32, trace_event=lambda *_a, **_k: None
+    )
     exec(compile(ast.fix_missing_locations(module), str(path), "exec"), namespace)
     adapter = namespace["Gemma4ForCausalLM"]()
     tables = [torch.arange(10, 42, dtype=torch.int32)[:, None].repeat(1, 4)]

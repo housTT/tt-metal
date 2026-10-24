@@ -658,6 +658,8 @@ class Gemma4FullModel:
         segment_len: int,
         user_ids: Sequence[int],
         position_ids: ttnn.Tensor,
+        row_slots: Sequence[int] | None = None,
+        return_rows: bool = False,
     ) -> ttnn.Tensor:
         """Prefill several fresh rows in one dense pass and return their last-token logits.
 
@@ -668,7 +670,10 @@ class Gemma4FullModel:
         are padding rows: they take part in the dense work, write no cache, and
         return no logits. The result is the fixed ``[1, 1, 32, vocab]`` terminal
         tile: the first ``R`` rows are the real rows in segment order and the
-        rest are padding, so no program depends on the row count.
+        rest are padding, so no program depends on the row count. With
+        ``row_slots`` the real rows land in the named terminal slots instead,
+        and ``return_rows`` returns the gathered hidden slot tile before the
+        terminal so the caller can merge several sources into one terminal.
         """
         if len(row_lens) != len(user_ids) or not row_lens:
             raise ValueError("batched prefill needs one logical length and one cache row per segment")
@@ -715,19 +720,37 @@ class Gemma4FullModel:
             if tensor is not None:
                 ttnn.deallocate(tensor)
         last_rows = [index * segment_len + row_lens[index] - 1 for index in real_rows]
-        return self._terminal_rows(hidden, last_rows)
+        if row_slots is None:
+            slot_rows: list[int | None] = list(last_rows)
+        else:
+            if len(row_slots) != batch:
+                raise ValueError("row_slots needs one terminal slot per segment")
+            slot_rows = [None] * DECODE_SLOT_COUNT
+            for index, last in zip(real_rows, last_rows):
+                slot_rows[int(row_slots[index])] = last
+        selected = self.gather_hidden_rows(hidden, slot_rows)
+        if return_rows:
+            return selected
+        logits = self._terminal(selected)
+        ttnn.deallocate(selected)
+        return logits
 
-    def _terminal_rows(self, hidden: ttnn.Tensor, rows: Sequence[int]) -> ttnn.Tensor:
-        """Gather selected hidden rows on device and run the terminal over them.
+    def gather_hidden_rows(self, hidden: ttnn.Tensor, slot_rows: Sequence[int | None]) -> ttnn.Tensor:
+        """Gather hidden rows into the fixed 32-slot terminal tile ``[1, 1, 32, hidden]``.
 
+        Slot ``s`` receives hidden row ``slot_rows[s]``; a ``None`` slot and
+        every slot past ``len(slot_rows)`` receive row 0 (callers mask them).
         The gather is an embedding lookup over the row-major hidden state, so
         its program does not depend on the selected row indices: any logical
         prompt length reuses the same compiled programs for a given shape.
+        ``hidden`` is consumed.
         """
-        if len(rows) < 1 or len(rows) > DECODE_SLOT_COUNT:
-            raise ValueError(f"terminal row selection must hold 1 to {DECODE_SLOT_COUNT} rows")
+        if len(slot_rows) < 1 or len(slot_rows) > DECODE_SLOT_COUNT:
+            raise ValueError(f"terminal row selection must hold 1 to {DECODE_SLOT_COUNT} slots")
         indices = torch.zeros((1, DECODE_SLOT_COUNT), dtype=torch.int32)
-        indices[0, : len(rows)] = torch.tensor(list(rows), dtype=torch.int32)
+        for slot, row in enumerate(slot_rows):
+            if row is not None:
+                indices[0, slot] = int(row)
         tt_indices = ttnn.from_torch(
             indices,
             dtype=ttnn.uint32,
@@ -741,10 +764,17 @@ class Gemma4FullModel:
         selected = ttnn.embedding(tt_indices, table, dtype=table.dtype, layout=ttnn.TILE_LAYOUT)
         ttnn.deallocate(table)
         ttnn.deallocate(tt_indices)
-        selected = ttnn.unsqueeze_to_4D(selected) if len(selected.shape) == 3 else selected
+        return ttnn.unsqueeze_to_4D(selected) if len(selected.shape) == 3 else selected
+
+    def _terminal_rows(self, hidden: ttnn.Tensor, rows: Sequence[int]) -> ttnn.Tensor:
+        selected = self.gather_hidden_rows(hidden, list(rows))
         logits = self._terminal(selected)
         ttnn.deallocate(selected)
         return logits
+
+    def terminal_over_slots(self, selected: ttnn.Tensor) -> ttnn.Tensor:
+        """Terminal norm, LM head and softcap over a gathered ``[1, 1, 32, hidden]`` slot tile."""
+        return self._terminal(selected)
 
     def terminal_logits(self, hidden: ttnn.Tensor, *, sampler_ready: bool = False) -> ttnn.Tensor:
         """Final norm, LM head, and softcap over an explicit hidden-row selection."""
@@ -797,7 +827,7 @@ class Gemma4FullModel:
         return SimpleNamespace(
             mesh_device=self.mesh_device,
             max_batch_size=max_batch_size,
-            max_top_k=64,
+            max_top_k=32,
             vocab_size=262_144,
             padded_vocab_size=262_144,
             num_devices=self.tp_size,
