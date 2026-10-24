@@ -1,0 +1,229 @@
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tt/functional_decoder.py b/models/autoports/qwen_qwen3_5_35b_a3b/tt/functional_decoder.py
+index 952b61eb..9c33c584 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tt/functional_decoder.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tt/functional_decoder.py
+@@ -457,26 +457,28 @@ class FunctionalDecoder(LightweightModule):
+         position_tensor: Any = None,
+         page_table: Any = None,
+         request_slots: Optional[Sequence[int]] = None,
++        packed: bool = False,
+     ) -> Any:
+         if (
+             len(hidden_states.shape) != 3
+-            or int(hidden_states.shape[1]) != 1
++            or int(hidden_states.shape[0 if packed else 1]) != 1
+             or hidden_states.shape[2] != self.config.dim
+         ):
+             raise ValueError("decode_forward requires exactly one token")
+         import ttnn
+ 
++        batch = hidden_states.shape[1 if packed else 0]
+         rows = []
+         full = self.config.is_full_attention_layer(self.layer_idx)
+         if full and (position_tensor is None or page_table is None or not self.layer.attention.use_paged_attention):
+             raise ValueError("paged decode requires device current positions and page table")
+-        if full and (
+-            page_table.shape[0] != hidden_states.shape[0] or position_tensor.shape[0] != hidden_states.shape[0]
+-        ):
++        if full and (page_table.shape[0] != batch or position_tensor.shape[0] != batch):
+             raise ValueError("decode metadata must have one row/position per request")
+-        slots = self._slots(hidden_states.shape[0], request_slots)
++        slots = self._slots(batch, request_slots)
+         if self.batched_decode and len(slots) > 1:
+-            return self._decode_batched(hidden_states, slots, full, position_tensor, page_table)
++            return self._decode_batched(hidden_states, slots, full, position_tensor, page_table, packed)
++        if packed:
++            raise ValueError("packed decode input requires batched decode with more than one row")
+         for row, slot in enumerate(slots):
+             self._select_state(slot)
+             kw = {}
+@@ -490,7 +492,7 @@ class FunctionalDecoder(LightweightModule):
+             return rows[0]
+         return ttnn.concat([ttnn.to_memory_config(r, ttnn.L1_MEMORY_CONFIG) if r.is_sharded() else r for r in rows], dim=0)
+ 
+-    def _decode_batched(self, hidden_states, slots, full, position_tensor, page_table):
++    def _decode_batched(self, hidden_states, slots, full, position_tensor, page_table, packed=False):
+         import ttnn
+ 
+         rows, hidden = len(slots), hidden_states.shape[2]
+@@ -501,13 +503,14 @@ class FunctionalDecoder(LightweightModule):
+         states = [self._states[slot] for slot in slots] if self._states else None
+         token = DECODE_BATCH.set(dict(rows=rows, states=states))
+         try:
+-            x = ttnn.reshape(ttnn.to_layout(hidden_states, ttnn.TILE_LAYOUT), (1, rows, hidden))
++            x = hidden_states if packed else ttnn.reshape(ttnn.to_layout(hidden_states, ttnn.TILE_LAYOUT),
++                                                          (1, rows, hidden))
+             y = self.layer.forward(x, mode="decode", **kw)
+         finally:
+             DECODE_BATCH.reset(token)
+         if y.is_sharded():
+             y = ttnn.to_memory_config(y, ttnn.L1_MEMORY_CONFIG)
+-        return ttnn.reshape(y, (rows, 1, hidden))
++        return y if packed else ttnn.reshape(y, (rows, 1, hidden))
+ 
+     def forward(self, hidden_states: Any, *, mode: str, **kwargs: Any) -> Any:
+         if mode == "prefill":
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tt/model.py b/models/autoports/qwen_qwen3_5_35b_a3b/tt/model.py
+index e866aed6..de14fbfc 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tt/model.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tt/model.py
+@@ -95,6 +95,16 @@ def _share_router_slices(layer, shared):
+     return len(routers)
+ 
+ 
++def _share_slot_selectors(layer, shared):
++    experts = _find_gates(layer, match=lambda o: isinstance(getattr(o, "__dict__", None), dict)
++                          and isinstance(o.__dict__.get("slot_selectors"), dict))
++    for expert in experts:
++        if expert.slot_selectors:
++            raise RuntimeError("slot selector cache must be empty when it is shared")
++        expert.slot_selectors = shared
++    return len(experts)
++
++
+ SHAREABLE = ("_rope_cos", "_rope_sin", "rank_buffers", "buffers", "zero_templates", "_zero_recurrent", "_zero_conv",
+              "_index_offsets", "region_matrix", "mask", "zero_row", "expert_ids", "ones", "zeros", "placeholder",
+              "chunk_constants", "kda_start", "offset", "rotation")
+@@ -375,7 +385,7 @@ class Qwen35Model:
+                             memory_config=ttnn.DRAM_MEMORY_CONFIG) for _ in range(2)] for _ in range(full_count)])
+         late_slots = bool(kv_blocks) and max_batch_size > 1
+         layers = []
+-        shared_gate, shared_slices, constants = {}, {}, {}
++        shared_gate, shared_slices, constants, shared_selectors = {}, {}, {}, {}
+         for idx in ids:
+             t0 = time.perf_counter()
+             state = load_layer_state_dict(checkpoint, idx)
+@@ -388,6 +398,8 @@ class Qwen35Model:
+             _share_gate_templates(layers[-1], shared_gate)
+             if _share_router_slices(layers[-1], shared_slices) != 1:
+                 raise RuntimeError("expected one router slice cache per layer")
++            if _share_slot_selectors(layers[-1], shared_selectors) != 1:
++                raise RuntimeError("expected one slot selector cache per layer")
+             _share_layer_constants(layers[-1], constants)
+             gc.collect()
+             log(f"LAYER_LOADED {idx} {time.perf_counter() - t0:.1f}s")
+@@ -581,18 +593,22 @@ class Qwen35Model:
+         import ttnn
+ 
+         hidden = self.embed(tokens)
++        rows = hidden.shape[0]
++        packed = rows > 1 and all(layer.batched_decode for layer in self.layers)
++        if packed:
++            hidden = ttnn.reshape(hidden, (1, rows, hidden.shape[-1]))
+         for layer in self.layers:
+-            kw = dict(request_slots=request_slots)
++            kw = dict(request_slots=request_slots, packed=packed)
+             if layer.config.is_full_attention_layer(layer.layer_idx):
+                 kw.update(position_tensor=position_tensor, page_table=page_table)
+             out = layer.decode_forward(hidden, **kw)
+             hidden.deallocate(True)
+             hidden = out
+-        rows = hidden.shape[0]
+         if rows > 1:
+             if hidden.is_sharded():
+                 hidden = ttnn.sharded_to_interleaved(hidden, ttnn.L1_MEMORY_CONFIG)
+-            hidden = ttnn.reshape(hidden, (1, rows, hidden.shape[-1]))
++            if not packed:
++                hidden = ttnn.reshape(hidden, (1, rows, hidden.shape[-1]))
+         logits = self.logits(hidden)
+         hidden.deallocate(True)
+         return logits
+diff --git a/models/autoports/qwen_qwen3_5_35b_a3b/tt/optimized_decoder.py b/models/autoports/qwen_qwen3_5_35b_a3b/tt/optimized_decoder.py
+index 8a67a0a2..fe96a160 100644
+--- a/models/autoports/qwen_qwen3_5_35b_a3b/tt/optimized_decoder.py
++++ b/models/autoports/qwen_qwen3_5_35b_a3b/tt/optimized_decoder.py
+@@ -823,7 +823,7 @@ class OptimizedDecoder(FusedDecoder):
+             experts.__dict__ = {k:v for k,v in experts.__dict__.items() if k in live}
+             if policy.expert_backend == "sparse":
+                 live = {"policy","compute","gate_up_weight","down_weight","up_weight","gate_weight",
+-                        "ones","zeros","placeholder","mapping"}
++                        "ones","zeros","placeholder","mapping","slot_selectors"}
+             else:
+                 live = {"policy","compute","gate","up","down","idx_template","slot_labels",
+                         "compact_counts","compact_offsets","mapping"}
+@@ -879,7 +879,8 @@ class _PackedGateMoE:
+ 
+         rows = x.shape[2]
+         if 1 < rows <= self.policy.moe_slot_rows and decode_rows(rows):
+-            logits = ttnn.linear(x, self.weight, compute_kernel_config=self.compute, memory_config=ttnn.L1_MEMORY_CONFIG)
++            logits = ttnn.linear(x, self.weight, compute_kernel_config=self.compute, program_config=self.program,
++                                 memory_config=ttnn.L1_MEMORY_CONFIG)
+             values, indices = self.moe.router.module.route(logits[:, :, :, :256])
+             out = self.moe.experts.original.slotted(x, values, indices)
+             return ttnn.add(out, self.moe.shared.forward(x, gate=logits[:, :, :, 256:257]))
+@@ -966,7 +967,7 @@ class _OptimizedGateModule:
+ 
+         base = self.original
+         total = logits.shape[2]
+-        if total > 1 and getattr(self, "topk_prefill", False):
++        if total > 1 and not decode_rows(total) and getattr(self, "topk_prefill", False):
+             dram = ttnn.DRAM_MEMORY_CONFIG
+             values, indices = ttnn.topk(logits, k=8, dim=-1, memory_config=dram)
+             values = ttnn.typecast(ttnn.softmax(ttnn.typecast(values, ttnn.float32), dim=-1, memory_config=dram),
+@@ -1152,6 +1153,7 @@ class _OptimizedSparseExperts:
+         self.zeros = ttnn.from_torch(torch.zeros((1,1,1,256), dtype=torch.bfloat16), device=mesh,
+             dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, mesh_mapper=ttnn.ReplicateTensorToMesh(mesh))
+         self.placeholder = ttnn.to_layout(self.zeros,ttnn.ROW_MAJOR_LAYOUT)
++        self.slot_selectors = {}
+         dt = {"bfp4":ttnn.bfloat4_b, "bfp8":ttnn.bfloat8_b}
+         self.gate_up_weight = _as_dtype(self.weights.gate_up_proj, dt[self.policy.expert_dtype])
+         self.down_weight = _as_dtype(self.weights.down_proj, dt[self.policy.sparse_down_dtype])
+@@ -1176,22 +1178,17 @@ class _OptimizedSparseExperts:
+         grid = hidden.device().compute_with_storage_grid_size()
+         workers = half // 2 if half % 2 == 0 else half
+         chunk = max(1, grid.x * grid.y // (8 * workers))
++        sticks = stick(wide, rows)
+         parts = []
+         for start in range(0, rows, chunk):
+             count = min(chunk, rows - start)
+-            part = stick(wide[:, :, start:start + count, :], count)
++            part = sticks if count == rows else sticks[:, :, :, 8 * start:8 * (start + count)]
+             parts.append(expert_swiglu_decode(hidden, part, self.gate_up_weight, nper=self.policy.expert_decode_nper,
+                                               kb=self.policy.expert_decode_kb))
+         activated = parts[0] if len(parts) == 1 else ttnn.concat(parts, dim=1, memory_config=ttnn.L1_MEMORY_CONFIG)
+         width = activated.shape[-1]
+         activated = ttnn.reshape(activated, (1, slots, rows, width), activated.padded_shape)
+-        down = ttnn.sparse_matmul(activated, self.down_weight, sparsity=self.placeholder,
+-            indices=stick(wide, rows), program_config=self.program_config("down", 2048),
+-            compute_kernel_config=self.compute, memory_config=ttnn.L1_MEMORY_CONFIG, dtype=ttnn.bfloat16,
+-            is_input_a_sparse=True, output_tile=ttnn.Tile([32, 32]))
+-        activated.deallocate(True)
+-        down = ttnn.reshape(down, (1, slots, rows, 2048))
+-        selectors = self.__dict__.setdefault("_slot_selectors", {})
++        selectors = self.slot_selectors
+         if rows not in selectors:
+             select = torch.zeros(1, slots, rows, 1, dtype=torch.bfloat16)
+             select[0, torch.arange(slots), torch.arange(rows).repeat_interleave(8), 0] = 1
+@@ -1200,10 +1197,16 @@ class _OptimizedSparseExperts:
+                                               mesh_mapper=ttnn.ReplicateTensorToMesh(hidden.device()))
+         scale = ttnn.multiply(selectors[rows], ttnn.reshape(values, (1, slots, 1, 1)),
+                               memory_config=ttnn.L1_MEMORY_CONFIG)
+-        weighted = ttnn.multiply(down, scale, memory_config=ttnn.L1_MEMORY_CONFIG)
+-        down.deallocate(True)
+-        reduced = ttnn.experimental.fast_reduce_nc(weighted, dims=[1], memory_config=ttnn.L1_MEMORY_CONFIG)
++        weighted = ttnn.multiply(activated, scale, memory_config=ttnn.L1_MEMORY_CONFIG)
++        activated.deallocate(True)
++        down = ttnn.sparse_matmul(weighted, self.down_weight, sparsity=self.placeholder,
++            indices=sticks, program_config=self.program_config("down", 2048),
++            compute_kernel_config=self.compute, memory_config=ttnn.L1_MEMORY_CONFIG, dtype=ttnn.bfloat16,
++            is_input_a_sparse=True, output_tile=ttnn.Tile([32, 32]))
+         weighted.deallocate(True)
++        down = ttnn.reshape(down, (1, slots, rows, 2048))
++        reduced = ttnn.experimental.fast_reduce_nc(down, dims=[1], memory_config=ttnn.L1_MEMORY_CONFIG)
++        down.deallocate(True)
+         return ttnn.reshape(reduced, (1, 1, rows, 2048), reduced.padded_shape)
+ 
+     def program_config(self, role, n, activation=None):
+@@ -1432,10 +1435,10 @@ class _Projection:
+                 out_block_h=1,out_block_w=pn,fuse_batch=True,fused_activation=None,mcast_in0=True)
+         if self.options.get("input_l1"):
+             x = ttnn.to_memory_config(x,ttnn.L1_MEMORY_CONFIG)
+-        if length > 1 and self.options.get("prefill_minimal"):
++        if length > 1 and not decode_rows(length) and self.options.get("prefill_minimal"):
+             return ttnn.experimental.minimal_matmul(x, self.weight, config=_minimal_config(self.options["prefill_minimal"]),
+                 compute_kernel_config=self.compute, memory_config=memory, dtype=ttnn.bfloat16)
+-        if length > 1 and self.options.get("prefill_grid"):
++        if length > 1 and not decode_rows(length) and self.options.get("prefill_grid"):
+             gx, gy = self.options["prefill_grid"]
+             pn = math.ceil(self.n / 32 / gx)
+             pc = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(

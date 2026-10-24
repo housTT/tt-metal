@@ -1,0 +1,603 @@
+{
+ "mesh": 4,
+ "batches": "1,4,8,16,32",
+ "long_length": 262100,
+ "output": "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_full_model/evidence5/m4/full_evidence.json",
+ "build_seconds": 638.3003893029963,
+ "load_seconds": 624.4769192810054,
+ "memory_after_build": {
+  "dram": {
+   "allocated_bytes": 21103345664,
+   "free_bytes": 13075385344,
+   "banks": 8,
+   "largest_free_bytes_per_bank": 1491173376
+  },
+  "l1": {
+   "allocated_bytes": 9405440,
+   "free_bytes": 151317760,
+   "banks": 110,
+   "largest_free_bytes_per_bank": 1351296
+  }
+ },
+ "census_after_build": {
+  "per_device": true,
+  "by_category": {
+   "layer_private": {
+    "dram_bytes": 13321410680,
+    "l1_bytes": 1024000,
+    "buffers": 4305
+   },
+   "gdn_request_state": {
+    "dram_bytes": 515112960,
+    "l1_bytes": 0,
+    "buffers": 1920
+   },
+   "shared_across_layers": {
+    "dram_bytes": 23767360,
+    "l1_bytes": 901120,
+    "buffers": 12
+   },
+   "kv_cache": {
+    "dram_bytes": 5715568640,
+    "l1_bytes": 0,
+    "buffers": 20
+   },
+   "embedding": {
+    "dram_bytes": 1017118720,
+    "l1_bytes": 0,
+    "buffers": 1
+   },
+   "final_norm": {
+    "dram_bytes": 262144,
+    "l1_bytes": 0,
+    "buffers": 1
+   },
+   "lm_head": {
+    "dram_bytes": 135086080,
+    "l1_bytes": 0,
+    "buffers": 1
+   },
+   "other": {
+    "dram_bytes": 516,
+    "l1_bytes": 0,
+    "buffers": 2
+   },
+   "generator_io": {
+    "dram_bytes": 2031988,
+    "l1_bytes": 0,
+    "buffers": 12
+   },
+   "sampler": {
+    "dram_bytes": 87438032,
+    "l1_bytes": 0,
+    "buffers": 21
+   }
+  },
+  "named_dram_bytes": 20817797120,
+  "allocator_dram_bytes": 21103345664,
+  "unnamed_dram_bytes": 285548544,
+  "largest": [
+   {
+    "bytes": 1017118720,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.embedding",
+    "aliases": 1
+   },
+   {
+    "bytes": 285778432,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[3].layer.original.attention.reduced_module.paged_kv_cache_key",
+    "aliases": 2
+   },
+   {
+    "bytes": 285778432,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[3].layer.original.attention.reduced_module.paged_kv_cache_value",
+    "aliases": 2
+   },
+   {
+    "bytes": 285778432,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[7].layer.original.attention.reduced_module.paged_kv_cache_key",
+    "aliases": 2
+   },
+   {
+    "bytes": 285778432,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[7].layer.original.attention.reduced_module.paged_kv_cache_value",
+    "aliases": 2
+   },
+   {
+    "bytes": 285778432,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[11].layer.original.attention.reduced_module.paged_kv_cache_key",
+    "aliases": 2
+   },
+   {
+    "bytes": 285778432,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[11].layer.original.attention.reduced_module.paged_kv_cache_value",
+    "aliases": 2
+   },
+   {
+    "bytes": 285778432,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[15].layer.original.attention.reduced_module.paged_kv_cache_key",
+    "aliases": 2
+   },
+   {
+    "bytes": 285778432,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[15].layer.original.attention.reduced_module.paged_kv_cache_value",
+    "aliases": 2
+   },
+   {
+    "bytes": 285778432,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[19].layer.original.attention.reduced_module.paged_kv_cache_key",
+    "aliases": 2
+   },
+   {
+    "bytes": 285778432,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[19].layer.original.attention.reduced_module.paged_kv_cache_value",
+    "aliases": 2
+   },
+   {
+    "bytes": 285778432,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[23].layer.original.attention.reduced_module.paged_kv_cache_key",
+    "aliases": 2
+   }
+  ]
+ },
+ "kv_pool": {
+  "num_blocks": 32832,
+  "block_size": 32,
+  "tokens": 1050624,
+  "request_slots": 32
+ },
+ "perf_128_128": {
+  "ttft_ms": 99.44768600689713,
+  "token_out_ms_per_token": 9.11169898425601,
+  "token_out_tokens_per_second_per_user": 109.7490162622676,
+  "runs_ttft_ms": [
+   98.58923200226855,
+   104.43097999814199,
+   99.44768600689713
+  ],
+  "runs_decode_ms": [
+   9.752882795266745,
+   9.11169898425601,
+   9.110753480267094
+  ]
+ },
+ "logits_only_decode_ms": 8.591505997173954,
+ "determinism": {
+  "greedy_repeat_identical": true,
+  "prefill_logits_bitwise": true
+ },
+ "nonaligned_single": {
+  "5": [
+   303,
+   264,
+   22960,
+   1814,
+   4613,
+   1004,
+   12497,
+   11
+  ],
+  "127": [
+   85624,
+   1881,
+   1330,
+   2172,
+   22767,
+   11,
+   1017,
+   11815
+  ],
+  "129": [
+   1330,
+   2172,
+   22767,
+   11,
+   1017,
+   11815,
+   264,
+   21520
+  ],
+  "300": [
+   303,
+   264,
+   2526,
+   13721,
+   85624,
+   1881,
+   1330,
+   2172
+  ],
+  "1000": [
+   11,
+   1292,
+   13293,
+   12162,
+   5028,
+   264,
+   854,
+   11
+  ],
+  "4095": [
+   6983,
+   6353,
+   11,
+   1292,
+   1000,
+   24562,
+   310,
+   279
+  ],
+  "4097": [
+   11,
+   1292,
+   1000,
+   24562,
+   310,
+   279,
+   1844,
+   314
+  ],
+  "8191": [
+   1345,
+   11362,
+   23221,
+   1024,
+   6714,
+   36620,
+   4757,
+   11
+  ],
+  "8193": [
+   23221,
+   1024,
+   6714,
+   36620,
+   4757,
+   11,
+   1292,
+   13293
+  ],
+  "12000": [
+   13,
+   6983,
+   6353,
+   11,
+   1292,
+   1000,
+   24562,
+   310
+  ]
+ },
+ "batch_4": {
+  "rows": [
+   5,
+   127,
+   129,
+   300
+  ],
+  "argmax_agree_steps": [
+   7,
+   8,
+   8,
+   8
+  ],
+  "steps": 8,
+  "batch1_token_rank_max": 1,
+  "all_steps_argmax_agree": false,
+  "all_within_top5": true,
+  "kl_vs_batch1_mean": 0.0024127445999937436,
+  "kl_vs_batch1_max": 0.041071172803640366,
+  "kl_vs_batch1_row_max": [
+   0.041071172803640366,
+   7.48354141251184e-05,
+   0.0009576095035299659,
+   0.00040190835716202855
+  ]
+ },
+ "batch_8": {
+  "rows": [
+   5,
+   127,
+   129,
+   300,
+   1000,
+   4095,
+   4097,
+   8191
+  ],
+  "argmax_agree_steps": [
+   7,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8
+  ],
+  "steps": 8,
+  "batch1_token_rank_max": 1,
+  "all_steps_argmax_agree": false,
+  "all_within_top5": true,
+  "kl_vs_batch1_mean": 0.001268933373251624,
+  "kl_vs_batch1_max": 0.041071172803640366,
+  "kl_vs_batch1_row_max": [
+   0.041071172803640366,
+   7.48354141251184e-05,
+   0.0009576095035299659,
+   0.00040190835716202855,
+   0.0023458441719412804,
+   4.357923444331391e-06,
+   4.747707862406969e-05,
+   2.0403378584887832e-05
+  ]
+ },
+ "batch_16": {
+  "rows": [
+   5,
+   127,
+   129,
+   300,
+   1000,
+   4095,
+   4097,
+   8191,
+   8193,
+   12000,
+   5,
+   127,
+   129,
+   300,
+   1000,
+   4095
+  ],
+  "argmax_agree_steps": [
+   7,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   7,
+   8,
+   8,
+   8,
+   8,
+   8
+  ],
+  "steps": 8,
+  "batch1_token_rank_max": 1,
+  "all_steps_argmax_agree": false,
+  "all_within_top5": true,
+  "kl_vs_batch1_mean": 0.0012684490732718517,
+  "kl_vs_batch1_max": 0.041071172803640366,
+  "kl_vs_batch1_row_max": [
+   0.041071172803640366,
+   7.48354141251184e-05,
+   0.0009576095035299659,
+   0.00040190835716202855,
+   0.0023458441719412804,
+   1.8361852198722772e-05,
+   3.305887366877869e-05,
+   1.494112984801177e-05,
+   2.842654794221744e-05,
+   6.0306338127702475e-06,
+   0.041071172803640366,
+   7.48354141251184e-05,
+   0.0009576095035299659,
+   0.00040190835716202855,
+   0.0023458441719412804,
+   1.8361852198722772e-05
+  ]
+ },
+ "batch_32": {
+  "rows": [
+   5,
+   127,
+   129,
+   300,
+   1000,
+   4095,
+   4097,
+   8191,
+   8193,
+   12000,
+   5,
+   127,
+   129,
+   300,
+   1000,
+   4095,
+   4097,
+   8191,
+   8193,
+   12000,
+   5,
+   127,
+   129,
+   300,
+   1000,
+   4095,
+   4097,
+   8191,
+   8193,
+   12000,
+   5,
+   127
+  ],
+  "argmax_agree_steps": [
+   7,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   7,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   7,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   7,
+   8
+  ],
+  "steps": 8,
+  "batch1_token_rank_max": 1,
+  "all_steps_argmax_agree": false,
+  "all_within_top5": true,
+  "kl_vs_batch1_mean": 0.0012448202745025255,
+  "kl_vs_batch1_max": 0.041071172803640366,
+  "kl_vs_batch1_row_max": [
+   0.041071172803640366,
+   7.48354141251184e-05,
+   0.0009576095035299659,
+   0.00040190835716202855,
+   0.0023458441719412804,
+   2.2669673853670247e-05,
+   2.7777288778452203e-05,
+   5.6795597629388794e-06,
+   2.7418411264079623e-05,
+   2.2518132027471438e-05,
+   0.041071172803640366,
+   7.48354141251184e-05,
+   0.0009576095035299659,
+   0.00040190835716202855,
+   0.0023458441719412804,
+   2.2669673853670247e-05,
+   2.7777288778452203e-05,
+   5.6795597629388794e-06,
+   2.7418411264079623e-05,
+   2.2518132027471438e-05,
+   0.041071172803640366,
+   7.48354141251184e-05,
+   0.0009576095035299659,
+   0.00040190835716202855,
+   0.0023458441719412804,
+   2.2669673853670247e-05,
+   2.7777288778452203e-05,
+   5.6795597629388794e-06,
+   2.7418411264079623e-05,
+   2.2518132027471438e-05,
+   0.041071172803640366,
+   7.48354141251184e-05
+  ]
+ },
+ "continuation": {
+  "cases": [
+   {
+    "start": 128,
+    "length": 300,
+    "pcc": 0.8264480115142191,
+    "same_argmax": true
+   },
+   {
+    "start": 4224,
+    "length": 77,
+    "pcc": 0.9978530217620786,
+    "same_argmax": true
+   },
+   {
+    "start": 8192,
+    "length": 1,
+    "pcc": 1.0,
+    "same_argmax": true
+   },
+   {
+    "start": 8320,
+    "length": 4097,
+    "pcc": 0.9263626844664713,
+    "same_argmax": true
+   },
+   {
+    "start": 12288,
+    "length": 129,
+    "pcc": 0.9121412561914661,
+    "same_argmax": true
+   }
+  ],
+  "unaligned_start": {
+   "32": "ValueError: prefill start 32 is not a multiple of 128; continuation prefill starts on a 128-token boundary",
+   "8224": "ValueError: prefill start 8224 is not a multiple of 128; continuation prefill starts on a 128-token boundary"
+  }
+ },
+ "long": {
+  "length": 262100,
+  "seconds": 62.121731445004116,
+  "tokens": [
+   66255,
+   13,
+   6983,
+   6353,
+   11,
+   1292,
+   1000,
+   24562,
+   310,
+   279,
+   1844,
+   314,
+   279,
+   22426,
+   23198,
+   321
+  ],
+  "text": " Elena. Every morning, she would climb to the top of the eastern hill and"
+ },
+ "boundary": {
+  "length": 262143,
+  "requested": 16,
+  "returned": 2,
+  "tokens": [
+   264,
+   2526
+  ]
+ },
+ "counters": {
+  "warmup_runs": 1,
+  "prefill_table_refreshes": 99,
+  "sampling_param_refreshes": 11,
+  "page_table_refreshes": 36,
+  "position_refreshes": 120,
+  "token_refreshes": 99,
+  "resets": 41,
+  "token_readbacks": 546,
+  "decode_captures": 5,
+  "decode_replays": 627,
+  "sampling_replays": 529,
+  "logit_readbacks": 185
+ },
+ "pad_fallbacks": 0
+}

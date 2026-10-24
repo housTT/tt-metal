@@ -1,0 +1,603 @@
+{
+ "mesh": 1,
+ "batches": "1,4,8,16,32",
+ "long_length": 262100,
+ "output": "/home/hous/dev/qwen3.5-35b-a3b/tt-metal/models/autoports/qwen_qwen3_5_35b_a3b/doc/optimized_full_model/evidence3/m1/full_evidence.json",
+ "build_seconds": 428.6454775139973,
+ "load_seconds": 407.5007954499997,
+ "memory_after_build": {
+  "dram": {
+   "allocated_bytes": 32573642240,
+   "free_bytes": 1605088768,
+   "banks": 8,
+   "largest_free_bytes_per_bank": 177876864
+  },
+  "l1": {
+   "allocated_bytes": 1802240,
+   "free_bytes": 158920960,
+   "banks": 110,
+   "largest_free_bytes_per_bank": 1438592
+  }
+ },
+ "census_after_build": {
+  "per_device": true,
+  "by_category": {
+   "layer_private": {
+    "dram_bytes": 25630126200,
+    "l1_bytes": 8192,
+    "buffers": 2584
+   },
+   "gdn_request_state": {
+    "dram_bytes": 2060451840,
+    "l1_bytes": 0,
+    "buffers": 1920
+   },
+   "shared_across_layers": {
+    "dram_bytes": 97700160,
+    "l1_bytes": 901120,
+    "buffers": 58
+   },
+   "kv_cache": {
+    "dram_bytes": 2874757120,
+    "l1_bytes": 0,
+    "buffers": 20
+   },
+   "embedding": {
+    "dram_bytes": 1017118720,
+    "l1_bytes": 0,
+    "buffers": 1
+   },
+   "final_norm": {
+    "dram_bytes": 262144,
+    "l1_bytes": 0,
+    "buffers": 1
+   },
+   "lm_head": {
+    "dram_bytes": 540344320,
+    "l1_bytes": 0,
+    "buffers": 1
+   },
+   "other": {
+    "dram_bytes": 516,
+    "l1_bytes": 0,
+    "buffers": 2
+   },
+   "generator_io": {
+    "dram_bytes": 2031988,
+    "l1_bytes": 0,
+    "buffers": 12
+   },
+   "sampler": {
+    "dram_bytes": 158954192,
+    "l1_bytes": 0,
+    "buffers": 21
+   }
+  },
+  "named_dram_bytes": 32381747200,
+  "allocator_dram_bytes": 32573642240,
+  "unnamed_dram_bytes": 191895040,
+  "largest": [
+   {
+    "bytes": 1017118720,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.embedding",
+    "aliases": 1
+   },
+   {
+    "bytes": 540344320,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.lm_head",
+    "aliases": 1
+   },
+   {
+    "bytes": 301989888,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[0].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+    "aliases": 4
+   },
+   {
+    "bytes": 301989888,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[1].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+    "aliases": 4
+   },
+   {
+    "bytes": 301989888,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[2].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+    "aliases": 4
+   },
+   {
+    "bytes": 301989888,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[3].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+    "aliases": 4
+   },
+   {
+    "bytes": 301989888,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[4].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+    "aliases": 4
+   },
+   {
+    "bytes": 301989888,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[5].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+    "aliases": 4
+   },
+   {
+    "bytes": 301989888,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[6].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+    "aliases": 4
+   },
+   {
+    "bytes": 301989888,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[7].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+    "aliases": 4
+   },
+   {
+    "bytes": 301989888,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[8].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+    "aliases": 4
+   },
+   {
+    "bytes": 301989888,
+    "buffer": "BufferType.DRAM",
+    "path": "gen.model.layers[9].layer.feed_forward.module.moe.experts.weights.gate_up_proj",
+    "aliases": 4
+   }
+  ]
+ },
+ "kv_pool": {
+  "num_blocks": 8256,
+  "block_size": 32,
+  "tokens": 264192,
+  "request_slots": 32
+ },
+ "perf_128_128": {
+  "ttft_ms": 183.241299000656,
+  "token_out_ms_per_token": 15.80209843304483,
+  "token_out_tokens_per_second_per_user": 63.28273452017188,
+  "runs_ttft_ms": [
+   183.241299000656,
+   183.50519600062398,
+   183.20587200287264
+  ],
+  "runs_decode_ms": [
+   16.252579543285584,
+   15.801812629906347,
+   15.80209843304483
+  ]
+ },
+ "logits_only_decode_ms": 14.510779999909573,
+ "determinism": {
+  "greedy_repeat_identical": true,
+  "prefill_logits_bitwise": true
+ },
+ "nonaligned_single": {
+  "5": [
+   303,
+   264,
+   1814,
+   2400,
+   314,
+   7648,
+   7785,
+   11
+  ],
+  "127": [
+   85624,
+   1881,
+   1330,
+   2172,
+   22767,
+   11,
+   1017,
+   11815
+  ],
+  "129": [
+   1330,
+   2172,
+   22767,
+   11,
+   1017,
+   11815,
+   264,
+   21520
+  ],
+  "300": [
+   303,
+   264,
+   2526,
+   13721,
+   85624,
+   1881,
+   1330,
+   2172
+  ],
+  "1000": [
+   11,
+   1292,
+   13293,
+   12162,
+   5028,
+   264,
+   854,
+   11
+  ],
+  "4095": [
+   6983,
+   6353,
+   11,
+   1292,
+   1000,
+   24562,
+   310,
+   279
+  ],
+  "4097": [
+   11,
+   1292,
+   1000,
+   24562,
+   310,
+   279,
+   1844,
+   314
+  ],
+  "8191": [
+   1345,
+   11362,
+   23221,
+   1024,
+   6714,
+   36620,
+   4757,
+   11
+  ],
+  "8193": [
+   23221,
+   1024,
+   6714,
+   36620,
+   4757,
+   11,
+   1292,
+   13293
+  ],
+  "12000": [
+   13,
+   6983,
+   6353,
+   11,
+   1292,
+   1000,
+   24562,
+   310
+  ]
+ },
+ "batch_4": {
+  "rows": [
+   5,
+   127,
+   129,
+   300
+  ],
+  "argmax_agree_steps": [
+   7,
+   8,
+   8,
+   8
+  ],
+  "steps": 8,
+  "batch1_token_rank_max": 1,
+  "all_steps_argmax_agree": false,
+  "all_within_top5": true,
+  "kl_vs_batch1_mean": 0.0017558445907290832,
+  "kl_vs_batch1_max": 0.0195752140134573,
+  "kl_vs_batch1_row_max": [
+   0.0195752140134573,
+   0.00047743733739480376,
+   0.0006146982777863741,
+   9.427755139768124e-05
+  ]
+ },
+ "batch_8": {
+  "rows": [
+   5,
+   127,
+   129,
+   300,
+   1000,
+   4095,
+   4097,
+   8191
+  ],
+  "argmax_agree_steps": [
+   7,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8
+  ],
+  "steps": 8,
+  "batch1_token_rank_max": 1,
+  "all_steps_argmax_agree": false,
+  "all_within_top5": true,
+  "kl_vs_batch1_mean": 0.0008983038137730937,
+  "kl_vs_batch1_max": 0.0195752140134573,
+  "kl_vs_batch1_row_max": [
+   0.0195752140134573,
+   0.00047743733739480376,
+   0.0006146982777863741,
+   9.427755139768124e-05,
+   0.0005769196432083845,
+   0.00014274725981522352,
+   1.350283946521813e-05,
+   1.0091707736137323e-05
+  ]
+ },
+ "batch_16": {
+  "rows": [
+   5,
+   127,
+   129,
+   300,
+   1000,
+   4095,
+   4097,
+   8191,
+   8193,
+   12000,
+   5,
+   127,
+   129,
+   300,
+   1000,
+   4095
+  ],
+  "argmax_agree_steps": [
+   7,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   7,
+   8,
+   8,
+   8,
+   8,
+   8
+  ],
+  "steps": 8,
+  "batch1_token_rank_max": 1,
+  "all_steps_argmax_agree": false,
+  "all_within_top5": true,
+  "kl_vs_batch1_mean": 0.0008991651985164606,
+  "kl_vs_batch1_max": 0.0195752140134573,
+  "kl_vs_batch1_row_max": [
+   0.0195752140134573,
+   0.00047743733739480376,
+   0.0006146982777863741,
+   9.427755139768124e-05,
+   0.0005769196432083845,
+   0.00011288256064290181,
+   7.021374767646194e-05,
+   3.191894938936457e-05,
+   2.9627743060700595e-05,
+   3.075145650655031e-05,
+   0.0195752140134573,
+   0.00047743733739480376,
+   0.0006146982777863741,
+   9.427755139768124e-05,
+   0.0005769196432083845,
+   0.00011288256064290181
+  ]
+ },
+ "batch_32": {
+  "rows": [
+   5,
+   127,
+   129,
+   300,
+   1000,
+   4095,
+   4097,
+   8191,
+   8193,
+   12000,
+   5,
+   127,
+   129,
+   300,
+   1000,
+   4095,
+   4097,
+   8191,
+   8193,
+   12000,
+   5,
+   127,
+   129,
+   300,
+   1000,
+   4095,
+   4097,
+   8191,
+   8193,
+   12000,
+   5,
+   127
+  ],
+  "argmax_agree_steps": [
+   7,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   7,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   7,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   8,
+   7,
+   8
+  ],
+  "steps": 8,
+  "batch1_token_rank_max": 1,
+  "all_steps_argmax_agree": false,
+  "all_within_top5": true,
+  "kl_vs_batch1_mean": 0.0006796481060308279,
+  "kl_vs_batch1_max": 0.010402404703199863,
+  "kl_vs_batch1_row_max": [
+   0.010402404703199863,
+   0.001210000249557197,
+   0.0006011929363012314,
+   0.00029257882852107286,
+   0.0012082173489034176,
+   0.00011776947212638333,
+   1.4583968550141435e-05,
+   3.056328205275349e-05,
+   2.7078782295575365e-05,
+   0.00014337935135699809,
+   0.010402404703199863,
+   0.001210000249557197,
+   0.0006011929363012314,
+   0.00029257882852107286,
+   0.0012082173489034176,
+   0.00011776947212638333,
+   1.4583968550141435e-05,
+   3.056328205275349e-05,
+   2.7078782295575365e-05,
+   0.00014337935135699809,
+   0.010402404703199863,
+   0.001210000249557197,
+   0.0006011929363012314,
+   0.00029257882852107286,
+   0.0012082173489034176,
+   0.00011776947212638333,
+   1.4583968550141435e-05,
+   3.056328205275349e-05,
+   2.7078782295575365e-05,
+   0.00014337935135699809,
+   0.010402404703199863,
+   0.001210000249557197
+  ]
+ },
+ "continuation": {
+  "cases": [
+   {
+    "start": 128,
+    "length": 300,
+    "pcc": 0.9589624973750936,
+    "same_argmax": true
+   },
+   {
+    "start": 4224,
+    "length": 77,
+    "pcc": 0.9984083783106099,
+    "same_argmax": true
+   },
+   {
+    "start": 8192,
+    "length": 1,
+    "pcc": 1.0,
+    "same_argmax": true
+   },
+   {
+    "start": 8320,
+    "length": 4097,
+    "pcc": 0.9294339454297504,
+    "same_argmax": true
+   },
+   {
+    "start": 12288,
+    "length": 129,
+    "pcc": 0.9023036685931219,
+    "same_argmax": true
+   }
+  ],
+  "unaligned_start": {
+   "32": "ValueError: prefill start 32 is not a multiple of 128; continuation prefill starts on a 128-token boundary",
+   "8224": "ValueError: prefill start 8224 is not a multiple of 128; continuation prefill starts on a 128-token boundary"
+  }
+ },
+ "long": {
+  "length": 262100,
+  "seconds": 139.20216668599824,
+  "tokens": [
+   66255,
+   13,
+   6983,
+   6353,
+   11,
+   1292,
+   1000,
+   24562,
+   310,
+   279,
+   1844,
+   314,
+   279,
+   22426,
+   23198,
+   321
+  ],
+  "text": " Elena. Every morning, she would climb to the top of the eastern hill and"
+ },
+ "boundary": {
+  "length": 262143,
+  "requested": 16,
+  "returned": 2,
+  "tokens": [
+   264,
+   2526
+  ]
+ },
+ "counters": {
+  "warmup_runs": 1,
+  "prefill_table_refreshes": 99,
+  "sampling_param_refreshes": 11,
+  "page_table_refreshes": 36,
+  "position_refreshes": 120,
+  "token_refreshes": 99,
+  "resets": 41,
+  "token_readbacks": 546,
+  "decode_captures": 5,
+  "decode_replays": 627,
+  "sampling_replays": 529,
+  "logit_readbacks": 185
+ },
+ "pad_fallbacks": 0
+}

@@ -443,3 +443,147 @@ at B8 and B32, distinct-row calibration at B16 and B32, profiles at layers (0,3)
 - I stopped my chain and its waiting child by PID. I did not touch the other user's process.
 - Completed: all p150x4 steps; p150x2 except `calibration_b16_m2` (rc 135) and `calibration_b32_m2` (rc 1)
   at the 16:15 device event; p150 up to `tf_aime_m1`.
+
+## Devices held by another user until host reboot (Oct 15 17:33 to Oct 23 10:10)
+
+- Another user's vLLM process held device 0 from Oct 15 17:05.
+- Kernel log, Oct 19 02:34: telemetry tasks blocked on a driver mutex owned by that process.
+- My launcher was stopped at the user's request (Oct 15 21:10). No device job of mine ran.
+- Host rebooted Oct 23 10:10. All 4 devices free. Profiler `/tmp` link recreated; 4-chip mesh smoke OK.
+
+## Chain 3c (Oct 23 14:08 to 16:12, all 21 steps rc 0, `SOURCE_STABLE`)
+
+- p150x2 calibration B16/B32 rerun; all p150 steps; p4096 profile; degenerate check.
+- `tt/` identical to chains 3 and 3b (manifests).
+
+## Accounting profiles (16:17 to 16:46)
+
+- `runs/main/stage07/profile_l037.sh`: layers (0,3,7) for B1/B32 on every profile (`SOURCE_STABLE`).
+  First launch failed in setup (missing shell functions), log in `runs/main/stage07/failed_profile_l037_setup/`.
+- `runs/main/stage07/profile_named.sh`: `-r` profiles with op names, layers (0,3), B1/B32, every profile.
+  All 6 rc 0; p150x4 B32 took 6 minutes (the earlier 1500 s timeout no longer occurs).
+- `perf_accounting3.py`: GDN-type layer = (0,1,3) - (0,3), full-type = (0,3,7) - (0,3). Each includes its MoE.
+- Device time within 1% of end to end, except p150 B32 (+1.9%, profiler replay drift).
+- tt-perf-report per-op tables omit trace-replay rows ("495 rows had invalid device durations"); the
+  per-replay breakdown uses the raw ops CSV (`runs/main/stage07/named_breakdown.py`).
+
+## Projection wiring defect at batched decode (16:47)
+
+- p150x4 B32 profile: GDN `attention_in` ran `minimal_matmul` 32 x 2048 x 3136 (49.9 us, 25% DRAM).
+  B1 runs the decode 1D program (23.6 us, 53% DRAM).
+- Cause: `_Projection.__call__` applied `prefill_minimal` / `prefill_grid` for any length > 1,
+  overriding the `decode_grid` program config at batched decode rows.
+- Fix: prefill branches apply only when no decode program config is set.
+- B1 (length 1) and prefill (no decode batch context) take the same branches as before.
+
+Full model, greedy, ms per step (`runs/main/stage07/projfix/`, `SOURCE_STABLE`):
+
+| Profile | B4 | B8 | B16 | B32 |
+|---|---|---|---|---|
+| p150x4 | 17.91 -> 16.70 | 24.10 -> 22.87 | 35.71 -> 34.52 | 60.12 -> 58.85 |
+| p150x2 | 25.41 -> 23.04 | 36.31 -> 33.99 | 58.98 -> 56.65 | 104.89 -> 102.61 |
+| p150 | 43.04 -> 42.32 | 69.51 -> 68.74 | 124.60 -> 124.20 | 221.75 -> 220.85 |
+
+- Kept. Chain 4 (`runs/main/stage07/evidence_chain4.sh`) reruns the batched checks into `evidence4/`.
+
+## Chain 4: batched requalification after the projection fix (Oct 23 17:26 to 22:58)
+
+- `/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage07/evidence_chain4.sh`: 48 of 48 steps rc 0, `SOURCE_STABLE`.
+- Every batched check passes on every profile (`evidence4/check_compare_ev3_ev4.json`).
+- Accounting rerun for B32 (`perf_accounting4.py`); B1 rows from `evidence3/`.
+- KL to HF, B16 and B32: p150x4 0.0068 / 0.149, p150x2 0.0067 / 0.255, p150 unchanged.
+- Batched qualitative rows coherent; same-prompt rows identical.
+- Context contract regenerated from `evidence4/` (`update_contract7_ev4.py`).
+
+## Layer-check anomaly probe (Oct 23 22:59 to 23:06)
+
+- Layer checks in `evidence4/` are bitwise equal to `evidence3/`.
+- Instrumented probe (`/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage07/projfix/layer_probe/`):
+  - post-fix batched path calls the 1D decode config;
+  - pre-fix path (patched in the probe only) calls `minimal_matmul`;
+  - both give bitwise-equal B4 outputs for GDN and full layers.
+- Full-model B16 logits equal before and after for the first 2 to 3 positions, then differ.
+- B1 logits are bitwise equal across 4 runs on 3 sources.
+- Classified as controlled in the README anomaly ledger.
+
+## Review 2 remediation: decode programs at batched rows (Oct 23 23:36 to Oct 24 00:46)
+
+- Review 2 P2 #1: batched decode still ran prefill programs and slot glue.
+- Changes (`tt/optimized_decoder.py`):
+  - router linear passes the batch-1 program config;
+  - router top-k and `_Projection` prefill branches test `not decode_rows(length)`;
+  - slot MoE lays out expert indices once and slices per chunk.
+- Trial `/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage07/fix2/`: all rc 0, `SOURCE_STABLE`.
+
+| Profile | B4 | B8 | B16 | B32 |
+|---|---|---|---|---|
+| p150x4 | 16.70 -> 14.58 | 22.87 -> 20.21 | 34.52 -> 31.09 | 58.85 -> 52.84 |
+| p150x2 | 23.04 -> 20.47 | 33.99 -> 30.51 | 56.65 -> 51.08 | 102.62 -> 91.88 |
+| p150 | 42.32 -> 36.50 | 68.74 -> 61.11 | 124.20 -> 111.44 | 220.85 -> 214.83 |
+
+- Layer delta PCC equal or better; B32 full-attention layer 0.9996 -> 0.99993.
+- B16 KL to HF: p150x4 0.0058, p150x2 0.0062, p150 0.0055.
+
+## Review 2 remediation: slot glue (Oct 24 00:48 to 02:11)
+
+- Routing weights now scale the expert activations before the down `sparse_matmul`.
+  - Removes the multiply over the 2048-wide padded down output.
+  - Mask and scale use the same selector; down is linear, so the sum is the same.
+- Batched hidden stays `[1,B,H]` across all layers (`packed` in `decode_forward`).
+  - Removes two reshapes per layer; one reshape at the embedding.
+- Trial `/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage07/fix3/`: all rc 0, `SOURCE_STABLE`.
+
+| Profile | B4 | B8 | B16 | B32 |
+|---|---|---|---|---|
+| p150x4 | 14.58 -> 13.82 | 20.21 -> 18.90 | 31.09 -> 28.54 | 52.84 -> 47.97 |
+| p150x2 | 20.47 -> 19.73 | 30.51 -> 29.26 | 51.08 -> 48.62 | 91.88 -> 87.23 |
+| p150 | 36.50 -> 35.70 | 61.11 -> 59.66 | 111.44 -> 109.17 | 214.83 -> 212.51 |
+
+- Layer delta PCC unchanged from fix2.
+- B16 KL to HF: p150x4 0.0083, p150x2 0.0050, p150 0.0070.
+- TT-to-TT KL fix2 vs fix3: 0.0039 / 0.0021 / 0.0026 (x4 / x2 / p150).
+  - Same size as evidence4 vs fix2: 0.0033 / 0.0026 / 0.0025.
+  - Rounding-order change, not an accuracy loss.
+
+## Slot selectors shared across layers (Oct 24 02:00 to 02:11)
+
+- Census growth since Stage 6: +37.5 MiB (x4, x2), +17.5 MiB (p150).
+- Cause: per-layer slot selector constants, 0.9375 MiB per layer at rows 4,8,16,32.
+- Fix: `tt/model.py` `_share_slot_selectors` gives all layers one cache.
+- Smoke `/home/hous/dev/qwen3.5-35b-a3b/runs/main/stage07/fix4/`: p150x4 B4 and B32 step unchanged.
+- Chain 5 (`runs/main/stage07/evidence_chain5.sh`) requalifies into `evidence5/`.
+
+## Chain 5: requalification into evidence5 (Oct 24 02:11 to 07:49)
+
+- `runs/main/stage07/evidence_chain5.sh`: 48 of 48 steps rc 0, `SOURCE_STABLE` (full manifest compare).
+- p150x4 and p150x2 pass every check. Final step ms in README.
+- p150 B32 qualitative: rows with the same prompt diverged. `evidence4/` had them identical.
+
+## Fix5: prefill programs inside the p150 dispatch branch (Oct 24 07:50 to 08:17)
+
+- Cause: fix2 made router top-k and `_Projection` pick decode programs at decode row counts.
+  - The p150 B32 branch pads to 32 rows and runs `moe.forward(mode="prefill")`.
+  - Inside it, those calls now used decode programs with prefill dispatch.
+- Fix: `PREFILL_PROGRAMS` context variable set around that call; `prefill_rows(length)` tests it.
+- Reach: only rows above `moe_slot_rows`; p150x4 and p150x2 never reach it (slot rows 32).
+- Trial `runs/main/stage07/fix5/`: p150 B32 same-prompt rows identical; KL to HF 0.0071; 215.12 ms.
+
+## Chain 5b: p150 rerun on the fix5 source (Oct 24 08:17 to 09:46)
+
+- `runs/main/stage07/evidence_chain5b.sh`: all 16 p150 steps rc 0, `SOURCE_STABLE` (`_m1b` manifests).
+- Pre-fix5 p150 evidence moved to `evidence5/m1_pre_fix5/` and `evidence5/qualitative/pre_fix5/`.
+- p150 step ms: B4 35.70, B8 59.66, B16 109.16, B32 215.00 (sampled 222.17).
+- p150 B32 KL to HF 0.0071 (top-1 99); KL to B1 maximum 0.020.
+- Post-processing rerun: profiles, named breakdown, accounting, calibration, checks, qualitative, contract,
+  perf summary, memory handoff recheck.
+- `qual_compare5.py` now adds HF common prefix and a B8-equals-B32 row check.
+- Memory recheck: layer-private DRAM vs stage 06 +1.0 / +0.9 / +0.4 MiB (selectors shared).
+
+## Review 3 remediation (Oct 24 10:17)
+
+- Review 3: `stage_review3.md`, more-work-needed, documentation only.
+- L1 growth vs stage 06: +32 KiB per bank (meshes), +24 KiB (p150).
+  - Matches router cached slices for widths 4 to 32 exactly.
+  - Added to `memory_handoff_recheck.json` and README context section.
+- `perf_summary.json` `named_limitations` now computed from evidence5 accounting.
+- README wording: p150 matmul net change, all-reduce spread, calibration positions.

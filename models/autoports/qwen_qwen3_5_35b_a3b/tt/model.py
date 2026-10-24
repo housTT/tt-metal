@@ -95,6 +95,16 @@ def _share_router_slices(layer, shared):
     return len(routers)
 
 
+def _share_slot_selectors(layer, shared):
+    experts = _find_gates(layer, match=lambda o: isinstance(getattr(o, "__dict__", None), dict)
+                          and isinstance(o.__dict__.get("slot_selectors"), dict))
+    for expert in experts:
+        if expert.slot_selectors:
+            raise RuntimeError("slot selector cache must be empty when it is shared")
+        expert.slot_selectors = shared
+    return len(experts)
+
+
 SHAREABLE = ("_rope_cos", "_rope_sin", "rank_buffers", "buffers", "zero_templates", "_zero_recurrent", "_zero_conv",
              "_index_offsets", "region_matrix", "mask", "zero_row", "expert_ids", "ones", "zeros", "placeholder",
              "chunk_constants", "kda_start", "offset", "rotation")
@@ -375,7 +385,7 @@ class Qwen35Model:
                             memory_config=ttnn.DRAM_MEMORY_CONFIG) for _ in range(2)] for _ in range(full_count)])
         late_slots = bool(kv_blocks) and max_batch_size > 1
         layers = []
-        shared_gate, shared_slices, constants = {}, {}, {}
+        shared_gate, shared_slices, constants, shared_selectors = {}, {}, {}, {}
         for idx in ids:
             t0 = time.perf_counter()
             state = load_layer_state_dict(checkpoint, idx)
@@ -388,6 +398,8 @@ class Qwen35Model:
             _share_gate_templates(layers[-1], shared_gate)
             if _share_router_slices(layers[-1], shared_slices) != 1:
                 raise RuntimeError("expected one router slice cache per layer")
+            if _share_slot_selectors(layers[-1], shared_selectors) != 1:
+                raise RuntimeError("expected one slot selector cache per layer")
             _share_layer_constants(layers[-1], constants)
             gc.collect()
             log(f"LAYER_LOADED {idx} {time.perf_counter() - t0:.1f}s")
@@ -581,18 +593,22 @@ class Qwen35Model:
         import ttnn
 
         hidden = self.embed(tokens)
+        rows = hidden.shape[0]
+        packed = rows > 1 and all(layer.batched_decode for layer in self.layers)
+        if packed:
+            hidden = ttnn.reshape(hidden, (1, rows, hidden.shape[-1]))
         for layer in self.layers:
-            kw = dict(request_slots=request_slots)
+            kw = dict(request_slots=request_slots, packed=packed)
             if layer.config.is_full_attention_layer(layer.layer_idx):
                 kw.update(position_tensor=position_tensor, page_table=page_table)
             out = layer.decode_forward(hidden, **kw)
             hidden.deallocate(True)
             hidden = out
-        rows = hidden.shape[0]
         if rows > 1:
             if hidden.is_sharded():
                 hidden = ttnn.sharded_to_interleaved(hidden, ttnn.L1_MEMORY_CONFIG)
-            hidden = ttnn.reshape(hidden, (1, rows, hidden.shape[-1]))
+            if not packed:
+                hidden = ttnn.reshape(hidden, (1, rows, hidden.shape[-1]))
         logits = self.logits(hidden)
         hidden.deallocate(True)
         return logits

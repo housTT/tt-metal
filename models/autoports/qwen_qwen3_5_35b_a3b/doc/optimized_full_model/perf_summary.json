@@ -1,5 +1,5 @@
 {
- "b1": {
+ "p150x4_b1": {
   "workload": {
    "profile": "p150x4",
    "prompt_len": 128,
@@ -8,19 +8,28 @@
    "sampling": "greedy, traced split top-k"
   },
   "ttft_ms": 97.37244300777093,
-  "decode_ms_per_token_e2e": 9.111539936921464,
   "decode_ms_per_step_e2e": 9.111539936921464,
-  "decode_ms_per_token_device": 9.23,
-  "roofline_ms_per_token_estimate": 1.499,
+  "decode_tokens_per_second_per_user": 109.75093199644935,
+  "decode_tokens_per_second_aggregate": 109.75093199644935,
+  "decode_ms_per_step_device": 9.05,
+  "host_gap_ms": 0.062,
+  "roofline_ms_per_step_estimate": 1.499,
+  "roofline_fraction": 0.165,
   "device_breakdown_us": {
-   "gdn_layer": 194.8,
-   "full_attention_layer": 244.2,
-   "terminal_embedding_norm_lm_head": 444.2,
+   "gdn_type_layer_with_moe": 194.8,
+   "full_attention_type_layer_with_moe": 224.2,
+   "terminal_embedding_norm_lm_head": 464.3,
    "sampler_trace": 499.5
   },
-  "method": "device: traced replay device-kernel sums (device 0, last 4 replays) from 2-layer profiles (0,3) and (0,1,3); 40-layer = terminal + sampler + 30 GDN + 10 full. e2e: run_batch_perf median of 3. roofline: runs/main/stage07/roofline.py (weights at stored dtypes, GDN FP32 state read+write, KV at 192 tokens, 512 GB/s per chip)."
+  "device_share": {
+   "gdn_layers": 0.646,
+   "full_layers": 0.248,
+   "terminal_and_sampler": 0.106
+  },
+  "evidence": "evidence3",
+  "method": "device: traced replay device-kernel sums (device 0, last 4 replays, C++ device report) from reduced profiles with layers (0,3), (0,1,3) and (0,3,7): GDN = (0,1,3) - (0,3), full = (0,3,7) - (0,3), terminal = (0,3) - GDN - full; 40-layer = terminal + sampler + 30 GDN + 10 full. e2e: run_batch_perf median of 3 runs, 126 steps. roofline: runs/main/stage07/roofline.py (stored weight dtypes, union of routed experts, FP32 GDN state read+write, KV at 192 tokens, 512 GB/s per chip)."
  },
- "b32": {
+ "p150x4_b32": {
   "workload": {
    "profile": "p150x4",
    "prompt_len": 128,
@@ -29,23 +38,153 @@
    "sampling": "greedy, traced split top-k"
   },
   "ttft_ms": null,
-  "decode_ms_per_token_e2e": 60.11701194455825,
-  "decode_ms_per_step_e2e": 60.11701194455825,
-  "decode_ms_per_token_device": 60.46,
-  "roofline_ms_per_token_estimate": 10.425,
+  "decode_ms_per_step_e2e": 47.97259984924393,
+  "decode_tokens_per_second_per_user": 20.845232552385017,
+  "decode_tokens_per_second_aggregate": 667.0474416763205,
+  "decode_ms_per_step_device": 48.511,
+  "host_gap_ms": -0.538,
+  "roofline_ms_per_step_estimate": 10.425,
+  "roofline_fraction": 0.217,
   "device_breakdown_us": {
-   "gdn_layer": 1530.2,
-   "full_attention_layer": 1359.1,
-   "terminal_embedding_norm_lm_head": 463.0,
-   "sampler_trace": 499.8
+   "gdn_type_layer_with_moe": 1256.5,
+   "full_attention_type_layer_with_moe": 981.7,
+   "terminal_embedding_norm_lm_head": 501.0,
+   "sampler_trace": 497.1
   },
-  "method": "device: traced replay device-kernel sums (device 0, last 4 replays) from 2-layer profiles (0,3) and (0,1,3); 40-layer = terminal + sampler + 30 GDN + 10 full. e2e: run_batch_perf median of 3. roofline: runs/main/stage07/roofline.py (weights at stored dtypes, GDN FP32 state read+write, KV at 192 tokens, 512 GB/s per chip)."
+  "device_share": {
+   "gdn_layers": 0.777,
+   "full_layers": 0.202,
+   "terminal_and_sampler": 0.021
+  },
+  "evidence": "evidence5",
+  "method": "device: traced replay device-kernel sums (device 0, last 4 replays, C++ device report) from reduced profiles with layers (0,3), (0,1,3) and (0,3,7): GDN = (0,1,3) - (0,3), full = (0,3,7) - (0,3), terminal = (0,3) - GDN - full; 40-layer = terminal + sampler + 30 GDN + 10 full. e2e: run_batch_perf median of 3 runs, 126 steps. roofline: runs/main/stage07/roofline.py (stored weight dtypes, union of routed experts, FP32 GDN state read+write, KV at 192 tokens, 512 GB/s per chip)."
+ },
+ "p150x2_b1": {
+  "workload": {
+   "profile": "p150x2",
+   "prompt_len": 128,
+   "gen_len": 128,
+   "batch": 1,
+   "sampling": "greedy, traced split top-k"
+  },
+  "ttft_ms": 114.26063099952444,
+  "decode_ms_per_step_e2e": 11.302279929136208,
+  "decode_tokens_per_second_per_user": 88.47772363362675,
+  "decode_tokens_per_second_aggregate": 88.47772363362675,
+  "decode_ms_per_step_device": 11.202,
+  "host_gap_ms": 0.101,
+  "roofline_ms_per_step_estimate": 2.914,
+  "roofline_fraction": 0.258,
+  "device_breakdown_us": {
+   "gdn_type_layer_with_moe": 234.4,
+   "full_attention_type_layer_with_moe": 251.5,
+   "terminal_embedding_norm_lm_head": 825.3,
+   "sampler_trace": 828.2
+  },
+  "device_share": {
+   "gdn_layers": 0.628,
+   "full_layers": 0.224,
+   "terminal_and_sampler": 0.148
+  },
+  "evidence": "evidence3",
+  "method": "device: traced replay device-kernel sums (device 0, last 4 replays, C++ device report) from reduced profiles with layers (0,3), (0,1,3) and (0,3,7): GDN = (0,1,3) - (0,3), full = (0,3,7) - (0,3), terminal = (0,3) - GDN - full; 40-layer = terminal + sampler + 30 GDN + 10 full. e2e: run_batch_perf median of 3 runs, 126 steps. roofline: runs/main/stage07/roofline.py (stored weight dtypes, union of routed experts, FP32 GDN state read+write, KV at 192 tokens, 512 GB/s per chip)."
+ },
+ "p150x2_b32": {
+  "workload": {
+   "profile": "p150x2",
+   "prompt_len": 128,
+   "gen_len": 128,
+   "batch": 32,
+   "sampling": "greedy, traced split top-k"
+  },
+  "ttft_ms": null,
+  "decode_ms_per_step_e2e": 87.22113238891035,
+  "decode_tokens_per_second_per_user": 11.465111408335076,
+  "decode_tokens_per_second_aggregate": 366.88356506672244,
+  "decode_ms_per_step_device": 86.885,
+  "host_gap_ms": 0.336,
+  "roofline_ms_per_step_estimate": 20.702,
+  "roofline_fraction": 0.237,
+  "device_breakdown_us": {
+   "gdn_type_layer_with_moe": 2335.8,
+   "full_attention_type_layer_with_moe": 1512.1,
+   "terminal_embedding_norm_lm_head": 878.1,
+   "sampler_trace": 813.5
+  },
+  "device_share": {
+   "gdn_layers": 0.807,
+   "full_layers": 0.174,
+   "terminal_and_sampler": 0.019
+  },
+  "evidence": "evidence5",
+  "method": "device: traced replay device-kernel sums (device 0, last 4 replays, C++ device report) from reduced profiles with layers (0,3), (0,1,3) and (0,3,7): GDN = (0,1,3) - (0,3), full = (0,3,7) - (0,3), terminal = (0,3) - GDN - full; 40-layer = terminal + sampler + 30 GDN + 10 full. e2e: run_batch_perf median of 3 runs, 126 steps. roofline: runs/main/stage07/roofline.py (stored weight dtypes, union of routed experts, FP32 GDN state read+write, KV at 192 tokens, 512 GB/s per chip)."
+ },
+ "p150_b1": {
+  "workload": {
+   "profile": "p150",
+   "prompt_len": 128,
+   "gen_len": 128,
+   "batch": 1,
+   "sampling": "greedy, traced split top-k"
+  },
+  "ttft_ms": 183.52360500102805,
+  "decode_ms_per_step_e2e": 15.80467385038063,
+  "decode_tokens_per_second_per_user": 63.272422415468995,
+  "decode_tokens_per_second_aggregate": 63.272422415468995,
+  "decode_ms_per_step_device": 15.902,
+  "host_gap_ms": -0.097,
+  "roofline_ms_per_step_estimate": 5.745,
+  "roofline_fraction": 0.364,
+  "device_breakdown_us": {
+   "gdn_type_layer_with_moe": 323.9,
+   "full_attention_type_layer_with_moe": 326.6,
+   "terminal_embedding_norm_lm_head": 1622.6,
+   "sampler_trace": 1295.3
+  },
+  "device_share": {
+   "gdn_layers": 0.611,
+   "full_layers": 0.205,
+   "terminal_and_sampler": 0.183
+  },
+  "evidence": "evidence3",
+  "method": "device: traced replay device-kernel sums (device 0, last 4 replays, C++ device report) from reduced profiles with layers (0,3), (0,1,3) and (0,3,7): GDN = (0,1,3) - (0,3), full = (0,3,7) - (0,3), terminal = (0,3) - GDN - full; 40-layer = terminal + sampler + 30 GDN + 10 full. e2e: run_batch_perf median of 3 runs, 126 steps. roofline: runs/main/stage07/roofline.py (stored weight dtypes, union of routed experts, FP32 GDN state read+write, KV at 192 tokens, 512 GB/s per chip)."
+ },
+ "p150_b32": {
+  "workload": {
+   "profile": "p150",
+   "prompt_len": 128,
+   "gen_len": 128,
+   "batch": 32,
+   "sampling": "greedy, traced split top-k"
+  },
+  "ttft_ms": null,
+  "decode_ms_per_step_e2e": 215.00187176189638,
+  "decode_tokens_per_second_per_user": 4.6511222986349114,
+  "decode_tokens_per_second_aggregate": 148.83591355631717,
+  "decode_ms_per_step_device": 220.287,
+  "host_gap_ms": -5.285,
+  "roofline_ms_per_step_estimate": 41.322,
+  "roofline_fraction": 0.192,
+  "device_breakdown_us": {
+   "gdn_type_layer_with_moe": 6612.4,
+   "full_attention_type_layer_with_moe": 1970.4,
+   "terminal_embedding_norm_lm_head": 937.4,
+   "sampler_trace": 1274.2
+  },
+  "device_share": {
+   "gdn_layers": 0.901,
+   "full_layers": 0.089,
+   "terminal_and_sampler": 0.01
+  },
+  "evidence": "evidence5",
+  "method": "device: traced replay device-kernel sums (device 0, last 4 replays, C++ device report) from reduced profiles with layers (0,3), (0,1,3) and (0,3,7): GDN = (0,1,3) - (0,3), full = (0,3,7) - (0,3), terminal = (0,3) - GDN - full; 40-layer = terminal + sampler + 30 GDN + 10 full. e2e: run_batch_perf median of 3 runs, 126 steps. roofline: runs/main/stage07/roofline.py (stored weight dtypes, union of routed experts, FP32 GDN state read+write, KV at 192 tokens, 512 GB/s per chip)."
  },
  "named_limitations": [
-  "Decode is device-bound: device time equals end-to-end within 1.3%; no host gap remains.",
-  "B1 reaches 16% of the DRAM roofline: about 480 small ops per step (per-op latency bound, 40 layers x 12 to 24 ops).",
-  "B32 MoE slot path reads each selected expert once per row slot (256 slot reads vs about 163 unique experts) because expert de-duplication needs a device-side unique op.",
-  "B32 GDN layer 1530 us vs 195 us at B1: batched GDN kernels plus row-tiled tilize/untilize; GDN state traffic alone is about 64 us per layer.",
-  "Sampler top-k on the 62080-wide local vocabulary: 285 us per step (TopkLargeIndices)."
+  "Decode is device-bound on every profile. p150 B32 device time is 2.5% above end-to-end; profiled replays rise from 9017 to 9776 us over 4 replays (profiler overhead or data-dependent dispatch; not separated).",
+  "B1 reaches 16% (p150x4) to 36% (p150) of the DRAM roofline: many small ops per step.",
+  "Layer costs include each layer's MoE. At B32 a GDN-type layer costs 1.28x (p150x4), 1.54x (p150x2), 3.36x (p150) a full-type layer.",
+  "p150 B32 GDN-type layer 6612 us: GDN runs per row on p150 because the batched GDN kernel needs 128 cores; MoE uses EP dispatch at 32 rows.",
+  "B32 MoE slot path reads each selected expert once per row slot; no device-side de-duplication of the expert union.",
+  "Sampler trace is 5.5% (p150x4), 7.3% (p150x2), 8.2% (p150) of B1 token-out; not dominant."
  ]
 }

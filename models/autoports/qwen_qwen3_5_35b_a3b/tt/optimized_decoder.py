@@ -2,9 +2,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """Single-device optimized Qwen3.5 decoder, retaining fused request semantics."""
 
+import contextvars
 from dataclasses import dataclass, field
 
 from .functional_decoder import DECODE_BATCH, decode_rows
+
+PREFILL_PROGRAMS = contextvars.ContextVar("qwen35_prefill_programs", default=False)
+
+
+def prefill_rows(length):
+    return length > 1 and (PREFILL_PROGRAMS.get() or not decode_rows(length))
 from .fused_decoder import FusedDecoder, _CompactExperts, _PackedPrefillExperts
 
 
@@ -823,7 +830,7 @@ class OptimizedDecoder(FusedDecoder):
             experts.__dict__ = {k:v for k,v in experts.__dict__.items() if k in live}
             if policy.expert_backend == "sparse":
                 live = {"policy","compute","gate_up_weight","down_weight","up_weight","gate_weight",
-                        "ones","zeros","placeholder","mapping"}
+                        "ones","zeros","placeholder","mapping","slot_selectors"}
             else:
                 live = {"policy","compute","gate","up","down","idx_template","slot_labels",
                         "compact_counts","compact_offsets","mapping"}
@@ -879,7 +886,8 @@ class _PackedGateMoE:
 
         rows = x.shape[2]
         if 1 < rows <= self.policy.moe_slot_rows and decode_rows(rows):
-            logits = ttnn.linear(x, self.weight, compute_kernel_config=self.compute, memory_config=ttnn.L1_MEMORY_CONFIG)
+            logits = ttnn.linear(x, self.weight, compute_kernel_config=self.compute, program_config=self.program,
+                                 memory_config=ttnn.L1_MEMORY_CONFIG)
             values, indices = self.moe.router.module.route(logits[:, :, :, :256])
             out = self.moe.experts.original.slotted(x, values, indices)
             return ttnn.add(out, self.moe.shared.forward(x, gate=logits[:, :, :, 256:257]))
@@ -888,7 +896,11 @@ class _PackedGateMoE:
             return ttnn.concat(outs, dim=2, memory_config=ttnn.L1_MEMORY_CONFIG)
         if rows != 1 and decode_rows(rows):
             padded = ttnn.pad(x, ((0, 0), (0, 0), (0, 32 - rows), (0, 0)), 0.0) if rows < 32 else x
-            out = self.moe.forward(padded, mode="prefill")
+            token = PREFILL_PROGRAMS.set(True)
+            try:
+                out = self.moe.forward(padded, mode="prefill")
+            finally:
+                PREFILL_PROGRAMS.reset(token)
             return out[:, :, :rows, :] if rows < 32 else out
         if rows != 1:
             return self.moe.forward(x, mode=mode)
@@ -966,7 +978,7 @@ class _OptimizedGateModule:
 
         base = self.original
         total = logits.shape[2]
-        if total > 1 and getattr(self, "topk_prefill", False):
+        if prefill_rows(total) and getattr(self, "topk_prefill", False):
             dram = ttnn.DRAM_MEMORY_CONFIG
             values, indices = ttnn.topk(logits, k=8, dim=-1, memory_config=dram)
             values = ttnn.typecast(ttnn.softmax(ttnn.typecast(values, ttnn.float32), dim=-1, memory_config=dram),
@@ -1152,6 +1164,7 @@ class _OptimizedSparseExperts:
         self.zeros = ttnn.from_torch(torch.zeros((1,1,1,256), dtype=torch.bfloat16), device=mesh,
             dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, mesh_mapper=ttnn.ReplicateTensorToMesh(mesh))
         self.placeholder = ttnn.to_layout(self.zeros,ttnn.ROW_MAJOR_LAYOUT)
+        self.slot_selectors = {}
         dt = {"bfp4":ttnn.bfloat4_b, "bfp8":ttnn.bfloat8_b}
         self.gate_up_weight = _as_dtype(self.weights.gate_up_proj, dt[self.policy.expert_dtype])
         self.down_weight = _as_dtype(self.weights.down_proj, dt[self.policy.sparse_down_dtype])
@@ -1176,22 +1189,17 @@ class _OptimizedSparseExperts:
         grid = hidden.device().compute_with_storage_grid_size()
         workers = half // 2 if half % 2 == 0 else half
         chunk = max(1, grid.x * grid.y // (8 * workers))
+        sticks = stick(wide, rows)
         parts = []
         for start in range(0, rows, chunk):
             count = min(chunk, rows - start)
-            part = stick(wide[:, :, start:start + count, :], count)
+            part = sticks if count == rows else sticks[:, :, :, 8 * start:8 * (start + count)]
             parts.append(expert_swiglu_decode(hidden, part, self.gate_up_weight, nper=self.policy.expert_decode_nper,
                                               kb=self.policy.expert_decode_kb))
         activated = parts[0] if len(parts) == 1 else ttnn.concat(parts, dim=1, memory_config=ttnn.L1_MEMORY_CONFIG)
         width = activated.shape[-1]
         activated = ttnn.reshape(activated, (1, slots, rows, width), activated.padded_shape)
-        down = ttnn.sparse_matmul(activated, self.down_weight, sparsity=self.placeholder,
-            indices=stick(wide, rows), program_config=self.program_config("down", 2048),
-            compute_kernel_config=self.compute, memory_config=ttnn.L1_MEMORY_CONFIG, dtype=ttnn.bfloat16,
-            is_input_a_sparse=True, output_tile=ttnn.Tile([32, 32]))
-        activated.deallocate(True)
-        down = ttnn.reshape(down, (1, slots, rows, 2048))
-        selectors = self.__dict__.setdefault("_slot_selectors", {})
+        selectors = self.slot_selectors
         if rows not in selectors:
             select = torch.zeros(1, slots, rows, 1, dtype=torch.bfloat16)
             select[0, torch.arange(slots), torch.arange(rows).repeat_interleave(8), 0] = 1
@@ -1200,10 +1208,16 @@ class _OptimizedSparseExperts:
                                               mesh_mapper=ttnn.ReplicateTensorToMesh(hidden.device()))
         scale = ttnn.multiply(selectors[rows], ttnn.reshape(values, (1, slots, 1, 1)),
                               memory_config=ttnn.L1_MEMORY_CONFIG)
-        weighted = ttnn.multiply(down, scale, memory_config=ttnn.L1_MEMORY_CONFIG)
-        down.deallocate(True)
-        reduced = ttnn.experimental.fast_reduce_nc(weighted, dims=[1], memory_config=ttnn.L1_MEMORY_CONFIG)
+        weighted = ttnn.multiply(activated, scale, memory_config=ttnn.L1_MEMORY_CONFIG)
+        activated.deallocate(True)
+        down = ttnn.sparse_matmul(weighted, self.down_weight, sparsity=self.placeholder,
+            indices=sticks, program_config=self.program_config("down", 2048),
+            compute_kernel_config=self.compute, memory_config=ttnn.L1_MEMORY_CONFIG, dtype=ttnn.bfloat16,
+            is_input_a_sparse=True, output_tile=ttnn.Tile([32, 32]))
         weighted.deallocate(True)
+        down = ttnn.reshape(down, (1, slots, rows, 2048))
+        reduced = ttnn.experimental.fast_reduce_nc(down, dims=[1], memory_config=ttnn.L1_MEMORY_CONFIG)
+        down.deallocate(True)
         return ttnn.reshape(reduced, (1, 1, rows, 2048), reduced.padded_shape)
 
     def program_config(self, role, n, activation=None):
@@ -1432,10 +1446,10 @@ class _Projection:
                 out_block_h=1,out_block_w=pn,fuse_batch=True,fused_activation=None,mcast_in0=True)
         if self.options.get("input_l1"):
             x = ttnn.to_memory_config(x,ttnn.L1_MEMORY_CONFIG)
-        if length > 1 and self.options.get("prefill_minimal"):
+        if prefill_rows(length) and self.options.get("prefill_minimal"):
             return ttnn.experimental.minimal_matmul(x, self.weight, config=_minimal_config(self.options["prefill_minimal"]),
                 compute_kernel_config=self.compute, memory_config=memory, dtype=ttnn.bfloat16)
-        if length > 1 and self.options.get("prefill_grid"):
+        if prefill_rows(length) and self.options.get("prefill_grid"):
             gx, gy = self.options["prefill_grid"]
             pn = math.ceil(self.n / 32 / gx)
             pc = ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(

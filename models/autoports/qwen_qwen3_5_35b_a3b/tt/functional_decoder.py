@@ -457,26 +457,28 @@ class FunctionalDecoder(LightweightModule):
         position_tensor: Any = None,
         page_table: Any = None,
         request_slots: Optional[Sequence[int]] = None,
+        packed: bool = False,
     ) -> Any:
         if (
             len(hidden_states.shape) != 3
-            or int(hidden_states.shape[1]) != 1
+            or int(hidden_states.shape[0 if packed else 1]) != 1
             or hidden_states.shape[2] != self.config.dim
         ):
             raise ValueError("decode_forward requires exactly one token")
         import ttnn
 
+        batch = hidden_states.shape[1 if packed else 0]
         rows = []
         full = self.config.is_full_attention_layer(self.layer_idx)
         if full and (position_tensor is None or page_table is None or not self.layer.attention.use_paged_attention):
             raise ValueError("paged decode requires device current positions and page table")
-        if full and (
-            page_table.shape[0] != hidden_states.shape[0] or position_tensor.shape[0] != hidden_states.shape[0]
-        ):
+        if full and (page_table.shape[0] != batch or position_tensor.shape[0] != batch):
             raise ValueError("decode metadata must have one row/position per request")
-        slots = self._slots(hidden_states.shape[0], request_slots)
+        slots = self._slots(batch, request_slots)
         if self.batched_decode and len(slots) > 1:
-            return self._decode_batched(hidden_states, slots, full, position_tensor, page_table)
+            return self._decode_batched(hidden_states, slots, full, position_tensor, page_table, packed)
+        if packed:
+            raise ValueError("packed decode input requires batched decode with more than one row")
         for row, slot in enumerate(slots):
             self._select_state(slot)
             kw = {}
@@ -490,7 +492,7 @@ class FunctionalDecoder(LightweightModule):
             return rows[0]
         return ttnn.concat([ttnn.to_memory_config(r, ttnn.L1_MEMORY_CONFIG) if r.is_sharded() else r for r in rows], dim=0)
 
-    def _decode_batched(self, hidden_states, slots, full, position_tensor, page_table):
+    def _decode_batched(self, hidden_states, slots, full, position_tensor, page_table, packed=False):
         import ttnn
 
         rows, hidden = len(slots), hidden_states.shape[2]
@@ -501,13 +503,14 @@ class FunctionalDecoder(LightweightModule):
         states = [self._states[slot] for slot in slots] if self._states else None
         token = DECODE_BATCH.set(dict(rows=rows, states=states))
         try:
-            x = ttnn.reshape(ttnn.to_layout(hidden_states, ttnn.TILE_LAYOUT), (1, rows, hidden))
+            x = hidden_states if packed else ttnn.reshape(ttnn.to_layout(hidden_states, ttnn.TILE_LAYOUT),
+                                                          (1, rows, hidden))
             y = self.layer.forward(x, mode="decode", **kw)
         finally:
             DECODE_BATCH.reset(token)
         if y.is_sharded():
             y = ttnn.to_memory_config(y, ttnn.L1_MEMORY_CONFIG)
-        return ttnn.reshape(y, (rows, 1, hidden))
+        return y if packed else ttnn.reshape(y, (rows, 1, hidden))
 
     def forward(self, hidden_states: Any, *, mode: str, **kwargs: Any) -> Any:
         if mode == "prefill":
