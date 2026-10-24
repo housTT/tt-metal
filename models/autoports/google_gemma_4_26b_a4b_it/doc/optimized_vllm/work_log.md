@@ -998,7 +998,8 @@ runtime effect without the tracker).
   tooling of this commit.
 - `2bd0d7aeb7` extends this list (reviewed by the fourth pass).
 - `bfa7a081e6` fourth-review documentation fixes (reviewed by the fifth pass).
-- The commit that adds this line carries the fifth-review documentation fixes.
+- `ab94214b14` fifth-review documentation fixes (reviewed by the sixth pass).
+- `2a56514481` and the commit that adds this line carry the sixth-review documentation fixes.
 
 vLLM checkout `/home/hous/dev/vllm` and its in-tree plugin: unchanged at `f96662a7d`, no commit.
 
@@ -1137,12 +1138,16 @@ tooling edits committed after this section (no model or adapter code changed aft
   (4 suite, 1 prefix-cache cold request with its first-token logprob, 1 `top_k` 50 phase of the k32
   probe), 0 host-sampling decode releases. The three benchmark repeats ran after that scan; in each
   the CI burst's first 21-row prefill step was host-sampled (`release host_sampling_prefill` right
-  before the 21-row prefill), while the chain run's identical step was device-sampled with the same
-  bench command and payload; the cause was not determined and is recorded as an observation under
-  the trace-lifetime open item (a plugin-side cause would become a plugin-changes proposal, not a
-  model fix). `perf_summary.json` therefore keeps the chain run as the CI-burst after value and
-  lists the repeats as supplementary; the single-user repeats are greedy batch-1 device captures
-  with no host release.
+  before the 21-row prefill), and the same step in the chain run showed no release line. The sixth
+  review determined the cause from the plugin code and the event log: the plugin host-samples any
+  prefill step that carries an intermediate chunk (`model_runner.py`, `intermediate_prefill_mask`),
+  the step is twenty 100-token rows plus one 48-token partial chunk at the 2048-token budget in all
+  four runs, and the adapter's release line is emitted only while a trace is alive; in the chain
+  run a first-seen 100-token single row had released the traces one step earlier, so the same
+  host-sampled step left no release line. The step shape and its sampling are identical in all
+  four runs (and in the per-row before run, which used the same budget). `perf_summary.json` keeps
+  the chain run as the CI-burst after value and lists the repeats as supplementary; the single-user
+  runs are greedy batch-1 device captures with no host release.
 
 ### Fourth independent review (2026 Oct 24, after 2bd0d7aeb7): findings and remedies
 
@@ -1191,8 +1196,20 @@ evidence section; `perf_summary.json` CI-burst after value is the chain run). An
 repeats: observed, the plugin host-sampled the greedy CI burst's first 21-row prefill step in all
 three repeats and not in the chain run; evidence, `server.log` `release host_sampling_prefill`
 immediately before `prefill rows 21` at the three repeats versus the device-sampled chain-run step,
-identical bench command strings in `optimized_vllm_batched_prefill/after*/vllm_ci_serving_benchmark.json`;
-affected path, plugin sampler routing into the adapter's `host_sampling_prefill` release; control,
-the chain run; likely subsystem, plugin input-batch state at that step (payload-side causes excluded
-by the identical payloads); investigation, event and command comparison only; resolution, recorded
-as an open observation under the trace-lifetime item, not rerun here.
+bench command arrays identical except `--result-filename` in
+`optimized_vllm_batched_prefill/after*/vllm_ci_serving_benchmark.json`; affected path, plugin
+sampler routing into the adapter's `host_sampling_prefill` release; control, the step shape of all
+four runs (`ends` twenty times 100 plus 48) and the plugin's intermediate-chunk rule; likely
+subsystem, plugin scheduler chunking by design; investigation, event-sequence comparison of the four
+runs, plugin code and adapter release path read (sixth review); resolution, controlled: the step is
+host-sampled in every run, the chain run's release line was suppressed by an already-empty trace
+cache, no plugin proposal is needed. The sixth review also noted that `host_sampling_*` are release
+events and undercount host-sampled steps: the prefix-cache stage's seven requests (`logprobs 1`)
+decoded on the host at 52 to 53 ms per token because the plugin host-samples logprobs requests on a
+single device, so that stage proves the cache and resume path under host argmax; the device-sampled
+cache-hit path is covered by the mixed-shape `prefix_resume_2200` request and the greedy
+shared-prefix bench. The README statements that said "device-sampled" for the chain-run step and
+"no host-mode decode" are corrected accordingly, the suite's four releases are attributed to the
+host-only-parameter and logprobs tests, the 32-request structured-output test and the penalty
+tests, and the chain-run single-user stall is described from its ITL standard deviation (27.98 ms
+against about 10 ms) rather than as a single 111 ms interval.

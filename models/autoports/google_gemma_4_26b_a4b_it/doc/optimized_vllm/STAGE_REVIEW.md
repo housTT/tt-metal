@@ -107,6 +107,31 @@ variance; mixed-shape `fail` (open item); batched partial first chunk followed b
 continuation covered only transitively; B1 versus 32-slot lane divergence; raw-prompt controls are
 TTNN-only; `vllm_run_summary.json` nulls in attached mode; the live server log keeps growing.
 
-## Sixth review
+## Sixth review (2026 Oct 24, commit ab94214b14): more-work-needed
+
+Fifth-review fixes verified; no new correctness defect in the model or adapter code. Required work
+as returned, condensed:
+
+- P2, human authorization: inherited plugin interface items (`plugin_changes.md` sections 1, 5, 6
+  and "Chunked prefill for Gemma 4").
+- P2, human authorization: served default `--override-generation-config '{"top_k":32}'` (records:
+  README item 4 and Reproduction, `perf_summary.json` `served_sampling_default`,
+  `serving_contract.json` row `max_device_top_k`, `context_contract.json`
+  `optimized_vllm.stage_10_resume_2026_10_24.served_sampling_default`).
+- P2, documentation: the host-sampled CI-burst step is plugin behaviour by design (intermediate
+  chunk rule) present in all four runs, not an undetermined anomaly with the chain run as control;
+  "no host-mode decode" was wrong (logprobs requests, including the prefix-cache stage, decode on
+  the host by plugin routing); the suite's host releases include the structured-output test; the
+  chain-run stall is larger than one 111 ms interval. Fixed in `2a56514481` and the commit after
+  this entry.
+
+Other concerns recorded: before run and serial reference from the per-row server; mixed-shape
+`fail` (open item excluded by the task owner); the prefix-cache stage is host-sampled by plugin
+routing (device cache-hit path covered by the mixed-shape resume request and the shared-prefix
+bench); burst run-to-run variance; B1 versus 32-slot lane divergence; stale `decode_rows_active_before`
+diagnostic between bursts; `vllm_run_summary.json` nulls in attached mode; the live server log keeps
+growing (0 invalid ids over all 4,296 lines).
+
+## Seventh review
 
 Latest verdict: pending.
