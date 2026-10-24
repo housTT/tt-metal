@@ -102,8 +102,9 @@ def main() -> int:
         "endings: the suite's own request shape (EOS allowed) and staggered request lengths, "
         "so rows leave the batch while others still decode",
     )
+    parser.add_argument("--top-k", type=int, default=None, help="explicit top_k for the temperature-5 requests")
     args = parser.parse_args()
-    hot = {"temperature": 5}
+    hot = {"temperature": 5} if args.top_k is None else {"temperature": 5, "top_k": args.top_k}
     cool = {"temperature": 1.0, "top_k": 50}
     greedy = {"temperature": 0.0}
     if args.scenario == "arrangements":

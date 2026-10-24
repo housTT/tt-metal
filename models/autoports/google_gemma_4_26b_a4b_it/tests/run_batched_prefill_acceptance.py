@@ -350,7 +350,19 @@ def main() -> int:
         prompts_file = Path(module.__file__).parent / "vllm_prompts.txt"
     layer_indices = None if args.layers == "all" else [int(v) for v in args.layers.split(",")]
     mesh = ttnn.open_mesh_device(mesh_shape=ttnn.MeshShape(1, 1), trace_region_size=200_000_000)
-    report = {"layers": args.layers, "max_batch_size": args.max_batch_size, "max_seq_len": args.max_seq_len}
+    report = {
+        "layers": args.layers,
+        "max_batch_size": args.max_batch_size,
+        "max_seq_len": args.max_seq_len,
+        "trace_alloc_tracking": {
+            name: os.environ.get(name)
+            for name in (
+                "TT_METAL_TRACE_ALLOC_TRACKING",
+                "TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE",
+                "TT_METAL_TRACE_ALLOC_TRACEBACKS",
+            )
+        },
+    }
     try:
         began = time.perf_counter()
         gen = build_generator(
@@ -384,6 +396,7 @@ def main() -> int:
                 seed=args.seed,
             )
             acceptance["warmup"] = warmup
+            acceptance["trace_alloc_tracking"] = report["trace_alloc_tracking"]
             acceptance["program_cache_entries_after_workload"] = mesh.num_program_cache_entries()
             (args.output_dir / "vllm_batched_equals_solo.json").write_text(json.dumps(acceptance, indent=2) + "\n")
             report["acceptance_status"] = acceptance["status"]

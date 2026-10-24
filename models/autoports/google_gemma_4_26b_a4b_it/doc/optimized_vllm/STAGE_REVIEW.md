@@ -37,6 +37,35 @@ the final mixed-shape run formed no batched group; greedy decode differs between
 32-slot lanes (pre-existing); `*.log` is gitignored, so the cited logs exist only in the worktree;
 `vllm_run_summary.json` has null `enable_prefix_caching` and `max_model_len` in attached mode.
 
-## Third review
+## Third review (2026 Oct 24, commit acea3bc852): more-work-needed
+
+Required work as returned by the reviewer, condensed:
+
+- P1: the sampler-ceiling remedy (32) routes the model's default recipe (`generation_config.json`
+  `top_k: 64`, applied by vLLM to every sampled request without `top_k`) to the plugin's host
+  sampler; the README said the opposite; the final-server sampled evidence (qualitative sampled
+  half, the temperature-5 reproduction tests, most of the sampling suite) was host-sampled, so the
+  device sampler at k = 32 was not re-exercised under the reproduction conditions; the host-sampled
+  default-recipe path's latency and its trace-release effect on concurrent users were unmeasured.
+  Required: fix the device sampler for k up to 64 or keep 32 and correct the statements, measure
+  the host path, rerun the reproduction tests with explicit `top_k <= 32`, and if the intended fix
+  is a served default (`--override-generation-config '{"top_k": 32}'`) record it and obtain
+  operator acceptance.
+- P2: the `batched_group_while_decoding` phase of the final mixed-shape run produced degenerate and
+  wrong-script completions with no same-prompt control. Required: standalone-generator control for
+  those prompts (`tests/probe_raw_prompt_control.py`) and a rewritten anomaly entry.
+- P2: inherited plugin interface without per-item authorization (`supports_prefix_caching_sliding_window`,
+  plugin commit `cd25e6602`; the model-type chunked-prefill branch). Required next step: human
+  authorization.
+
+Other concerns recorded: per-length single-row programs still release traces (the runtime-index
+gather could remove the terminal-slice class); B1 versus 32-slot greedy divergence (pre-existing);
+the before run and burst serial reference came from the per-row server; `program_cache_entries` is
+null for most prefill steps; a 42-versus-9 invalid-id count discrepancy between the second review's
+text and the retained log; the final server ran inert scope wrappers; no sampling-mode check
+existed; the readiness batched-equals-solo copies predate the slot-row assembly; the passing tracked
+logs carry no tracker fingerprint.
+
+## Fourth review
 
 Latest verdict: pending re-review after the remedies.

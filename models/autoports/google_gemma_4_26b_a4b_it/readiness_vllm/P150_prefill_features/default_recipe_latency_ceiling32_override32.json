@@ -1,0 +1,84 @@
+{
+  "prompt_len": 128,
+  "max_tokens": 128,
+  "phases": {
+    "greedy_alone": {
+      "status": 200,
+      "temperature": 0.0,
+      "tokens": 128,
+      "ttft_ms": 169.93977001402527,
+      "tpot_ms_mean": 27.063788685032833,
+      "tpot_ms_first_half": 27.032120142682707,
+      "tpot_ms_second_half": 27.09496240640874,
+      "e2e_ms": 3607.040933013195,
+      "started_at": 184764.102469438,
+      "trace_events": {
+        "prefill": 2
+      }
+    },
+    "sampled_alone_default_recipe": {
+      "status": 200,
+      "temperature": 1.0,
+      "tokens": 128,
+      "ttft_ms": 169.92976001347415,
+      "tpot_ms_mean": 27.94527475594719,
+      "tpot_ms_first_half": 28.8090609205288,
+      "tpot_ms_second_half": 27.094985250187165,
+      "e2e_ms": 3718.979654018767,
+      "started_at": 184768.710526794,
+      "trace_events": {
+        "prefill": 2,
+        "release:trace_key_miss": 1,
+        "capture:b1:sampled": 1
+      }
+    },
+    "greedy_alone_again": {
+      "status": 200,
+      "temperature": 0.0,
+      "tokens": 128,
+      "ttft_ms": 170.5090379982721,
+      "tpot_ms_mean": 27.875732015644193,
+      "tpot_ms_first_half": 28.680361349076506,
+      "tpot_ms_second_half": 27.08367501554676,
+      "e2e_ms": 3710.7270039850846,
+      "started_at": 184773.43074775,
+      "trace_events": {
+        "release:trace_key_miss": 2,
+        "capture:b1:sampled": 1,
+        "prefill": 1,
+        "capture:b1:greedy": 1
+      }
+    },
+    "greedy_with_sampled_arrival": {
+      "greedy": {
+        "status": 200,
+        "temperature": 0.0,
+        "tokens": 128,
+        "ttft_ms": 170.3030039789155,
+        "tpot_ms_mean": 55.22169556705222,
+        "tpot_ms_first_half": 47.760067952497465,
+        "tpot_ms_second_half": 62.56673525012957,
+        "e2e_ms": 7183.458340994548
+      },
+      "sampled": {
+        "status": 200,
+        "temperature": 1.0,
+        "tokens": 128,
+        "ttft_ms": 331.209422001848,
+        "tpot_ms_mean": 52.911197960763566,
+        "tpot_ms_first_half": 60.10354525411487,
+        "tpot_ms_second_half": 45.83123109387088,
+        "e2e_ms": 7050.931563018821
+      },
+      "trace_events": {
+        "release:trace_key_miss": 1,
+        "capture:b1:greedy": 1,
+        "prefill": 2,
+        "release:slot_remap": 1,
+        "capture:b32:sampled": 1,
+        "release:batch_shape_change": 1,
+        "capture:b1:sampled": 1
+      }
+    }
+  }
+}

@@ -20,7 +20,11 @@ import torch
 
 import ttnn
 from models.autoports.google_gemma_4_26b_a4b_it.tests.run_vllm_mixed_shape_check import _token_prompt
-from models.autoports.google_gemma_4_26b_a4b_it.tt.generator import _padded_prefill_len, build_generator
+from models.autoports.google_gemma_4_26b_a4b_it.tt.generator import (
+    _padded_prefill_len,
+    build_generator,
+    plan_prefill_groups,
+)
 from models.autoports.google_gemma_4_26b_a4b_it.tt.generator_vllm import PRECISION_CONFIG
 
 MODEL_ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +39,12 @@ def main() -> int:
         default="chunked_while_decoding:decode_b,chunked_while_decoding:decode_a,unseen_257,chunked_while_decoding:decode_d,unseen_130,unseen_129",
     )
     parser.add_argument("--steps", type=int, default=16)
+    parser.add_argument(
+        "--group-batch",
+        action="store_true",
+        help="also prefill every label's prompt in one multi-row step through the standalone batched path "
+        "and compare its first tokens with the solo controls",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     served = {r["label"]: r for r in json.loads(args.mixed_shape_json.read_text())["requests_log"]}
@@ -44,7 +54,7 @@ def main() -> int:
         gen = build_generator(
             MODEL_ROOT,
             mesh,
-            max_batch_size=1,
+            max_batch_size=max(1, len(args.labels.split(","))) if args.group_batch else 1,
             precision_config_path=str(PRECISION_CONFIG),
             tensor_cache_path=os.environ.get("GEMMA4_TENSOR_CACHE_PATH", "/tmp/gemma4_raw_control_cache"),
         )
@@ -60,6 +70,17 @@ def main() -> int:
             logits = gen.prefill_forward(tokens, page_table=state.page_tables, kv_cache=state, prompt_lens=[length])
             host = gen._gather_logits_to_torch(logits).reshape(-1, gen.model.vocab_size)[0]
             ttnn.deallocate(logits)
+            top2 = torch.topk(host.float(), 2)
+            served_first = tokenizer.encode(record["text"], add_special_tokens=False)[:1]
+            served_first_logit = float(host[served_first[0]]) if served_first else None
+            margin = {
+                "control_top1": int(top2.indices[0]),
+                "control_top2": int(top2.indices[1]),
+                "top1_minus_top2_logit": float(top2.values[0] - top2.values[1]),
+                "served_first_token": served_first[0] if served_first else None,
+                "served_first_rank": int((host.float() > served_first_logit).sum()) if served_first else None,
+                "top1_minus_served_first_logit": (float(top2.values[0]) - served_first_logit) if served_first else None,
+            }
             generated = [int(host.argmax())]
             position = length
             for _ in range(args.steps - 1):
@@ -90,9 +111,45 @@ def main() -> int:
                 "served_token_ids_prefix": served_ids[: args.steps],
                 "common_prefix_tokens": common,
                 "served_temperature": record["temperature"],
+                "first_token_margin": margin,
             }
             report.append(entry)
             print(json.dumps(entry), flush=True)
+        if args.group_batch:
+            labels = args.labels.split(",")
+            prompts = [_token_prompt(tokenizer, served[label]["prompt_len"], served[label]["seed"]) for label in labels]
+            lens = [len(ids) for ids in prompts]
+            width = max(_padded_prefill_len(length) for length in lens)
+            tokens = torch.zeros((len(prompts), width), dtype=torch.long)
+            for row, ids in enumerate(prompts):
+                tokens[row, : len(ids)] = torch.tensor(ids, dtype=torch.long)
+            gen.reset()
+            gen.batched_prefill_enabled = True
+            logits = gen.prefill_forward(tokens, page_table=state.page_tables, kv_cache=state, prompt_lens=lens)
+            host = gen._gather_logits_to_torch(logits).reshape(-1, gen.model.vocab_size)[: len(prompts)]
+            ttnn.deallocate(logits)
+            group_entry = {
+                "label": "standalone_group_of_all_labels",
+                "rows": [
+                    {
+                        "label": label,
+                        "batched_first_token": int(host[row].argmax()),
+                        "solo_control_first_token": report[row]["control_token_ids"][0],
+                        "served_first_token": report[row]["first_token_margin"]["served_first_token"],
+                        "batched_top1_minus_top2_logit": float(torch.topk(host[row].float(), 2).values.diff().abs()),
+                    }
+                    for row, label in enumerate(labels)
+                ],
+                "groups": [
+                    [list(g.rows), g.segment_len, g.padded_batch]
+                    for g in plan_prefill_groups(lens, [0] * len(lens), enabled=True)[0]
+                ],
+            }
+            group_entry["batched_equals_solo_first_token"] = all(
+                r["batched_first_token"] == r["solo_control_first_token"] for r in group_entry["rows"]
+            )
+            report.append(group_entry)
+            print(json.dumps(group_entry), flush=True)
     finally:
         ttnn.close_mesh_device(mesh)
     args.output.parent.mkdir(parents=True, exist_ok=True)

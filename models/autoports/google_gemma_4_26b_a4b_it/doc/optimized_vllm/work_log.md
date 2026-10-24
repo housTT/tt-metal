@@ -855,8 +855,11 @@ the sampler's candidate reads overrun the user's row; slots 30 and 31 overrun th
 return garbage ids, and every user samples from only 32 candidates with wrong weights. Remedy:
 `DEVICE_MAX_TOP_K = 32` (`tt/generator.py`, Sampling1D `max_top_k=32`, `model_capabilities`
 `max_device_top_k` 32, `tt/model.py` harness args, tests, serving contract row). Stochastic requests
-with `top_k` in 33..64 now go to the plugin's host sampler; requests without `top_k` run on device at
-k = 32, which is what the device computed before. The adapter keeps the range check so a recurrence
+with `top_k` in 33..64 now go to the plugin's host sampler. (Correction after the third review: the
+statement first written here, that requests without `top_k` keep running on device, was wrong. The
+model's `generation_config.json` sets `top_k: 64` and vLLM applies it to every sampled request that
+names no `top_k`, which is why those requests ran on device under the 64 ceiling and why they go to
+the host sampler under the 32 ceiling. See "Third independent review" below.) The adapter keeps the range check so a recurrence
 is logged as a `GEMMA4_TRACE_EVENT invalid_sampled_token` line. Verification on the final server is
 recorded in the final serving section below (temperature tests and the full sampling suite with a
 log scan for both the detokenizer error and the new event).
@@ -992,3 +995,129 @@ runtime effect without the tracker).
 - The commit that adds this list records the third review.
 
 vLLM checkout `/home/hous/dev/vllm` and its in-tree plugin: unchanged at `f96662a7d`, no commit.
+
+### Third independent review (2026 Oct 24, after acea3bc852): findings and remedies
+
+The third pass returned `more-work-needed` with one P1 and two P2 items (condensed in
+`STAGE_REVIEW.md`).
+
+P1, the ceiling change routed the default recipe to the host sampler. The reviewer found the fact
+this log had missed: the model's `generation_config.json` sets `top_k: 64` and vLLM applies it to
+every sampled request that names no `top_k` (server log line "Default vLLM sampling parameters have
+been overridden by the model's generation_config.json: temperature 1.0, top_k 64, top_p 0.95"). Under
+the 64 ceiling those requests ran on device (which is how k = 64 reached the sampler), under the 32
+ceiling the pinned plugin sends them to its host sampler, and the "final3" server's sampled
+qualitative outputs, the temperature-5 reproduction tests and most of the sampling suite therefore
+ran on the host, not on the device sampler. Measured on that server
+(`tests/run_vllm_default_recipe_latency.py`,
+`readiness_vllm/P150_prefill_features/default_recipe_latency_ceiling32_no_override.json`, 128/128/1):
+greedy on device 170 ms TTFT and 27.07 ms per token; a default-recipe sampled request 230 ms TTFT
+and 96.98 ms per token with a `host_sampling_prefill` release; a greedy user that was decoding at
+27 ms per token when a sampled request arrived fell to 76 ms per token in the first half and 119 ms
+in the second (97.8 ms mean), and the sampled request ran at 107 ms per token. That is the
+performance cliff the reviewer named, now measured. The device sampler cannot draw from 64
+candidates (one 32-candidate tile per user in `ttnn.sampling`; a kernel change is a shared-op
+change outside this stage), so the remedy is a served default: the server is launched with
+`--override-generation-config '{"top_k":32}'`, which keeps the default recipe on the device sampler
+at the 32 candidates it always drew from (the device probe shows identical draws for k = 64 and
+k = 32) and changes the served recipe's `top_k` from 64 to 32. That change of served recipe is
+recorded as a proposal pending operator acceptance (it is also the tti-release and benchmark
+default to confirm). The statements in this log, the README and the serving contract that said
+default requests stay on device under the 32 ceiling were corrected. Verification on the server
+with the override is in "Final server and serving evidence (served top_k 32 default)" below: the
+five temperature-5 batch tests ran on the device sampler (20 sampled 32-slot captures in their
+window, one host-sampling release) with 0 invalid ids, the full suite passed with 96 device sampled
+captures and 5 host-sampling releases (logprobs and penalty tests), a 4,271-token temperature-5
+`top_k` 32 probe at 32 and 37 concurrent requests with slot 31 live gave 0 invalid ids over 55
+sampled 32-slot captures, and the default-recipe sampled request runs on device at 27.95 ms per
+token (`default_recipe_latency_ceiling32_override32.json`).
+
+P2, degenerate completions in the new `batched_group_while_decoding` phase of the mixed-shape
+check. The eight raw mid-paragraph prompts (40 to 47 tokens) that formed the 8-row group beside a
+decoding request produced loops and wrong-script tokens, and the decoding request collapsed to
+punctuation after sharing the batch. Control: `tests/probe_raw_prompt_control.py` on the standalone
+generator (chip 1) for those nine prompts plus `decode_c`
+(`readiness_vllm/trace_reuse/raw_prompt_control_batched_group.json`, 16 greedy tokens each, plus
+the same ten prompts prefilled as one standalone multi-row step through the batched path, which
+formed a 9-row group padded to 16 beside the 129-token single): the standalone solo prefill, the
+standalone batched group and the served group agree on the first token for 9 of the 10 prompts;
+the tenth (`short_3`) is an exact tie (top-1 minus top-2 logit 0.0 in both standalone arms) that the
+served step broke the other way. The standalone continuations loop the same way as the served ones
+(`-로-로-로-로`, `and the and the`, `the emphasis on the emphasis on`, `observation and observation`),
+3 of the 8 shorts are identical through all 16 tokens, and the others split at token 1 to 4 on the
+batch-1 versus 32-slot decode lane that the earlier anomaly entries describe. The degeneracy is this
+model's greedy behaviour on raw mid-paragraph prompts cut at arbitrary offsets, not a batched-fill
+or slot-assembly defect; the chat-formatted group equivalence (31 rows) stays coherent. The README
+mixed-shape row and this entry replace the earlier `decode_c`-only wording.
+
+P2, the inherited plugin interface (`supports_prefix_caching_sliding_window`, plugin commit
+`cd25e6602`) and the model-type chunked-prefill branch in the plugin: human authorization; recorded
+as `proposed` in `doc/vllm_integration/plugin_changes.md`; no change made.
+
+Hard-check gaps closed: `tests/scan_server_log_tokens.py` now also counts device sampled captures,
+device greedy captures and host-sampling releases in its window so a sampling verdict shows which
+sampler it exercised; `tests/run_batched_prefill_acceptance.py` records the
+`TT_METAL_TRACE_ALLOC_*` settings in its JSON; the README cites the final-code tracked
+`vllm_batched_equals_solo.json` copies for batched-equals-solo and stability.
+
+### Final server and serving evidence (served top_k 32 default)
+
+Relaunch 18:37:42 UTC (runner pid 1205092, fresh `GEMMA4_TENSOR_CACHE_PATH`, `VLLM_SERVER_DEV_MODE=1`,
+`--override-generation-config '{"top_k":32}'` added to the server arguments, everything else
+unchanged; the first attempt at 18:36 died at argument parsing because the runner's `shlex` split
+stripped the JSON quotes, fixed by quoting the JSON inside the argument string), healthy at
+18:41:27. Every stage then ran in sequence (`*_runner_final4.log`, server log `server.log`; the
+17:45 server's log is `server_final3_ceiling32_default_recipe64.log`). Code: `af32f9ea86` plus the
+tooling edits committed after this section (no model or adapter code changed after `af32f9ea86`).
+
+- Temperature-5 batch tests first (`sampling_subset_runner_final4.log`, 5 passed, 18 s): 0
+  detokenizer errors, 0 `invalid_sampled_token` events; 20 device sampled 32-slot captures and one
+  host-sampling release in the window (`sampling_subset_final4_window.txt`, scan modes).
+- `prefill_burst` (32 x 128/32, concurrency 32, greedy): TTFT p50 1566.2 / p99 2492.0 / mean
+  1961.6 ms; ratios p99 0.371, mean 0.394, p50 0.430; gate pass; 32 of 32 completed. Slower than the
+  17:45 run (0.303 / 0.305) with the same event sequence (one single-row prefill with a growth
+  release, a 16-row and a 15-row group, then the 32-slot greedy capture); the program cache grew
+  from 1299 to 1343 entries across that first 32-slot greedy capture in this run (the 17:45 run
+  shows 1353 entries at the same capture and no count before it, because no trace was retained).
+  The likely cause is program compilation inside the burst's first decode step, which the 17:45 run
+  had paid earlier when its host-sampled temperature tests ran 32-slot eager decode; this is a
+  hypothesis from the entry counts, not a verified attribution. The gate margin absorbs it and the
+  prefill event sequence is identical between the two runs.
+- Primary 128/128/1, four runs on this server (chain run, then three repeats,
+  `optimized_vllm_batched_prefill/after*/`): TTFT 179.61 / 173.89 / 174.05 / 174.63 ms, TPOT
+  31.899 / 27.957 / 27.917 / 27.933 ms, ITL p99 110.986 / 28.146 / 27.876 / 28.073 ms; the chain
+  run has one 111 ms token interval in a 27.06 ms median stream. The README uses the third repeat
+  (TTFT 174.63 ms, +0.8 percent; TPOT 27.933 ms, -0.04 percent; 35.80 t/s/u) and lists all four.
+- CI burst 100/100/32 (chain run): TTFT mean 2334.3 / p99 3123.8 ms, TPOT mean 87.746 / p99
+  103.587 ms, ITL p50 78.391 / p99 127.176 ms, 290.29 tok/s; repeats 2 to 4: TTFT mean 2258.6 to
+  2269.0 ms, TPOT mean 87.19 to 87.23 ms, 293.4 to 293.7 tok/s; 32 of 32 completed every time.
+- Qualitative: six chat prompts coherent and on topic in greedy and sampled form (sampled now on
+  the device sampler at top_k 32), no repetition, gibberish, language drift or cross-request content;
+  the greedy haiku is the same text as every earlier run. `check_degenerate_output` clean.
+- `prefix_cache`: pass; cold TTFT 1473 ms, warm 136 to 148 ms (ratio 0.094, hit 0.9996), long
+  257-token resume checked (first token and 16 greedy tokens identical, hit 0.899), shared-prefix
+  hit rate 0.824.
+- Sampling (repo runner, full profile): 72 passed, 1 skipped, 5 min 16 s; 96 device sampled
+  captures and 5 host-sampling releases in its window; 0 detokenizer errors, 0 adapter events.
+- Mixed-shape trace reuse: 32 of 32 completed; status fail with the same four reasons (15 captures,
+  14 releases: `prefill_program_cache_growth` 9, `slot_remap` 3, `batch_shape_change` 2); the
+  `batched_group_while_decoding` phase formed the 8-row group beside the decoding request (TTFT
+  800 to 803 ms). TTFT p50 286 ms, p95 3.5 s, p99 7.9 s. Open item, unchanged; the raw-prompt
+  degeneracy is controlled above.
+- Served 32-slot group equivalence: pass; 31-row group padded to 32; first token equal on all 32
+  rows; 28 of 32 identical through 8 tokens (rows 7, 14, 16, 21); program-cache entries 4973 before
+  the group and at the capture after it; burst releases one `prefill_program_cache_growth` (a
+  first-seen single-row length admitted before the group) and one `slot_remap`.
+- Default-recipe latency with the override (`default_recipe_latency_ceiling32_override32.json`):
+  sampled 128/128/1 alone 170 ms TTFT, 27.95 ms per token on the device sampler (a `trace_key_miss`
+  recapture at the greedy-to-sampled switch); a greedy user decoding at 27 ms per token joined by a
+  sampled request ran at 55 ms per token (48 first half, 63 second half) and the sampled request at
+  53 ms per token: that is the batch-1 to 32-slot lane change for two users, not host sampling
+  (97 ms per token for both before the override).
+- Temperature-5 `top_k` 32 probe (`invalid_token_probe_endings_k32.json`, EOS allowed and
+  staggered lengths, 32 and 37 concurrent, slot 31 live): 4,271 sampled tokens, 55 sampled 32-slot
+  captures, 0 invalid ids.
+- Whole final log: 837 trace events, 183 captures; releases `slot_remap` 116, `trace_key_miss` 25,
+  `prefill_program_cache_growth` 23, `batch_shape_change` 12, `host_sampling_prefill` 6; 122 batched
+  groups; no `batched_prefill_unprepared`; token scan pass with 116 device sampled captures, 67
+  device greedy captures, 6 host-sampling prefill releases, 0 host-sampling decode releases.

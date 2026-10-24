@@ -122,7 +122,7 @@
       "item": "supports_sample_on_device",
       "kind": "capability",
       "status": "supported",
-      "evidence": "readiness_vllm/optimized_vllm_batched_prefill/after/vllm_benchmark.json (sample_on_device_mode=all); readiness_vllm/vllm_qualitative_outputs.json"
+      "evidence": "readiness_vllm/optimized_vllm_batched_prefill/after/vllm_benchmark.json (sample_on_device_mode=all); readiness_vllm/vllm_qualitative_outputs.json With the served top_k 32 default the sampled qualitative outputs and the sampling suite run on the device sampler (readiness_vllm/P150_prefill_features/invalid_token_scan_final4.json sampling_modes); on the earlier final server without the override the sampled half of those runs was host-sampled."
     },
     {
       "item": "supports_device_penalties",
@@ -142,7 +142,7 @@
       "item": "max_device_top_k",
       "kind": "capability",
       "status": "supported",
-      "evidence": "model_capabilities['max_device_top_k'] = 32 (Sampling1D max_top_k=32, one candidate tile per user). The sampler draws only from the first 32 sorted candidates whatever k is passed (doc/optimized_vllm/sampler_probe/sampling1d_topk_probe.json: k=64 and k=32 give identical draws, maximum sampled rank 31), so 64 was a false ceiling; stochastic requests above 32 use the host sampler by the pinned plugin's routing (served: top_k 33 and 64 ran on device under the old ceiling, 65 went to the host; readiness_vllm/P150_prefill_features/sampling_tests.log)"
+      "evidence": "model_capabilities['max_device_top_k'] = 32 (Sampling1D max_top_k=32, one candidate tile per user). The sampler draws only from the first 32 sorted candidates whatever k is passed (doc/optimized_vllm/sampler_probe/sampling1d_topk_probe.json: k=64 and k=32 give identical draws, maximum sampled rank 31), so 64 was a false ceiling that let the op read past the user's row (out-of-vocabulary ids in slot 31, readiness_vllm/P150_prefill_features/invalid_token_scan_topk64.json). Stochastic requests above 32 use the host sampler by the pinned plugin's routing. The model's generation_config.json default top_k is 64, so the server is launched with --override-generation-config {\"top_k\":32} (proposed served default, pending operator acceptance); without it every default-recipe sampled request is host-sampled at 97 ms per token (readiness_vllm/P150_prefill_features/default_recipe_latency_ceiling32_no_override.json)."
     },
     {
       "item": "temperature / top_k <= 64 / top_p",
