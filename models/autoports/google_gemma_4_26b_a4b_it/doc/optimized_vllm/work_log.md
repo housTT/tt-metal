@@ -997,8 +997,8 @@ runtime effect without the tracker).
   remedies; the final server (18:37 UTC) ran the `af32f9ea86` model and adapter code with the
   tooling of this commit.
 - `2bd0d7aeb7` extends this list (reviewed by the fourth pass).
-- The commit that adds this line carries the fourth-review documentation fixes and precedes the
-  fifth review.
+- `bfa7a081e6` fourth-review documentation fixes (reviewed by the fifth pass).
+- The commit that adds this line carries the fifth-review documentation fixes.
 
 vLLM checkout `/home/hous/dev/vllm` and its in-tree plugin: unchanged at `f96662a7d`, no commit.
 
@@ -1031,10 +1031,10 @@ recorded as a proposal pending operator acceptance (it is also the tti-release a
 default to confirm). The statements in this log, the README and the serving contract that said
 default requests stay on device under the 32 ceiling were corrected. Verification on the server
 with the override is in "Final server and serving evidence (served top_k 32 default)" below: the
-five temperature-5 batch tests ran on the device sampler (11 sampled 32-slot and 1 sampled batch-1
-captures between the runner's start and exit times, no host-sampling release) with 0 invalid ids,
-the full suite passed with 23 sampled 32-slot and 12 sampled batch-1 device captures and 3
-host-sampling releases (logprobs and penalty tests), a 4,271-token temperature-5
+five temperature-5 batch tests ran on the device sampler (13 sampled 32-slot and 1 sampled batch-1
+captures over their 105 requests, attributed by request structure, no host-sampling release) with
+0 invalid ids, the full suite passed with 23 sampled 32-slot and 12 sampled batch-1 device captures
+and 4 host-sampling releases (logprobs and penalty tests), a 4,271-token temperature-5
 `top_k` 32 probe at 32 and 37 concurrent requests with slot 31 live gave 0 invalid ids over 55
 sampled 32-slot captures, and the default-recipe sampled request runs on device at 27.95 ms per
 token (`default_recipe_latency_ceiling32_override32.json`).
@@ -1078,10 +1078,12 @@ stripped the JSON quotes, fixed by quoting the JSON inside the argument string),
 tooling edits committed after this section (no model or adapter code changed after `af32f9ea86`).
 
 - Temperature-5 batch tests first (`sampling_subset_runner_final4.log`, 5 passed, 18 s): 0
-  detokenizer errors, 0 `invalid_sampled_token` events; 11 sampled 32-slot and 1 sampled batch-1
-  device captures between the runner's start and exit times, no host-sampling release. (The line
-  brackets in `sampling_subset_final4_window.txt` were taken at chain time and also span the stages
-  that followed; the per-stage counts here use the server-log timestamps.)
+  detokenizer errors, 0 `invalid_sampled_token` events; 13 sampled 32-slot and 1 sampled batch-1
+  device captures over the tests' 105 requests, no host-sampling release. (The generator's event
+  lines carry no timestamp and the line brackets in `sampling_subset_final4_window.txt` were taken
+  at chain time and also span the stages that followed, so per-stage counts are attributed by
+  request structure: the 105 `POST` lines and 105 prefill rows of these tests bracket them exactly;
+  a first attempt that used the 10 s metrics timestamps undercounted them as 11 and 1.)
 - `prefill_burst` (32 x 128/32, concurrency 32, greedy): TTFT p50 1566.2 / p99 2492.0 / mean
   1961.6 ms; ratios p99 0.371, mean 0.394, p50 0.430; gate pass; 32 of 32 completed. Slower than the
   17:45 run (0.303 / 0.305) with the same event sequence (one single-row prefill with a growth
@@ -1107,8 +1109,9 @@ tooling edits committed after this section (no model or adapter code changed aft
   257-token resume checked (first token and 16 greedy tokens identical, hit 0.899), shared-prefix
   hit rate 0.824.
 - Sampling (repo runner, full profile): 72 passed, 1 skipped, 5 min 16 s; 23 sampled 32-slot and
-  12 sampled batch-1 device captures and 3 `host_sampling_prefill` releases between its start and
-  exit times; 0 detokenizer errors, 0 adapter events.
+  12 sampled batch-1 device captures and 4 `host_sampling_prefill` releases (logprobs and penalty
+  tests) between its health check and the mixed-shape window; 0 detokenizer errors, 0 adapter
+  events.
 - Mixed-shape trace reuse: 32 of 32 completed; status fail with the same four reasons (15 captures,
   14 releases: `prefill_program_cache_growth` 9, `slot_remap` 3, `batch_shape_change` 2); the
   `batched_group_while_decoding` phase formed the 8-row group beside the decoding request (TTFT
@@ -1129,8 +1132,17 @@ tooling edits committed after this section (no model or adapter code changed aft
   captures, 0 invalid ids.
 - Whole final log: 837 trace events, 183 captures; releases `slot_remap` 116, `trace_key_miss` 25,
   `prefill_program_cache_growth` 23, `batch_shape_change` 12, `host_sampling_prefill` 6; 122 batched
-  groups; no `batched_prefill_unprepared`; token scan pass with 116 device sampled captures, 67
-  device greedy captures, 6 host-sampling prefill releases, 0 host-sampling decode releases.
+  groups; no `batched_prefill_unprepared`; token scan (taken at the end of the chain, 4,086 lines)
+  pass with 116 device sampled captures, 67 device greedy captures, 6 host-sampling prefill releases
+  (4 suite, 1 prefix-cache cold request with its first-token logprob, 1 `top_k` 50 phase of the k32
+  probe), 0 host-sampling decode releases. The three benchmark repeats ran after that scan; in each
+  the CI burst's first 21-row prefill step was host-sampled (`release host_sampling_prefill` right
+  before the 21-row prefill), while the chain run's identical step was device-sampled with the same
+  bench command and payload; the cause was not determined and is recorded as an observation under
+  the trace-lifetime open item (a plugin-side cause would become a plugin-changes proposal, not a
+  model fix). `perf_summary.json` therefore keeps the chain run as the CI-burst after value and
+  lists the repeats as supplementary; the single-user repeats are greedy batch-1 device captures
+  with no host release.
 
 ### Fourth independent review (2026 Oct 24, after 2bd0d7aeb7): findings and remedies
 
@@ -1151,9 +1163,10 @@ The fourth pass verified the third-review remedies against the raw artifacts and
   `optimized_vllm` block of `doc/context_contract.json` now records the served P150 context 131072
   and this stage's measurement root (it still carried the 2026 Sep 08 values); the README evidence
   table's prefix-cache and resume-check rows were merged on one line and are split; the
-  sampling-mode counts are now computed per stage from the server-log timestamps (temperature tests:
-  11 sampled 32-slot and 1 sampled batch-1 device captures, no host release; suite: 23 and 12, 3
-  host releases) instead of from line brackets that spanned later stages; the CI-burst table shows
+  sampling-mode counts are now attributed per stage by request structure (temperature tests:
+  13 sampled 32-slot and 1 sampled batch-1 device captures over 105 requests, no host release;
+  suite: 23 and 12, 4 host releases) instead of from line brackets that spanned later stages (the
+  fifth review corrected a first timestamp-based attempt that gave 11, 1 and 3); the CI-burst table shows
   the chain run and repeat 4 separately; the serving contract names the device-sampled top_k range
   as 32 and cites the final-code batched-equals-solo copies; the three older token-scan JSONs name
   the archived server log they scanned.
@@ -1163,3 +1176,23 @@ The fourth pass verified the third-review remedies against the raw artifacts and
   batched-equals-solo runs used `--decode-steps 8` (the `27c84d5e4d` readiness copy used 32), so
   later divergence beyond 8 tokens is observed only in the older copy; the burst benchmark on the
   final server is a single run.
+
+### Fifth independent review (2026 Oct 24, after bfa7a081e6): findings and remedies
+
+The fifth pass verified fourth-review fixes (a), (b), (c), (e) and (f) and returned
+`more-work-needed` with the two human-authorization items unchanged and one documentation item:
+the per-stage sampling-mode counts written after the fourth review used the 10 s metrics
+timestamps and undercounted (11 and 1 sampled captures for the temperature tests where the request
+structure gives 13 and 1; 3 host releases for the suite where it gives 4), the six whole-log
+host-sampling releases were all attributed to the suite (4 suite, 1 prefix-cache cold request, 1
+k32 probe `top_k` 50 phase), and the CI-burst repeats carried an undisclosed host-sampled first
+prefill step. All of those statements are corrected above (README item 4, evidence table, serving
+evidence section; `perf_summary.json` CI-burst after value is the chain run). Anomaly entry for the
+repeats: observed, the plugin host-sampled the greedy CI burst's first 21-row prefill step in all
+three repeats and not in the chain run; evidence, `server.log` `release host_sampling_prefill`
+immediately before `prefill rows 21` at the three repeats versus the device-sampled chain-run step,
+identical bench command strings in `optimized_vllm_batched_prefill/after*/vllm_ci_serving_benchmark.json`;
+affected path, plugin sampler routing into the adapter's `host_sampling_prefill` release; control,
+the chain run; likely subsystem, plugin input-batch state at that step (payload-side causes excluded
+by the identical payloads); investigation, event and command comparison only; resolution, recorded
+as an open observation under the trace-lifetime item, not rerun here.

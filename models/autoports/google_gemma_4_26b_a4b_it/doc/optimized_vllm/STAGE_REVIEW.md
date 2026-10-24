@@ -89,6 +89,24 @@ position-gated reads; `decode_steps 8` in the final-code acceptance copies; no s
 history-snapshot control (covered indirectly by the `no_history` control failing at the window
 starts).
 
-## Fifth review
+## Fifth review (2026 Oct 24, commit bfa7a081e6): more-work-needed
 
-Latest verdict: pending re-review after the documentation fixes.
+Fourth-review fixes (a), (b), (c), (e), (f) verified. Required work as returned, condensed:
+
+- P2, human authorization: inherited plugin interface items (`plugin_changes.md` items 1, 5, 6 and
+  the `proposed` chunked-prefill key).
+- P2, human authorization: served default `--override-generation-config {"top_k":32}`.
+- P2, documentation: per-stage sampling-mode counts (13 and 1 for the temperature tests, 4 suite
+  host releases, whole-log attribution 4 suite / 1 prefix-cache / 1 k32 probe) and disclosure of
+  the host-sampled first prefill step in the CI-burst repeats, with the chain run as the
+  `perf_summary.json` after value. Fixed in the commit after this entry.
+
+Other concerns recorded: README "5129 entries" sentence now names its server; ITL p99 of the
+repeats within 0.9 percent, not 0.5; chain-run 111 ms single-user interval; burst run-to-run
+variance; mixed-shape `fail` (open item); batched partial first chunk followed by a single-row
+continuation covered only transitively; B1 versus 32-slot lane divergence; raw-prompt controls are
+TTNN-only; `vllm_run_summary.json` nulls in attached mode; the live server log keeps growing.
+
+## Sixth review
+
+Latest verdict: pending.

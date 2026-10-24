@@ -55,7 +55,7 @@ capacity context, not headline decode):
 | --- | ---: | ---: | ---: | ---: |
 | before (per-row) | 10277.4 / 14089.3 | 114.288 / 174.934 | 74.357 / 121.513 | 148.19 |
 | after (final code with the served `top_k` 32 default, chain run) | 2334.3 / 3123.7 | 87.746 / 103.587 | 78.391 / 127.176 | 290.29 |
-| after (same server, repeat 4; repeats 2 and 3 within 0.5 percent of it) | 2258.6 / 3005.7 | 87.227 / 102.616 | 78.203 / 127.330 | 293.68 |
+| after (same server, repeat 4; repeats 2 and 3 within 0.5 percent on TTFT, TPOT and throughput and within 0.9 percent on ITL p99; each repeat had its first 21-row prefill step host-sampled by the plugin, see the serving evidence section) | 2258.6 / 3005.7 | 87.227 / 102.616 | 78.203 / 127.330 | 293.68 |
 
 ## What changed and why
 
@@ -79,7 +79,7 @@ capacity context, not headline decode):
    `warmup_model_prefill`). A prepared group adds no programs afterwards: the rows are split by
    shape, each row's cache fill is cut to its block-aligned length along the sequence only, and
    `paged_fill_cache` takes the row index as a tensor (acceptance: zero growth in every group of 2 to
-   16 rows; served 31-row group: 5129 entries before and after). When a prefill step mixes a batched
+   16 rows; served 31-row group on the `27c84d5e4d` server: 5129 entries before and after; on the final server 4973). When a prefill step mixes a batched
    group with single rows, the terminal input is assembled from hidden rows instead of slicing the
    group's 262,144-wide logits per row: every source gathers its last hidden rows into their request
    slots of one fixed `[1, 1, 32, 2816]` tile with the runtime-index gather, a slot mask zeroes the
@@ -122,7 +122,7 @@ capacity context, not headline decode):
    always drawn from (identical draws for k = 64 and k = 32 in the device probe). This changes the
    served recipe's `top_k` from 64 to 32 and is recorded as a proposal pending operator acceptance;
    with the override in place the final evidence below comes from the device sampler
-   (trace events between each runner's start and exit time in the server log: the temperature-5 reproduction tests 11 sampled 32-slot and 1 sampled batch-1 device captures, no host-sampling release; the full suite 23 sampled 32-slot and 12 sampled batch-1 device captures, 3 `host_sampling_prefill` releases from its logprobs and penalty tests). Stochastic requests that name `top_k` above 32 still use the plugin's host
+   (trace events attributed to each stage by request structure in the server log, since the generator's event lines carry no timestamp: the temperature-5 reproduction tests, 105 requests, 13 sampled 32-slot and 1 sampled batch-1 device captures, no host-sampling release; the full suite 23 sampled 32-slot and 12 sampled batch-1 device captures and 4 `host_sampling_prefill` releases from its logprobs and penalty tests). Stochastic requests that name `top_k` above 32 still use the plugin's host
    sampler.
 
 Environment knobs added: `GEMMA4_BATCHED_PREFILL` (default 1), `GEMMA4_BATCHED_PREFILL_BUCKETS`
@@ -145,8 +145,15 @@ log `readiness_vllm/P150_prefill_features/server.log`). Earlier servers' logs: `
 review-era probes `server_27c84d5e4d_final_and_probes.log`; the top-k 64 experiment
 `server_topk64_probe.log`; the final code without the served override (17:45 UTC, `*_runner_final3.log`)
 `server_final3_ceiling32_default_recipe64.log`. Sampling modes over the whole final log
-(`invalid_token_scan_final4.json`): 116 device sampled captures, 67 device greedy captures, 6
-`host_sampling_prefill` releases (the suite's logprobs and penalty tests), no host-mode decode:
+up to the end of the chain (`invalid_token_scan_final4.json`, 4,086 lines): 116 device sampled captures, 67
+device greedy captures, 6 `host_sampling_prefill` releases (4 from the suite's logprobs and penalty
+tests, 1 from the prefix-cache stage's cold request, which asks for the first-token logprob, and 1
+from the `top_k` 50 phase of the k32 probe, host by design), no host-mode decode. The three
+benchmark repeats that followed the chain are outside that scan; in each of them the plugin
+host-sampled the CI burst's first 21-row prefill step (`release host_sampling_prefill` right before
+the 21-row prefill), while the chain run's identical step was device-sampled; the bench commands and
+payloads are identical and the cause was not determined (recorded under the trace-lifetime open
+item). The single-user repeats are greedy batch-1 device captures with no host release:
 
 | Check | Result | Artifact |
 | --- | --- | --- |
@@ -159,7 +166,7 @@ review-era probes `server_27c84d5e4d_final_and_probes.log`; the top-k 64 experim
 | Served 32-slot group equals solo (32 chat prompts of 20 to 30 tokens sent at once, then each alone, greedy, 8 tokens) | pass: one batched group of 31 rows padded to 32 (the engine admits the first arrival in its own step), first greedy token equal on all 32 rows, 28 of 32 continuations identical through 8 tokens (the other 4 split at token 3 to 8 on the batch-1 versus 32-slot decode lane; same rows in every run). Program-cache entries 4973 before the group and at the capture after it (no growth); the burst's releases were one `prefill_program_cache_growth` from a first-seen single-row prompt length before the group and one `slot_remap` | `readiness_vllm/trace_reuse/batched_group_equivalence.json` |
 | Non-aligned prompt lengths through serving | 129, 130, 131, 257, 300, 2200, 3100, 4500 tokens all completed (mixed-shape workload); 2305 (prefix-cache stage) | `readiness_vllm/trace_reuse/mixed_shape_check.json` |
 | Mixed-shape trace reuse | fail (open item below) with four recorded reasons: 15 decode trace captures and 14 releases during 32 requests (`prefill_program_cache_growth` 9, `slot_remap` 3, `batch_shape_change` 2); the greedy 129-token raw prompt gave one text in the batch-1 decode lane and another in the 32-slot lane (first token identical; decode-width program configs, pre-existing); raw mid-paragraph completions loop or drift (`batched_group_while_decoding` rows). Control for the batched-group rows on the standalone generator (`readiness_vllm/trace_reuse/raw_prompt_control_batched_group.json`, same token ids, greedy): the standalone solo prefill, the standalone batched 9-row group and the served group agree on the first token for 9 of the 10 prompts; the tenth (`short_3`) is an exact tie between two tokens (top-1 minus top-2 logit 0.0) that the served step broke the other way; the standalone continuations loop the same way (`-로-로-로`, `and the and the`, `the emphasis on the emphasis on`), so the degeneracy is this model's greedy behaviour on these raw prompts; the continuations then split on the batch-1 versus 32-slot lane (3 of 8 identical through 16 tokens). The 8-row group formed while a 64-token request decoded (TTFT 800 to 803 ms for the shorts). TTFT p50 286 ms, p95 3.5 s, p99 7.9 s (first-seen chunk lengths compile) | `readiness_vllm/trace_reuse/mixed_shape_check.json`, `raw_prompt_control.json`, `raw_prompt_control_batched_group.json` |
-| Sampled token ids in range (adapter range check on every sampled vector; detokenizer scan of the server log) | pass: 0 detokenizer errors and 0 adapter events over the whole final server log, which includes the five temperature-5 batch tests run first (device sampler, 11 sampled 32-slot captures in their window), the full sampling suite, and a 4,271-token temperature-5 `top_k` 32 probe at 32 and 37 concurrent requests with slot 31 live (55 sampled B32 captures, `invalid_token_probe_endings_k32.json`); on the `27c84d5e4d` server the same five tests gave 2 invalid ids and on the top-k 64 experiment server 5, all in slot 31 (`invalid_token_scan_27c84d5e4d.json`, `invalid_token_scan_topk64.json`, `invalid_token_scan_final4.json`) | `readiness_vllm/P150_prefill_features/sampling_subset_final4_window.txt`, `server.log` |
+| Sampled token ids in range (adapter range check on every sampled vector; detokenizer scan of the server log) | pass: 0 detokenizer errors and 0 adapter events over the whole final server log, which includes the five temperature-5 batch tests run first (device sampler, 13 sampled 32-slot and 1 sampled batch-1 captures over their 105 requests, no host-sampling release), the full sampling suite, and a 4,271-token temperature-5 `top_k` 32 probe at 32 and 37 concurrent requests with slot 31 live (55 sampled B32 captures, `invalid_token_probe_endings_k32.json`); on the `27c84d5e4d` server the same five tests gave 2 invalid ids and on the top-k 64 experiment server 5, all in slot 31 (`invalid_token_scan_27c84d5e4d.json`, `invalid_token_scan_topk64.json`, `invalid_token_scan_final4.json`) | `readiness_vllm/P150_prefill_features/sampling_subset_final4_window.txt`, `server.log` |
 | Tracked replay of the batched path (`TT_METAL_TRACE_ALLOC_TRACKING=1`, program-cache allocations included, acceptance groups of 2 to 16 rows with mixed singles, decode traces live) | pass twice: with the (since removed) scopes still wrapping the batched forwards, and with no scope at all once the single-row programs are warm; status pass, zero program-cache growth in every group and every step, no buffer alive at any replay (`acceptance_tracked_scopes_on.log`, `acceptance_tracked_no_scopes.log`). The only allocation the tracker ever flagged in the batched path after the row-assembly fix was a first-seen per-length program compile for a single row (`acceptance_tracked_scopes_off_gather_unwarmed.log`), the class the adapter retires traces for | `doc/optimized_vllm/trace_reuse_probe/batched_prefill_tracked/`, `..._scopes_off/` |
 | Plugin and vLLM checkout | unchanged at `f96662a7d`, working tree clean; the inherited capability key `supports_prefix_caching_sliding_window` (plugin commit `cd25e6602`) is `proposed` for operator authorization | `doc/vllm_integration/plugin_changes.md` |
 
