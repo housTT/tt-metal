@@ -122,7 +122,6 @@ def main():
         freq = [0.0] * B
         freq[2] = 2.0
         run("frequency_row2", [2], [5], params(frequency_penalty=freq), steps=6)
-        # host-resumed penalized rows with histories of different widths
         for width_h in (3, 9, 17, 40):
             prompt_hist = [[1, 2, 3][: min(3, width_h)] for _ in range(B)]
             out_hist = [list(range(5, 5 + width_h)) for _ in range(B)]

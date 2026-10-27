@@ -183,22 +183,18 @@ def main():
                 greedy_by_key.setdefault(key, []).append(row["token_ids"])
         args.output.write_text(json.dumps(report, indent=2) + "\n")
 
-    # Phase 1: unseen logical lengths, one at a time, first encounters.
     singles = [129, 130, 131, 64, 200, 2305, 1, 2, 5, 1000, 1024, 1025]
     results = [client.complete(prompt(n, 1000 + n), max_tokens=16, label=f"single{n}") for n in singles]
     record("1_single_first_encounters", results)
-    # Phase 2: concurrent arrivals while a request decodes; unseen lengths and new combinations.
     jobs = [dict(ids=prompt(131, 5000), max_tokens=192, label="decoding131")]
     jobs += [dict(ids=prompt(n, 6000 + n), max_tokens=24, label=f"arrival{n}") for n in (65, 131, 2305, 129, 33, 257)]
     record("2_concurrent_arrivals_during_decode", run_concurrent(client, jobs))
-    # Phase 3: repeated lengths in new batch compositions and row orders; identical greedy prompts must match phase 1.
     repeat_a = [dict(ids=prompt(n, 1000 + n), max_tokens=16, label=f"single{n}:batchA") for n in (131, 65, 129, 2305)]
     record("3a_repeat_batch", run_concurrent(client, repeat_a))
     repeat_b = [
         dict(ids=prompt(n, 1000 + n), max_tokens=16, label=f"single{n}:batchB") for n in (2305, 129, 1, 131, 200, 130)
     ]
     record("3b_repeat_batch_reordered", run_concurrent(client, repeat_b))
-    # Phase 4: sampling-mode switches, then return to the greedy key.
     sampled = [
         dict(ids=prompt(n, 1000 + n), max_tokens=16, temperature=0.8, top_k=20, top_p=0.95, seed=7, label=f"sampled{n}")
         for n in (131, 129)
@@ -206,17 +202,14 @@ def main():
     record("4a_sampled", run_concurrent(client, sampled))
     back = [dict(ids=prompt(n, 1000 + n), max_tokens=16, label=f"single{n}:after_sampled") for n in (131, 129, 130)]
     record("4b_greedy_after_sampled", run_concurrent(client, back))
-    # Phase 5: a prompt that crosses the 2048-token chunk twice (first chunk, full continuation chunk, partial final chunk) while others decode.
     jobs = [dict(ids=prompt(args.long_length, 20000), max_tokens=16, label=f"long{args.long_length}")]
     jobs += [dict(ids=prompt(n, 7000 + n), max_tokens=48, label=f"beside{n}") for n in (131, 65)]
     record("5_long_prompt_crossing_chunks", run_concurrent(client, jobs))
-    # Phase 6: repeat the very first encounters once more, alone.
     record(
         "6_repeat_singles",
         [client.complete(prompt(n, 1000 + n), max_tokens=16, label=f"single{n}:final") for n in (129, 130, 131, 2305)],
     )
 
-    # Verdict data.
     time.sleep(2)
     report["events_after"] = log_events(args.server_log)
     before = len(report["events_before"] or [])

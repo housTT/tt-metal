@@ -57,7 +57,7 @@ unchanged. One local plugin commit exists on top of the upstream base; its recor
    (`/tmp/ornith_p150_plugin_host_tests.log`; copied to
    `doc/vllm_integration/p150/plugin_host_tests.log`). Affected serving checks on p150:
    `readiness_vllm/sampling_tests.log` (host-only parameters, seeds, determinism) and
-   `doc/vllm_integration/p150/nonaligned_requests.json`.
+   `doc/vllm_integration/p150/tracked_b32/nonaligned_requests.json`.
 8. **Status.** `implemented`, local plugin commit `9bab7d527d4adbece91de7338302c99e652fd642`
    on branch `hous/ornith-1.5-9b`; not pushed by this stage.
 

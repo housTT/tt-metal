@@ -106,10 +106,11 @@ sampling values. All four are fixed in the model, generator and adapter (see
   sampler `6`, history `7`, plus the prepared penalty-variant pair), request
   signatures per physical bucket and chunk start, every eager prefill with its
   program count before and after, and the two startup captures.
-- `b32_compat_prefinal/mixed_shape_check.json`: the same workload with tracking off,
-  for timing: 41/41 complete, TTFT p50/p95/p99 0.381/1.080/1.082 s
-  (first encounters of 2305 and 4353 tokens are the tail), ITL max 0.449 s,
-  zero captures (`b32_final/`, repeated in `b32_recheck/`).
+- the same workload with tracking off, for timing: `b32_final/mixed_shape_check.json`
+  41/41 complete, TTFT p50/p95/p99 0.381/1.080/1.082 s (first encounters of
+  2305 and 4353 tokens are the tail), ITL max 0.449 s, zero captures;
+  `b32_compat_prefinal/mixed_shape_check.json` 0.381/1.083/1.084 s, ITL max
+  0.450 s; `b32_recheck/mixed_shape_check.json` 0.382 s p50, zero captures.
 
 Startup: the servers recorded in `tracked_b32/`, `b32_final/` and
 `b1_primary/` capture once, then the warmup's dummy admission compiled the
@@ -164,8 +165,7 @@ declared) and `test_chat_logprobs_all_vocab` (all-vocabulary logprobs are
 unsupported). The failure, `test_tt_penalties::test_frequency_penalty_changes_output`,
 expects `frequency_penalty=2.0` to change the greedy output of all eight
 prompts; seven change and `After a while, she` does not. The control
-`b32_compat_prefinal/penalty_margin_probe.json` (also `b32_compat_prefinal/penalty_margin_probe_penalty8.json`,
-the rejected 8.0 request) shows that the device output
+`b32_compat_prefinal/penalty_margin_probe.json` shows that the device output
 is the penalized argmax of the raw top-20 logits at every step: the repeated
 tokens ` to` (steps 9 and 12, counts 1 and 2, penalized by 2.0 and 4.0 nats)
 and ` that` (step 23) remain 3.25 and 7.6 nats ahead of the runner-up, and
@@ -193,7 +193,7 @@ the sampled French answer and the greedy Fibonacci answer reach the final
 answer; the others end inside `<think>`. The greedy haiku reasoning
 miscounts syllables ("Pat-tens em-erge = 5", then self-corrected); the HF
 control of the p150x4 stage (`../qualitative_extended_control_report.md`,
-lines 44 and 129) counts correctly, so this is a precision-policy or greedy
+line 129) counts correctly, so this is a precision-policy or greedy
 variance effect of the port, not a serving effect: served tokens and logprobs
 equal the standalone one-chip generator exactly on the logit-determinism
 prompts. The mechanical degeneracy gate passes (stage check).
@@ -247,8 +247,11 @@ One-chip teacher-forcing lower bound (`teacher_forcing_p150.json`,
 `doc/datatype_sweep/run_candidate.py --num-devices 1 --config
 p150_head8_hifi2_kv8_policy.json --teacher-only --teacher-repeats 3`, all 32
 layers, batch 1, AIME24 chat 100-token reference, traced decode with logit
-readback, median of three repeats): top-1 0.98, top-5 1.00, decode 29.18
-t/s/u (repeats 29.29, 29.18, 29.09), TTFT 81.2 ms warmed. The served primary
+readback, median of three repeats, measured on one chip of a P300c board,
+not a P150 board): top-1 0.98, top-5 1.00, decode 29.18 t/s/u (repeats
+29.29, 29.18, 29.09), TTFT 81.2 ms warmed. The bound reads logits back every
+step and uses a 2048-token cache context, so it cannot resolve sub-millisecond
+serving overhead. The served primary
 B1 path measures 29.34 t/s/u and 83.3 ms TTFT on the first request after
 readiness: decode is within 1 percent of the traced generator bound and TTFT
 within 2.1 ms, so no avoidable vLLM-specific decode overhead remains in the
@@ -266,7 +269,13 @@ bound (87.1 t/s/u at TP4) does not apply to one chip.
 `vllm_prefill_burst_benchmark.json`, `vllm_prefill_burst_result.json` and
 `vllm_prefill_burst_serial_benchmark.json` are the final B32 compatibility
 server (`b32_final/`). Every server directory under this folder keeps its own
-`server.log`, `launch_env.txt` and `vllm_run_summary.json`.
+`server.log` and `launch_env.txt`; the `vllm_run_summary.json` copies are
+written by the attached runner stages, which merge into the existing file and
+keep its `server_command`, so `b32_final/vllm_run_summary.json` still carries
+the B1 command of the earlier server and the B1 summary's `tt_config` is the
+attached benchmark's default; the server command and TT config of each server
+are in its `server.log` and `launch_env.txt`. The plugin's capability table is
+`AGENTS.md` section 6 of the pinned checkout (it has no `docs/MODEL_INTERFACE.md`).
 
 ## Process cleanup
 

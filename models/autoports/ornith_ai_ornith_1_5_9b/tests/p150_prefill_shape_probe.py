@@ -176,7 +176,6 @@ def main():
                     ),
                     flush=True,
                 )
-        # Concurrent non-aligned rows in one prefill call.
         mixed = [131, 65, 131]
         rows = [3, 4, 5]
         prompts = [torch.tensor(base[100 + i * 11 : 100 + i * 11 + n], dtype=torch.int64) for i, n in enumerate(mixed)]
@@ -216,7 +215,6 @@ def main():
                 new_captures=int(adapter.generator.counters.get("captures", 0)) - before["captures"],
             )
         )
-        # Sampling-mode switches: greedy -> sampled -> penalized -> greedy must reuse prepared traces.
         switch_prompt = torch.tensor(base[50000:50131], dtype=torch.int64)[None]
         modes = {
             "greedy": sampling,

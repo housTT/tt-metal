@@ -633,11 +633,8 @@ class OrnithGenerator(Generator):
             return
         if self._model_trace is None or self._logits is None:
             raise RuntimeError("Live sampling reconfiguration requires an existing decode trace")
-        # Values refresh device tensors; a graph change selects the prepared sibling trace.
         self._configure_sampling(sampling_params)
         if self._model_trace is None:
-            # Unprepared graph (raw logprob configurations): warm only the sampler,
-            # restore every sampling mutation, then recapture the family.
             originals = [self._inputs[0], self._logits, self.sampling.tt_sampling.seeds_tt_tensor]
             originals += self._sampler_history_tensors()
             saved = [ttnn.clone(tensor) for tensor in originals]
@@ -902,8 +899,6 @@ class OrnithGenerator(Generator):
             for variant in self._sampling_variants(current):
                 self.sampling.reset_sampling_params(self._sampler_params(variant))
                 if self._penalties_requested(variant):
-                    # Penalized admission also compiles the history mask programs, and a
-                    # host-resumed penalized row rebuilds its output counts.
                     self._prepare_prompt_sampling([[0]], [1], [0], [0])
                     self.sampling.reset_output_state(torch.full((32, 1), -1, dtype=torch.int64))
                 self._sample_device(self._logits if self._active8_enabled else warm)
@@ -1506,7 +1501,6 @@ def build_generator(model_dir, mesh_device, *, use_prefill_trace=True, **kwargs)
         "prefix_cache_bytes",
         "prefix_cache_max_tokens",
     )
-    # Readiness runners pass no policy; serve the same selection the adapter reads.
     kwargs.setdefault("precision_config", os.environ.get("ORNITH_PRECISION_CONFIG"))
     model = OrnithModel.from_pretrained(model_dir, mesh_device, **{k: kwargs.pop(k) for k in model_keys if k in kwargs})
     from transformers import AutoTokenizer

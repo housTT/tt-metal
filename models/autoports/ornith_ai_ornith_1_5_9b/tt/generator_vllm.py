@@ -491,7 +491,6 @@ class TTOrnithForCausalLM:
                 start_pos=[0],
             )
             ttnn.deallocate(logits)
-        # Admission into every fixed slot compiles its own state-transfer programs.
         for slot in range(1, self.max_batch_size):
             logits = model.prefill_forward(
                 [torch.zeros(1, dtype=torch.int64)],
@@ -502,13 +501,18 @@ class TTOrnithForCausalLM:
                 start_pos=[0],
             )
             ttnn.deallocate(logits)
-        # Scheduler compaction moves live rows between slots; every source row has its own
-        # slice program, so one full rotation compiles them all before capture.
         if self.max_batch_size > 1:
             gen.remap_serving_slots(torch.tensor([*range(1, self.max_batch_size), 0], dtype=torch.int64))
             gen.remap_serving_slots(
                 torch.tensor([self.max_batch_size - 1, *range(self.max_batch_size - 1)], dtype=torch.int64)
             )
+        refresh = torch.zeros(self.max_batch_size, dtype=torch.bool)
+        refresh[0] = True
+        gen.refresh_serving_inputs(
+            torch.zeros(self.max_batch_size, 1, dtype=torch.int64),
+            torch.full((self.max_batch_size,), -1, dtype=torch.int64),
+            refresh,
+        )
         model.reset_cache(gen.kv_cache, clear_kv=True)
         self.prefill_warmup = {
             "lengths": lengths,

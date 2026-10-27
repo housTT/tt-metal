@@ -322,17 +322,25 @@ disposition of the controlled sampling failure. Actions:
   pre-commit hooks (black, isort, autoflake) during the first commit attempt;
   the served runs used the pre-format sources. `serve.sh` now records the
   `sha256` of `tt/*.py` and the bundle metadata in `launch_env.txt`, and the
-  recheck server plus the tracked probe v7 below ran on the committed sources.
-- Startup recapture: `_warm_prefill_buckets` now runs one
-  `refresh_serving_inputs` merge before the first capture; the recheck server
-  (`b32_recheck/server.log`) still compiles one program in the dummy admission
-  decode and recaptures once before startup completes, so the startup
-  recapture stays documented as startup preparation (zero captures after
-  `Application startup complete` in every run).
-- Recheck server (`b32_recheck/`, final sources, 19:40 to 19:55): non-aligned
+  recheck server and the tracked probe v7 below ran on the working tree of
+  that time (`b32_recheck/launch_env.txt` records `tt/generator.py` d4f03123,
+  the 5025e96ab8 version, with the merge warm in `tt/generator_vllm.py`);
+  commit 1dc30cc0c6 then changed `tt/generator.py` only by the absolute
+  imports and the `build_generator` policy default, neither on the adapter's
+  serving path, and the comment removal below touches no code path. A second
+  recheck and tracked probe on the committed sources are recorded below.
+- Startup recapture: the first follow-up commit claimed an admission-merge
+  warm in `_warm_prefill_buckets`; that edit had not been written (the
+  `b32_recheck` server ran the same warmup as `b32_final`, and its startup
+  growth 1121 to 1122 is the same). The merge warm (`refresh_serving_inputs`
+  before the first capture) is applied in the second follow-up commit; the
+  second recheck below records whether the dummy admission still compiles
+  after capture. In every run, zero captures or releases happen after
+  `Application startup complete`.
+- Recheck server (`b32_recheck/`, 19:19 to 19:24): non-aligned
   requests pass with the corrected chat parity assertion (rendered template
   equals the server's 25 prompt tokens); mixed-shape 41/41, zero captures,
-  TTFT p50 0.382 s. Tracked probe v7 on chip 2 against the committed sources
+  TTFT p50 0.382 s. Tracked probe v7 on chip 2 against those sources
   (`prefill_shape_probe_v7_tracked_final.json`, `TT_METAL_TRACE_ALLOC_TRACKING=1`,
   program-cache allocations included): zero new programs and zero captures for
   128, 129, 131, 2305, 1, 4353 and the mixed rows, and across greedy, sampled,
@@ -344,11 +352,13 @@ disposition of the controlled sampling failure. Actions:
   `precision_config` to `ORNITH_PRECISION_CONFIG` (the adapter already did),
   so `readiness_check.run_teacher_forcing --mesh-device N150` measures the
   p150 policy; result below.
-- One-chip teacher-forcing bound (chip 3, 19:50): the packaged
+- One-chip teacher-forcing bound (chip 3, 19:22 to 19:24): the packaged
   `readiness_check.run_teacher_forcing` loads `tt/generator.py` by file path
-  and failed on the generator's relative imports (`teacher_forcing_p150.log`,
-  `ImportError: attempted relative import`); the two relative imports are now
-  absolute. The bound was measured with the autoport's own candidate runner
+  and failed on the generator's relative imports (`ImportError: attempted
+  relative import with no known parent package`; that first log was overwritten
+  by the candidate run below); the two relative imports are now absolute and
+  the packaged runner was tried again afterwards
+  (`teacher_forcing_packaged_runner.log`). The bound was measured with the autoport's own candidate runner
   (`doc/datatype_sweep/run_candidate.py --num-devices 1 --config
   p150_head8_hifi2_kv8_policy.json --teacher-only --teacher-repeats 3`,
   `teacher_forcing_p150.json`): top-1 0.98, top-5 1.00 on the AIME24 chat
