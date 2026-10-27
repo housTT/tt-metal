@@ -1,0 +1,97 @@
+{
+  "model_id": "Qwen/Qwen3-8B",
+  "checkpoint_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+  "hf_advertised_context": 40960,
+  "hf_context_source": "Hugging Face config.json:max_position_embeddings (AutoConfig.from_pretrained('Qwen/Qwen3-8B', local_files_only=True).max_position_embeddings)",
+  "current_supported_context": 40960,
+  "capability_reduction": null,
+  "limiting_reason": null,
+  "functional_decoder": {
+    "hardware": "one Blackhole P300 chip per process (1x1 mesh); default suite on TT_VISIBLE_DEVICES=0, context tests on TT_VISIBLE_DEVICES=1",
+    "device_dram_bytes_allocatable": 34178731008,
+    "device_dram_bytes_allocatable_source": "ttnn.get_memory_view(mesh_device, ttnn.BufferType.DRAM): 8 banks x 4272341376 bytes free on a fresh device",
+    "layer_kinds": {
+      "full_attention": {
+        "representative_layers": [
+          0,
+          17
+        ],
+        "num_layers_of_kind": 36,
+        "cache_block_size": 32,
+        "num_kv_heads": 8,
+        "head_dim": 128,
+        "prefill_chunk_size": 4096,
+        "tested_prefill_context": 40960,
+        "tested_decode_context": 40960,
+        "largest_tested_non_aligned_prefill": 40959,
+        "largest_tested_decode_position": 40959,
+        "largest_tested_decode_batch_at_full_context": 32,
+        "kv_cache_bytes_per_user_at_full_context": 167772160,
+        "kv_cache_bytes_batch32_at_full_context": 5368709120,
+        "artifacts": [
+          "functional_decoder/prefill_capacity_full_attention_40960.json",
+          "functional_decoder/prefill_capacity_full_attention_40959.json",
+          "functional_decoder/advertised_context_decode_full_attention.json"
+        ],
+        "tested_continuation_starts": [
+          32,
+          37,
+          1000,
+          4096,
+          4101,
+          4499
+        ],
+        "largest_tested_decode_batch_at_full_context_artifact": "functional_decoder/advertised_context_decode_full_attention.json"
+      }
+    },
+    "boundary_lengths": {
+      "tile": [
+        1,
+        31,
+        32,
+        33
+      ],
+      "cache_page_32": [
+        31,
+        32,
+        33,
+        63,
+        64,
+        65
+      ],
+      "sdpa_chunk_256": [
+        255,
+        256,
+        257
+      ],
+      "prefill_physical_chunk_4096": [
+        4095,
+        4096,
+        4097
+      ],
+      "two_chunks_plus_tail": [
+        8192,
+        8225
+      ],
+      "advertised_context": [
+        40959,
+        40960
+      ],
+      "continuation_starts": [
+        32,
+        37,
+        1000,
+        4096,
+        4101,
+        4499
+      ]
+    },
+    "notes": [
+      "The HF-advertised 40960-token context is retained in full; no capability reduction was needed.",
+      "Full-context prefill and decode evidence uses real layer-0 weights and a float32 chunked torch reference validated against the HF Qwen3DecoderLayer.",
+      "The batch-32 full-context cache (5.37 GB for one layer) fits in device DRAM with the layer weights; the full 36-layer stack is sized by later stages.",
+      "Prefill SDPA chunks and the decode K chunk are chosen so the kernels' padded K window never extends past the page-table row (tt-metal chunked/paged SDPA pad Sk to the chunk size and follow the page table that far; see functional_decoder/tt_metal_sdpa_padded_k/). A page-table extent that is a multiple of 256 positions gets the largest chunks; any multiple of 32 is correct.",
+      "Decode uses one current_pos int32 tensor per user for cache update, attention length and the on-device RoPE lookup; trace replay refreshes only token, current_pos and page-table contents."
+    ]
+  }
+}
