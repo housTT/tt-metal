@@ -9,7 +9,10 @@ from mean TPOT 34.09 ms; ITL median 34.08 ms, P99 34.89 ms; aggregate output
 29.01 tokens/s (`readiness_vllm/vllm_benchmark.json`; same-workload repeat
 77.4 ms / 34.10 ms, `p150/b1_primary/repeat/`). The B32 server's 128/128/1
 diagnostic measures 168 ms TPOT (5.9 t/s/u) because the 32-row decode graph
-costs about 4.4 ms per row on one chip; it is not the headline.
+costs about 4.4 ms per row on one chip; it is not the headline. The one-chip
+traced teacher-forcing bound with the same policy is 29.18 t/s/u and 81.2 ms
+TTFT (`p150/teacher_forcing_p150.json`), so serving decode is within 1 percent
+of the generator bound.
 
 Secondary CI serving burst **100 input / 100 output / 32 requests / no
 concurrency limit / max-num-seqs 32**, greedy: see

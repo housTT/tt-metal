@@ -89,7 +89,10 @@ def main():
     messages = [
         {"role": "user", "content": "Write one sentence about why astronomers record the time of an observation."}
     ]
-    rendered = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True, enable_thinking=False)
+    rendered_text = tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True, enable_thinking=False
+    )
+    rendered = tokenizer(rendered_text, add_special_tokens=False)["input_ids"]
     body = {
         "model": args.model,
         "messages": messages,
@@ -110,6 +113,7 @@ def main():
     )
     assert raw["usage"]["prompt_tokens"] % 32, raw["usage"]
     result["cases"][-1]["local_render_matches_server"] = raw["usage"]["prompt_tokens"] == len(rendered)
+    assert result["cases"][-1]["local_render_matches_server"], (raw["usage"], len(rendered))
     result["passed"] = True
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     print(

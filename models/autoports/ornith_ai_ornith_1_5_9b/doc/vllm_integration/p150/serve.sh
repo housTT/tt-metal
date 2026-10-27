@@ -19,6 +19,8 @@ mkdir -p "$HERE/$LABEL"
   echo "label=$LABEL max_num_seqs=$SEQS chip=$CHIP host_sampling=$ORNITH_VLLM_ALLOW_HOST_SAMPLING tracked=${TRACKED:-0} started=$(date -u +%FT%TZ)"
   env | grep -E "^(ORNITH_|TT_|VLLM_|EXTRA_MODELS_DIR|HF_|ARCH_NAME|PYTHONPATH)" | sort
   echo "git_head=$(git rev-parse HEAD)"
+  echo "git_dirty_files=$(git status --short | wc -l)"
+  sha256sum "$MODEL_DIR"/tt/*.py "$MODEL_DIR"/vllm_bundle/*/vllm_metadata.json
   echo "plugin_head=$(git -C $VLLM_TT_PLUGIN_ROOT rev-parse HEAD)"
 } > "$HERE/$LABEL/launch_env.txt"
 exec "$PY" -m readiness_check.run_vllm_server \

@@ -48,7 +48,7 @@ server runs with `--no-enable-prefix-caching`. Undocumented key
 `supports_batched_prefill` removed from the adapter; every remaining key is in
 the plugin's capability table.
 
-## Per-length prefill programs and trace recapture (16:50 to 17:40)
+## Per-length prefill programs and trace recapture (16:19 to 16:45)
 
 `tests/p150_prefill_shape_probe.py` (chip 3, all 32 layers, B32 pool of 4097
 blocks) measured the adapter path: every unseen logical prompt length compiled
@@ -94,7 +94,7 @@ the change (`NameError: name 'os'` and a stub `forward` without the
 the failing set is identical before and after (`/tmp/head_failed.txt` versus
 `/tmp/now_failed.txt`). 46 pass in both.
 
-## Tracked server, first mixed-shape run, and two more recapture sources (18:40 to 19:00)
+## Tracked server, first mixed-shape run, and two more recapture sources (16:41 to 16:54)
 
 First tracked B32 server attempt failed at engine start: the runner exports
 `HF_MODEL=<--hf-model>` and `reference/hf_reference.py::resolve_model_path`
@@ -144,7 +144,7 @@ runs the leading tokens through decode-mode blocks with per-position slices
 and compiles once per position, then recaptures. No served workload in this
 stage preempts; the server logs are checked for preemption lines.
 
-## Third recapture source: scheduler slot compaction (19:05 to 19:25)
+## Third recapture source: scheduler slot compaction (17:04 to 17:27)
 
 With the sampler and slot-admission fixes in place, the tracked B32 server
 still recaptured once in the mixed-shape workload (41 requests complete,
@@ -177,7 +177,7 @@ async scheduling, prefix caching off). Shared runner stages attached with
   logprobs unsupported). Failure: `test_tt_penalties::test_frequency_penalty_changes_output`
   asserts that `frequency_penalty=2.0` changes the greedy output of all eight
   prompts; seven changed, `After a while, she` did not.
-  Control (`b32_compat/penalty_margin_probe.json`): the device output under the
+  Control (`b32_compat_prefinal/penalty_margin_probe.json`): the device output under the
   penalty equals the penalized argmax of the raw top-20 logits at every step
   (raw logits from a host-compatibility prefill of prompt plus generated prefix).
   The repeated tokens are ` to` at steps 9 and 12 (counts 1 and 2, penalized by
@@ -197,9 +197,10 @@ async scheduling, prefix caching off). Shared runner stages attached with
   translation), no cross-request contamination. Thinking consumes most of the
   256-token budget: four greedy and four sampled texts end inside `<think>`;
   the story, French (sampled) and Fibonacci (greedy) reach the answer. The
-  haiku reasoning miscounts syllables, as the p150x4 HF control
-  (`../qualitative_extended_control_report.md`) also records for this
-  checkpoint; the prompts and rendered template match
+  greedy haiku reasoning miscounts syllables; the p150x4 HF control
+  (`../qualitative_extended_control_report.md`, lines 44 and 129) counts
+  correctly, so this is a port effect under the p150 policy, not a serving
+  effect (served and standalone logits are exact on the determinism prompts); the prompts and rendered template match
   `../qualitative_prompt_format.json` and `../qualitative_controls.json`.
 - `benchmark` (CI serving burst 100/100/32, greedy, ignore EOS, no explicit
   concurrency): 32/32 complete, TTFT p50/p99 3775/3776 ms, TPOT mean/p99
@@ -214,7 +215,7 @@ async scheduling, prefix caching off). Shared runner stages attached with
   pass on this profile, so the serial reference is the same measurement
   (`vllm_prefill_burst_serial_benchmark.json`, `config_matches: true`, ratios
   1.002); the ratio gate is advisory in stage 9.
-- untracked mixed-shape run (`b32_compat/mixed_shape_check.json`): 41/41,
+- untracked mixed-shape run (`b32_compat_prefinal/mixed_shape_check.json`): 41/41,
   zero captures, TTFT p50/p95/p99 0.381/1.083/1.084 s, ITL max 0.45 s.
 
 One in-workload program growth remained during the sampling suite
@@ -248,7 +249,7 @@ SIGTERM to the runners, the remaining API server and engine processes were
 terminated, `pgrep` showed no vLLM process, and one B1 server was relaunched.
 No reset was needed; chips 0, 1 and 3 were not involved.
 
-## Final evidence, gate and checkpoint (18:30 to 19:10)
+## Final evidence, gate and checkpoint (18:10 to 19:05)
 
 B1 primary server (`b1_primary/`, host sampling off, tracking off): the shared
 runner's primary 128/128/1 benchmark, first request after readiness:
@@ -284,3 +285,72 @@ server.log}` (gitignored except the normalized summaries) and
 `doc/vllm_integration/p150/` (environment, launch wrapper, probes, tracked
 and untracked server runs, logit determinism, device tracker probe, trace
 reuse summaries, this log and README).
+
+## Review findings and follow-up (19:20 onward)
+
+The independent stage review (`stage_review_1.md`) returned more-work-needed
+on evidence hygiene, the missing one-chip teacher-forcing bound and the
+disposition of the controlled sampling failure. Actions:
+
+- Documentation: section times above corrected to Eastern Time from artifact
+  timestamps (the machine clock is UTC); the steady-state refresh claim now
+  cites `adapter_device_tracker_p150.json` (the adapter's teardown counters
+  are never logged because the runner's SIGTERM force-kills `EngineCore`);
+  the haiku control statement corrected (the HF control counts correctly);
+  `b32_compat` paths renamed to `b32_compat_prefinal`; the serving contract
+  cites 4129 (B32) and 4098 (B1) blocks; the residual about unaligned resume
+  restated (unreachable from vLLM on this profile); `ORNITH_ACTIVE8_MODE`
+  documented as ineligible on one chip; startup growth stated per server.
+- Host tests: the 21 fixture failures that predated the stage were repaired
+  together with the fixtures my changes touched (`os`, `json` and `logger` in
+  the exec namespaces, `_raw_logprobs`, `_sampling_traces` and `_formatted` on
+  `__new__`-built generators, a stub `forward(**kwargs)`, the warmup fixture's
+  bucket, slot, remap and sampler-variant stubs, the history helper's absolute
+  prompt window, and the penalty-admission expectations updated to the
+  graph-key contract: a live reconfigure refreshes tensors and selects the
+  prepared sibling trace instead of releasing and recapturing). The eight files
+  pass (112 tests); the device-free sweep passes 125 (`brrly0jtv` run, two
+  device-fixture errors excluded).
+- Sampling failure disposition: `../plugin_changes.md` entry 2, status
+  `proposed` (plugin test premise), reproducer the margin probe.
+- Default recipe: the checkpoint ships no `generation_config.json`
+  (`/home/hous/dev/ornith-1.5-9b/upstream`), so vLLM's defaults apply to every
+  request without explicit parameters; nothing routes a default request to the
+  host sampler.
+- Source provenance: `tt/generator.py`, `tt/model.py`, `tt/optimized_decoder.py`
+  and `tests/p150_prefill_shape_probe.py` were rewritten at 22:55:49 UTC by the
+  pre-commit hooks (black, isort, autoflake) during the first commit attempt;
+  the served runs used the pre-format sources. `serve.sh` now records the
+  `sha256` of `tt/*.py` and the bundle metadata in `launch_env.txt`, and the
+  recheck server plus the tracked probe v7 below ran on the committed sources.
+- Startup recapture: `_warm_prefill_buckets` now runs one
+  `refresh_serving_inputs` merge before the first capture; the recheck server
+  (`b32_recheck/server.log`) still compiles one program in the dummy admission
+  decode and recaptures once before startup completes, so the startup
+  recapture stays documented as startup preparation (zero captures after
+  `Application startup complete` in every run).
+- Recheck server (`b32_recheck/`, final sources, 19:40 to 19:55): non-aligned
+  requests pass with the corrected chat parity assertion (rendered template
+  equals the server's 25 prompt tokens); mixed-shape 41/41, zero captures,
+  TTFT p50 0.382 s. Tracked probe v7 on chip 2 against the committed sources
+  (`prefill_shape_probe_v7_tracked_final.json`, `TT_METAL_TRACE_ALLOC_TRACKING=1`,
+  program-cache allocations included): zero new programs and zero captures for
+  128, 129, 131, 2305, 1, 4353 and the mixed rows, and across greedy, sampled,
+  penalized, greedy, sampled, greedy with identical greedy outputs.
+- `nonaligned_requests.py`: the chat parity field compared a `BatchEncoding`
+  length; it now tokenizes the rendered template and asserts equality with the
+  server's prompt usage.
+- One-chip teacher-forcing lower bound: `build_generator` defaults
+  `precision_config` to `ORNITH_PRECISION_CONFIG` (the adapter already did),
+  so `readiness_check.run_teacher_forcing --mesh-device N150` measures the
+  p150 policy; result below.
+- One-chip teacher-forcing bound (chip 3, 19:50): the packaged
+  `readiness_check.run_teacher_forcing` loads `tt/generator.py` by file path
+  and failed on the generator's relative imports (`teacher_forcing_p150.log`,
+  `ImportError: attempted relative import`); the two relative imports are now
+  absolute. The bound was measured with the autoport's own candidate runner
+  (`doc/datatype_sweep/run_candidate.py --num-devices 1 --config
+  p150_head8_hifi2_kv8_policy.json --teacher-only --teacher-repeats 3`,
+  `teacher_forcing_p150.json`): top-1 0.98, top-5 1.00 on the AIME24 chat
+  100-token reference, median decode 29.18 t/s/u, TTFT 81.2 ms. Serving B1:
+  29.34 t/s/u, 83.3 ms. Decode is within 1 percent of the generator bound.

@@ -13,12 +13,11 @@ import torch
 from loguru import logger
 
 import ttnn
+from models.autoports.ornith_ai_ornith_1_5_9b.tt.active8 import PREFIX, Active8State, eligible
 from models.autoports.ornith_ai_ornith_1_5_9b.tt.model import OrnithModel
+from models.autoports.ornith_ai_ornith_1_5_9b.tt.sampled_logprobs import SampledRawLogprobs
 from models.common.readiness_check.contract import Generator
 from models.common.sampling import SamplingParams, format_sampling_params
-
-from .active8 import PREFIX, Active8State, eligible
-from .sampled_logprobs import SampledRawLogprobs
 
 
 def _validate_host_sampling(params, host_sample):
@@ -1507,6 +1506,8 @@ def build_generator(model_dir, mesh_device, *, use_prefill_trace=True, **kwargs)
         "prefix_cache_bytes",
         "prefix_cache_max_tokens",
     )
+    # Readiness runners pass no policy; serve the same selection the adapter reads.
+    kwargs.setdefault("precision_config", os.environ.get("ORNITH_PRECISION_CONFIG"))
     model = OrnithModel.from_pretrained(model_dir, mesh_device, **{k: kwargs.pop(k) for k in model_keys if k in kwargs})
     from transformers import AutoTokenizer
 

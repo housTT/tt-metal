@@ -60,3 +60,35 @@ unchanged. One local plugin commit exists on top of the upstream base; its recor
    `doc/vllm_integration/p150/nonaligned_requests.json`.
 8. **Status.** `implemented`, local plugin commit `9bab7d527d4adbece91de7338302c99e652fd642`
    on branch `hous/ornith-1.5-9b`; not pushed by this stage.
+
+## Entry 2 (proposed): `test_frequency_penalty_changes_output` premise
+
+1. **Requirement and failure.** `tests/tt/test_tt_penalties.py::TestFrequencyPenalty::test_frequency_penalty_changes_output`
+   asserts that `frequency_penalty=2.0` changes the greedy output of all eight
+   fixed prompts ("count*F is unbounded, so every prompt should move"). On the
+   p150 profile seven prompts change and `After a while, she` does not.
+   Reproducer: `doc/vllm_integration/p150/penalty_margin_probe.py` against any
+   p150 server with the host-sampling compatibility mode on; result in
+   `doc/vllm_integration/p150/b32_compat_prefinal/penalty_margin_probe.json`.
+2. **Owner.** Case 1, plugin test defect: the device output is the penalized
+   argmax of the raw logits at every step (the repeated tokens keep 3.25 and
+   7.6 nats over the runner-up after the 2.0 and 4.0 nat penalties), the
+   sibling tests `test_different_frequency_penalties` and
+   `test_frequency_penalty_mixed_batch` pass, and the API rejects
+   `frequency_penalty` above 2.0, so the test premise cannot hold for every
+   prompt on every precision policy.
+3. **Model-side alternative.** None: the penalty is applied exactly; changing
+   the model to move this prompt would mean changing its logits.
+4. **Existing mechanisms.** No capability key, config option or environment
+   variable selects test prompts; the host-sampling compatibility mode does
+   not change the penalty math.
+5. **Effect on other models.** A margin-aware assertion (every repeated token
+   either moves or keeps a raw margin above `count * F`) keeps the test's
+   intent for every model; a prompt-set refresh affects only this test.
+6. **Authorization.** `pending`: a plugin test change needs the plugin
+   maintainers. Not implemented in this stage; the plugin test is unmodified.
+7. **Validation.** Planned regression: the margin probe as a pytest case that
+   computes the penalized argmax from `logprobs=20` prefill responses for each
+   prompt that did not move; the existing penalty tests as the check after
+   implementation.
+8. **Status.** `proposed`.

@@ -106,19 +106,34 @@ sampling values. All four are fixed in the model, generator and adapter (see
   sampler `6`, history `7`, plus the prepared penalty-variant pair), request
   signatures per physical bucket and chunk start, every eager prefill with its
   program count before and after, and the two startup captures.
-- `b32_compat/mixed_shape_check.json`: the same workload with tracking off,
+- `b32_compat_prefinal/mixed_shape_check.json`: the same workload with tracking off,
   for timing: 41/41 complete, TTFT p50/p95/p99 0.381/1.080/1.082 s
   (first encounters of 2305 and 4353 tokens are the tail), ITL max 0.449 s,
-  zero captures (`b32_final/`).
+  zero captures (`b32_final/`, repeated in `b32_recheck/`).
 
-Startup keeps one deferred program growth of one program in the first warmup
-decode and recaptures once before `Application startup complete`; no capture
-or release happens after startup in any served run (`server.log` files).
+Startup: the servers recorded in `tracked_b32/`, `b32_final/` and
+`b1_primary/` capture once, then the warmup's dummy admission compiled the
+host-to-device merge programs (one program on the B32 servers, eight on the B1
+server) and the family was released and recaptured before `Application
+startup complete`. The adapter now warms the host-to-device merge before the
+first capture; the dummy admission still compiles one program on the B32
+server (`b32_recheck/server.log`, 1121 to 1122) and the startup recapture
+remains. It is startup preparation, not request handling: no capture or
+release happens after `Application startup complete` in any served run
+(`server.log` files, `trace_reuse_summary.json` files).
 
-Residual: a request resumed at a start position that is not a multiple of 128
-(vLLM preemption resume only) runs its leading tokens through decode-mode
-blocks with per-position slices, compiles once per position and recaptures.
-No served run in this stage preempted (`grep -ci preempt server.log` is 0).
+Residual: the generator accepts a continuation at a start position that is
+not a multiple of 128 through its legacy path, which compiles per-position
+programs. Under the pinned plugin with chunked prefill and prefix caching off
+every served prefill starts at position 0 (a preempted request is re-prefilled
+with its prompt plus accepted tokens, `docs/DECODE_RELOAD_CONTRACT.md`), so
+that path is unreachable from vLLM on this profile; preemption itself did not
+occur in any served run (`grep -ci preempt server.log` is 0) and is untested.
+
+`ORNITH_ACTIVE8_MODE=active8` is set in `p150_env.sh` because the model card
+sets it for every profile; `tt/active8.py::eligible()` requires the four-chip
+mesh, so every p150 server logs `effective_mode: original` and the decode
+variant is the original 32-row graph.
 
 ## Non-aligned prompt lengths
 
@@ -149,14 +164,16 @@ declared) and `test_chat_logprobs_all_vocab` (all-vocabulary logprobs are
 unsupported). The failure, `test_tt_penalties::test_frequency_penalty_changes_output`,
 expects `frequency_penalty=2.0` to change the greedy output of all eight
 prompts; seven change and `After a while, she` does not. The control
-`b32_compat_prefinal/penalty_margin_probe.json` shows that the device output
+`b32_compat_prefinal/penalty_margin_probe.json` (also `b32_compat_prefinal/penalty_margin_probe_penalty8.json`,
+the rejected 8.0 request) shows that the device output
 is the penalized argmax of the raw top-20 logits at every step: the repeated
 tokens ` to` (steps 9 and 12, counts 1 and 2, penalized by 2.0 and 4.0 nats)
 and ` that` (step 23) remain 3.25 and 7.6 nats ahead of the runner-up, and
 step 13 is an exact raw tie. The penalty reaches the device sampler; the
 output is legitimately unchanged for this prompt under the p150 policy, and
 the API rejects penalties above 2.0, so no stronger stimulus exists. The
-plugin test was not modified. Logprobs, host-only parameters and structured
+plugin test was not modified; the disposition is recorded as a `proposed`
+entry in `../plugin_changes.md`. Logprobs, host-only parameters and structured
 outputs run through the explicit host-sampling compatibility mode; every
 other request uses the device sampler (`sample_on_device_mode=all`).
 
@@ -173,9 +190,13 @@ no gibberish, no wrong-language drift (0 CJK characters; French appears only
 as the requested translation, `Bonjour, comment allez-vous aujourd'hui ?`), no
 cross-request contamination. Thinking consumes most of the budget: the story,
 the sampled French answer and the greedy Fibonacci answer reach the final
-answer; the others end inside `<think>`. The haiku reasoning miscounts
-syllables, as the HF control of the p150x4 stage also shows for this
-checkpoint. The mechanical degeneracy gate passes (stage check).
+answer; the others end inside `<think>`. The greedy haiku reasoning
+miscounts syllables ("Pat-tens em-erge = 5", then self-corrected); the HF
+control of the p150x4 stage (`../qualitative_extended_control_report.md`,
+lines 44 and 129) counts correctly, so this is a precision-policy or greedy
+variance effect of the port, not a serving effect: served tokens and logprobs
+equal the standalone one-chip generator exactly on the logit-determinism
+prompts. The mechanical degeneracy gate passes (stage check).
 
 ## Benchmarks
 
@@ -214,8 +235,38 @@ Comparison with the full-model teacher-forcing lower bound: the 32-row decode
 graph costs 168 ms per step on one chip (4.4 ms per row), so the B32 numbers
 are capacity context only; the B1 path replays the model, sampler and
 persistent token feedback traces with no host sampling, no per-token
-page-table copy and no position refresh (steady state), as the tracked device
-probe and the counters in `b1_primary/server.log` show.
+page-table copy and no position refresh in steady state, as the tracked
+device probe `adapter_device_tracker_p150.json` shows (token, position and
+RoPE refresh deltas 0 on steady steps, page-table refresh only on the changed
+page). The adapter's teardown counters are not logged: the runner's SIGTERM
+makes vLLM force-kill `EngineCore` before `teardown()` runs
+(`[shutdown] Process manager: force killing remaining processes` in every
+server log).
+
+One-chip teacher-forcing lower bound (`teacher_forcing_p150.json`,
+`doc/datatype_sweep/run_candidate.py --num-devices 1 --config
+p150_head8_hifi2_kv8_policy.json --teacher-only --teacher-repeats 3`, all 32
+layers, batch 1, AIME24 chat 100-token reference, traced decode with logit
+readback, median of three repeats): top-1 0.98, top-5 1.00, decode 29.18
+t/s/u (repeats 29.29, 29.18, 29.09), TTFT 81.2 ms warmed. The served primary
+B1 path measures 29.34 t/s/u and 83.3 ms TTFT on the first request after
+readiness: decode is within 1 percent of the traced generator bound and TTFT
+within 2.1 ms, so no avoidable vLLM-specific decode overhead remains in the
+measured path (one model replay, one sampler replay and one deferred token
+read per step; the B32 server's 168 ms per step is the 32-row decode graph,
+the same in the generator and under vLLM). The historical p150x4 generator
+bound (87.1 t/s/u at TP4) does not apply to one chip.
+
+## Artifact provenance under readiness_vllm/
+
+`vllm_benchmark.json`, `vllm_result.json`, `vllm_benchmark.log`,
+`vllm_run_summary.json` and `server.log` are the B1 primary server
+(`b1_primary/`); `sampling_tests.log`, `vllm_qualitative_outputs.json`,
+`vllm_ci_serving_benchmark.json`, `vllm_ci_serving_result.json`,
+`vllm_prefill_burst_benchmark.json`, `vllm_prefill_burst_result.json` and
+`vllm_prefill_burst_serial_benchmark.json` are the final B32 compatibility
+server (`b32_final/`). Every server directory under this folder keeps its own
+`server.log`, `launch_env.txt` and `vllm_run_summary.json`.
 
 ## Process cleanup
 
