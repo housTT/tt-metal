@@ -110,18 +110,26 @@ sampling values. All four are fixed in the model, generator and adapter (see
   41/41 complete, TTFT p50/p95/p99 0.381/1.080/1.082 s (first encounters of
   2305 and 4353 tokens are the tail), ITL max 0.449 s, zero captures;
   `b32_compat_prefinal/mixed_shape_check.json` 0.381/1.083/1.084 s, ITL max
-  0.450 s; `b32_recheck/mixed_shape_check.json` 0.382 s p50, zero captures.
+  0.450 s; `b32_recheck/mixed_shape_check.json` and
+  `b32_recheck2/mixed_shape_check.json` 0.382 s p50, zero captures.
+- `prefill_shape_probe_v8_tracked_committed.json`: the adapter-level tracked
+  probe (`TT_METAL_TRACE_ALLOC_TRACKING=1`, program-cache allocations
+  included) on the committed sources (`git_head` and `source_sha256` of
+  `tt/*.py` recorded in the file): zero new programs and zero captures for
+  every length and across the greedy, sampled and penalized switches.
 
 Startup: the servers recorded in `tracked_b32/`, `b32_final/` and
 `b1_primary/` capture once, then the warmup's dummy admission compiled the
 host-to-device merge programs (one program on the B32 servers, eight on the B1
 server) and the family was released and recaptured before `Application
-startup complete`. The adapter now warms the host-to-device merge before the
-first capture; the dummy admission still compiles one program on the B32
-server (`b32_recheck/server.log`, 1121 to 1122) and the startup recapture
-remains. It is startup preparation, not request handling: no capture or
-release happens after `Application startup complete` in any served run
-(`server.log` files, `trace_reuse_summary.json` files).
+startup complete`. The second follow-up commit warms the host-to-device
+merge before the first capture: the `b32_recheck2` server (committed sources,
+`b32_recheck2/server.log`, `launch_env.txt` with source hashes) captures once
+at 1122 programs with no later growth, release or recapture, and serves the
+non-aligned and mixed-shape workloads with zero captures
+(`b32_recheck2/trace_reuse_summary.json`: one startup capture, 38 eager
+prefills, zero workload captures or releases). In every earlier run the
+recapture happened before `Application startup complete` and never after.
 
 Residual: the generator accepts a continuation at a start position that is
 not a multiple of 128 through its legacy path, which compiles per-position
@@ -251,7 +259,11 @@ readback, median of three repeats, measured on one chip of a P300c board,
 not a P150 board): top-1 0.98, top-5 1.00, decode 29.18 t/s/u (repeats
 29.29, 29.18, 29.09), TTFT 81.2 ms warmed. The bound reads logits back every
 step and uses a 2048-token cache context, so it cannot resolve sub-millisecond
-serving overhead. The served primary
+serving overhead. The packaged runner (`readiness_check.run_teacher_forcing
+--mesh-device N150`, `teacher_forcing_packaged_runner.log`, after the
+generator's imports were made absolute) reproduces the bound: top-1 0.98,
+top-5 1.00, decode 29.38 t/s/u; its TTFT of 956 ms is that process's first,
+unwarmed prefill, not a warmed figure. The served primary
 B1 path measures 29.34 t/s/u and 83.3 ms TTFT on the first request after
 readiness: decode is within 1 percent of the traced generator bound and TTFT
 within 2.1 ms, so no avoidable vLLM-specific decode overhead remains in the

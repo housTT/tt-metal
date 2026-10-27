@@ -358,9 +358,30 @@ disposition of the controlled sampling failure. Actions:
   relative import with no known parent package`; that first log was overwritten
   by the candidate run below); the two relative imports are now absolute and
   the packaged runner was tried again afterwards
-  (`teacher_forcing_packaged_runner.log`). The bound was measured with the autoport's own candidate runner
+  (`teacher_forcing_packaged_runner.log`, 20:0x ET, chip 3): it now runs on
+  one chip and reports top-1 0.98, top-5 1.00, decode 29.38 t/s/u, TTFT
+  956 ms (its first, unwarmed prefill), confirming the candidate-runner bound. The bound was measured with the autoport's own candidate runner
   (`doc/datatype_sweep/run_candidate.py --num-devices 1 --config
   p150_head8_hifi2_kv8_policy.json --teacher-only --teacher-repeats 3`,
   `teacher_forcing_p150.json`): top-1 0.98, top-5 1.00 on the AIME24 chat
   100-token reference, median decode 29.18 t/s/u, TTFT 81.2 ms. Serving B1:
   29.34 t/s/u, 83.3 ms. Decode is within 1 percent of the generator bound.
+
+## Second recheck on committed sources (20:20 to 20:45)
+
+Commit `0749523e44` (comment removal, admission-merge warm, documentation
+corrections). `b32_recheck2/` (B32, host-sampling compatibility on, untracked,
+`launch_env.txt` records `git_head=0749523e44`, zero dirty files, and the
+`sha256` of every `tt/*.py`): startup captures once at 1122 programs with no
+program growth, release or recapture afterwards (the merge warm closed the
+startup recapture); non-aligned requests pass (`nonaligned_requests.json`,
+chat parity asserted); mixed-shape 41/41, zero captures, TTFT p50 0.382 s
+(`mixed_shape_check.json`, `trace_reuse_summary.json`: one startup capture,
+38 eager prefills, zero workload captures or releases). The server was
+stopped through the runner; no vLLM process remained.
+`prefill_shape_probe_v8_tracked_committed.json` (chip 2,
+`TT_METAL_TRACE_ALLOC_TRACKING=1`, program-cache allocations included, source
+hashes and `git_head` recorded): zero new programs and zero captures for 128,
+129, 131, 2305, 1, 4353, the mixed rows and the six sampling-mode switches,
+identical greedy outputs. `readiness_vllm/server.log` and
+`vllm_run_summary.json` are the B1 primary server's files.
