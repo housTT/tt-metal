@@ -1,0 +1,214 @@
+{
+  "model": "ornith-ai/Ornith-1.5-9B",
+  "revision": "489cb97981b8654bcfcf30ce1f94ed1b62e07b53",
+  "profile": "p150 (one Blackhole chip, readiness mesh label N150)",
+  "plugin": {
+    "repository": "tenstorrent/vllm-tt-plugin",
+    "commit": "9bab7d527d4adbece91de7338302c99e652fd642",
+    "upstream_base": "f1593cbbf577330dfa839918d9d413c39050e667",
+    "checkout": "/home/hous/dev/ornith-1.5-9b/vllm-tt-plugin",
+    "local_change_record": "doc/vllm_integration/plugin_changes.md"
+  },
+  "vllm": {
+    "version": "0.26.0",
+    "source": "docs/install-vllm-tt.sh in the pinned plugin (VLLM_TARGET_DEVICE=empty vllm==0.26.0)",
+    "installed": "/home/hous/dev/ornith-1.5-9b/tt-metal/python_env/lib/python3.10/site-packages/vllm"
+  },
+  "registration": {
+    "mechanism": "EXTRA_MODELS_DIR bundle",
+    "bundle": "vllm_bundle/ornith-1-5-9b/vllm_metadata.json",
+    "architecture": "TTOrnithForCausalLM",
+    "hf_overrides": "{\"architectures\": [\"TTOrnithForCausalLM\"]}",
+    "builtin_map": "TT_VLLM_BUILTIN_MODELS=0",
+    "evidence": "doc/vllm_integration/p150/registration_probe.json"
+  },
+  "documents_read": [
+    "AGENTS.md (section 6, model capabilities)",
+    "README.md (Configuration, Runtime Architecture, Registering models dynamically, Operational Constraints, Testing, Hybrid Attention Models)",
+    "docs/SCHEDULING.md",
+    "docs/DECODE_RELOAD_CONTRACT.md",
+    "docs/install-vllm-tt.sh",
+    "src/vllm_tt_plugin/model_runner.py (adapter calls)",
+    "src/vllm_tt_plugin/platform.py (capability reads, EXTRA_MODELS_DIR registration, request validation)",
+    "tests/tt (device test suite)"
+  ],
+  "rows": [
+    {
+      "item": "initialize_vllm_model",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "doc/vllm_integration/p150/registration_probe.json; readiness_vllm/server.log (Serving resolved precision line)"
+    },
+    {
+      "item": "get_max_tokens_all_users",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "readiness_vllm/server.log (vLLM-owned cache: 4097 blocks); tt/generator_vllm.py get_max_tokens_all_users"
+    },
+    {
+      "item": "allocate_kv_cache",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "doc/vllm_integration/p150/adapter_device_tracker_p150.json (cache is adapter.generator.kv_cache, generator does not own it)"
+    },
+    {
+      "item": "allocate_kv_cache_per_layer / get_kv_cache_spec",
+      "kind": "call",
+      "status": "not_supported",
+      "declaration": "no get_kv_cache_spec on TTOrnithForCausalLM (documented legacy uniform single-group path, README 'Hybrid Attention Models')",
+      "reason": "Ornith has 8 full-attention layers in one KV group and 24 linear-attention layers whose constant-size recurrent and convolution state is model-owned; there is no sliding-window group to split."
+    },
+    {
+      "item": "prefill_forward(tokens, page_table, kv_cache, prompt_lens, start_pos, empty_slots, sampling_params, intermediate_prefill_mask)",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "doc/vllm_integration/p150/adapter_device_tracker_p150.json; doc/vllm_integration/p150/tracked_b32/nonaligned_requests.json; readiness_vllm/sampling_tests.log"
+    },
+    {
+      "item": "decode_forward(tokens, start_pos, page_table, kv_cache, sampling_params, reset_batch, slot_remap, read_from_device=False)",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "doc/vllm_integration/p150/adapter_device_tracker_p150.json (stale host tokens/positions ignored in steady state, changed page across the 64-token boundary, slot remap)"
+    },
+    {
+      "item": "decode_input_update_contract",
+      "kind": "call",
+      "status": "not_supported",
+      "declaration": "marker absent: legacy version-0 adapter (docs/DECODE_RELOAD_CONTRACT.md 'Negotiation and rollout': plugin translates its layout signal to reset_batch and delivers slot_remap)",
+      "reason": "The adapter consumes the legacy reset_batch/slot_remap delivery; page tables are compared on the host and uploaded only when changed. The pinned plugin documents this compatibility path."
+    },
+    {
+      "item": "read_decode_output(async_read=True) / process_decode_output_host",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "doc/vllm_integration/p150/adapter_device_tracker_p150.json (two deferred steps submitted before the first wait)"
+    },
+    {
+      "item": "warmup_model_prefill / warmup_model_decode",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "readiness_vllm/server.log (Ornith decode execution line after warmup); doc/vllm_integration/p150/prefill_shape_probe_v1.json"
+    },
+    {
+      "item": "already_warmed_up_prefill",
+      "kind": "call",
+      "status": "not_supported",
+      "declaration": "attribute absent (plugin uses hasattr; documented optional)",
+      "reason": "The adapter owns a single idempotent warmup; the plugin flag reset is not needed."
+    },
+    {
+      "item": "release_request / release_persistent_capture (block-output lifecycle)",
+      "kind": "call",
+      "status": "not_supported",
+      "declaration": "output_tokens_per_step default 1 (AGENTS.md capability table)",
+      "reason": "Ornith emits one token per step; block-output lifecycle hooks do not apply."
+    },
+    {
+      "item": "batched_prefill",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "readiness_vllm/vllm_prefill_burst_benchmark.json (32 x 128 burst served through multi-row prefill_forward; serial_reference is the same per-row path, ratio advisory in Stage 9); doc/vllm_integration/p150/tracked_b32/nonaligned_requests.json (three concurrent rows [131, 65, 131] in one call). Dense one-pass batching is Stage 10 work."
+    },
+    {
+      "item": "supports_prefix_caching",
+      "kind": "capability",
+      "status": "not_supported",
+      "declaration": "model_capabilities['supports_prefix_caching'] = False",
+      "reason": "recurrent_state: 24 of 32 layers are Gated DeltaNet linear-attention layers with per-request recurrent and 3-token convolution state that vLLM-owned KV blocks cannot rebuild at start_pos; a scheduler cache hit would resume the 8 full-attention layers from cached KV and the 24 recurrent layers from zero state. Server is launched with --no-enable-prefix-caching."
+    },
+    {
+      "item": "supports_chunked_prefill",
+      "kind": "capability",
+      "status": "not_supported",
+      "declaration": "key absent (documented default False; AGENTS.md capability table, README 'Operational Constraints')",
+      "reason": "Scheduler-driven chunking stays off, so max_num_batched_tokens is raised to max_model_len and every prompt up to 262144 tokens is submitted in one prefill_forward call; the model chunks internally at 2048 tokens and accepts any start_pos for preemption resume."
+    },
+    {
+      "item": "output_tokens_per_step",
+      "kind": "capability",
+      "status": "supported",
+      "evidence": "default 1 (token-at-a-time); readiness_vllm/vllm_benchmark.json"
+    },
+    {
+      "item": "supports_sample_on_device",
+      "kind": "capability",
+      "status": "supported",
+      "evidence": "readiness_vllm/sampling_tests.log with sample_on_device_mode=all; doc/vllm_integration/p150/adapter_device_tracker_p150.json (sampling trace, tt_out_tok feedback)"
+    },
+    {
+      "item": "supports_async_decode",
+      "kind": "capability",
+      "status": "supported",
+      "evidence": "doc/vllm_integration/p150/adapter_device_tracker_p150.json (split submission/readback, persistent token feedback, one position advance per step, page-table-only refresh, stale host inputs ignored); readiness_vllm/server.log (--async-scheduling kept on)"
+    },
+    {
+      "item": "supports_host_sampling",
+      "kind": "capability",
+      "status": "not_supported",
+      "declaration": "model_capabilities['supports_host_sampling'] = False unless ORNITH_VLLM_ALLOW_HOST_SAMPLING=1 (explicit compatibility mode)",
+      "reason": "The served default recipe stays on the device sampler; requests that need the host sampler (min_p, bad_words, logit_bias, allowed_token_ids, min_tokens, structured outputs, top_logprobs>0 and, on one chip, logprobs) are rejected at admission with HTTP 400. The canonical sampling suite runs against a server with the compatibility mode on; its metrics are labeled separately."
+    },
+    {
+      "item": "sampled_raw_logprobs_devices",
+      "kind": "capability",
+      "status": "not_supported",
+      "declaration": "model_capabilities['sampled_raw_logprobs_devices'] = (4,)",
+      "reason": "Device sampled-token logprobs are implemented for the TP4 vocabulary-sharded geometry only (tt/sampled_logprobs.py). On the one-chip p150 profile a logprobs request routes to the host sampler in compatibility mode or is rejected at admission; see doc/vllm_integration/README.md."
+    },
+    {
+      "item": "supports_masked_prefill_sampling",
+      "kind": "capability",
+      "status": "supported",
+      "evidence": "tests/test_prefill_sampling_trace.py; doc/optimized_vllm/h2_sampling_b32_final.json (device probe). Inert on p150 because scheduler chunked prefill is disabled."
+    },
+    {
+      "item": "seed (per-request seeds, reproducibility)",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "readiness_vllm/sampling_tests.log test_seeding_and_variety"
+    },
+    {
+      "item": "temperature / top_k / top_p per row, mixed batches",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "readiness_vllm/sampling_tests.log test_request_isolation, test_seeding_and_variety"
+    },
+    {
+      "item": "repetition_penalty / presence_penalty / frequency_penalty (device)",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "readiness_vllm/sampling_tests.log test_tt_penalties"
+    },
+    {
+      "item": "logprobs",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "readiness_vllm/sampling_tests.log test_logprobs (served through the explicit host-sampling compatibility mode on p150; device path only on TP4)"
+    },
+    {
+      "item": "min_p / bad_words / logit_bias / allowed_token_ids / min_tokens (host-only parameters)",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "readiness_vllm/sampling_tests.log test_host_only_params (host-sampling compatibility mode); rejected at admission with HTTP 400 when the mode is off"
+    },
+    {
+      "item": "structured outputs",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "readiness_vllm/sampling_tests.log test_structured_output_dp1 (host-sampling compatibility mode)"
+    },
+    {
+      "item": "chunked prefill needle tests",
+      "kind": "request_feature",
+      "status": "not_supported",
+      "declaration": "supports_chunked_prefill absent; tests skip with --tt-chunked-prefill-budget 0",
+      "reason": "see supports_chunked_prefill row"
+    },
+    {
+      "item": "non-aligned prompt lengths",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "doc/vllm_integration/p150/tracked_b32/nonaligned_requests.json (131, 65 and 2305-token requests)"
+    }
+  ]
+}

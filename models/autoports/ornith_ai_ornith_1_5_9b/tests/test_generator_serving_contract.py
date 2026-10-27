@@ -53,9 +53,20 @@ def tt():
 
 @pytest.fixture
 def gen(tt):
-    namespace = {"torch": torch, "ttnn": tt, "Generator": object}
+    namespace = {
+        "torch": torch,
+        "ttnn": tt,
+        "Generator": object,
+        "os": __import__("os"),
+        "json": __import__("json"),
+        "logger": SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None),
+    }
     cls = load_class("generator.py", "OrnithGenerator", namespace)
     obj = cls.__new__(cls)
+    obj._raw_logprobs = None
+    obj._raw_logprobs_enabled = False
+    obj._sampling_traces = {}
+    obj._formatted = None
     obj.max_batch_size = 3
     obj.mesh_device = object()
     obj.counters = defaultdict(int)

@@ -713,3 +713,14 @@ had already passed on the identical staged contents. No global configuration
 was changed and nothing was pushed. `local_commit_receipts.json` and
 `serving_source_pins.json` record these source checkpoints. This receipt-only
 follow-up is recorded externally with its own SHA after commit.
+
+
+## 2026 Oct 27: stage 9 resumed on the p150 profile (one chip)
+
+The complete record of the resumption is [p150/work_log.md](p150/work_log.md):
+serving stack and registration, serving contract, the per-length prefill
+program and trace recapture finding and its model-side fix, the sampler
+graph-key, slot admission, slot compaction and penalized-history warmups, the
+served checks on chip 2 (tracked mixed-shape, non-aligned, logit determinism,
+sampling, qualitative, capacity, burst) and the primary B1 benchmark. Local
+checkpoint commits are listed at the end of that file.

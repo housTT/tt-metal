@@ -59,6 +59,8 @@ fallback: every weight, constant, cache and state buffer is created in
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import ttnn
 from models.autoports.ornith_ai_ornith_1_5_9b.tt.model_config import OrnithDecoderConfig
 from models.autoports.ornith_ai_ornith_1_5_9b.tt.rope import OrnithRope
@@ -95,6 +97,22 @@ def _pad_dim(tensor, dim: int, amount: int):
     padding = [(0, 0)] * len(tensor.shape)
     padding[dim] = (0, amount)
     return ttnn.pad(tensor, padding, 0.0)
+
+
+@dataclass
+class PrefillPlan:
+    """Runtime-tensor inputs for one padded prefill chunk, so program keys depend on the physical bucket only."""
+
+    rope_index: object
+    fill_page_table: object
+    chunk_start: object
+    tail_index: object
+    last_index: object
+
+    def release(self):
+        for tensor in (self.rope_index, self.fill_page_table, self.chunk_start, self.tail_index, self.last_index):
+            if tensor is not None:
+                ttnn.deallocate(tensor)
 
 
 def _slice_owned(tensor, begins, ends):

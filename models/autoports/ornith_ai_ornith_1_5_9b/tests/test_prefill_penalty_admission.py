@@ -23,7 +23,16 @@ def definitions(path, names, namespace):
 
 @pytest.fixture
 def admission():
-    namespace = {"torch": torch, "dataclass": dataclass, "fields": fields, "replace": replace, "List": List}
+    namespace = {
+        "torch": torch,
+        "dataclass": dataclass,
+        "fields": fields,
+        "replace": replace,
+        "List": List,
+        "os": __import__("os"),
+        "json": __import__("json"),
+        "logger": SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None),
+    }
     common = ROOT.parents[1] / "common/sampling"
     definitions(common / "_utils.py", {"clamp"}, namespace)
     definitions(common / "generator.py", {"SamplingParams", "format_sampling_params"}, namespace)
@@ -38,6 +47,9 @@ def admission():
     gen.max_batch_size, gen.sampling_mode, gen._live = 4, "device", True
     gen._model_trace, gen._logits = 1, torch.arange(4).float()
     gen._sampling_key = None
+    gen._raw_logprobs_enabled = False
+    gen._sampling_traces = {}
+    gen._formatted = None
     gen._inputs = [torch.arange(32), torch.arange(4), torch.arange(4), torch.arange(128).reshape(4, 32)]
     gen.sampling = SimpleNamespace(
         _penalties_active=False,
@@ -106,7 +118,8 @@ def test_generator_admits_fresh_penalty_lane_without_erasing_ongoing_state(admis
     case = admission
     before = [tensor.clone() for tensor in case.tracked]
     case.gen.configure_sampling(params(case, presence_penalty=[0.0, 0.0, 0.5, 0.0]), fresh_slots=[2])
-    assert case.calls == ["release", "configure", "capture"]
+    # The penalized sampler graph is prepared at capture time; a live switch only reconfigures.
+    assert case.calls == ["configure"]
     assert all(torch.equal(actual, expected) for actual, expected in zip(case.tracked, before))
 
 
@@ -156,6 +169,10 @@ def configure_live_sampler(case, params):
     gen._configure_sampling(params)
     gen._sampling_trace, gen._sampling_history_trace = 2, 3
     gen._active8_trace, gen._prefill_trace = 4, 5
+    # Both sampler graph variants are prepared, as _capture leaves them.
+    gen._sampling_traces = {
+        gen._sampling_trace_key(variant): (2, 3) for variant in gen._sampling_variants(gen._formatted)
+    }
     namespace = gen.configure_sampling.__globals__
     namespace["ttnn"].clone = lambda tensor: case.calls.append("clone") or tensor.clone()
     gen._sample_device = lambda logits: case.calls.append("warm")
@@ -184,10 +201,12 @@ def test_equal_normalized_sampling_key_reuses_live_traces(admission, temperature
     before = [tensor.clone() for tensor in case.tracked]
     cache = gen.kv_cache
     gen.configure_sampling(request)
-    assert case.calls == []  # No cloning, parameter writes, warming, releasing or capturing.
-    assert len(formatted_calls) == 1 and formatted_calls[0] is request
+    # Values refresh the device parameter tensors; no cloning, warming, releasing or capturing.
+    assert case.calls == ["reset_params"]
+    assert len(formatted_calls) == 2 and formatted_calls[0] is request
     assert gen._configured_seeds == list(real_format(request, 32).seed)
-    assert gen._sampling_key[-1][:4] == (1.0 if temperature == 0.0 else 1.25,) * 4
+    assert gen._sampling_key == gen._sampling_trace_key(real_format(request, 32))
+    assert gen._sampling_key[0] is False
     assert [getattr(gen, name) for name in trace_fields] == traces
     assert [tensor.data_ptr() for tensor in case.tracked] == pointers
     assert all(torch.equal(actual, expected) for actual, expected in zip(case.tracked, before))
@@ -211,9 +230,15 @@ def test_equal_sampling_key_applies_seed_then_history_updates(admission):
         prompt_token_ids=[[1, 2], [3], [], [4]],
         generated_token_ids=[[5], [], [6, 7], []],
     )
-    assert [event[0] for event in case.calls] == ["all_seeds", "fresh_seeds", "prompt", "output"]
-    assert case.calls[0] == ("all_seeds", requested)
-    assert case.calls[1] == ("fresh_seeds", [2], requested)
-    assert case.calls[2][1].shape == case.calls[3][1].shape == (32, 2)
-    assert case.calls[2][1][:4].tolist() == [[1, 2], [3, -1], [-1, -1], [4, -1]]
-    assert case.calls[3][1][:4].tolist() == [[5, -1], [-1, -1], [6, 7], [-1, -1]]
+    assert [event if isinstance(event, str) else event[0] for event in case.calls] == [
+        "reset_params",
+        "all_seeds",
+        "fresh_seeds",
+        "prompt",
+        "output",
+    ]
+    assert case.calls[1] == ("all_seeds", requested)
+    assert case.calls[2] == ("fresh_seeds", [2], requested)
+    assert case.calls[3][1].shape == case.calls[4][1].shape == (32, 2)
+    assert case.calls[3][1][:4].tolist() == [[1, 2], [3, -1], [-1, -1], [4, -1]]
+    assert case.calls[4][1][:4].tolist() == [[5, -1], [-1, -1], [6, 7], [-1, -1]]

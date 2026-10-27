@@ -484,7 +484,18 @@ class MultichipDecoder(OptimizedDecoder):
         ttnn.deallocate(normalized)
         return ttnn.reshape(gathered, [shape[0], shape[1], self.cfg.dim])
 
-    def _block(self, x, *, mode, logical_len=None, page_table=None, chunk_start_idx=0, current_pos=None, rot_idxs=None):
+    def _block(
+        self,
+        x,
+        *,
+        mode,
+        logical_len=None,
+        page_table=None,
+        chunk_start_idx=0,
+        current_pos=None,
+        rot_idxs=None,
+        plan=None,
+    ):
         if self.mesh_config.residual == "replicated" or self.tp == 1:
             return super()._block(
                 x,
@@ -494,17 +505,20 @@ class MultichipDecoder(OptimizedDecoder):
                 chunk_start_idx=chunk_start_idx,
                 current_pos=current_pos,
                 rot_idxs=rot_idxs,
+                plan=plan,
             )
         memory = self._width_memory(self.residual_width, 32) if mode == "decode" else ttnn.DRAM_MEMORY_CONFIG
         attn_in = self._residual_norm(x, "attn_norm")
         if self.is_full_attention:
             mixed = (
-                self._attention_prefill(attn_in, page_table, chunk_start_idx)
+                self._attention_prefill(attn_in, page_table, chunk_start_idx, plan=plan)
                 if mode == "prefill"
                 else self._attention_decode(attn_in, current_pos, rot_idxs, page_table)
             )
         else:
-            mixed = self._gdn_prefill(attn_in, logical_len) if mode == "prefill" else self._gdn_decode(attn_in)
+            mixed = (
+                self._gdn_prefill(attn_in, logical_len, plan=plan) if mode == "prefill" else self._gdn_decode(attn_in)
+            )
         ttnn.deallocate(attn_in)
         h = self._residual_add(x, mixed, memory)
         ttnn.deallocate(mixed)

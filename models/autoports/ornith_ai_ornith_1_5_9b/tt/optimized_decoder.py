@@ -397,7 +397,18 @@ class OptimizedDecoder(FusedDecoder):
             ttnn.deallocate(out)
         return merged
 
-    def _block(self, x, *, mode, logical_len=None, page_table=None, chunk_start_idx=0, current_pos=None, rot_idxs=None):
+    def _block(
+        self,
+        x,
+        *,
+        mode,
+        logical_len=None,
+        page_table=None,
+        chunk_start_idx=0,
+        current_pos=None,
+        rot_idxs=None,
+        plan=None,
+    ):
         residual_mem = (
             self._width_memory(self.cfg.dim, self.optimization.residual_cores, 32)
             if mode == "decode" and self.optimization.residual_cores
@@ -409,11 +420,11 @@ class OptimizedDecoder(FusedDecoder):
         attn_in = self._norm(x, self.w["attn_norm"])
         if self.is_full_attention:
             if mode == "prefill":
-                mixed = self._attention_prefill(attn_in, page_table, chunk_start_idx)
+                mixed = self._attention_prefill(attn_in, page_table, chunk_start_idx, plan=plan)
             else:
                 mixed = self._attention_decode(attn_in, current_pos, rot_idxs, page_table)
         elif mode == "prefill":
-            mixed = self._gdn_prefill(attn_in, logical_len)
+            mixed = self._gdn_prefill(attn_in, logical_len, plan=plan)
         else:
             mixed = self._gdn_decode(attn_in)
         ttnn.deallocate(attn_in)
@@ -730,16 +741,22 @@ class OptimizedDecoder(FusedDecoder):
         )
         return out
 
-    def _attention_prefill(self, x, page_table, chunk_start_idx):
+    def _attention_prefill(self, x, page_table, chunk_start_idx, plan=None):
         if self.k_cache is None:
             raise RuntimeError("call allocate_kv_cache()/attach_kv_cache() before prefill")
         if page_table is None:
             raise ValueError("full_attention prefill requires a page_table")
         b, t = x.shape[0], x.shape[1]
-        cos, sin = [
-            ttnn.slice(self.w[key], [0, 0, chunk_start_idx, 0], [1, 1, chunk_start_idx + t, self.cfg.rope_dim])
-            for key in ("rope_cos_tiled", "rope_sin_tiled")
-        ]
+        if plan is not None:
+            cos, sin = [
+                ttnn.embedding(plan.rope_index, table, layout=ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                for table in (self.rope.cos_table, self.rope.sin_table)
+            ]
+        else:
+            cos, sin = [
+                ttnn.slice(self.w[key], [0, 0, chunk_start_idx, 0], [1, 1, chunk_start_idx + t, self.cfg.rope_dim])
+                for key in ("rope_cos_tiled", "rope_sin_tiled")
+            ]
         cos = ttnn.reshape(cos, [1, 1, t, self.cfg.rope_dim])
         sin = ttnn.reshape(sin, [1, 1, t, self.cfg.rope_dim])
 
@@ -749,9 +766,12 @@ class OptimizedDecoder(FusedDecoder):
         ttnn.deallocate(cos)
         ttnn.deallocate(sin)
 
-        blk0 = chunk_start_idx // self.page_block_size
-        blk_n = _align_up(chunk_start_idx + t, self.page_block_size) // self.page_block_size
-        chunk_page_table, pt_owned = _slice_owned(page_table, [0, blk0], [int(page_table.shape[0]), blk_n])
+        if plan is not None:
+            chunk_page_table, pt_owned = plan.fill_page_table, False
+        else:
+            blk0 = chunk_start_idx // self.page_block_size
+            blk_n = _align_up(chunk_start_idx + t, self.page_block_size) // self.page_block_size
+            chunk_page_table, pt_owned = _slice_owned(page_table, [0, blk0], [int(page_table.shape[0]), blk_n])
         indices, owned = _slice_owned(self.w["batch_idxs"], [0], [b])
         k = ttnn.typecast(k, self.k_cache.dtype)
         v = ttnn.typecast(v, self.v_cache.dtype)
@@ -764,16 +784,28 @@ class OptimizedDecoder(FusedDecoder):
         ttnn.deallocate(k)
         ttnn.deallocate(v)
 
-        attn = ttnn.transformer.chunked_scaled_dot_product_attention(
-            q,
-            self.k_cache,
-            self.v_cache,
-            page_table,
-            chunk_start_idx,
-            scale=self.cfg.head_dim**-0.5,
-            program_config=self._prefill_sdpa_config(chunk_start_idx, t),
-            compute_kernel_config=self.sdpa_compute_kernel_config,
-        )
+        if plan is not None:
+            attn = ttnn.transformer.chunked_scaled_dot_product_attention(
+                q,
+                self.k_cache,
+                self.v_cache,
+                page_table,
+                chunk_start_idx_tensor=plan.chunk_start,
+                scale=self.cfg.head_dim**-0.5,
+                program_config=self._prefill_sdpa_config(0, t),
+                compute_kernel_config=self.sdpa_compute_kernel_config,
+            )
+        else:
+            attn = ttnn.transformer.chunked_scaled_dot_product_attention(
+                q,
+                self.k_cache,
+                self.v_cache,
+                page_table,
+                chunk_start_idx,
+                scale=self.cfg.head_dim**-0.5,
+                program_config=self._prefill_sdpa_config(chunk_start_idx, t),
+                compute_kernel_config=self.sdpa_compute_kernel_config,
+            )
         ttnn.deallocate(q)
         attn = ttnn.reshape(ttnn.experimental.nlp_concat_heads(attn), [b, t, self.cfg.n_heads * self.cfg.head_dim])
         return self._attention_output(attn, gate)
@@ -826,7 +858,7 @@ class OptimizedDecoder(FusedDecoder):
             ttnn.deallocate(tensor)
         return output, final
 
-    def _gdn_prefill_conv_fields(self, qkv, logical_len):
+    def _gdn_prefill_conv_fields(self, qkv, logical_len, plan=None):
         cfg = self.cfg
         batch, seq = qkv.shape[0], qkv.shape[1]
         dram = ttnn.DRAM_MEMORY_CONFIG
@@ -863,7 +895,12 @@ class OptimizedDecoder(FusedDecoder):
             for parts in outputs:
                 for tensor in parts:
                     ttnn.deallocate(tensor)
-        if logical_len >= 3:
+        if plan is not None and plan.tail_index is not None and batch == 1:
+            flat = ttnn.reshape(tokens, [seq, cfg.conv_dim])
+            tail_rm = ttnn.embedding(
+                plan.tail_index, flat, layout=ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG
+            )
+        elif logical_len >= 3:
             tail_rm = ttnn.slice(tokens, [0, logical_len - 3, 0], [batch, logical_len, cfg.conv_dim])
         else:
             old = ttnn.slice(history, [0, logical_len, 0], [batch, 3, cfg.conv_dim])

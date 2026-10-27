@@ -1,5 +1,27 @@
 # Ornith-1.5-9B vLLM integration
 
+## p150, one Blackhole chip (current stage 9 evidence, 2026 Oct 27)
+
+Primary single-user **128 input / 128 output / 1 request / concurrency 1 /
+max-num-seqs 1**, greedy temperature 0, ignore EOS, native 262144 context, first
+request after server readiness: **TTFT 83.3 ms; decode 29.34 tokens/s/user**
+from mean TPOT 34.09 ms; ITL median 34.08 ms, P99 34.89 ms; aggregate output
+29.01 tokens/s (`readiness_vllm/vllm_benchmark.json`; same-workload repeat
+77.4 ms / 34.10 ms, `p150/b1_primary/repeat/`). The B32 server's 128/128/1
+diagnostic measures 168 ms TPOT (5.9 t/s/u) because the 32-row decode graph
+costs about 4.4 ms per row on one chip; it is not the headline.
+
+Secondary CI serving burst **100 input / 100 output / 32 requests / no
+concurrency limit / max-num-seqs 32**, greedy: see
+[p150/README.md](p150/README.md) for the final numbers, the sampling verdict
+(73 passed, 1 controlled failure, 4 skips), the qualitative verdict (coherent,
+on-topic, no mechanical defects), the mixed-shape trace reuse check (zero
+captures), prefix caching (`recurrent_state` exclusion), batched prefill
+(serial reference, advisory ratio), the plugin record and the trace-reuse
+evidence. The p150 work log is [p150/work_log.md](p150/work_log.md).
+
+## p150x4, four chips (historical stage 9 evidence, 2026 Sep)
+
 Primary single-user **128 input / 128 output / 1 request / concurrency 1 /
 max-num-seqs 1**, greedy temperature0, first request after server readiness:
 **TTFT62.613ms; decode87.706 tokens/s/user** from mean TPOT11.402ms;

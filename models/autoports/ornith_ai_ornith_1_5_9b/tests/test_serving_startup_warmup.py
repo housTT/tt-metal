@@ -34,7 +34,17 @@ def fixture(batch, mrope):
     gen.owns_cache = False
     gen.use_prefill_trace = True
     gen._prefill_key = gen._prefill_inputs = gen._previous_prefill_table = None
-    gen.model = SimpleNamespace(prefill_chunk=2048)
+    gen.model = SimpleNamespace(
+        prefill_chunk=2048,
+        prefill_forward=lambda *args, **kwargs: case.calls.append(
+            ("bucket_warm", kwargs["prompt_lens"], kwargs["slots"])
+        )
+        or torch.zeros(1),
+        reset_cache=lambda cache, *, clear_kv: case.calls.append("bucket_warm_reset"),
+    )
+    adapter.model = gen.model
+    adapter.mesh_device = SimpleNamespace(num_program_cache_entries=lambda: 0)
+    gen.remap_serving_slots = lambda remap: case.calls.append(("remap_warm", remap.tolist()))
     gen._device = lambda value, dtype: value.clone()
     gen._history_rows = 0
     gen.counters = defaultdict(int)
@@ -52,7 +62,16 @@ def fixture(batch, mrope):
             gen.counters["cache_snapshots"] += int(preserve_cache)
             gen.counters["captures"] += 1
             gen._model_trace = gen.counters["captures"]
+            # The real capture prepares the sampler trace pair for both penalty variants.
+            current = gen._formatted or namespace["format_sampling_params"](
+                case.params(temperature=0.0, top_k=1, top_p=1.0), 32
+            )
+            gen._sampling_traces = {
+                gen._sampling_trace_key(variant): (gen._model_trace, gen._model_trace)
+                for variant in gen._sampling_variants(current)
+            }
 
+    namespace = adapter.warmup_model_prefill.__func__.__globals__
     gen._release_traces = release
     gen.ensure_traces = ensure
     gen.recurrent = torch.zeros(batch, 3)

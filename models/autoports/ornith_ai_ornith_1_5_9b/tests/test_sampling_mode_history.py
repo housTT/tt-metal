@@ -193,10 +193,10 @@ def seed_case(state):
 
 def seed_prefill(state, *, params=None, start=0):
     return state.adapter.prefill_forward(
-        tokens=torch.tensor([[0]]),
+        tokens=torch.tensor([[0] * (start + 1)]),
         page_table=torch.zeros(1, 32, dtype=torch.int32),
         kv_cache=state.gen.kv_cache,
-        prompt_lens=[1],
+        prompt_lens=[start + 1],
         empty_slots=[0],
         start_pos=[start],
         sampling_params=params,

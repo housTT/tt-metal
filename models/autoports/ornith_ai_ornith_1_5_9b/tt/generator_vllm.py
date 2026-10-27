@@ -30,7 +30,6 @@ class TTOrnithForCausalLM:
         "supports_prefix_caching": False,
         "supports_async_decode": True,
         "supports_sample_on_device": True,
-        "supports_batched_prefill": True,
         "supports_masked_prefill_sampling": True,
         "sampled_raw_logprobs_devices": (4,),
         # This adapter raises if asked to sample on the host, which would kill
@@ -427,6 +426,7 @@ class TTOrnithForCausalLM:
         length = min(128, self.max_model_len)
         table = torch.zeros(self.max_batch_size, self.page_table_blocks, dtype=torch.int32)
         table[0] = torch.arange(self.page_table_blocks, dtype=torch.int32)
+        self._warm_prefill_buckets(gen, table)
         # Bind the B1 prefill inputs before capturing the complete trace family
         # over this empty pool; later shape misses preserve this resident shape.
         gen._prepare_prefill_trace([length], [0], [0], table)
@@ -472,6 +472,52 @@ class TTOrnithForCausalLM:
         self._last_device_sampling = None
         logger.info("Ornith decode execution: {}", json.dumps(gen.execution_info(), sort_keys=True))
         self._warmed = True
+
+    def _warm_prefill_buckets(self, gen, table):
+        """Compile every physical prefill bucket and the second-chunk offset path before capture."""
+        model = self.model
+        chunk = model.prefill_chunk
+        lengths = [1, 2] + [bucket - 1 for bucket in range(128, min(chunk, self.max_model_len) + 1, 128)]
+        if self.max_model_len > chunk:
+            lengths.append(chunk + 127)
+        before = self.mesh_device.num_program_cache_entries()
+        for length in lengths:
+            logits = model.prefill_forward(
+                [torch.zeros(length, dtype=torch.int64)],
+                page_table=table,
+                kv_cache=gen.kv_cache,
+                prompt_lens=[length],
+                slots=[0],
+                start_pos=[0],
+            )
+            ttnn.deallocate(logits)
+        # Admission into every fixed slot compiles its own state-transfer programs.
+        for slot in range(1, self.max_batch_size):
+            logits = model.prefill_forward(
+                [torch.zeros(1, dtype=torch.int64)],
+                page_table=table,
+                kv_cache=gen.kv_cache,
+                prompt_lens=[1],
+                slots=[slot],
+                start_pos=[0],
+            )
+            ttnn.deallocate(logits)
+        # Scheduler compaction moves live rows between slots; every source row has its own
+        # slice program, so one full rotation compiles them all before capture.
+        if self.max_batch_size > 1:
+            gen.remap_serving_slots(torch.tensor([*range(1, self.max_batch_size), 0], dtype=torch.int64))
+            gen.remap_serving_slots(
+                torch.tensor([self.max_batch_size - 1, *range(self.max_batch_size - 1)], dtype=torch.int64)
+            )
+        model.reset_cache(gen.kv_cache, clear_kv=True)
+        self.prefill_warmup = {
+            "lengths": lengths,
+            "slots": self.max_batch_size,
+            "remap_warmed": self.max_batch_size > 1,
+            "programs_before": before,
+            "programs_after": self.mesh_device.num_program_cache_entries(),
+        }
+        logger.info("Ornith prefill bucket warmup: {}", json.dumps(self.prefill_warmup, sort_keys=True))
 
     def warmup_model_decode(self, kv_cache, enable_trace=False, **kwargs):
         self._generator(kv_cache).ensure_traces()

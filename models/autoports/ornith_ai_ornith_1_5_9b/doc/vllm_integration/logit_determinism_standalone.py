@@ -11,6 +11,7 @@ Run as a module only after stopping the server and closing its device mesh.
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import torch
@@ -88,6 +89,7 @@ def main():
     parser.add_argument(
         "--raw-logits-output", type=Path, help="Optional external .pt destination for the 42 MiB raw logits"
     )
+    parser.add_argument("--num-devices", type=int, choices=(1, 2, 4), default=4)
     args = parser.parse_args()
     assert 3 <= args.batch <= 32 and args.max_tokens > 0 and 1 <= args.top_logprobs <= 20
     prompts = prompt_manifest(args.model_path)
@@ -99,7 +101,8 @@ def main():
     logits_path.parent.mkdir(parents=True, exist_ok=True)
     report = {
         "scope": "standalone all32-layer selected-policy raw logits; host-greedy diagnostic, no performance claim",
-        "hardware": "P300c, four Blackhole chips, TP4",
+        "hardware": f"{args.num_devices} Blackhole chip(s), TP{args.num_devices}",
+        "precision_config": os.environ.get("ORNITH_PRECISION_CONFIG"),
         "checkpoint_revision": REVISION,
         "prompts": prompts,
         "batch": args.batch,
@@ -109,11 +112,11 @@ def main():
         "cleanup_completed": False,
     }
     save(args.output, report)
-    mesh = open_ornith_mesh()
+    mesh = open_ornith_mesh(num_devices=args.num_devices)
     gen = None
     full_logits, references, full_comparisons = {}, {}, []
     try:
-        model = OrnithModel(args.model_path, mesh)
+        model = OrnithModel(args.model_path, mesh, precision_config=os.environ.get("ORNITH_PRECISION_CONFIG"))
         assert model.layer_indices == list(range(32)) and model.max_context == 262144
         report.update(layers=model.layer_indices, precision=model.precision, logical_context=model.max_context)
         root = Path(__file__).resolve().parents[2]

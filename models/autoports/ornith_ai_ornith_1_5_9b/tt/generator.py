@@ -10,6 +10,7 @@ import time
 from dataclasses import replace
 
 import torch
+from loguru import logger
 
 import ttnn
 from models.autoports.ornith_ai_ornith_1_5_9b.tt.model import OrnithModel
@@ -155,6 +156,8 @@ class OrnithGenerator(Generator):
         self._model_trace = None
         self._sampling_trace = None
         self._sampling_history_trace = None
+        self._sampling_traces = {}
+        self._formatted = None
         self._prefill_trace = None
         self._prefill_key = None
         self._prefill_inputs = None
@@ -463,24 +466,50 @@ class OrnithGenerator(Generator):
         return ttnn.to_torch(pending).reshape(self._output_history_capacity, 32)[: self._history_rows].to(torch.int64)
 
     @staticmethod
-    def _sampling_trace_key(formatted):
-        return (
-            tuple(formatted.presence_penalty),
-            tuple(formatted.frequency_penalty),
-            tuple(formatted.repetition_penalty),
-            tuple(formatted.enable_log_probs),
-            tuple(formatted.num_logprobs),
-            tuple(formatted.top_k),
-            tuple(formatted.top_p),
-            tuple(formatted.temperature),
+    def _penalties_requested(formatted):
+        return not (
+            all(value == 0.0 for value in formatted.presence_penalty)
+            and all(value == 0.0 for value in formatted.frequency_penalty)
+            and all(value == 1.0 for value in formatted.repetition_penalty)
         )
+
+    @classmethod
+    def _sampling_trace_key(cls, formatted):
+        """Graph key: penalties on or off and the logprob configuration; k, p, temperature and seeds are tensors."""
+        return (cls._penalties_requested(formatted), tuple(formatted.enable_log_probs), tuple(formatted.num_logprobs))
+
+    @classmethod
+    def _sampling_variants(cls, formatted):
+        """The configured graph and its penalty sibling, so a mode switch selects a prepared trace."""
+        if cls._penalties_requested(formatted):
+            sibling = replace(
+                formatted, presence_penalty=[0.0] * 32, frequency_penalty=[0.0] * 32, repetition_penalty=[1.0] * 32
+            )
+        else:
+            sibling = replace(formatted, presence_penalty=[0.1] * 32)
+        return [formatted, sibling]
+
+    def _sampler_params(self, formatted):
+        return (
+            replace(formatted, enable_log_probs=[False] * 32, num_logprobs=[-2] * 32)
+            if self._raw_logprobs_enabled
+            else formatted
+        )
+
+    def _select_sampling_traces(self, key):
+        if self._model_trace is None:
+            return
+        traces = self._sampling_traces.get(key)
+        if traces is None:
+            logger.info("Ornith sampling key {} has no prepared trace; releasing for recapture", key)
+            self._release_traces()
+            return
+        self._sampling_trace, self._sampling_history_trace = traces
 
     def _configure_sampling(self, params):
         params = params or SamplingParams(temperature=0.0, top_k=1, top_p=1.0)
         formatted = format_sampling_params(params, 32)
         key = self._sampling_trace_key(formatted)
-        if self._model_trace is not None and key != self._sampling_key:
-            self._release_traces()
         enabled = any(formatted.enable_log_probs)
         if enabled:
             if self.model.tp != 4 or any(
@@ -492,11 +521,11 @@ class OrnithGenerator(Generator):
         self._raw_logprobs_enabled = enabled
         # The common calculator sees processed logits and excludes TP4. Keep it
         # disabled; this generator owns the raw sampled-token calculation.
-        self.sampling.reset_sampling_params(
-            replace(formatted, enable_log_probs=[False] * 32, num_logprobs=[-2] * 32) if enabled else formatted
-        )
+        self.sampling.reset_sampling_params(self._sampler_params(formatted))
         self._sampling_key = key
+        self._formatted = formatted
         self._configured_seeds = list(formatted.seed)
+        self._select_sampling_traces(key)
 
     def _reset_seeds(self):
         self._seed_values = torch.tensor(
@@ -605,33 +634,20 @@ class OrnithGenerator(Generator):
             return
         if self._model_trace is None or self._logits is None:
             raise RuntimeError("Live sampling reconfiguration requires an existing decode trace")
-        if self._sampling_trace_key(formatted) == self._sampling_key:
-            # Raw adapter keys include seeds and pre-normalized greedy values.
-            # Retain live graphs; explicit history/seed writes still apply, and
-            # downstream replay safety still checks any resulting program growth.
-            self._configured_seeds = list(formatted.seed)
-            if reset_seed:
-                self._reset_seeds()
-            if seed_rows:
-                self._reset_request_seeds(seed_rows)
-            if histories[0] is not None:
-                self.sampling.reset_prompt_tokens(histories[0])
-            if histories[1] is not None:
-                self.sampling.reset_output_state(histories[1])
-            return
-        # Only warm the sampler: KV/recurrent state and position/page inputs are
-        # never executed or reset. Restore every sampling mutation before capture.
-        originals = [self._inputs[0], self._logits, self.sampling.tt_sampling.seeds_tt_tensor]
-        originals += self._sampler_history_tensors()
-        saved = [ttnn.clone(tensor) for tensor in originals]
-        self._release_traces()
-        try:
-            self._configure_sampling(sampling_params)
-            self._sample_device(originals[1])
-        finally:
-            for original, backup in zip(originals, saved):
-                ttnn.copy(backup, original)
-                ttnn.deallocate(backup)
+        # Values refresh device tensors; a graph change selects the prepared sibling trace.
+        self._configure_sampling(sampling_params)
+        if self._model_trace is None:
+            # Unprepared graph (raw logprob configurations): warm only the sampler,
+            # restore every sampling mutation, then recapture the family.
+            originals = [self._inputs[0], self._logits, self.sampling.tt_sampling.seeds_tt_tensor]
+            originals += self._sampler_history_tensors()
+            saved = [ttnn.clone(tensor) for tensor in originals]
+            try:
+                self._sample_device(originals[1])
+            finally:
+                for original, backup in zip(originals, saved):
+                    ttnn.copy(backup, original)
+                    ttnn.deallocate(backup)
         if reset_seed:
             self._reset_seeds()
         if seed_rows:
@@ -640,7 +656,8 @@ class OrnithGenerator(Generator):
             self.sampling.reset_prompt_tokens(histories[0])
         if histories[1] is not None:
             self.sampling.reset_output_state(histories[1])
-        self._capture()
+        if self._model_trace is None:
+            self._capture()
 
     def _prefill_sampling_targets(self):
         return [self._inputs[0], self.sampling.tt_sampling.seeds_tt_tensor] + self._sampler_history_tensors()
@@ -763,18 +780,39 @@ class OrnithGenerator(Generator):
         if self._active8_enabled:
             self._capture_one("_active8_trace", lambda: self._forward_to_logits(active8=True))
         if self.sampling_mode == "device":
-            self._capture_one("_sampling_trace", lambda: self._sample_device(self._logits))
+            self._sampling_traces = {}
+            current = self._formatted or format_sampling_params(SamplingParams(temperature=0.0, top_k=1, top_p=1.0), 32)
+            for variant in self._sampling_variants(current):
+                key = self._sampling_trace_key(variant)
+                self.sampling.reset_sampling_params(self._sampler_params(variant))
+                self._capture_one("_sampling_trace", lambda: self._sample_device(self._logits))
 
-            def sampling_history():
-                self._sample_device(self._logits)
-                self._append_output_history()
+                def sampling_history():
+                    self._sample_device(self._logits)
+                    self._append_output_history()
 
-            self._capture_one("_sampling_history_trace", sampling_history)
+                self._capture_one("_sampling_history_trace", sampling_history)
+                self._sampling_traces[key] = (self._sampling_trace, self._sampling_history_trace)
+            self.sampling.reset_sampling_params(self._sampler_params(current))
+            self._sampling_trace, self._sampling_history_trace = self._sampling_traces[
+                self._sampling_trace_key(current)
+            ]
         if self._prefill_inputs is not None:
             self._capture_one("_prefill_trace", lambda: self._prefill_trace_forward(self._logits))
             self.counters["prefill_captures"] += 1
         self.counters["captures"] += 1
         self._programs = self.mesh_device.num_program_cache_entries()
+        logger.info(
+            "Ornith trace capture {}: programs {} model {} active8 {} sampling {} history {} prefill {} variants {}",
+            self.counters["captures"],
+            self._programs,
+            self._model_trace,
+            self._active8_trace,
+            self._sampling_trace,
+            self._sampling_history_trace,
+            self._prefill_trace,
+            {str(key): [str(t) for t in traces] for key, traces in self._sampling_traces.items()},
+        )
         prefix_cache = getattr(self.model, "prefix_cache", None)
         self._captured_prefix_generation = None if prefix_cache is None else prefix_cache.generation
 
@@ -861,7 +899,16 @@ class OrnithGenerator(Generator):
             self._prefill_trace_forward(warm)
         if self.sampling_mode == "device":
             self._prepare_prefill_sampling(warm)
-            self._sample_device(self._logits if self._active8_enabled else warm)
+            current = self._formatted or format_sampling_params(SamplingParams(temperature=0.0, top_k=1, top_p=1.0), 32)
+            for variant in self._sampling_variants(current):
+                self.sampling.reset_sampling_params(self._sampler_params(variant))
+                if self._penalties_requested(variant):
+                    # Penalized admission also compiles the history mask programs, and a
+                    # host-resumed penalized row rebuilds its output counts.
+                    self._prepare_prompt_sampling([[0]], [1], [0], [0])
+                    self.sampling.reset_output_state(torch.full((32, 1), -1, dtype=torch.int64))
+                self._sample_device(self._logits if self._active8_enabled else warm)
+            self.sampling.reset_sampling_params(self._sampler_params(current))
             self._reset_output_history()
             self._append_output_history()
         ttnn.synchronize_device(self.mesh_device)
@@ -883,6 +930,19 @@ class OrnithGenerator(Generator):
             self._programs != self.mesh_device.num_program_cache_entries()
             or getattr(self, "_captured_prefix_generation", None) != prefix_generation
         ):
+            import traceback
+
+            chain = [frame.name for frame in traceback.extract_stack(limit=9)[:-1]]
+            logger.info(
+                "Ornith program growth {} -> {} before replay; chain {}; counters {}",
+                self._programs,
+                self.mesh_device.num_program_cache_entries(),
+                "/".join(chain),
+                {
+                    k: getattr(self, "counters", {}).get(k, 0)
+                    for k in ("prefill_eager_calls", "model_replays", "slot_remaps", "captures")
+                },
+            )
             # New prefill program binaries must not overlap temporary addresses recorded earlier.
             # Persistent prefix snapshots also require recapture, even when
             # their shapes hit the program cache. Never mark them corruptible.
@@ -1042,6 +1102,7 @@ class OrnithGenerator(Generator):
             self.counters["prefill_replays"] += 1
             outputs = self._logits
         else:
+            programs_before = self.mesh_device.num_program_cache_entries()
             outputs = self.model._prefill_validated(
                 tokens,
                 page_table=table,
@@ -1054,6 +1115,16 @@ class OrnithGenerator(Generator):
             )
             self.counters["prefill_eager_calls"] += 1
             self._prepare_prompt_sampling(tokens, prompt_lens, rows, starts)
+            programs_after = self.mesh_device.num_program_cache_entries()
+            logger.info(
+                "Ornith eager prefill {}: lengths {} starts {} slots {} programs {} -> {}",
+                self.counters["prefill_eager_calls"],
+                [int(n) for n in prompt_lens],
+                list(starts),
+                list(rows),
+                programs_before,
+                programs_after,
+            )
         self._live = True
         if return_all_logits:
             max_len = max(prompt_lens)
@@ -1322,6 +1393,19 @@ class OrnithGenerator(Generator):
         # Attempt each known owner independently; inherited cleanup short-circuits
         # on an error and the sampling helper swallows native release failures.
         errors = []
+        if self._model_trace is not None or self.sampling._trace_states:
+            if not hasattr(self, "counters"):
+                self.counters = {}
+            self.counters["trace_releases"] = self.counters.get("trace_releases", 0) + 1
+            logger.info(
+                "Ornith trace release {}: programs {} (captured at {}) model {} sampling {} cached_sampling {}",
+                self.counters["trace_releases"],
+                self.mesh_device.num_program_cache_entries(),
+                self._programs,
+                self._model_trace,
+                self._sampling_trace,
+                [str(slot["id"]) for slot in self.sampling._trace_states.values()],
+            )
         for key, slot in list(self.sampling._trace_states.items()):
             if slot["id"] is None or self._cleanup_attempt(
                 errors,
@@ -1329,10 +1413,20 @@ class OrnithGenerator(Generator):
                 lambda slot=slot: ttnn.release_trace(self.mesh_device, slot["id"]),
             ):
                 del self.sampling._trace_states[key]
+        for key, traces in list(self._sampling_traces.items()):
+            released = True
+            for index, value in enumerate(traces):
+                if value is not None and not self._cleanup_attempt(
+                    errors,
+                    f"release_sampling_{index}_{key}",
+                    lambda value=value: ttnn.release_trace(self.mesh_device, value),
+                ):
+                    released = False
+            if released:
+                del self._sampling_traces[key]
+        self._sampling_trace = self._sampling_history_trace = None
         for name in (
             "_prefill_trace",
-            "_sampling_trace",
-            "_sampling_history_trace",
             "_active8_trace",
             "_model_trace",
         ):

@@ -404,7 +404,7 @@ class FusedDecoder(FunctionalDecoder):
         )
         return qkv, z, a, b
 
-    def _gdn_prefill_conv_fields(self, qkv, logical_len):
+    def _gdn_prefill_conv_fields(self, qkv, logical_len, plan=None):
         cfg = self.cfg
         batch, seq = qkv.shape[0], qkv.shape[1]
         width = self.conv1d_channel_chunk
@@ -474,10 +474,10 @@ class FusedDecoder(FunctionalDecoder):
             ttnn.deallocate(row)
             ttnn.deallocate(row_rm)
 
-    def _gdn_prefill(self, x, logical_len):
+    def _gdn_prefill(self, x, logical_len, plan=None):
         batch, seq = x.shape[0], x.shape[1]
         qkv, z, a, b = self._gdn_project(x)
-        q, k, v, tail = self._gdn_prefill_conv_fields(qkv, logical_len)
+        q, k, v, tail = self._gdn_prefill_conv_fields(qkv, logical_len, plan=plan)
         ttnn.deallocate(qkv)
         beta, g = self._gdn_gates_projected(a, b, logical_len, seq)
         for tensor in (a, b):

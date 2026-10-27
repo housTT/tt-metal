@@ -665,6 +665,13 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--batch", type=int, choices=(3, 4), default=3)
     parser.add_argument(
+        "--num-devices",
+        type=int,
+        choices=(1, 2, 4),
+        default=4,
+        help="Reduced probe mesh size; the public-boundary case stays TP4.",
+    )
+    parser.add_argument(
         "--active8-public-boundaries",
         action="store_true",
         help="Opt in to full32/B32/native4129 public serving boundaries; default reduced probe is unchanged.",
@@ -712,7 +719,11 @@ def main():
     os.environ["ORNITH_VLLM_ALLOW_HOST_SAMPLING"] = "1" if args.active8_public_boundaries else "0"
     report = {
         "status": "running",
-        "hardware": "four Blackhole chips on two P300c boards, TP4",
+        "hardware": (
+            "four Blackhole chips on two P300c boards, TP4"
+            if args.num_devices == 4
+            else f"{args.num_devices} Blackhole chip(s), TP{args.num_devices}"
+        ),
         "layers": list(range(32)) if args.active8_public_boundaries else [0, 3],
         "batch": args.batch,
         "logical_context": 262144,
@@ -766,7 +777,9 @@ def main():
                 raise RuntimeError("Program-cache allocations must remain included in the native tracker")
         hf_config = AutoConfig.from_pretrained(args.model_path, local_files_only=True, revision=HF_REVISION)
         public_prompts = public_chat_prompts(args.model_path) if args.active8_public_boundaries else None
-        mesh = open_ornith_mesh()
+        if args.active8_public_boundaries and args.num_devices != 4:
+            raise ValueError("The public-boundary control is defined for the TP4 mesh")
+        mesh = open_ornith_mesh(num_devices=args.num_devices)
         adapter = TTOrnithForCausalLM.initialize_vllm_model(
             hf_config, mesh, max_batch_size=args.batch, max_seq_len=262144
         )

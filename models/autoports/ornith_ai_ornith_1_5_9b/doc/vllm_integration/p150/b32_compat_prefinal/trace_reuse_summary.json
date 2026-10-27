@@ -1,0 +1,173 @@
+{
+  "server_log": "/home/hous/dev/tt-metal-wt-ornith/models/autoports/ornith_ai_ornith_1_5_9b/doc/vllm_integration/p150/b32_compat/server.log",
+  "mixed_shape_check": "/home/hous/dev/tt-metal-wt-ornith/models/autoports/ornith_ai_ornith_1_5_9b/doc/vllm_integration/p150/b32_compat/mixed_shape_check.json",
+  "prefill_warmup": {
+    "lengths": [
+      1,
+      2,
+      127,
+      255,
+      383,
+      511,
+      639,
+      767,
+      895,
+      1023,
+      1151,
+      1279,
+      1407,
+      1535,
+      1663,
+      1791,
+      1919,
+      2047,
+      2175
+    ],
+    "programs_after": 980,
+    "programs_before": 39,
+    "remap_warmed": true,
+    "slots": 32
+  },
+  "trace_events": [
+    {
+      "time": "2026-10-27 21:29:48.274",
+      "kind": "capture",
+      "count": 1,
+      "programs": 1120,
+      "detail": "model MeshTraceId(0) active8 None sampling MeshTraceId(1) history MeshTraceId(2) prefill None variants {'(False, (False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False), (-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2))': ['MeshTraceId(1)', 'MeshTraceId(2)'], '(True, (False, False, False, False, False, False, False, False, False, False, False, False"
+    },
+    {
+      "time": "2026-10-27 21:29:48.371",
+      "kind": "release",
+      "count": 1,
+      "programs": 1121,
+      "detail": "(captured at 1120) model MeshTraceId(0) sampling MeshTraceId(1) cached_sampling []"
+    },
+    {
+      "time": "2026-10-27 21:29:48.476",
+      "kind": "capture",
+      "count": 2,
+      "programs": 1121,
+      "detail": "model MeshTraceId(5) active8 None sampling MeshTraceId(6) history MeshTraceId(7) prefill None variants {'(False, (False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False), (-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2))': ['MeshTraceId(6)', 'MeshTraceId(7)'], '(True, (False, False, False, False, False, False, False, False, False, False, False, False"
+    },
+    {
+      "time": "2026-10-27 21:36:42.976",
+      "kind": "release",
+      "count": 2,
+      "programs": 1122,
+      "detail": "(captured at 1121) model MeshTraceId(5) sampling MeshTraceId(8) cached_sampling []"
+    },
+    {
+      "time": "2026-10-27 21:36:43.127",
+      "kind": "capture",
+      "count": 3,
+      "programs": 1122,
+      "detail": "model MeshTraceId(10) active8 None sampling MeshTraceId(11) history MeshTraceId(12) prefill None variants {'(True, (False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False), (-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2))': ['MeshTraceId(11)', 'MeshTraceId(12)'], '(False, (False, False, False, False, False, False, False, False, False, False, False, "
+    }
+  ],
+  "program_growth_events": [
+    {
+      "time": "2026-10-27 21:29:48.371",
+      "before": 1120,
+      "after": 1121,
+      "chain": "initialize_from_config/collective_rpc/run_method/compile_or_warm_up_model/warmup_model/warmup_model_prefill/decode_forward/decode_forward",
+      "counters": "{'prefill_eager_calls': 1, 'model_replays': 0, 'slot_remaps': 2, 'captures': 1}"
+    },
+    {
+      "time": "2026-10-27 21:36:42.976",
+      "before": 1121,
+      "after": 1122,
+      "chain": "execute_model/execute_model/decorate_context/execute_model/submit_async_decode/submit_decode/decode_forward/decode_forward",
+      "counters": "{'prefill_eager_calls': 80, 'model_replays': 989, 'slot_remaps': 31, 'captures': 2}"
+    }
+  ],
+  "eager_prefills_after_startup": [],
+  "eager_prefill_calls": 281,
+  "startup_captures": 2,
+  "workload_captures": 0,
+  "workload_releases": 0,
+  "final_trace_ids": "model MeshTraceId(10) active8 None sampling MeshTraceId(11) history MeshTraceId(12) prefill None variants {'(True, (False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False), (-2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2))': ['MeshTraceId(11)', 'MeshTraceId(12)'], '(False, (False, False, False, False, False, False, False, False, False, False, False, ",
+  "request_signatures": {
+    "prefill bucket 256 at chunk start 0": {
+      "logical_lengths": [
+        129,
+        130,
+        131,
+        200
+      ],
+      "requests": 22
+    },
+    "prefill bucket 128 at chunk start 0": {
+      "logical_lengths": [
+        1,
+        2,
+        5,
+        33,
+        64,
+        65
+      ],
+      "requests": 9
+    },
+    "prefill bucket 2048 at chunk start 0": {
+      "logical_lengths": [
+        2305,
+        4353
+      ],
+      "requests": 6
+    },
+    "prefill bucket 384 at chunk start 2048": {
+      "logical_lengths": [
+        2305
+      ],
+      "requests": 5
+    },
+    "prefill bucket 1024 at chunk start 0": {
+      "logical_lengths": [
+        1000,
+        1024
+      ],
+      "requests": 2
+    },
+    "prefill bucket 1152 at chunk start 0": {
+      "logical_lengths": [
+        1025
+      ],
+      "requests": 1
+    },
+    "prefill bucket 384 at chunk start 0": {
+      "logical_lengths": [
+        257
+      ],
+      "requests": 1
+    },
+    "prefill bucket 2048 at chunk start 2048": {
+      "logical_lengths": [
+        4353
+      ],
+      "requests": 1
+    },
+    "prefill bucket 384 at chunk start 4096": {
+      "logical_lengths": [
+        4353
+      ],
+      "requests": 1
+    }
+  },
+  "decode_signature": "one B32 decode trace plus sampler/history traces per sampling graph key (penalties off, penalties on); token, position, RoPE and page-table inputs are persistent device tensors",
+  "teardown_counters": null,
+  "mixed_shape_summary": {
+    "requests": 41,
+    "completed": 41,
+    "ttft_p50_s": 0.3812606899882667,
+    "ttft_p95_s": 1.0827226340188645,
+    "ttft_p99_s": 1.0837637119693682,
+    "ttft_max_s": 1.0837637119693682,
+    "itl_max_s": 0.4498093290021643,
+    "output_tokens": 944,
+    "greedy_repeat_mismatches": [],
+    "captures_during_workload": 0,
+    "releases_during_workload": 0,
+    "events_available": true,
+    "status": "pass"
+  }
+}

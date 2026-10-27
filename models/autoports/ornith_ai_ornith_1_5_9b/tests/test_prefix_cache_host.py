@@ -80,7 +80,7 @@ def fixture(*, batch=1, enabled=True, budget=256):
     model.prefix_cache = HybridPrefixCache(model, budget, 16, storage=CPUStorage()) if enabled else None
     model.computed = []
 
-    def forward(ids, *, start_pos, page_table, kv_cache):
+    def forward(ids, *, start_pos, page_table, kv_cache, **kwargs):
         outputs = []
         state = kv_cache.prefill_layers[0]
         for offset, token in enumerate(ids.flatten().tolist()):

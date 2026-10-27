@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from models.autoports.ornith_ai_ornith_1_5_9b.tt.generator_vllm import TTOrnithForCausalLM
+from models.autoports.ornith_ai_ornith_1_5_9b.tt.precision import load_precision
 
 NS = "models.autoports.ornith_ai_ornith_1_5_9b.tt.generator_vllm"
 
@@ -14,7 +15,7 @@ NS = "models.autoports.ornith_ai_ornith_1_5_9b.tt.generator_vllm"
 class PrefixServingTests(unittest.TestCase):
     def initialize(self, env):
         model = SimpleNamespace(
-            mesh_device=SimpleNamespace(get_num_devices=lambda: 4), page_block_size=64, precision={}
+            mesh_device=SimpleNamespace(get_num_devices=lambda: 4), page_block_size=64, precision=load_precision(None)
         )
         hf = SimpleNamespace(rope_parameters={})
         with (

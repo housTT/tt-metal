@@ -20,7 +20,7 @@ from models.common.modules.lm_head.lm_head_1d import LMHead1D, LMHead1DConfig
 
 from ..reference.hf_reference import CHECKPOINT_TEXT_PREFIX, load_layer_state_dict, load_text_config, resolve_model_path
 from .context import configure_context
-from .functional_decoder import DEFAULT_PAGE_BLOCK_SIZE, DEFAULT_PREFILL_CHUNK, num_blocks_for_context
+from .functional_decoder import DEFAULT_PAGE_BLOCK_SIZE, DEFAULT_PREFILL_CHUNK, PrefillPlan, num_blocks_for_context
 from .multichip_decoder import (
     TP,
     MeshCCLManager,
@@ -596,32 +596,81 @@ class OrnithModel:
                 raise ValueError("prompt window exceeds cache context")
         return slots, starts, table
 
-    def _prefill_chunk_forward(self, ids, *, start_pos, page_table, kv_cache, reuse_padded_residual=False):
-        """Preserve logical chunk lengths while reusing eager padded residuals."""
-        logical = int(ids.shape[-1])
+    def padded_prefill_qualified(self, logical, start_pos, kv_cache):
+        """Whether one chunk can run on the padded-residual path keyed by its physical bucket."""
         layers = kv_cache.prefill_layers
-        qualified = (
-            reuse_padded_residual
-            and kv_cache.batch_size == 32
-            and self.tp == 4
-            and self.prefill_chunk == 2048
-            and 0 < logical < self.prefill_chunk
-            and logical % 128 != 0
+        return bool(
+            self.prefill_chunk == 2048
+            and 0 < logical <= self.prefill_chunk
             and start_pos % 128 == 0
-            and tuple(ids.shape) == (1, logical)
             and self.precision["residual_dtype"] == "bfloat16"
-            and len(layers) == 32
+            and layers
             and all(
                 layer.batch_size == 1
                 and layer.prefill_chunk == self.prefill_chunk
-                and layer.mesh_config.residual == "replicated"
+                and (layer.mesh_config.residual == "replicated" or layer.tp == 1)
                 and layer.residual_width == self.dim
                 and start_pos + logical <= layer.max_context
                 and (layer.is_full_attention or layer.w["pos_ramp"].shape[1] >= self.prefill_chunk)
                 for layer in layers
             )
         )
+
+    @staticmethod
+    def padded_prefill_length(logical):
+        return ((int(logical) + 127) // 128) * 128
+
+    def _prefill_plan(self, logical, physical, start_pos, host_table_row):
+        """Runtime tensors for one chunk: RoPE rows, fill pages, SDPA start, conv tail rows, last row."""
+        blocks_per_chunk = self.prefill_chunk // self.page_block_size
+        first_block = start_pos // self.page_block_size
+        fill = torch.zeros((1, blocks_per_chunk), dtype=torch.int32)
+        chunk_blocks = host_table_row[first_block : first_block + blocks_per_chunk].to(torch.int32)
+        fill[0, : chunk_blocks.numel()] = chunk_blocks
+        row_major = ttnn.ROW_MAJOR_LAYOUT
+        return PrefillPlan(
+            rope_index=self.upload(
+                torch.arange(start_pos, start_pos + physical, dtype=torch.int32).reshape(1, physical),
+                dtype=ttnn.uint32,
+                layout=row_major,
+            ),
+            fill_page_table=self.upload(fill, dtype=ttnn.int32, layout=row_major),
+            chunk_start=self.upload(torch.tensor([start_pos], dtype=torch.int32), dtype=ttnn.int32, layout=row_major),
+            tail_index=(
+                self.upload(
+                    torch.tensor([[logical - 3, logical - 2, logical - 1]], dtype=torch.int32),
+                    dtype=ttnn.uint32,
+                    layout=row_major,
+                )
+                if logical >= 3
+                else None
+            ),
+            last_index=self.upload(
+                torch.tensor([[logical - 1]], dtype=torch.int32), dtype=ttnn.uint32, layout=row_major
+            ),
+        )
+
+    def _prefill_chunk_forward(
+        self, ids, *, start_pos, page_table, kv_cache, reuse_padded_residual=False, logical=None, plan=None
+    ):
+        """Preserve logical chunk lengths while reusing eager padded residuals.
+
+        With ``plan`` the ids are already padded to the physical bucket, every per-chunk
+        offset is a runtime tensor, and the returned residual keeps the physical rows.
+        """
+        physical = int(ids.shape[-1])
+        logical = physical if logical is None else int(logical)
+        layers = kv_cache.prefill_layers
+        qualified = (
+            reuse_padded_residual
+            and plan is not None
+            and physical == self.padded_prefill_length(logical)
+            and tuple(ids.shape) == (1, physical)
+            and self.padded_prefill_qualified(logical, start_pos, kv_cache)
+        )
         if not qualified:
+            if physical != logical:
+                raise ValueError("Padded prefill ids require the padded-residual path")
             x = self.embed(ids)
             for layer in kv_cache.prefill_layers:
                 nxt = layer.prefill_forward(x, start_pos=start_pos, page_table=page_table)
@@ -629,22 +678,21 @@ class OrnithModel:
                 x = nxt
             return x
 
-        physical = ((logical + 127) // 128) * 128
         x = keep = None
         try:
             x = self.embed(ids)
             if not (
-                tuple(x.shape) == (1, logical, self.dim)
+                tuple(x.shape) == (1, physical, self.dim)
                 and x.layout == ttnn.TILE_LAYOUT
                 and x.dtype == ttnn.bfloat16
                 and x.memory_config() == ttnn.DRAM_MEMORY_CONFIG
             ):
                 raise ValueError("Ragged prefill residual geometry changed")
-            host_keep = torch.zeros((1, physical, 1), dtype=torch.bfloat16)
-            host_keep[:, :logical, :] = 1
-            keep = self.upload(host_keep, dtype=x.dtype)
-            # pad can alias; never separately retire the pre-pad input.
-            x = ttnn.pad(x, [(0, 0), (0, physical - logical), (0, 0)], 0.0)
+            if physical > logical:
+                host_keep = torch.zeros((1, physical, 1), dtype=torch.bfloat16)
+                host_keep[:, :logical, :] = 1
+                keep = self.upload(host_keep, dtype=x.dtype)
+                ttnn.where(keep, x, 0.0, output_tensor=x)
             for index, layer in enumerate(layers):
                 nxt = layer._block(
                     x,
@@ -652,14 +700,13 @@ class OrnithModel:
                     logical_len=logical,
                     page_table=page_table,
                     chunk_start_idx=start_pos,
+                    plan=plan,
                 )
                 ttnn.deallocate(x)
                 x = nxt
-                if index + 1 < len(layers):
+                if keep is not None and index + 1 < len(layers):
                     ttnn.where(keep, x, 0.0, output_tensor=x)
-            result = ttnn.slice(x, [0, 0, 0], [1, logical, self.dim])
-            ttnn.deallocate(x)
-            x = None
+            result, x = x, None
             return result
         finally:
             primary = sys.exc_info()[0]
@@ -672,6 +719,18 @@ class OrnithModel:
                         cleanup.append(error)
             if cleanup and primary is None:
                 raise cleanup[0]
+
+    def _last_row(self, x, logical, plan):
+        """One ``[1, 1, dim]`` hidden row at ``logical - 1``; a runtime gather on the padded path."""
+        if plan is None:
+            hidden = ttnn.slice(x, [0, logical - 1, 0], [1, logical, self.dim])
+            return ttnn.clone(hidden)
+        rows = int(x.shape[1])
+        row_major = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        flat = ttnn.reshape(row_major, [rows, self.dim])
+        hidden = ttnn.embedding(plan.last_index, flat, layout=ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        ttnn.deallocate(row_major)
+        return hidden
 
     def prefill_last_logits(self, ids, *, page_table, kv_cache):
         """Device-only, single-user fresh chunk; callers validate and reset state."""
@@ -736,13 +795,21 @@ class OrnithModel:
                 logical = min(self.prefill_chunk, length - offset)
                 if offset < checkpoint < offset + logical:
                     logical = checkpoint - offset
-                ids = self.upload(
-                    torch.as_tensor(tokens[user][offset : offset + logical]).reshape(1, -1).to(torch.int32),
-                    dtype=ttnn.uint32,
-                    layout=ttnn.ROW_MAJOR_LAYOUT,
-                )
+                chunk_start = start + offset
+                padded = self.padded_prefill_qualified(logical, chunk_start, cache)
+                physical = self.padded_prefill_length(logical) if padded else logical
+                host_ids = torch.zeros((1, physical), dtype=torch.int32)
+                host_ids[0, :logical] = torch.as_tensor(tokens[user][offset : offset + logical]).to(torch.int32)
+                ids = self.upload(host_ids, dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT)
+                plan = self._prefill_plan(logical, physical, chunk_start, table[slot]) if padded else None
                 x = self._prefill_chunk_forward(
-                    ids, start_pos=start + offset, page_table=pt, kv_cache=cache, reuse_padded_residual=True
+                    ids,
+                    start_pos=chunk_start,
+                    page_table=pt,
+                    kv_cache=cache,
+                    reuse_padded_residual=True,
+                    logical=logical,
+                    plan=plan,
                 )
                 if prefix_cache is not None and offset + logical == checkpoint:
                     prefix_cache.save(cache, prompt[:checkpoint], table[slot])
@@ -754,10 +821,11 @@ class OrnithModel:
                         chunks.append(self.logits_to_host(logits, n))
                         ttnn.deallocate(logits)
                 elif not skip_terminal and offset + logical == length:
-                    hidden = ttnn.slice(x, [0, logical - 1, 0], [1, logical, self.dim])
-                    chunks.append(ttnn.clone(hidden))
+                    chunks.append(self._last_row(x, logical, plan))
                 ttnn.deallocate(x)
                 ttnn.deallocate(ids)
+                if plan is not None:
+                    plan.release()
                 offset += logical
             if cache.batch_size > 1:
                 self._transfer_slot(cache.prefill_layers, cache.decode_layers, slot, into_batch=True)
