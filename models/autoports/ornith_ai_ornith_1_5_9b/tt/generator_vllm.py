@@ -501,6 +501,17 @@ class TTOrnithForCausalLM:
                 start_pos=[0],
             )
             ttnn.deallocate(logits)
+        batched = list(getattr(model, "batched_prefill_buckets", lambda batch: [])(self.max_batch_size))
+        for rows, seq in batched:
+            logits = model.prefill_forward(
+                [torch.zeros(seq - 1, dtype=torch.int64)] * rows,
+                page_table=table,
+                kv_cache=gen.kv_cache,
+                prompt_lens=[seq - 1] * rows,
+                slots=list(range(rows)),
+                start_pos=[0] * rows,
+            )
+            ttnn.deallocate(logits)
         if self.max_batch_size > 1:
             gen.remap_serving_slots(torch.tensor([*range(1, self.max_batch_size), 0], dtype=torch.int64))
             gen.remap_serving_slots(
@@ -518,6 +529,8 @@ class TTOrnithForCausalLM:
             "lengths": lengths,
             "slots": self.max_batch_size,
             "remap_warmed": self.max_batch_size > 1,
+            "batched_buckets": [list(shape) for shape in batched],
+            "batched_policy": getattr(model, "batched_prefill", None),
             "programs_before": before,
             "programs_after": self.mesh_device.num_program_cache_entries(),
         }

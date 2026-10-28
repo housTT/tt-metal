@@ -100,6 +100,49 @@ def _pad_dim(tensor, dim: int, amount: int):
 
 
 @dataclass
+class BatchedPrefillConstants:
+    """Persistent zero inputs and slot masks shared by every batched prefill group of one cache."""
+
+    zero_history: object
+    zero_states: dict
+    slot_masks: list
+
+    def release(self):
+        for tensor in [self.zero_history, *self.zero_states.values(), *self.slot_masks]:
+            ttnn.deallocate(tensor)
+
+
+@dataclass
+class BatchedPrefillPlan:
+    """Per-group runtime tensors for one equal-bucket multi-row prefill chunk.
+
+    Rows are physical: the group is padded with dummy rows (slot ``None``) to a
+    warmed row bucket. Gather indices address the ``[rows * seq, width]`` row-major
+    view of each dense stream, so program keys depend on ``(rows, seq)`` only.
+    """
+
+    rows: int
+    seq: int
+    slots: list
+    row_index: list
+    last_index: list
+    tail_slot_index: list
+    sub_batches: list
+    gate_keep: object
+    residual_keep: object
+    group_mask: object
+    constants: object
+    targets: dict
+
+    def release(self):
+        tensors = [*self.row_index, *self.last_index, *self.tail_slot_index, self.gate_keep, self.residual_keep]
+        tensors.append(self.group_mask)
+        for tensor in tensors:
+            if tensor is not None:
+                ttnn.deallocate(tensor)
+
+
+@dataclass
 class PrefillPlan:
     """Runtime-tensor inputs for one padded prefill chunk, so program keys depend on the physical bucket only."""
 
@@ -108,11 +151,14 @@ class PrefillPlan:
     chunk_start: object
     tail_index: object
     last_index: object
+    batched: object = None
 
     def release(self):
         for tensor in (self.rope_index, self.fill_page_table, self.chunk_start, self.tail_index, self.last_index):
             if tensor is not None:
                 ttnn.deallocate(tensor)
+        if self.batched is not None:
+            self.batched.release()
 
 
 def _slice_owned(tensor, begins, ends):

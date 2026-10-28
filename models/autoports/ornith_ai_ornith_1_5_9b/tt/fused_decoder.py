@@ -475,6 +475,8 @@ class FusedDecoder(FunctionalDecoder):
             ttnn.deallocate(row_rm)
 
     def _gdn_prefill(self, x, logical_len, plan=None):
+        if plan is not None and plan.batched is not None:
+            return self._gdn_prefill_batched(x, plan.batched)
         batch, seq = x.shape[0], x.shape[1]
         qkv, z, a, b = self._gdn_project(x)
         q, k, v, tail = self._gdn_prefill_conv_fields(qkv, logical_len, plan=plan)
@@ -492,6 +494,9 @@ class FusedDecoder(FunctionalDecoder):
         result = self._gdn_out_head_major(core, z, batch, seq)
         ttnn.deallocate(z)
         return result
+
+    def _gdn_prefill_batched(self, x, group):
+        raise NotImplementedError("batched prefill requires the optimized decoder")
 
     def _chunk_delta_rule(self, q, k, v, g, beta):
         cfg = self.cfg

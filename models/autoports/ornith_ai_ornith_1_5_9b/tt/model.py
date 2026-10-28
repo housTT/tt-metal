@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import sys
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -20,7 +21,14 @@ from models.common.modules.lm_head.lm_head_1d import LMHead1D, LMHead1DConfig
 
 from ..reference.hf_reference import CHECKPOINT_TEXT_PREFIX, load_layer_state_dict, load_text_config, resolve_model_path
 from .context import configure_context
-from .functional_decoder import DEFAULT_PAGE_BLOCK_SIZE, DEFAULT_PREFILL_CHUNK, PrefillPlan, num_blocks_for_context
+from .functional_decoder import (
+    DEFAULT_PAGE_BLOCK_SIZE,
+    DEFAULT_PREFILL_CHUNK,
+    BatchedPrefillConstants,
+    BatchedPrefillPlan,
+    PrefillPlan,
+    num_blocks_for_context,
+)
 from .multichip_decoder import (
     TP,
     MeshCCLManager,
@@ -112,6 +120,7 @@ class ModelCache:
     active_conv: object
     zero_hidden: object
     num_blocks: int
+    batched: object = None
 
 
 class OrnithModel:
@@ -330,6 +339,32 @@ class OrnithModel:
         self.prefix_cache = (
             HybridPrefixCache(self, prefix_cache_bytes, prefix_cache_max_tokens) if prefix_cache_bytes else None
         )
+        self.batched_prefill = self._batched_prefill_config()
+
+    @staticmethod
+    def _batched_prefill_config():
+        """Model-side batched prefill policy; ``ORNITH_BATCHED_PREFILL=0`` keeps the per-row path for A/B runs."""
+        enabled = os.environ.get("ORNITH_BATCHED_PREFILL", "1") == "1"
+        max_len = int(os.environ.get("ORNITH_BATCHED_PREFILL_MAX_LEN", "128"))
+        max_tokens = int(os.environ.get("ORNITH_BATCHED_PREFILL_MAX_TOKENS", "4096"))
+        buckets = sorted({int(v) for v in os.environ.get("ORNITH_BATCHED_PREFILL_ROWS", "2,4,8,16,32").split(",")})
+        if max_len % 128 or max_len < 128 or any(b < 2 or b > 32 for b in buckets) or max_tokens < 256:
+            raise ValueError(
+                "ORNITH_BATCHED_PREFILL_* must give a 128-multiple length, row buckets in 2..32 and a token cap"
+            )
+        return {"enabled": enabled, "max_len": max_len, "max_tokens": max_tokens, "row_buckets": buckets}
+
+    def batched_prefill_buckets(self, max_batch):
+        """``(rows, seq)`` shapes the batched path can execute for a cache of ``max_batch`` slots."""
+        policy = self.batched_prefill
+        if not policy["enabled"] or max_batch < 2:
+            return []
+        shapes = []
+        for seq in range(128, min(policy["max_len"], self.prefill_chunk) + 1, 128):
+            for rows in policy["row_buckets"]:
+                if rows <= max_batch and rows * seq <= policy["max_tokens"]:
+                    shapes.append((rows, seq))
+        return shapes
 
     @classmethod
     def from_pretrained(cls, model_dir=None, mesh_device=None, **kwargs):
@@ -418,8 +453,32 @@ class OrnithModel:
             self.upload(torch.zeros(1, 1, self.dim), dtype=getattr(ttnn, self.precision["residual_dtype"])),
             blocks,
         )
+        if self.batched_prefill_buckets(batch_size):
+            cache.batched = self._allocate_batched_prefill_constants(batch_size)
         self.cache = cache
         return cache
+
+    def _allocate_batched_prefill_constants(self, batch_size):
+        """Zero history/state inputs and slot masks; allocated before any capture, never written."""
+        linear = next((layer for layer in self.layers if not layer.is_full_attention), None)
+        if linear is None:
+            return None
+        cfg = linear.cfg
+        step = linear.max_gdn_prefill_batch()
+        zero_history = self.upload(torch.zeros(1, 3, cfg.conv_dim), dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+        zero_states = {
+            n: self.upload(
+                torch.zeros(n, cfg.linear_num_value_heads, cfg.linear_key_head_dim, cfg.linear_value_head_dim),
+                dtype=ttnn.float32,
+            )
+            for n in range(1, step + 1)
+        }
+        slot_masks = []
+        for slot in range(batch_size):
+            mask = torch.zeros(batch_size, 1, 1)
+            mask[slot] = 1
+            slot_masks.append(self.upload(mask, dtype=ttnn.bfloat16))
+        return BatchedPrefillConstants(zero_history=zero_history, zero_states=zero_states, slot_masks=slot_masks)
 
     def page_table(self, cache):
         width = num_blocks_for_context(cache.context, self.page_block_size)
@@ -517,13 +576,15 @@ class OrnithModel:
 
     def _transfer_slot(self, source, target, slot, *, into_batch):
         selects = {}
-        staging_memory = None
         try:
             for a, b in zip(source, target):
                 if a.is_full_attention:
                     continue
                 for src, dst in zip([a.recurrent_state] + a.conv_state, [b.recurrent_state] + b.conv_state):
                     if into_batch:
+                        if src is a.recurrent_state and hasattr(b, "scatter_recurrent_row"):
+                            b.scatter_recurrent_row(src, slot)
+                            continue
                         # The decoder stores every hybrid state with batch on axis zero.
                         mask_shape = (int(dst.shape[0]),) + (1,) * (len(dst.shape) - 1)
                         key = (mask_shape, dst.dtype)
@@ -531,35 +592,7 @@ class OrnithModel:
                             mask = torch.zeros(mask_shape)
                             mask[slot] = 1
                             selects[key] = self.upload(mask, dtype=dst.dtype)
-                        select = selects[key]
-                        if (
-                            src is a.recurrent_state
-                            and tuple(src.shape) == (1, 8, 128, 128)
-                            and tuple(dst.shape) == (32, 8, 128, 128)
-                            and src.dtype == dst.dtype == ttnn.float32
-                            and src.layout == dst.layout == ttnn.TILE_LAYOUT
-                            and src.memory_config() in (ttnn.L1_MEMORY_CONFIG, ttnn.DRAM_MEMORY_CONFIG)
-                            and dst.memory_config() == ttnn.DRAM_MEMORY_CONFIG
-                        ):
-                            if staging_memory is None:
-                                staging_memory = ttnn.MemoryConfig(
-                                    ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
-                                    ttnn.BufferType.L1,
-                                    ttnn.ShardSpec(
-                                        ttnn.CoreRangeSet([ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(7, 0))]),
-                                        [128, 128],
-                                        ttnn.ShardOrientation.ROW_MAJOR,
-                                    ),
-                                )
-                            staged = ttnn.interleaved_to_sharded(src, staging_memory)
-                            try:
-                                ttnn.experimental.slice_write(
-                                    staged, dst, [slot, 0, 0, 0], [slot + 1, 8, 128, 128], [1, 1, 1, 1]
-                                )
-                            finally:
-                                ttnn.deallocate(staged)
-                        else:
-                            ttnn.where(select, src, dst, output_tensor=dst)
+                        ttnn.where(selects[key], src, dst, output_tensor=dst)
                     else:
                         starts, ends = [0] * len(src.shape), list(src.shape)
                         starts[0], ends[0] = slot, slot + 1
@@ -761,6 +794,153 @@ class OrnithModel:
             return_all_logits=return_all_logits,
         )
 
+    def _batched_prefill_groups(self, prompt_lens, starts, cache, return_all_logits):
+        """Index groups of fresh rows that share one padded bucket, each padded to a warmed row bucket."""
+        policy = self.batched_prefill
+        if cache.batched is None or not policy["enabled"] or return_all_logits or self.prefix_cache is not None:
+            return []
+        by_bucket = {}
+        for user, (length, start) in enumerate(zip(prompt_lens, starts)):
+            length = int(length)
+            seq = self.padded_prefill_length(length)
+            if (
+                start != 0
+                or length < 3
+                or seq > policy["max_len"]
+                or not self.padded_prefill_qualified(length, 0, cache)
+            ):
+                continue
+            by_bucket.setdefault(seq, []).append(user)
+        groups = []
+        for seq, users in sorted(by_bucket.items()):
+            limit = (
+                max(rows for rows in policy["row_buckets"] if rows * seq <= policy["max_tokens"])
+                if any(rows * seq <= policy["max_tokens"] for rows in policy["row_buckets"])
+                else 0
+            )
+            if limit < 2:
+                continue
+            for begin in range(0, len(users), limit):
+                chunk = users[begin : begin + limit]
+                if len(chunk) >= 2:
+                    rows = min(rows for rows in policy["row_buckets"] if rows >= len(chunk))
+                    groups.append((seq, rows, chunk))
+        return groups
+
+    def _batched_plan(self, tokens, prompt_lens, slots, users, seq, rows, cache, table):
+        """Upload the ids, page tables and gather indices for one group; dummy rows fill the bucket."""
+        linear = next(layer for layer in cache.prefill_layers if not layer.is_full_attention)
+        step = linear.max_gdn_prefill_batch()
+        blocks_per_chunk = self.prefill_chunk // self.page_block_size
+        host_ids = torch.zeros((rows, seq), dtype=torch.int32)
+        fill = torch.zeros((rows, blocks_per_chunk), dtype=torch.int32)
+        page_rows = torch.zeros((rows, table.shape[1]), dtype=torch.int32)
+        keep = torch.zeros((rows, seq), dtype=torch.float32)
+        lengths, row_slots = [], []
+        for row in range(rows):
+            if row < len(users):
+                user = users[row]
+                length = int(prompt_lens[user])
+                slot = slots[user]
+                host_ids[row, :length] = torch.as_tensor(tokens[user][:length]).to(torch.int32)
+                chunk_blocks = table[slot][:blocks_per_chunk].to(torch.int32)
+                fill[row, : chunk_blocks.numel()] = chunk_blocks
+                page_rows[row] = table[slot].to(torch.int32)
+            else:
+                length, slot = seq, None
+            keep[row, :length] = 1
+            lengths.append(length)
+            row_slots.append(slot)
+        row_major = ttnn.ROW_MAJOR_LAYOUT
+        upload_index = lambda values: self.upload(
+            torch.tensor(values, dtype=torch.int32).reshape(1, -1), dtype=ttnn.uint32, layout=row_major
+        )
+        sub_batches = [(start, min(step, rows - start)) for start in range(0, rows, step)]
+        slot_rows = {slot: row for row, slot in enumerate(row_slots) if slot is not None}
+        group_mask = torch.zeros(cache.batch_size, 1, 1)
+        for slot in slot_rows:
+            group_mask[slot] = 1
+        tail_slot_index = [
+            upload_index(
+                [
+                    slot_rows[slot] * seq + lengths[slot_rows[slot]] - 3 + tap if slot in slot_rows else 0
+                    for slot in range(cache.batch_size)
+                ]
+            )
+            for tap in range(3)
+        ]
+        group = BatchedPrefillPlan(
+            rows=rows,
+            seq=seq,
+            slots=row_slots,
+            row_index=[upload_index([row * seq + t for t in range(seq)]) for row in range(rows)],
+            last_index=[
+                None if slot is None else upload_index([row * seq + lengths[row] - 1])
+                for row, slot in enumerate(row_slots)
+            ],
+            tail_slot_index=tail_slot_index,
+            sub_batches=sub_batches,
+            gate_keep=self.upload(keep.reshape(rows, seq, 1), dtype=ttnn.float32),
+            residual_keep=self.upload(keep.reshape(rows, seq, 1).to(torch.bfloat16), dtype=ttnn.bfloat16),
+            group_mask=self.upload(group_mask, dtype=ttnn.bfloat16),
+            constants=cache.batched,
+            targets={layer.layer_idx: layer for layer in cache.decode_layers},
+        )
+        plan = PrefillPlan(
+            rope_index=self.upload(
+                torch.arange(seq, dtype=torch.int32).reshape(1, seq), dtype=ttnn.uint32, layout=row_major
+            ),
+            fill_page_table=self.upload(fill, dtype=ttnn.int32, layout=row_major),
+            chunk_start=self.upload(torch.tensor([0], dtype=torch.int32), dtype=ttnn.int32, layout=row_major),
+            tail_index=None,
+            last_index=None,
+            batched=group,
+        )
+        ids = self.upload(host_ids, dtype=ttnn.uint32, layout=row_major)
+        pages = self.upload(page_rows, dtype=ttnn.int32, layout=row_major)
+        return ids, pages, plan
+
+    def _prefill_batched_group(self, tokens, prompt_lens, slots, users, seq, rows, cache, table, skip_terminal):
+        """One dense pass over ``rows`` padded rows; returns the last hidden row per real user."""
+        ids, pages, plan = self._batched_plan(tokens, prompt_lens, slots, users, seq, rows, cache, table)
+        group = plan.batched
+        x = keep = None
+        hidden_rows = []
+        try:
+            x = self.embed(ids)
+            keep = group.residual_keep
+            ttnn.where(keep, x, 0.0, output_tensor=x)
+            layers = cache.prefill_layers
+            for index, layer in enumerate(layers):
+                nxt = layer._block(x, mode="prefill", logical_len=seq, page_table=pages, chunk_start_idx=0, plan=plan)
+                ttnn.deallocate(x)
+                x = nxt
+                if index + 1 < len(layers):
+                    ttnn.where(keep, x, 0.0, output_tensor=x)
+            if not skip_terminal:
+                flat = ttnn.reshape(
+                    ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG),
+                    [rows * seq, self.dim],
+                )
+                for row in range(len(users)):
+                    hidden_rows.append(
+                        ttnn.embedding(
+                            group.last_index[row], flat, layout=ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG
+                        )
+                    )
+                ttnn.deallocate(flat)
+        finally:
+            for tensor in (x, ids, pages):
+                if tensor is not None:
+                    ttnn.deallocate(tensor)
+            plan.release()
+        self.counters["prefill_batched_groups"] = self.counters.get("prefill_batched_groups", 0) + 1
+        self.counters["prefill_batched_rows"] = self.counters.get("prefill_batched_rows", 0) + len(users)
+        self.counters["prefill_batched_dummy_rows"] = (
+            self.counters.get("prefill_batched_dummy_rows", 0) + rows - len(users)
+        )
+        return hidden_rows
+
     def _prefill_validated(
         self, tokens, *, page_table, kv_cache, prompt_lens, slots, start_pos, return_all_logits, skip_terminal=False
     ):
@@ -768,8 +948,18 @@ class OrnithModel:
         if skip_terminal and return_all_logits:
             raise ValueError("State-only prefill cannot return all logits")
         cache, starts, table = kv_cache, start_pos, page_table
-        results = []
+        results = [None] * len(slots)
+        batched_users = set()
+        for seq, rows, users in self._batched_prefill_groups(prompt_lens, starts, cache, return_all_logits):
+            hidden_rows = self._prefill_batched_group(
+                tokens, prompt_lens, slots, users, seq, rows, cache, table, skip_terminal
+            )
+            for user, hidden in zip(users, hidden_rows if hidden_rows else [None] * len(users)):
+                results[user] = hidden
+            batched_users.update(users)
         for user, (slot, length, start) in enumerate(zip(slots, prompt_lens, starts)):
+            if user in batched_users:
+                continue
             length = int(length)
             if cache.batch_size > 1 and start:
                 self._transfer_slot(cache.decode_layers, cache.prefill_layers, slot, into_batch=False)
@@ -831,7 +1021,7 @@ class OrnithModel:
                 self._transfer_slot(cache.prefill_layers, cache.decode_layers, slot, into_batch=True)
             ttnn.deallocate(pt)
             if not skip_terminal:
-                results.append(torch.cat(chunks) if return_all_logits else chunks[-1])
+                results[user] = torch.cat(chunks) if return_all_logits else chunks[-1]
         if skip_terminal:
             return None
         if return_all_logits:

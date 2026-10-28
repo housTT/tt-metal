@@ -5,6 +5,8 @@
 import math
 from dataclasses import dataclass, field
 
+import torch
+
 import ttnn
 
 from .functional_decoder import PREFILL_ALIGN, FunctionalDecoder, _pad_dim
@@ -857,6 +859,154 @@ class OptimizedDecoder(FusedDecoder):
         for tensor in cores + states:
             ttnn.deallocate(tensor)
         return output, final
+
+    def _gdn_launch(self, q, k, v, g, beta, state):
+        eye, tril, ones, masks = self.w["gdn_const_tiles"]
+        return ttnn.transformer.chunk_gated_delta_rule(
+            q,
+            k,
+            v,
+            g,
+            beta,
+            initial_state=state,
+            output_final_state=True,
+            chunk_size=32,
+            use_qk_l2norm=False,
+            output_head_major=True,
+            eye=eye,
+            tril=tril,
+            ones=ones,
+            masks=masks,
+        )
+
+    def _gdn_prefill_batched(self, x, group):
+        """Dense work once for every row of an equal-bucket group; conv and recurrence per row.
+
+        Fresh rows start from the shared zero history and zero state. Final recurrent
+        rows and conv tails are written straight into the target decode slots, so no
+        layer-owned state is read or modified.
+        """
+        cfg = self.cfg
+        rows, seq = group.rows, group.seq
+        heads = cfg.linear_num_value_heads
+        dram = ttnn.DRAM_MEMORY_CONFIG
+        row_major = ttnn.ROW_MAJOR_LAYOUT
+        target = group.targets[self.layer_idx]
+        constants = group.constants
+        qkv, z, a, b = self._gdn_project(x)
+        beta_raw, g_raw = self._gdn_gates_projected(a, b, seq, seq)
+        ttnn.deallocate(a)
+        ttnn.deallocate(b)
+        beta_all = ttnn.multiply(beta_raw, group.gate_keep)
+        g_all = ttnn.multiply(g_raw, group.gate_keep)
+        ttnn.deallocate(beta_raw)
+        ttnn.deallocate(g_raw)
+        tokens = ttnn.to_layout(qkv, row_major, memory_config=dram)
+        ttnn.deallocate(qkv)
+        flat = ttnn.reshape(tokens, [rows * seq, cfg.conv_dim])
+        fields = [[], [], []]
+        for row in range(rows):
+            user = ttnn.embedding(group.row_index[row], flat, layout=row_major, memory_config=dram)
+            parts = ttnn.experimental.kda.qkv_causal_conv1d_silu(
+                user,
+                constants.zero_history,
+                *self.w["conv_taps"],
+                cfg.linear_q_dim,
+                cfg.linear_k_dim,
+                cfg.linear_v_dim,
+                program_config=self.kda_conv_program,
+                memory_config=dram,
+                compute_kernel_config=self.compute_kernel_config,
+            )
+            ttnn.deallocate(user)
+            for destination, tensor in zip(fields, parts):
+                destination.append(tensor)
+        target.scatter_conv_tails(flat, group.tail_slot_index, group.group_mask)
+        ttnn.deallocate(tokens)
+        cores = []
+        for start, count in group.sub_batches:
+            inputs = []
+            for parts in fields:
+                piece = parts[start : start + count]
+                inputs.append(piece[0] if count == 1 else ttnn.concat(piece, dim=0))
+            beta = ttnn.slice(beta_all, [start, 0, 0], [start + count, seq, heads])
+            g = ttnn.slice(g_all, [start, 0, 0], [start + count, seq, heads])
+            core, final = self._gdn_launch(*inputs, g, beta, constants.zero_states[count])
+            for tensor in (g, beta):
+                ttnn.deallocate(tensor)
+            if count > 1:
+                for tensor in inputs:
+                    ttnn.deallocate(tensor)
+            for offset in range(count):
+                slot = group.slots[start + offset]
+                if slot is None:
+                    continue
+                state_row = ttnn.slice(
+                    final, [offset, 0, 0, 0], [offset + 1, heads, cfg.linear_key_head_dim, cfg.linear_value_head_dim]
+                )
+                target.scatter_recurrent_row(state_row, slot)
+                ttnn.deallocate(state_row)
+            ttnn.deallocate(final)
+            cores.append(core)
+        for parts in fields:
+            for tensor in parts:
+                ttnn.deallocate(tensor)
+        for tensor in (beta_all, g_all):
+            ttnn.deallocate(tensor)
+        core = cores[0] if len(cores) == 1 else ttnn.concat(cores, dim=0)
+        if len(cores) > 1:
+            for tensor in cores:
+                ttnn.deallocate(tensor)
+        result = self._gdn_out_head_major(core, z, rows, seq)
+        ttnn.deallocate(z)
+        return result
+
+    def scatter_recurrent_row(self, state_row, slot):
+        """Write one ``[1, HV, K, V]`` FP32 state row into this layer's slot without reading the rest."""
+        dst = self.recurrent_state
+        dst_shape = [int(d) for d in dst.shape]
+        heads = int(state_row.shape[1])
+        if (
+            [int(d) for d in state_row.shape] == [1] + dst_shape[1:]
+            and state_row.dtype == dst.dtype == ttnn.float32
+            and state_row.layout == dst.layout == ttnn.TILE_LAYOUT
+            and state_row.memory_config() in (ttnn.L1_MEMORY_CONFIG, ttnn.DRAM_MEMORY_CONFIG)
+            and dst.memory_config() == ttnn.DRAM_MEMORY_CONFIG
+        ):
+            grid = ttnn.num_cores_to_corerangeset(heads, self.device.compute_with_storage_grid_size(), True)
+            staging = ttnn.MemoryConfig(
+                ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
+                ttnn.BufferType.L1,
+                ttnn.ShardSpec(grid, [dst_shape[2], dst_shape[3]], ttnn.ShardOrientation.ROW_MAJOR),
+            )
+            staged = ttnn.interleaved_to_sharded(state_row, staging)
+            try:
+                ttnn.experimental.slice_write(staged, dst, [slot, 0, 0, 0], [slot + 1] + dst_shape[1:], [1, 1, 1, 1])
+            finally:
+                ttnn.deallocate(staged)
+            return
+        mask = torch.zeros((dst_shape[0], 1, 1, 1))
+        mask[slot] = 1
+        select = ttnn.from_torch(
+            mask,
+            device=self.device,
+            dtype=dst.dtype,
+            layout=ttnn.TILE_LAYOUT,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            mesh_mapper=ttnn.ReplicateTensorToMesh(self.device),
+        )
+        ttnn.where(select, state_row, dst, output_tensor=dst)
+        ttnn.deallocate(select)
+
+    def scatter_conv_tails(self, flat_tokens, tail_slot_index, group_mask):
+        """Gather each tap's tail row per slot from the ``[rows * seq, conv_dim]`` stream and mask it in."""
+        for index, buffer in enumerate(self.conv_state):
+            gathered = ttnn.embedding(
+                tail_slot_index[index], flat_tokens, layout=ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG
+            )
+            row = ttnn.reshape(gathered, [int(buffer.shape[0]), 1, int(buffer.shape[2])])
+            ttnn.where(group_mask, row, buffer, output_tensor=buffer)
+            ttnn.deallocate(row)
 
     def _gdn_prefill_conv_fields(self, qkv, logical_len, plan=None):
         cfg = self.cfg
