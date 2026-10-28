@@ -293,5 +293,7 @@ are in its `server.log` and `launch_env.txt`. The plugin's capability table is
 
 Every server was stopped through the runner (SIGTERM); after each stop
 `pgrep -af 'vllm.entrypoints|EngineCore|run_vllm_server'` returned nothing
-(recorded in the chained command outputs in `work_log.md`). Chips 0 and 1 were
-never touched; chip 2 served and chip 3 ran the generator-level probes.
+(observed in the chained command outputs, not archived; each server
+directory's `runner.log` ends with the runner's `Run summary:` line, and the
+audit was repeated before each review). Chips 0 and 1 were never touched;
+chip 2 served and chip 3 ran the generator-level probes.

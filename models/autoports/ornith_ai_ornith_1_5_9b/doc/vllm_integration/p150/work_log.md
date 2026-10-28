@@ -198,7 +198,7 @@ async scheduling, prefix caching off). Shared runner stages attached with
   256-token budget: four greedy and four sampled texts end inside `<think>`;
   the story, French (sampled) and Fibonacci (greedy) reach the answer. The
   greedy haiku reasoning miscounts syllables; the p150x4 HF control
-  (`../qualitative_extended_control_report.md`, lines 44 and 129) counts
+  (`../qualitative_extended_control_report.md`, line 129) counts
   correctly, so this is a port effect under the p150 policy, not a serving
   effect (served and standalone logits are exact on the determinism prompts); the prompts and rendered template match
   `../qualitative_prompt_format.json` and `../qualitative_controls.json`.
@@ -309,7 +309,8 @@ disposition of the controlled sampling failure. Actions:
   prompt window, and the penalty-admission expectations updated to the
   graph-key contract: a live reconfigure refreshes tensors and selects the
   prepared sibling trace instead of releasing and recapturing). The eight files
-  pass (112 tests); the device-free sweep passes 125 (`brrly0jtv` run, two
+  pass (112 tests); the device-free sweep passes 125 (an unarchived pytest
+  run over the name-filtered test files, two
   device-fixture errors excluded).
 - Sampling failure disposition: `../plugin_changes.md` entry 2, status
   `proposed` (plugin test premise), reproducer the margin probe.
@@ -324,7 +325,8 @@ disposition of the controlled sampling failure. Actions:
   `sha256` of `tt/*.py` and the bundle metadata in `launch_env.txt`, and the
   recheck server and the tracked probe v7 below ran on the working tree of
   that time (`b32_recheck/launch_env.txt` records `tt/generator.py` d4f03123,
-  the 5025e96ab8 version, with the merge warm in `tt/generator_vllm.py`);
+  the 5025e96ab8 version, and `tt/generator_vllm.py` bc359ebe, the same
+  version, without the merge warm);
   commit 1dc30cc0c6 then changed `tt/generator.py` only by the absolute
   imports and the `build_generator` policy default, neither on the adapter's
   serving path, and the comment removal below touches no code path. A second
@@ -358,7 +360,7 @@ disposition of the controlled sampling failure. Actions:
   relative import with no known parent package`; that first log was overwritten
   by the candidate run below); the two relative imports are now absolute and
   the packaged runner was tried again afterwards
-  (`teacher_forcing_packaged_runner.log`, 20:0x ET, chip 3): it now runs on
+  (`teacher_forcing_packaged_runner.log`, 19:52 to 19:54 ET, chip 3): it now runs on
   one chip and reports top-1 0.98, top-5 1.00, decode 29.38 t/s/u, TTFT
   956 ms (its first, unwarmed prefill), confirming the candidate-runner bound. The bound was measured with the autoport's own candidate runner
   (`doc/datatype_sweep/run_candidate.py --num-devices 1 --config
@@ -367,11 +369,13 @@ disposition of the controlled sampling failure. Actions:
   100-token reference, median decode 29.18 t/s/u, TTFT 81.2 ms. Serving B1:
   29.34 t/s/u, 83.3 ms. Decode is within 1 percent of the generator bound.
 
-## Second recheck on committed sources (20:20 to 20:45)
+## Second recheck on committed sources (19:51 to 19:58)
 
 Commit `0749523e44` (comment removal, admission-merge warm, documentation
 corrections). `b32_recheck2/` (B32, host-sampling compatibility on, untracked,
-`launch_env.txt` records `git_head=0749523e44`, zero dirty files, and the
+`launch_env.txt` records `git_head=0749523e44`, `git_dirty_files=1` (the
+untracked `b32_recheck2/` output directory that `serve.sh` creates before its
+status check), and the
 `sha256` of every `tt/*.py`): startup captures once at 1122 programs with no
 program growth, release or recapture afterwards (the merge warm closed the
 startup recapture); non-aligned requests pass (`nonaligned_requests.json`,
@@ -385,3 +389,26 @@ hashes and `git_head` recorded): zero new programs and zero captures for 128,
 129, 131, 2305, 1, 4353, the mixed rows and the six sampling-mode switches,
 identical greedy outputs. `readiness_vllm/server.log` and
 `vllm_run_summary.json` are the B1 primary server's files.
+
+## Record-keeping notes (20:25)
+
+- `prefill_shape_probe_v8_tracked_committed.json`: the `source_sha256`,
+  `git_head` and `git_dirty_files` fields were appended after the run by a
+  separate command (sha256 of `tt/*.py` at HEAD `0749523e44` with 4 dirty
+  documentation files); the probe script now writes the same fields itself at
+  report time. The v7 JSON has no provenance fields and is superseded by v8.
+- `readiness_vllm/server.log` and `vllm_run_summary.json` were overwritten by
+  the `b32_recheck` and `b32_recheck2` runner launches and restored each time
+  from copies of the B1 primary server's files (byte-identical to
+  `b1_primary/server.log` and `b1_primary/first/vllm_run_summary.json`).
+- `adapter_device_tracker_p150_v2.json` (17:12, after the slot-admission and
+  remap warms, identical results to `adapter_device_tracker_p150.json`) is the
+  later of the two tracked adapter probes; both predate the sampler-key and
+  merge warms. The committed-source coverage of the async decode contract is
+  indirect: greedy token ids of the mixed-shape and non-aligned requests are
+  byte-identical across the five B32 servers, and the v8 tracked probe passes.
+- Process cleanup: the `pgrep` results after each stop were observed in the
+  chained command outputs and not archived; each server directory's
+  `runner.log` ends with the runner's `Run summary:` line, and the final
+  audit (`pgrep -af 'vllm.entrypoints|EngineCore|run_vllm_server'`, no
+  match) was repeated before each review.

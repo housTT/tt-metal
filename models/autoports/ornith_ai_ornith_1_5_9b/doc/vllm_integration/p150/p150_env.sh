@@ -1,5 +1,3 @@
-# Single-chip (p150) serving environment for the Ornith-1.5-9B autoport on this host.
-# Source this file, then set TT_VISIBLE_DEVICES to the chip the process may use.
 export HF_HOME=/home/hous/.cache/huggingface
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1

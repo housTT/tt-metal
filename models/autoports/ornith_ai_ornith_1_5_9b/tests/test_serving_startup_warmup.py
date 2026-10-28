@@ -62,7 +62,6 @@ def fixture(batch, mrope):
             gen.counters["cache_snapshots"] += int(preserve_cache)
             gen.counters["captures"] += 1
             gen._model_trace = gen.counters["captures"]
-            # The real capture prepares the sampler trace pair for both penalty variants.
             current = gen._formatted or namespace["format_sampling_params"](
                 case.params(temperature=0.0, top_k=1, top_p=1.0), 32
             )

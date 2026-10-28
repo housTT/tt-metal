@@ -280,6 +280,18 @@ def main():
         }
         print(json.dumps(report["mode_switch"]), flush=True)
         report["execution_info"] = adapter.generator.execution_info()
+        import hashlib
+        import subprocess
+
+        root = Path(__file__).parents[1]
+        report["source_sha256"] = {
+            str(f.relative_to(root)): hashlib.sha256(f.read_bytes()).hexdigest() for f in sorted(root.glob("tt/*.py"))
+        }
+        report["git_head"] = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"]).decode().strip()
+        report["git_dirty_files"] = (
+            subprocess.check_output(["git", "-C", str(root), "status", "--short"]).decode().count("\n")
+        )
+        report["trace_allocation_tracking"] = bool(ttnn.TRACE_ALLOC_TRACKING)
         report["status"] = "completed"
     finally:
         if adapter is not None:

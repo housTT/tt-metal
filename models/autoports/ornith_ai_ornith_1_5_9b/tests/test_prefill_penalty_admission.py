@@ -118,7 +118,6 @@ def test_generator_admits_fresh_penalty_lane_without_erasing_ongoing_state(admis
     case = admission
     before = [tensor.clone() for tensor in case.tracked]
     case.gen.configure_sampling(params(case, presence_penalty=[0.0, 0.0, 0.5, 0.0]), fresh_slots=[2])
-    # The penalized sampler graph is prepared at capture time; a live switch only reconfigures.
     assert case.calls == ["configure"]
     assert all(torch.equal(actual, expected) for actual, expected in zip(case.tracked, before))
 
@@ -169,7 +168,6 @@ def configure_live_sampler(case, params):
     gen._configure_sampling(params)
     gen._sampling_trace, gen._sampling_history_trace = 2, 3
     gen._active8_trace, gen._prefill_trace = 4, 5
-    # Both sampler graph variants are prepared, as _capture leaves them.
     gen._sampling_traces = {
         gen._sampling_trace_key(variant): (2, 3) for variant in gen._sampling_variants(gen._formatted)
     }
@@ -201,7 +199,6 @@ def test_equal_normalized_sampling_key_reuses_live_traces(admission, temperature
     before = [tensor.clone() for tensor in case.tracked]
     cache = gen.kv_cache
     gen.configure_sampling(request)
-    # Values refresh the device parameter tensors; no cloning, warming, releasing or capturing.
     assert case.calls == ["reset_params"]
     assert len(formatted_calls) == 2 and formatted_calls[0] is request
     assert gen._configured_seeds == list(real_format(request, 32).seed)

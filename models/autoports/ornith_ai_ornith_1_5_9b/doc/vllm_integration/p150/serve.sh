@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Launch the shared readiness runner for the p150 (one chip) profile.
-# usage: serve.sh <label> <max_num_seqs> <chip> [extra runner args...]
-# Environment knobs: HOST_SAMPLING=1 enables the explicit host-sampling compatibility mode;
-# TRACKED=1 sets TT_METAL_TRACE_ALLOC_TRACKING=1 in the server environment.
 set -euo pipefail
 LABEL=$1; SEQS=$2; CHIP=$3; shift 3
 HERE=$(cd "$(dirname "$0")" && pwd)
