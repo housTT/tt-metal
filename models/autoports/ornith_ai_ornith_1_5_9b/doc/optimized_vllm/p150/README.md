@@ -18,7 +18,10 @@ serial reference 2422.2 / 2423.5 ms measured on the same code with
 <= 0.6, mean <= 0.5; `../../../readiness_vllm/vllm_prefill_burst_benchmark.json`,
 serial reference `serial_b32_v4/vllm_prefill_burst_serial_benchmark.json`,
 `config_matches: true`). Stage 9 measured the same burst at 3758.7 ms on the
-per-row path.
+per-row path. Caveat: the serial reference ran on chip 3 and the batched
+server on chip 2 (one server per chip; the same-code one-row 128/128/1
+diagnostics on the two B32 servers differ by about 10 ms, 98.0 against
+88.5 ms TTFT), a variance the ratio gate margin absorbs.
 
 Sampling: 73 passed, 1 controlled failure, 4 skips (full profile, B32,
 unchanged from stage 9). Qualitative: the six greedy completions are
@@ -231,6 +234,14 @@ and rows above 512 tokens stay single-row.
   resume check does not apply.
 
 ## Artifact provenance under readiness_vllm/
+
+Commits: the served performance, sampling and qualitative evidence comes
+from `5cff1036cc` (`b32_final/`, `serial_b32_v4/`) and `9d4de01a6d`
+(`b1_final_v3/`); the tracked final-code server, the watcher runs and the
+dummy-row probe ran the committed `b6b1fdb29a` sources, which differ from
+`5cff1036cc` only by the dummy-row contents (a repeated real row instead of
+zeros) and two `getattr` guards, with the same op sequence and the same
+1793-program cache.
 
 `vllm_prefill_burst_benchmark.json`, `vllm_prefill_burst_result.json`,
 `sampling_tests.log`, `vllm_qualitative_outputs.json`,

@@ -436,3 +436,16 @@ three-row sub-batches, the sharded `slice_write` state scatter, the batched
 `b6b1fdb29a`, groups of 3, 5 and 31 rows in both orders, 32 greedy steps):
 every comparison exact, program cache constant at 1793, one capture; dummy
 rows repeat the last real row of the group.
+
+## Independent review 2 (00:10 ET, Oct 28)
+
+The re-review of HEAD `946198d76a` returned clean-pass with no required
+work (`stage_review_2.md`). Its two suggestions are applied: the README
+states the chip split of the serial and batched servers beside the burst
+ratio and names the commits each served artifact comes from. Final
+stage-owned commits on `hous/ornith-prefill-features` (never pushed):
+`c4e2ee8efd`, `5469aae4b3`, `e70875637c`, `5cff1036cc`, `9d4de01a6d`,
+`66bd9e836b`, `b6b1fdb29a`, `946198d76a` and the closing documentation
+commit recorded in the final report. The plugin checkout
+`/home/hous/dev/ornith-1.5-9b/vllm-tt-plugin` stays at `9bab7d527d4a` with a
+clean tree. No vLLM, EngineCore or probe process of this run remains.
