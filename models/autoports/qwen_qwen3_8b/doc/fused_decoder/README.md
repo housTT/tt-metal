@@ -83,7 +83,7 @@ The layer-17 delta PCC (0.99942) equals the functional value (0.99942); the
 fused graph introduces no material delta anywhere (every fused-vs-functional
 PCC >= 0.99998).
 
-## Performance evidence (same chip, same session)
+## Performance evidence (same chip, same build, separate processes)
 
 Batch 1, 1024 tokens, layer 0, HiFi4 with fp32 accumulation, `perf/README.md`:
 
@@ -115,7 +115,7 @@ weight matmuls plus two single-core RMSNorms.
   deliberately live buffer in the same environment.
 - Watcher (`watcher/summary.json`): the same five tests pass with
   `TT_METAL_WATCHER=10` armed (`*.watcher.json`); the committed `watcher.log`
-  holds the last device session (6 dumps, 0 fatal-pattern matches).
+  holds the last device session (3 dumps, 0 fatal-pattern matches).
 - Determinism: repeated prefill bit-equal, repeated replay bit-equal.
 
 ## Next levers (not fusing; owned by the optimized-decoder stage)
@@ -166,4 +166,8 @@ was already dedicated-op based; prefill chunks shorter than 256 rows keep the
 functional kernels; the batch-1 bias-residual path is a separate code path
 from batches > 1 (both are covered by the traced-decode tests); the
 `dit_minimal_matmul_addcmul_fused` op is an experimental DiT op used here with
-a ones multiplier.
+a ones multiplier; at logical batch 1 the bias-residual matmul multiplies the
+uninitialized padding rows 1..31 of the concat-heads output and the slice
+discards them (row-independent, covered by the batch-1 gates); the fused
+cache update needs a core area twice the height of the Q/K rectangle (8 rows
+for batch 32), which narrows headroom on harvested grids.

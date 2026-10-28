@@ -24,7 +24,8 @@ Decode relative to the functional graph:
   reshaped (a view) and tilized, replacing the tiled gather plus transpose.
 * ``ttnn.experimental.paged_fused_update_cache`` writes K and V in one op; V is
   moved to a core rectangle disjoint from Q/K first because the op requires it.
-* The O projection reads the width-sharded concat-heads output directly.
+* The concat-heads output is moved to DRAM before the O projection; reading
+  the width-sharded tensor directly was measured slower (32-core matmul).
 * For a logical batch of one, the residual adds after the O and down
   projections are folded into ``ttnn.linear`` as the matmul bias.
 

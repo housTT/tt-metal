@@ -142,3 +142,52 @@ the generator stage owns on-device advancement.
 ## 7. Contract check, commits and review
 
 Filled in below as each step completes.
+
+- 13:37 ET context contract: `check_context_contract.py --model-dir
+  models/autoports/qwen_qwen3_8b --hf-model Qwen/Qwen3-8B --stage
+  fused-decoder --require-contract --strict-caps` printed `Context contract
+  OK for models/autoports/qwen_qwen3_8b: target=40960, supported=40960 (full
+  HF context)` (exit 0). `doc/context_contract.json` is unchanged.
+- 13:39 ET stage commit `e646fde4cd` on `hous/qwen3-8b-autoport` (never
+  pushed): `tt/fused_decoder.py`, `tests/test_fused_decoder.py`,
+  `doc/fused_decoder/` (68 files; the two raw 1.4 MB Tracy CSVs stay
+  untracked, the per-phase CSVs were force-added past the `*.csv` ignore).
+- 13:40 to 13:56 ET stage review 1 (fresh xhigh subagent, read-only, reviewer
+  mode): `more-work-needed`. Required work: (P1) the continuation window still
+  runs the inherited per-token cache-write loop (27 groups, 351 of 381 ops,
+  about 1.2 ms of 2.87 ms) which a batched `paged_update_cache` /
+  `paged_fused_update_cache` over n pseudo-users could replace, and the README
+  tilize/untilize claim was wrong for that window; (P2) the SDPA-decode kernel
+  is 4 to 5 us slower in both fused profiles (44.6 and 46.2 us) than in both
+  functional profiles (40.8 and 40.9 us) with the same program config and
+  cores, unclassified; (P2) the module docstring still described the reverted
+  concat-to-linear rewrite; (P2) work-log section 7 was empty and the watcher
+  dump count (6) counted the "completed" lines (3 dumps). Other concerns:
+  "same session" wording, continuation host time 5.45 to 5.77 ms (single
+  sample, concurrent chip-0 run), concurrent use of chips 0 and 1 against the
+  one-at-a-time rule, exp2 variant (b) V placement differs from the shipped
+  rectangle at batch 32, `from_state_dict` bypasses the multiple-of-32 check
+  on `prefill_minimal_matmul_min_rows`, batch-1 garbage padding rows should be
+  stated in the limitations.
+- Closed without hardware in the second commit (below): the docstring line,
+  the "same session" wording, the dump count in `watcher/summary.json` and
+  the README, the README limitations (batch-1 padding rows, 2y core-area
+  requirement), this section. The decoder change is docstring-only
+  (`git diff e646fde4cd HEAD -- models/autoports/qwen_qwen3_8b/tt/fused_decoder.py`);
+  every evidence JSON and `watcher/summary.json` record the pre-change hash
+  `330c9fe1e680…`, and no device run was repeated because the time budget was
+  exhausted (the coordinator stopped new device work at 13:24 ET).
+- Open after this stage (require device runs): the P1 batched continuation
+  cache write with re-profiled continuation window and the four continuation
+  tests; the P2 SDPA-decode A/B (two-op vs fused cache update, 5 measured
+  replays) with an anomaly-ledger entry; the batch-32 decode before/after
+  profile and the 224-row crossover point listed under hard-check gaps. The
+  final recorded verdict for this stage is `more-work-needed`.
+
+## 8. Budget note
+
+The 6-hour budget started at 00:07 ET. Discovery, experiments, implementation,
+the first green suite and the pre-commit step were done by 00:44 ET. A
+12.7-hour tool-call delay (00:44 to 13:24 ET) separated the pre-commit step
+from the final battery; no device work ran during it. The battery, docs,
+commit and review took 13:24 to 13:56 ET.
