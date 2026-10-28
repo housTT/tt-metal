@@ -1,0 +1,46 @@
+{
+  "stages": [
+    "benchmark",
+    "prefill_burst",
+    "qualitative",
+    "sampling",
+    "serve"
+  ],
+  "hf_model": "ornith-ai/Ornith-1.5-9B",
+  "server_url": "http://localhost:8001",
+  "server_command": [
+    "/home/hous/dev/ornith-1.5-9b/tt-metal/python_env/bin/python",
+    "-m",
+    "vllm.entrypoints.openai.api_server",
+    "--model",
+    "ornith-ai/Ornith-1.5-9B",
+    "--block_size",
+    "64",
+    "--max_num_seqs",
+    "32",
+    "--port",
+    "8000",
+    "--max_model_len",
+    "262144",
+    "--no-enable-prefix-caching",
+    "--additional-config",
+    "{\"tt\": {\"sample_on_device_mode\": \"all\", \"trace_region_size\": 100000000, \"l1_small_size\": 32768}}",
+    "--hf-overrides",
+    "{\"architectures\": [\"TTOrnithForCausalLM\"]}",
+    "--async-scheduling"
+  ],
+  "mesh_device": "N150",
+  "max_num_seqs": 32,
+  "max_model_len": 262144,
+  "block_size": 64,
+  "tt_config": {
+    "sample_on_device_mode": "all"
+  },
+  "enable_prefix_caching": false,
+  "apc_log_enabled": false,
+  "apc_log_source": "/home/hous/dev/tt-metal-wt-ornith/models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/p150/serial_b32_v3/server.log",
+  "outputs": {
+    "benchmark": "/home/hous/dev/tt-metal-wt-ornith/models/autoports/ornith_ai_ornith_1_5_9b/readiness_vllm/vllm_benchmark.json",
+    "prefill_burst": "/home/hous/dev/tt-metal-wt-ornith/models/autoports/ornith_ai_ornith_1_5_9b/readiness_vllm/vllm_prefill_burst_benchmark.json"
+  }
+}

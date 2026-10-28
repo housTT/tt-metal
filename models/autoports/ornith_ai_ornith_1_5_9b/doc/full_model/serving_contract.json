@@ -107,7 +107,8 @@
       "item": "batched_prefill",
       "kind": "call",
       "status": "supported",
-      "evidence": "readiness_vllm/vllm_prefill_burst_benchmark.json (32 x 128 burst served through multi-row prefill_forward; serial_reference is the same per-row path, ratio advisory in Stage 9); doc/vllm_integration/p150/tracked_b32/nonaligned_requests.json (three concurrent rows [131, 65, 131] in one call). Dense one-pass batching is Stage 10 work."
+      "evidence": "Stage 10 (commits e70875637c and 5cff1036cc): fresh rows with the same 128-token bucket up to ORNITH_BATCHED_PREFILL_MAX_LEN=512 run the dense work once per group (OrnithModel._prefill_batched_group), padded to warmed row buckets 2/4/8/16/32; override ORNITH_BATCHED_PREFILL=0. readiness_vllm/vllm_prefill_burst_benchmark.json (32 x 128 burst TTFT p50 931.5 ms, serial_reference doc/optimized_vllm/p150/serial_b32_v4/vllm_prefill_burst_serial_benchmark.json 2422.2 ms, ratios p99 0.385 mean 0.384); doc/optimized_vllm/p150/batched_probe_full_v3_final.json (batched equals solo: top-1, logits PCC, exact K/V pages and recurrent/conv state, 33 greedy tokens, zero program growth); doc/optimized_vllm/p150/b32_final/mixed_shape_check.json (multi-row groups of 2 to 31 rows with zero captures). doc/optimized_vllm/p150/remap_probe_full_v1.json (plugin slot remaps move recurrent/conv rows exactly with zero program growth).",
+      "warmup": "doc/optimized_vllm/p150/b32_final/server.log (Ornith prefill bucket warmup: batched_buckets, programs_before/after)"
     },
     {
       "item": "supports_prefix_caching",

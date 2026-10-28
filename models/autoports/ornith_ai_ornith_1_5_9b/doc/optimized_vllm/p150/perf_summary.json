@@ -1,0 +1,422 @@
+{
+  "stage": "optimized-vllm",
+  "profile": "p150",
+  "model": "ornith-ai/Ornith-1.5-9B",
+  "implementation": "tt/generator_vllm.py",
+  "hardware": "one Blackhole chip of a P300c board (readiness mesh label N150)",
+  "mesh": [
+    1,
+    1
+  ],
+  "precision": "p150_head8_hifi2_kv8_policy.json",
+  "max_model_len": 262144,
+  "workload": {
+    "profile": "single_user_decode",
+    "prompt_len": 128,
+    "gen_len": 128,
+    "batch": 1
+  },
+  "ttft_ms": 85.73329000500962,
+  "decode_ms_per_token_e2e": 33.91768432297473,
+  "decode_ms_per_token_device": null,
+  "roofline_ms_per_token_estimate": null,
+  "device_time_reason": "vllm_serving_profiler_disabled_to_protect_hardware",
+  "named_limitations": [
+    "Batched prefill batches fresh rows whose 128-token bucket is at most 512 tokens; longer rows run one at a time (calibrated ratios 0.75 at 8x512 and 0.97 at 4x1024).",
+    "A multi-row admission costs one 59 to 63 ms boundary decode step for the plugin slot remap (24 recurrent layers, two ops per moved row).",
+    "The batched 32x128 pass is host-dispatch bound (about 7 000 ops, 0.75 s); the KDA causal convolution accepts one row per launch and the chunked delta rule three rows per launch.",
+    "The scheduler admits the first burst request alone, so a 32-request burst runs as a one-row and a 31-row prefill step."
+  ],
+  "primary_single_user": {
+    "before": {
+      "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/vllm_integration/p150/b1_primary/first/vllm_benchmark.json",
+      "sha256": "f6317f582e07fec4189c42ab54d26f2eadc7207af179d691fd633b30cedd1d5c",
+      "workload": {
+        "prompt_len": 128,
+        "output_len": 128,
+        "num_requests": 1,
+        "concurrency": 1,
+        "temperature": 0.0,
+        "generation_config_mode": "explicit",
+        "dataset_name": "random",
+        "ignore_eos": true
+      },
+      "completed_requests": 1,
+      "ttft_ms": {
+        "p50": 83.30221200594679,
+        "p99": 83.30221200594679,
+        "mean": 83.30221200594679
+      },
+      "tpot_ms": {
+        "p50": 34.08767545676431,
+        "p99": 34.08767545676431,
+        "mean": 34.08767545676431
+      },
+      "itl_ms": {
+        "p50": 34.0803800499998,
+        "p99": 34.89140969119035,
+        "mean": 34.087677275868295
+      },
+      "output_throughput_tok_per_s": 29.006922427694725,
+      "decode_t_s_u": 29.336115959809792
+    },
+    "after": {
+      "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/p150/b1_final_v3/first/vllm_benchmark.json",
+      "sha256": "a6fc2cdc9c497c4330f3a411aaa61e32c6cf3058e431a1de00f5c0ec7ef3fcc9",
+      "workload": {
+        "prompt_len": 128,
+        "output_len": 128,
+        "num_requests": 1,
+        "concurrency": 1,
+        "temperature": 0.0,
+        "generation_config_mode": "explicit",
+        "dataset_name": "random",
+        "ignore_eos": true
+      },
+      "completed_requests": 1,
+      "ttft_ms": {
+        "p50": 85.73329000500962,
+        "p99": 85.73329000500962,
+        "mean": 85.73329000500962
+      },
+      "tpot_ms": {
+        "p50": 33.91768432297473,
+        "p99": 33.91768432297473,
+        "mean": 33.91768432297473
+      },
+      "itl_ms": {
+        "p50": 33.82932400563732,
+        "p99": 37.415102942613885,
+        "mean": 33.9176857479166
+      },
+      "output_throughput_tok_per_s": 29.133191972939173,
+      "decode_t_s_u": 29.4831448538081
+    },
+    "after_repeat": {
+      "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/p150/b1_final_v3/repeat/vllm_benchmark.json",
+      "sha256": "814e4a9caa7f174489947b242b3990f590c468f6f2db4af78f0423473f54f393",
+      "workload": {
+        "prompt_len": 128,
+        "output_len": 128,
+        "num_requests": 1,
+        "concurrency": 1,
+        "temperature": 0.0,
+        "generation_config_mode": "explicit",
+        "dataset_name": "random",
+        "ignore_eos": true
+      },
+      "completed_requests": 1,
+      "ttft_ms": {
+        "p50": 76.3822270091623,
+        "p99": 76.3822270091623,
+        "mean": 76.3822270091623
+      },
+      "tpot_ms": {
+        "p50": 33.89063617352059,
+        "p99": 33.89063617352059,
+        "mean": 33.89063617352059
+      },
+      "itl_ms": {
+        "p50": 33.87876704800874,
+        "p99": 34.558794046752155,
+        "mean": 33.89064066926032
+      },
+      "output_throughput_tok_per_s": 29.218442772815642,
+      "decode_t_s_u": 29.5066753801842
+    },
+    "ttft_change_percent": 2.9183834864904723,
+    "tpot_change_percent": -0.49868796129906023,
+    "gate": "TTFT p50 and TPOT mean within 5 percent of the pre-change run"
+  },
+  "ci_serving_burst_secondary": {
+    "before_stage9": {
+      "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/vllm_integration/p150/b32_final/vllm_ci_serving_benchmark.json",
+      "sha256": "f49a2b439e0bf6ac2d5d3f75a8b6e4cfbbe5987d4d46cdbf79b79677617181ca",
+      "workload": {
+        "prompt_len": 100,
+        "output_len": 100,
+        "num_requests": 32,
+        "concurrency": null,
+        "temperature": 0.0,
+        "generation_config_mode": "explicit",
+        "dataset_name": "random",
+        "ignore_eos": true
+      },
+      "completed_requests": 32,
+      "ttft_ms": {
+        "p50": 3778.4245684742928,
+        "p99": 3779.7712898009922,
+        "mean": 3745.6706119919545
+      },
+      "tpot_ms": {
+        "p50": 170.92809313143874,
+        "p99": 178.26066854282288,
+        "mean": 171.2602527876137
+      },
+      "itl_ms": {
+        "p50": 168.5904225159902,
+        "p99": 245.3330322151142,
+        "mean": 171.26025365747648
+      },
+      "output_throughput_tok_per_s": 154.57118598612718,
+      "decode_t_s_u": 5.839066471775782
+    },
+    "serial_reference_final_code": {
+      "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/p150/serial_b32_v4/vllm_ci_serving_benchmark.json",
+      "sha256": "70cf5726a091fc2eaf173e90595eb127f465153c759fbee30cdc3e08079d1c54",
+      "workload": {
+        "prompt_len": 100,
+        "output_len": 100,
+        "num_requests": 32,
+        "concurrency": null,
+        "temperature": 0.0,
+        "generation_config_mode": "explicit",
+        "dataset_name": "random",
+        "ignore_eos": true
+      },
+      "completed_requests": 32,
+      "ttft_ms": {
+        "p50": 2447.075631003827,
+        "p99": 2448.179179272265,
+        "mean": 2445.184206657359
+      },
+      "tpot_ms": {
+        "p50": 169.48124014647829,
+        "p99": 169.91849317759832,
+        "mean": 169.5011119639946
+      },
+      "itl_ms": {
+        "p50": 167.71142752259038,
+        "p99": 224.61028680029514,
+        "mean": 169.50111260793523
+      },
+      "output_throughput_tok_per_s": 166.42671117800234,
+      "decode_t_s_u": 5.899666311406971
+    },
+    "after": {
+      "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/p150/b32_final/vllm_ci_serving_benchmark.json",
+      "sha256": "4b16914ab54ca3359f8acb47936fe5050a41fde6eeed4be465dda4dc810c1bfb",
+      "workload": {
+        "prompt_len": 100,
+        "output_len": 100,
+        "num_requests": 32,
+        "concurrency": null,
+        "temperature": 0.0,
+        "generation_config_mode": "explicit",
+        "dataset_name": "random",
+        "ignore_eos": true
+      },
+      "completed_requests": 32,
+      "ttft_ms": {
+        "p50": 903.8408704800531,
+        "p99": 905.0099205807783,
+        "mean": 902.1338726270187
+      },
+      "tpot_ms": {
+        "p50": 170.381518343353,
+        "p99": 170.79904099143195,
+        "mean": 170.40019424842677
+      },
+      "itl_ms": {
+        "p50": 168.54442298063077,
+        "p99": 226.47211422153003,
+        "mean": 170.40019502247108
+      },
+      "output_throughput_tok_per_s": 180.04293450594136,
+      "decode_t_s_u": 5.868537911066569
+    }
+  },
+  "prefill_burst": {
+    "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/p150/b32_final/vllm_prefill_burst_benchmark.json",
+    "ttft_ms": {
+      "p50": 931.5188290202059,
+      "p99": 932.8784721414559,
+      "mean": 929.7410036215297
+    },
+    "serial_reference": {
+      "path": "/home/hous/dev/tt-metal-wt-ornith/models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/p150/serial_b32_v4/vllm_prefill_burst_serial_benchmark.json",
+      "serial_config": {
+        "prompt_len": 128,
+        "output_len": 32,
+        "num_requests": 32,
+        "concurrency": 32
+      },
+      "config_matches": true,
+      "serial_ttft_ms": {
+        "p50": 2422.1747885167133,
+        "p99": 2423.4961641859263,
+        "mean": 2420.4275135634816
+      },
+      "ttft_ratio_p99": 0.3849308639012507,
+      "ttft_ratio_mean": 0.3841226388361103,
+      "ttft_ratio_p50": 0.38457952474629115
+    },
+    "gate": "p99 ratio <= 0.6 and mean ratio <= 0.5"
+  },
+  "batched_equals_solo": {
+    "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/p150/batched_probe_full_v3_final.json",
+    "git_head": "e70875637c1536f356c88302e1192376b3f13aed",
+    "groups": [
+      {
+        "rows": 2,
+        "order": 0,
+        "top1_equal": true,
+        "min_logits_pcc": 0.9999999999999988,
+        "kv_pages_exact": true,
+        "state_exact": true,
+        "greedy_agree_tokens": 33,
+        "programs_added": 0
+      },
+      {
+        "rows": 2,
+        "order": 1,
+        "top1_equal": true,
+        "min_logits_pcc": 0.9999999999999799,
+        "kv_pages_exact": true,
+        "state_exact": true,
+        "greedy_agree_tokens": 33,
+        "programs_added": 0
+      },
+      {
+        "rows": 4,
+        "order": 0,
+        "top1_equal": true,
+        "min_logits_pcc": 0.9999999999999604,
+        "kv_pages_exact": true,
+        "state_exact": true,
+        "greedy_agree_tokens": 33,
+        "programs_added": 0
+      },
+      {
+        "rows": 4,
+        "order": 1,
+        "top1_equal": true,
+        "min_logits_pcc": 0.9999999999999856,
+        "kv_pages_exact": true,
+        "state_exact": true,
+        "greedy_agree_tokens": 33,
+        "programs_added": 0
+      },
+      {
+        "rows": 8,
+        "order": 0,
+        "top1_equal": true,
+        "min_logits_pcc": 0.9999999999999604,
+        "kv_pages_exact": true,
+        "state_exact": true,
+        "greedy_agree_tokens": 33,
+        "programs_added": 0
+      },
+      {
+        "rows": 8,
+        "order": 1,
+        "top1_equal": true,
+        "min_logits_pcc": 0.9999999999999294,
+        "kv_pages_exact": true,
+        "state_exact": true,
+        "greedy_agree_tokens": 33,
+        "programs_added": 0
+      },
+      {
+        "rows": 32,
+        "order": 0,
+        "top1_equal": true,
+        "min_logits_pcc": 0.9999999999996884,
+        "kv_pages_exact": true,
+        "state_exact": true,
+        "greedy_agree_tokens": 33,
+        "programs_added": 0
+      },
+      {
+        "rows": 32,
+        "order": 1,
+        "top1_equal": true,
+        "min_logits_pcc": 0.9999999999999405,
+        "kv_pages_exact": true,
+        "state_exact": true,
+        "greedy_agree_tokens": 33,
+        "programs_added": 0
+      }
+    ],
+    "calibration": [
+      {
+        "shape": [
+          32,
+          128
+        ],
+        "solo_s": [
+          2.6652622608235106,
+          2.6633930450188927
+        ],
+        "batched_s": [
+          0.7746297430130653,
+          0.7743999609956518
+        ],
+        "batched_groups": 1,
+        "batched_programs_added": 0,
+        "ratio": 0.29075692092984295
+      },
+      {
+        "shape": [
+          16,
+          256
+        ],
+        "solo_s": [
+          1.4934202729491517,
+          1.4968775180750526
+        ],
+        "batched_s": [
+          0.7263964440207928,
+          0.7267797270324081
+        ],
+        "batched_groups": 1,
+        "batched_programs_added": 0,
+        "ratio": 0.4863978728414686
+      },
+      {
+        "shape": [
+          8,
+          512
+        ],
+        "solo_s": [
+          0.9336119921063073,
+          0.93188025301788
+        ],
+        "batched_s": [
+          0.6969618580187671,
+          0.6967293240013532
+        ],
+        "batched_groups": 1,
+        "batched_programs_added": 0,
+        "ratio": 0.7476597145877981
+      },
+      {
+        "shape": [
+          4,
+          1024
+        ],
+        "solo_s": [
+          0.7592927740188316,
+          0.7550368130323477
+        ],
+        "batched_s": [
+          0.7302773040137254,
+          0.7313513460103422
+        ],
+        "batched_groups": 0,
+        "batched_programs_added": 0,
+        "ratio": 0.9672075472463598
+      }
+    ],
+    "programs_after_warmup": 1793,
+    "programs_end": 1793
+  },
+  "full_model_comparison": {
+    "artifact": "models/autoports/ornith_ai_ornith_1_5_9b/doc/vllm_integration/p150/teacher_forcing_p150.json",
+    "teacher_forcing_decode_t_s_u": 29.18403207948223,
+    "teacher_forcing_ttft_ms": 81.15613198606297,
+    "teacher_forcing_selection": "median traced teacher-forcing throughput; TTFT from same sample",
+    "serving_decode_t_s_u": 29.4831448538081
+  },
+  "no_profiler_reason": "vLLM stages skip Tracy, tt-perf-report and device profiler collection by skill rule; evidence is same-harness benchmark JSON, adapter timing logs and contract checks."
+}

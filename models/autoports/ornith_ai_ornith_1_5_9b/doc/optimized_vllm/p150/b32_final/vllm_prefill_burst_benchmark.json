@@ -1,0 +1,102 @@
+{
+  "source": "vllm bench serve",
+  "profile": "prefill_burst",
+  "comparison_scope": "32 short prompts submitted at once so the scheduler forms multi-row prefill steps. Compare TTFT against the same workload with batched prefill disabled; not a decode number.",
+  "raw_result_file": "/home/hous/dev/tt-metal-wt-ornith/models/autoports/ornith_ai_ornith_1_5_9b/readiness_vllm/vllm_prefill_burst_result.json",
+  "command": [
+    "/home/hous/dev/ornith-1.5-9b/tt-metal/python_env/bin/python",
+    "-m",
+    "vllm.entrypoints.cli.main",
+    "bench",
+    "serve",
+    "--backend",
+    "vllm",
+    "--model",
+    "ornith-ai/Ornith-1.5-9B",
+    "--base-url",
+    "http://localhost:8000",
+    "--endpoint",
+    "/v1/completions",
+    "--dataset-name",
+    "random",
+    "--random-input-len",
+    "128",
+    "--random-output-len",
+    "32",
+    "--num-prompts",
+    "32",
+    "--ignore-eos",
+    "--percentile-metrics",
+    "ttft,tpot,itl,e2el",
+    "--save-result",
+    "--result-filename",
+    "/home/hous/dev/tt-metal-wt-ornith/models/autoports/ornith_ai_ornith_1_5_9b/readiness_vllm/vllm_prefill_burst_result.json",
+    "--max-concurrency",
+    "32",
+    "--temperature",
+    "0.0"
+  ],
+  "command_string": "/home/hous/dev/ornith-1.5-9b/tt-metal/python_env/bin/python -m vllm.entrypoints.cli.main bench serve --backend vllm --model ornith-ai/Ornith-1.5-9B --base-url http://localhost:8000 --endpoint /v1/completions --dataset-name random --random-input-len 128 --random-output-len 32 --num-prompts 32 --ignore-eos --percentile-metrics ttft,tpot,itl,e2el --save-result --result-filename /home/hous/dev/tt-metal-wt-ornith/models/autoports/ornith_ai_ornith_1_5_9b/readiness_vllm/vllm_prefill_burst_result.json --max-concurrency 32 --temperature 0.0",
+  "config": {
+    "prompt_len": 128,
+    "output_len": 32,
+    "num_requests": 32,
+    "concurrency": 32,
+    "temperature": 0.0,
+    "generation_config_mode": "explicit",
+    "dataset_name": "random",
+    "ignore_eos": true
+  },
+  "elapsed_s": 6.331421560025774,
+  "completed_requests": 32,
+  "total_input_tokens": 4096.0,
+  "total_output_tokens": 1024.0,
+  "requested_output_tokens": 1024,
+  "missing_output_tokens": 0,
+  "ttft_ms": {
+    "p50": 931.5188290202059,
+    "p99": 932.8784721414559,
+    "mean": 929.7410036215297
+  },
+  "tpot_ms": {
+    "p50": 174.1179016610277,
+    "p99": 175.5410527297476,
+    "mean": 174.1820591482059
+  },
+  "itl_ms": {
+    "p50": 168.60967548564076,
+    "p99": 337.42201593588106,
+    "mean": 174.18206116429158
+  },
+  "e2el_ms": {
+    "p50": 6329.314619972138,
+    "p99": 6330.683478967403,
+    "mean": 6329.384837215912
+  },
+  "itl_p50_decode_tps": 5.930857746566048,
+  "itl_mean_decode_tps": 5.741119339819859,
+  "vllm_mean_tpot_decode_tps": 5.741119406270954,
+  "mean_per_request_decode_tps": 5.741119406270954,
+  "mean_per_request_decode_tps_basis": "1000 / mean_tpot_ms from vllm bench serve; this is the TPOT-derived decode value. For burst-serving profiles, scheduler admission and chunked prefill can affect TPOT, so use the single-user profile for headline decode t/s/u.",
+  "output_throughput_tok_per_s": 161.73303108817657,
+  "request_throughput_per_s": 5.054157221505518,
+  "total_token_throughput_tok_per_s": 808.6651554408829,
+  "serial_reference": {
+    "path": "/home/hous/dev/tt-metal-wt-ornith/models/autoports/ornith_ai_ornith_1_5_9b/doc/optimized_vllm/p150/serial_b32_v4/vllm_prefill_burst_serial_benchmark.json",
+    "serial_config": {
+      "prompt_len": 128,
+      "output_len": 32,
+      "num_requests": 32,
+      "concurrency": 32
+    },
+    "config_matches": true,
+    "serial_ttft_ms": {
+      "p50": 2422.1747885167133,
+      "p99": 2423.4961641859263,
+      "mean": 2420.4275135634816
+    },
+    "ttft_ratio_p99": 0.3849308639012507,
+    "ttft_ratio_mean": 0.3841226388361103,
+    "ttft_ratio_p50": 0.38457952474629115
+  }
+}

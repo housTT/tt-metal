@@ -1,5 +1,29 @@
 # Optimized vLLM serving
 
+## p150, one Blackhole chip (current stage 10 evidence, 2026 Oct 28)
+
+Primary single-user **128 input / 128 output / 1 request / concurrency 1 /
+max-num-seqs 1**, greedy temperature 0, ignore EOS, native 262144 context,
+first request after readiness: **TTFT 85.7 ms; decode 29.48 tokens/s/user**
+from mean TPOT 33.92 ms; ITL median 33.8 ms, P99 37.4 ms; aggregate output
+29.13 tokens/s (`p150/b1_final_v3/first/vllm_benchmark.json`; same-workload
+repeat 76.4 ms / 33.89 ms, 29.51 t/s/u). Before this stage (stage 9, same
+harness and configuration): TTFT 83.3 ms, TPOT 34.09 ms, 29.34 t/s/u; single
+user latency is unchanged within the 5 percent gate. The stage work was
+batched prefill: the **32 x 128-token burst at concurrency 32** serves with
+TTFT p50 **931.5 ms** against the same-code serial reference 2422.2 ms
+(ratios p99 0.385, mean 0.384; stage 9 measured 3758.7 ms on the per-row
+path), and the secondary CI serving burst **100 / 100 / 32** TTFT fell from
+3778.4 ms to about 0.9 s with TPOT unchanged at about 170 ms. All numbers,
+the batched-equals-solo evidence, the mixed-shape trace reuse check, the
+sampling and qualitative verdicts, the rejected options and the open items
+are in [p150/README.md](p150/README.md); the work log is
+[p150/work_log.md](p150/work_log.md); the checklist is
+[p150/checklist.md](p150/checklist.md); the accounting is
+`p150/perf_summary.json`.
+
+## p150x4, four chips (historical stage 10 evidence, 2026 Sep)
+
 **Primary vLLM TTFT:35.25ms; decode:87.70 tokens/s/user** for128 input/128
 output/1 request, concurrency1 and max-num-seqs1, native context262144, TP4.
 The same warmed workload before optimization measured49.96ms and87.88t/s/user:
