@@ -998,6 +998,23 @@ class OptimizedDecoder(FusedDecoder):
         ttnn.where(select, state_row, dst, output_tensor=dst)
         ttnn.deallocate(select)
 
+    def remap_recurrent_rows(self, values):
+        """Permute recurrent-state rows in place (``values[new] = old``) through row snapshots and slot writes."""
+        target = self.recurrent_state
+        shape = [int(d) for d in target.shape]
+        moves = [(row, source) for row, source in enumerate(values) if row != source]
+        saved = {}
+        for _, source in moves:
+            begins, ends = [0] * len(shape), list(shape)
+            begins[0], ends[0] = source, source + 1
+            saved[source] = ttnn.slice(target, begins, ends)
+        try:
+            for row, source in moves:
+                self.scatter_recurrent_row(saved[source], row)
+        finally:
+            for tensor in saved.values():
+                ttnn.deallocate(tensor)
+
     def scatter_conv_tails(self, flat_tokens, tail_slot_index, group_mask):
         """Gather each tap's tail row per slot from the ``[rows * seq, conv_dim]`` stream and mask it in."""
         for index, buffer in enumerate(self.conv_state):

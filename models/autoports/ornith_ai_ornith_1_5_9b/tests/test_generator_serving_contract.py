@@ -114,9 +114,10 @@ def test_explicit_pool_keeps_logical_context_and_exact_physical_blocks(tt):
     ]
     exec(compile(ast.Module(body=helpers, type_ignores=[]), "functional_decoder.py", "exec"), namespace)
     namespace["ModelCache"] = load_class("model.py", "ModelCache", namespace)
-    cls = load_class("model.py", "OrnithModel", namespace, {"allocate_cache", "page_table"})
+    cls = load_class("model.py", "OrnithModel", namespace, {"allocate_cache", "page_table", "batched_prefill_buckets"})
     model = cls.__new__(cls)
     model.max_context, model.page_block_size, model.dim = 262144, 64, 4096
+    model.batched_prefill = {"enabled": False}
     model.precision = {"kv_cache_dtype": "bfloat16", "residual_dtype": "bfloat16"}
     allocated = []
     model.layers = [

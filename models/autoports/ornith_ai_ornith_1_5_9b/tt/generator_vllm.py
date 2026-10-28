@@ -7,6 +7,7 @@ from __future__ import annotations
 import atexit
 import json
 import os
+import time
 from dataclasses import fields
 from pathlib import Path
 
@@ -242,6 +243,7 @@ class TTOrnithForCausalLM:
         **kwargs,
     ):
         gen = self._generator(kv_cache)
+        entered = time.perf_counter()
         if page_tables_per_layer is not None:
             raise ValueError("Ornith full-attention layers share one KV group; recurrent state is model-owned")
         if any(kwargs.get(k) is not None for k in ("pixel_values", "pixel_values_videos")):
@@ -295,6 +297,13 @@ class TTOrnithForCausalLM:
             if device or start == 0:
                 self._pending_device_seeds[row] = not device
         self.counters["prefills"] += len(rows)
+        logger.info(
+            "Ornith adapter prefill: rows {} lengths {} starts {} elapsed_s {:.4f}",
+            len(rows),
+            lengths,
+            starts,
+            time.perf_counter() - entered,
+        )
         if device and gen._raw_logprobs_enabled:
             final_rows = prefill_options.get("sample_rows", rows)
             logprobs = gen.logprobs_from(gen._raw_logprobs.output)[rows] if final_rows else torch.zeros(len(rows))
@@ -319,6 +328,7 @@ class TTOrnithForCausalLM:
         **kwargs,
     ):
         gen = self._generator(kv_cache)
+        entered = time.perf_counter()
         if not enable_trace:
             raise ValueError("Ornith serving decode requires trace replay")
         if page_tables_per_layer is not None:
@@ -381,6 +391,14 @@ class TTOrnithForCausalLM:
         )
         if boundary or self._last_device_sampling != device:
             self._device_rows = (torch.as_tensor(start_pos).reshape(-1) >= 0) & device
+        if boundary:
+            logger.info(
+                "Ornith adapter decode boundary: reset_batch {} slot_remap {} active {} elapsed_s {:.4f}",
+                bool(reset_batch),
+                slot_remap is not None,
+                int((torch.as_tensor(start_pos).reshape(-1) >= 0).sum()),
+                time.perf_counter() - entered,
+            )
         self._prefilled_rows[:] = False
         self._last_device_sampling = device
         self.counters["device_decodes" if device else "host_decodes"] += 1

@@ -359,7 +359,11 @@ class OrnithGenerator(Generator):
         for layer in self.kv_cache.decode_layers:
             if layer.is_full_attention:
                 continue
-            for target in [layer.recurrent_state] + layer.conv_state:
+            if hasattr(layer, "remap_recurrent_rows"):
+                layer.remap_recurrent_rows(values)
+            else:
+                self._remap_serving_rows(layer.recurrent_state, values)
+            for target in layer.conv_state:
                 self._remap_serving_rows(target, values)
             moved += 1
         for target in (self.kv_cache.active_recurrent, self.kv_cache.active_conv):

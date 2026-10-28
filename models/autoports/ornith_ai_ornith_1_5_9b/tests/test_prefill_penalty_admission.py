@@ -31,6 +31,7 @@ def admission():
         "List": List,
         "os": __import__("os"),
         "json": __import__("json"),
+        "time": __import__("time"),
         "logger": SimpleNamespace(info=lambda *args, **kwargs: None, warning=lambda *args, **kwargs: None),
     }
     common = ROOT.parents[1] / "common/sampling"
