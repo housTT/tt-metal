@@ -425,3 +425,16 @@ identical greedy outputs. `readiness_vllm/server.log` and
   `runner.log` ends with the runner's `Run summary:` line, and the final
   audit (`pgrep -af 'vllm.entrypoints|EngineCore|run_vllm_server'`, no
   match) was repeated before each review.
+
+## Sixth review (20:45 to 21:00)
+
+The sixth independent review returned more-work-needed with no stage-owner
+work remaining: every documentation item of reviews 1 to 5 re-derives from
+the artifacts, and the single open item is the operator decision on the
+controlled failure of `test_frequency_penalty_changes_output`
+(`../plugin_changes.md` entry 2, `proposed`): accept it as the stage 9
+disposition for that row, or authorize the margin-aware plugin test change.
+The stage therefore ends blocked on that decision, not on stage work. The
+review's two suggestions (the greedy-story wording and the Metal
+unsafe-allocation warning at startup capture with its tracked control) are
+applied in the README.

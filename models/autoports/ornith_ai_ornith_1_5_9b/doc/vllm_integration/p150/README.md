@@ -133,6 +133,15 @@ prefills, zero workload captures or releases). On the other final servers
 happened before `Application startup complete` and nothing was captured or
 released after it; `b32_compat_prefinal` is the one served run with an
 in-workload recapture (the penalized history reset, fixed before `b32_final`).
+Every untracked server log carries one Metal line `Allocating device buffers
+is potentially unsafe due to the existence of an active trace` about 10 ms
+before `Ornith trace capture 1`: the sampler and history traces of the
+penalty variants are captured while the model trace is live and the sampler
+parameter tensors are reset between them. The tracked server
+(`TT_METAL_TRACE_ALLOC_TRACKING=1`, `TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0`,
+`tracked_b32/`) served the 41-request workload with the native pre-replay
+validation and no raise, and the v8 tracked probe passes; no allocation is
+acknowledged as corruptible.
 
 Residual: the generator accepts a continuation at a start position that is
 not a multiple of 128 through its legacy path, which compiles per-position
@@ -202,9 +211,9 @@ coherent, on-topic English reasoning in the checkpoint's thinking format, no
 mechanical repetition (most frequent bigram "Let me", at most 6 of 144 words),
 no gibberish, no wrong-language drift (0 CJK characters; French appears only
 as the requested translation, `Bonjour, comment allez-vous aujourd'hui?`), no
-cross-request contamination. Thinking consumes most of the budget: the story,
-the sampled French answer and the greedy Fibonacci answer reach the final
-answer; the others end inside `<think>`. The greedy haiku reasoning
+cross-request contamination. Thinking consumes most of the budget: in the final
+run the greedy story, the sampled French answer and the greedy Fibonacci
+answer reach the final answer; the other nine texts end inside `<think>`. The greedy haiku reasoning
 miscounts syllables ("Pat-tens em-erge = 5", then self-corrected); the HF
 control of the p150x4 stage (`../qualitative_extended_control_report.md`,
 line 129) counts correctly, so this is a precision-policy or greedy
