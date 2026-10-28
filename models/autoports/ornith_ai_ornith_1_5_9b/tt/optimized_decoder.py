@@ -1011,9 +1011,10 @@ class OptimizedDecoder(FusedDecoder):
     def remap_recurrent_rows(self, values):
         """Permute recurrent-state rows in place (``values[new] = old``), one cycle at a time.
 
-        Each cycle keeps one DRAM snapshot of its first row; every other move
+        Each cycle keeps one sharded L1 snapshot of its first row; every move
         slices the source row straight into the sharded staging layout and
-        writes it to its new slot, so a move costs two ops.
+        writes it to its new slot, so a move costs two ops and every program
+        is one the warm rotations already compiled for each row.
         """
         target = self.recurrent_state
         shape = [int(d) for d in target.shape]
@@ -1030,22 +1031,23 @@ class OptimizedDecoder(FusedDecoder):
             if start in seen or values[start] == start:
                 continue
             begins, finish = row_bounds(start)
-            saved = ttnn.slice(target, begins, finish)
+            saved = ttnn.slice(target, begins, finish, memory_config=staging)
             current = start
             while True:
                 seen.add(current)
                 source = values[current]
                 if source == start:
-                    self.scatter_recurrent_row(saved, current)
-                    break
-                begins, finish = row_bounds(source)
-                staged = ttnn.slice(target, begins, finish, memory_config=staging)
+                    staged = saved
+                else:
+                    begins, finish = row_bounds(source)
+                    staged = ttnn.slice(target, begins, finish, memory_config=staging)
                 ttnn.experimental.slice_write(
                     staged, target, [current, 0, 0, 0], [current + 1] + shape[1:], [1, 1, 1, 1]
                 )
                 ttnn.deallocate(staged)
+                if source == start:
+                    break
                 current = source
-            ttnn.deallocate(saved)
 
     def remap_conv_rows(self, index_tensor):
         """Permute the ``[B, 1, conv_dim]`` conv buffers with one row gather per buffer."""
