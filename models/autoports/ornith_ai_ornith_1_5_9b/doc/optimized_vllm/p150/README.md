@@ -119,6 +119,12 @@ logits PCC >= 0.9999999999996, the decode layer's recurrent and conv state
 rows and the attention layer's K/V pages at the real positions bit-identical,
 and the first token plus 32 greedy continuation tokens identical. The program
 cache stays at 1793 entries from warmup to the end of the run (one capture).
+`batched_probe_full_v4_dummy_rows.json` (commit `b6b1fdb29a`) repeats the
+checks for groups of 3, 5 and 31 rows, which pad to the 4-, 8- and 32-row
+buckets with dummy rows. Watcher (`TT_METAL_WATCHER=10`, `watcher/`) ran the
+same probe over groups 2, 3, 5, 8, 31 and 32 and the remap probe on the
+reduced two-layer model with the identical op configurations: no detected
+fault in 85 and 3 watcher dumps.
 
 Calibration (same probe, batched / serial time, minimum of two repeats):
 32x128 0.291 (0.774 s against 2.663 s), 16x256 0.486, 8x512 0.748, 4x1024
@@ -151,12 +157,15 @@ see the work log).
 
 `mixed_shape_check.py` (stage 9 workload plus phase 7: an eight-row burst of
 mixed buckets, three rows admitted while a request decodes, a 32-row burst of
-100 to 128-token prompts, repeats afterwards; 88 requests). Tracked server
-(`tracked_b32/`, `TT_METAL_TRACE_ALLOC_TRACKING=1` with program-cache
-allocations, commit `c4e2ee8efd`): 88/88 complete, zero captures and zero
-releases during the workload, greedy repeats identical, no unsafe-allocation
-report; multi-row prefill calls of 31, 7, 6, 5, 3, 3, 2 and 2 rows with no
-program growth (`tracked_b32/trace_reuse_summary.json`). Final server
+100 to 128-token prompts, repeats afterwards; 88 requests). Tracked servers
+(`TT_METAL_TRACE_ALLOC_TRACKING=1` with program-cache allocations):
+`tracked_b32_final/` on the final code (sources equal to commit
+`b6b1fdb29a`): 88/88 complete, zero captures and zero releases, no greedy
+repeat mismatch, no unsafe-allocation report or tracker error, one capture
+and zero program growth over the server life including the 31-, 7-, 6-, 5-,
+3- and 2-row groups and their slot remaps (`tracked_b32_final/trace_reuse_summary.json`);
+`tracked_b32/` is the same workload on the first batched commit `c4e2ee8efd`
+with the same result. Final server
 (`b32_final/mixed_shape_check.json`, commit `5cff1036cc`, untracked): 88/88
 complete, zero captures and zero releases, no greedy repeat mismatch, TTFT
 p50/p95/p99 0.750 / 0.899 / 0.901 s, ITL max 0.398 s. Over that server's
@@ -218,8 +227,6 @@ and rows above 512 tokens stay single-row.
 - The plugin's one-row first admission in a burst and its slot remap at the
   boundary are plugin scheduling behaviour; the adapter makes both cheap but
   does not change them.
-- Watcher was not rerun in this stage (no new kernel or op contract); the
-  stage review may ask for it.
 - Prefix caching remains excluded (`recurrent_state`); the generator-level
   resume check does not apply.
 

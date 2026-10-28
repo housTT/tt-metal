@@ -397,3 +397,42 @@ three P2 items and several concerns:
 6. The `b1_final_v3` server ran commit `9d4de01a6d` (two `getattr` guards
    beyond `5cff1036cc`); the work-log heading now says so. The host sweep log
    is kept as `host_sweep_opened_devices.log`.
+
+## Tracked B32 server on the final code (23:40 to 00:05 ET)
+
+`serve.sh tracked_b32_final 32 2` with `TRACKED=1`, `HOST_SAMPLING=1`,
+`BATCHED=1`, `BATCHED_MAX_LEN=512`; `launch_env.txt` records `git_head`
+`66bd9e836b` with the `sha256` of `tt/model.py` and `tt/optimized_decoder.py`
+equal to the committed `b6b1fdb29a` files (the launch preceded that commit
+by minutes and the tree was identical). Startup: warm 45 -> 1652 programs,
+one capture at 1793. The stage 10 mixed-shape workload: 88/88 complete,
+zero captures and zero releases, no greedy repeat mismatch, TTFT p50/p95/p99
+0.680 / 0.926 / 0.928 s under the tracker; non-aligned requests pass. Over
+the server life (48 eager prefill calls including the 31-, 7-, 6-, 5-, 3-
+and 2-row groups and their slot remaps): one capture, zero program growth,
+no unsafe-allocation report, no tracker `RuntimeError`
+(`tracked_b32_final/server.log`, `trace_reuse_summary.json`). The server was
+stopped through the runner; no vLLM process remained.
+
+## Watcher runs and dummy-row equality on the final code (23:35 to 00:05 ET)
+
+`watcher/` (chip 3, `TT_METAL_WATCHER=10`, no profiler, reduced two-layer
+model 0 and 3 with the same op configurations as the full stack):
+`batched_probe_reduced_watcher.json` runs groups of 2, 3, 5, 8, 31 and 32
+rows in both orders (3, 5 and 31 pad to the 4-, 8- and 32-row buckets with
+dummy rows) plus the 32x128 calibration; every row top-1 equal, PCC
+>= 0.99999, state and K/V pages exact, greedy tokens identical, zero
+program growth; `watcher_batched_probe_reduced.log` holds 85 watcher dumps
+over 843 s with no detected fault (no NoC, circular-buffer, L1, assert or
+stack signature; the only per-core notes are the usual highest-stack-usage
+lines). `remap_probe_reduced_watcher.json`: six permutations exact with zero
+program growth; `watcher_remap_probe_reduced.log` has 3 dumps over 22 s, no
+fault. The reduced model runs the identical kernels and shapes (two layers
+instead of 32), so the watcher covered `chunk_gated_delta_rule` on one- to
+three-row sub-batches, the sharded `slice_write` state scatter, the batched
+`paged_fill_cache`, the row gathers and the cycle-wise remap.
+
+`batched_probe_full_v4_dummy_rows.json` (chip 3, all 32 layers, commit
+`b6b1fdb29a`, groups of 3, 5 and 31 rows in both orders, 32 greedy steps):
+every comparison exact, program cache constant at 1793, one capture; dummy
+rows repeat the last real row of the group.
