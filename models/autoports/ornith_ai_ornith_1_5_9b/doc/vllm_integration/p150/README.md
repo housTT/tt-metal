@@ -150,8 +150,9 @@ variant is the original 32-row graph.
 ## Non-aligned prompt lengths
 
 `tracked_b32/nonaligned_requests.json` (`nonaligned_requests.py`; the chat
-parity field there predates the script fix, `b32_recheck2/nonaligned_requests.json`
-carries the corrected assertion): raw
+parity field there, in `b32_final/` and in `b1_primary/` predates the script
+fix and reads 2/false; `b32_recheck/` and `b32_recheck2/` carry the corrected
+assertion, 25 tokens, true): raw
 completions of 131, 65, 2305, 129 and 33 tokens singly, as one prompt list
 `[A, B, A]`, and as six concurrent requests, all with exact `prompt_tokens`
 usage, 12 in-vocabulary token ids each and identical greedy ids for repeated
@@ -262,7 +263,8 @@ p150_head8_hifi2_kv8_policy.json --teacher-only --teacher-repeats 3`, all 32
 layers, batch 1, AIME24 chat 100-token reference, traced decode with logit
 readback, median of three repeats, measured on one chip of a P300c board,
 not a P150 board): top-1 0.98, top-5 1.00, decode 29.18 t/s/u (repeats
-29.29, 29.18, 29.09), TTFT 81.2 ms warmed. The bound reads logits back every
+29.29, 29.18, 29.09), TTFT 81.2 ms from the median-decode repeat (the first
+repeat's 2870 ms is the unwarmed first prefill of the process). The bound reads logits back every
 step and uses a 2048-token cache context, so it cannot resolve sub-millisecond
 serving overhead. The packaged runner (`readiness_check.run_teacher_forcing
 --mesh-device N150`, `teacher_forcing_packaged_runner.log`, after the

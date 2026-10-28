@@ -405,11 +405,18 @@ identical greedy outputs. `readiness_vllm/server.log` and
   the `b32_recheck` and `b32_recheck2` runner launches and restored each time
   from copies of the B1 primary server's files (byte-identical to
   `b1_primary/server.log` and `b1_primary/first/vllm_run_summary.json`).
-- `adapter_device_tracker_p150_v2.json` (17:12, after the slot-admission and
-  remap warms, identical results to `adapter_device_tracker_p150.json`) is the
-  later of the two tracked adapter probes; both predate the sampler-key and
-  merge warms. The committed-source coverage of the async decode contract is
-  indirect: greedy token ids of the mixed-shape requests are byte-identical
+- The two tracked adapter probes: `adapter_device_tracker_p150.json` (16:44,
+  before the sampler graph-key change) and `adapter_device_tracker_p150_v2.json`
+  (17:12, with the graph-key and variant preparation, but before the remap
+  warm, first present in `tracked_b32/server.log` at 17:20 and absent in
+  `tracked_b32/server_attempt6_diagnosis.log` at 17:13, the penalized-history
+  warm and the merge warm). The reduced probe never calls
+  `warmup_model_prefill` (only `warmup_model_decode`), so the bucket, slot
+  admission and remap warms are not exercised by either probe; its remap case
+  compiles the per-source-slot slices and recaptures inside the probe
+  (`adapter_device_tracker_p150_v2.log`, 283 to 317 programs), which the
+  served warm removes. The case verdicts of both probes are identical. The
+  committed-source coverage of the async decode contract is indirect: greedy token ids of the mixed-shape requests are byte-identical
   across the five B32 servers, the non-aligned ids across the four B32 servers
   that ran that script (`b32_compat_prefinal` has no non-aligned file) and the
   ten B1 rows, and the v8 tracked probe passes.

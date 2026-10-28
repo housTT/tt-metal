@@ -68,6 +68,13 @@ def main():
         if m:
             counters = json.loads(m.group(1))
     startup_complete = next((i for i, l in enumerate(lines) if "Application startup complete" in l), None)
+    startup_complete_time = None
+    if startup_complete is not None:
+        for line in lines[startup_complete:]:
+            m = re.search(r"(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d+)", line)
+            if m:
+                startup_complete_time = m.group(1)
+                break
     startup_events = [e for e in events if e["count"] <= 2 or e["kind"] == "release" and e["count"] <= 1]
     mixed = json.loads(args.mixed_shape.read_text())
     rows = [row for phase in mixed["phases"] for row in phase["results"]]
@@ -90,6 +97,11 @@ def main():
         "eager_prefills_after_startup": [p for p in prefills if p["programs_after"] != p["programs_before"]],
         "eager_prefill_calls": len(prefills),
         "startup_captures": sum(1 for e in events if e["kind"] == "capture" and e["count"] <= 2),
+        "captures_after_startup_total": sum(
+            1
+            for e in events
+            if e["kind"] == "capture" and startup_complete_time is not None and e["time"] > startup_complete_time
+        ),
         "workload_captures": mixed["summary"]["captures_during_workload"],
         "workload_releases": mixed["summary"]["releases_during_workload"],
         "final_trace_ids": events[-1]["detail"] if events else None,
