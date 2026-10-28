@@ -39,8 +39,15 @@ past each row's logical length.
 `decode_forward(hidden_states, *, current_pos, page_table, kv_cache)`:
 `hidden_states` is `[1, 1, B, 4096]` for `1 <= B <= 32`, `current_pos` is a
 device int32 `[B]` tensor that drives cache update, attention length and the
-on-device RoPE lookup, `page_table` is `[B, blocks]` int32. The method is
-trace-safe: capture once over stable buffers and replay with
+on-device RoPE lookup, `page_table` is `[B, blocks]` int32. The decode ops map height-sharded
+users to cores in rows of 8 (measured: 8-wide rectangles and single rows up
+to 8 users are exact, other rectangles corrupt users outside an 8-wide row
+mapping; see `tt_metal_decode_grid/`), so up to 8 users run as one row and
+a larger batch runs as `round_up(B, 8)` users on `8 x n` cores; the padded
+users get position `-1`, which makes the cache update and attention skip
+them, a zero page-table row, and their rows are sliced away before
+returning.
+The method is trace-safe: capture once over stable buffers and replay with
 `ttnn.execute_trace` after refreshing their contents.
 
 `kv_cache` is a caller-owned `(key, value)` pair of `[num_blocks, 8,
@@ -87,7 +94,9 @@ Continuation (`prefill_continuation_full_attention.json`, 4500 tokens, starts
 32, 37, 1000, 4096, 4101, 4499): continuation per-row delta PCC minimum over
 `[start, start+256)` plus the last row >= 0.99991 against HF and the window
 mean >= 0.99997; the no-history and fresh-suffix negative controls score
-0.63 to 0.89 on the same metric, so the check sees a broken resume.
+0.63 to 0.89 on the same metric, so the check sees a broken resume. The
+same continuation shape with 64-token cache blocks (27 token-by-token rows
+before the first block boundary) is in `block64_full_attention.json`.
 
 Multi-row prefill (`prefill_multi_row_full_attention.json`): one call with
 rows of lengths 5, 200, 4097 and 33 (the last a continuation at 70) on
@@ -96,8 +105,8 @@ batch-4 decode over those rows PCC >= 0.999969, and two rows (33 and 60
 tokens) that pad into the same tile run twice on the same input tensor
 (PCC >= 0.999981) as the regression for an aliasing bug found during bringup.
 
-Traced decode (`trace_full_attention_batch{1,32}.json`): per-user prefills of
-1 to 600 tokens on permuted page tables, eager decode PCC >= 0.999965 per
+Traced decode (`trace_full_attention_batch{1,13,31,32}.json`): per-user
+prefills of 1 to 600 tokens on permuted page tables, eager decode PCC >= 0.999965 per
 user, trace replay equals eager (PCC 1.0), repeat replay bit-equal, and two
 further steps with refreshed tokens and positions change the output and match
 HF (PCC >= 0.999971). The same tests pass under
@@ -118,21 +127,44 @@ in full (`../context_contract.json`).
 ## Performance evidence
 
 Warmed batch-1, 1024-token measurements on one chip (`perf/README.md`,
-`perf/full_attention/{prefill,decode}.{txt,csv}`): prefill 10.965 ms device
-(21 ops) / 11.391 ms host; traced decode 1.269 ms device (35 ops) / 1.364 ms
-host. HiFi4 with fp32 accumulation everywhere; functional baselines only.
+`perf/full_attention/{prefill,prefill_continuation,decode}.{txt,csv}`):
+prefill 10.956 ms device (21 ops) / 11.349 ms host; continuation prefill of
+100 tokens at start 37 2.873 ms device (381 ops, dominated by the 27
+token-by-token leading-row writes) / 5.529 ms host; traced decode 1.266 ms
+device (35 ops) / 1.335 ms host. HiFi4 with fp32 accumulation everywhere;
+functional baselines only.
 
 ## Safety and fallback gates
 
 - `test_hot_path_fallback_audit`: no `torch`, `ttnn.from_torch`,
   `ttnn.to_torch`, host-backed `ttnn.full`, `.cpu()`, `ttnn.to_device` or
   synchronization in any method a measured prefill or decode pass runs.
-  Runtime index tensors use device-side `ttnn.moreh_full`.
+  Runtime index tensors use device-side `ttnn.moreh_full`. The Tracy windows
+  confirm it at run time: every op in the prefill, continuation-prefill and
+  traced-decode windows is a device op (`perf/full_attention/*.txt`, "0 host
+  ops"). `TTNN_CONFIG_OVERRIDES='{"throw_exception_on_fallback":true}'` was
+  set for every run as the environment prescribes, but this checkout only
+  declares that field (`ttnn/api/ttnn/config.hpp`) and nothing reads it, so
+  it is not part of the evidence.
 - Determinism: repeated identical prefill bit-equal; repeated trace replay
   bit-equal at positions 257 to 601 and at 40959.
 - Real-weight inventory: `real_weight_stats.json` records name, shape, dtype,
   element count, mean, standard deviation, range and a deterministic seed for
   every tensor of layers 0 and 17, plus the input-activation statistics.
+
+## Capability contract
+
+| Claim | Evidence | Remaining risk |
+| --- | --- | --- |
+| 40960-token context, no reduction | `prefill_capacity_full_attention_{40960,40959}.json`, `advertised_context_decode_full_attention.json`, `../context_contract.json` | one layer only; a 36-layer batch-32 full-context cache (36 x 5.37 GB) exceeds the 34.2 GB of device DRAM, so the full-model stage sizes batch against context |
+| one layer kind, full causal GQA with Q/K norms | `pcc_layer{0,17}_full_attention.json` (real weights, real activations) | layer-17 delta PCC 0.99942 is the lowest number in the suite; watch it when precision is lowered |
+| any logical prefill length 1..40960 | `prefill_boundaries_full_attention.json` (19 lengths incl. 33 after 8225), `prefill_multi_row_full_attention.json` | lengths between 8226 and 40958 are covered by construction (same chunk plan) and by the two 40K probes, not individually |
+| explicit continuation at any start, prefix preserved | `prefill_continuation_full_attention.json` (6 starts, negative controls fail), `block64_full_attention.json` | a start that is not a multiple of 256 forces the SDPA chunk down to the largest power of two dividing the start (32 for starts 32, 37, 4128); correct but slower, and vLLM prefix-cache hits resume at such starts |
+| multi-row prefill call with per-row lengths, starts and page-table rows | `prefill_multi_row_full_attention.json` | rows run serially; dense work is not batched across rows |
+| paged decode, batch 1..32, per-user positions and permuted pages | `trace_full_attention_batch{1,13,31,32}.json` (13 runs as 16 on 8x2, 31 as 32 on 8x4), host test of the rectangle choice for every batch 1..32 on three grids, `tt_metal_decode_grid/` probe of 14 rectangles | `current_pos` is not validated against the page-table extent on the tensor path; padded users cost their share of the decode ops |
+| traced decode with refreshed inputs, repeat replay, allocation tracking | `trace_*.json`, `trace_alloc_tracking/` (gate plus positive control) | positions advance on the host in this harness; the generator stage owns on-device advancement |
+| cache block size any multiple of 32 | block 32 everywhere, block 64 in `block64_full_attention.json`, host tests for 64 and 128 | block 128 is host-tested only |
+| watcher clean | `watcher/summary.json` | watcher covered the traced-decode tests, not the 40K prefill |
 
 ## Reproduction
 
@@ -154,9 +186,12 @@ timestamps and logs, is in `work_log.md`.
 ## Artifact index and limitations
 
 - `pcc_layer*.json`, `prefill_boundaries_*.json`, `prefill_continuation_*.json`,
-  `prefill_multi_row_*.json`, `trace_*_batch{1,32}.json`: default-suite
-  evidence, each with provenance (decoder/test/ttnn hashes, git SHA, device,
-  exact command, environment).
+  `prefill_multi_row_*.json`, `block64_*.json`, `trace_*_batch{1,13,31,32}.json`:
+  default-suite evidence written by the default-suite run, each with
+  provenance (decoder/test/ttnn hashes, git SHA, device, exact command,
+  environment). The watcher and allocation-tracking runs write their own
+  copies (`*.watcher.json`, `*.tracked.json`) through `QWEN3_EVIDENCE_SUFFIX`
+  and never overwrite these.
 - `prefill_capacity_*_{40959,40960}.json`, `advertised_context_decode_*.json`:
   advertised-context evidence.
 - `perf/`: Tracy ops CSV, tt-perf-report tables, host timings.
@@ -172,6 +207,14 @@ timestamps and logs, is in `work_log.md`.
 Limitations: rows in a multi-row prefill run serially (the dense work is not
 batched across rows); prefill SDPA chunk starts use the scalar
 `chunk_start_idx` path (one program per distinct start, fine for eager prefill,
-to be revisited when prefill is traced); the compute configuration is
-HiFi4/fp32-accumulate everywhere and no memory layout beyond DRAM interleaved
-is used.
+to be revisited when prefill is traced); the SDPA kernel derives its Q-chunk
+offset as `chunk_start_idx / q_chunk_size` with integer division, so the
+chunk must divide the start and a continuation start that is only a multiple
+of 32 runs the whole physical chunk with 32-wide SDPA chunks; the decoder
+zero-fills the implicit tile padding of each prefill input before padding it,
+because those rows become cache and attention inputs; the compute
+configuration is HiFi4/fp32-accumulate everywhere and no memory layout beyond
+DRAM interleaved is used. No tt-metal issue has been filed for the padded-K
+SDPA behaviour yet; the reproducers under `tt_metal_sdpa_padded_k/` are the
+hand-off, and the workaround can be retired when the kernels clamp their K
+walk to the page-table extent.

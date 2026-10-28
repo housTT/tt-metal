@@ -1,0 +1,17 @@
+# TT_VISIBLE_DEVICES=1 python models/autoports/qwen_qwen3_8b/doc/functional_decoder/tt_metal_decode_grid/probe_decode_core_rectangles.py
+# (2026 Oct 27, 23:12 ET; decoder at the state before the 8-wide rule, with decode_physical_batch overridden per case)
+# Per-user PCC of eager paged decode against the HF layer for each core rectangle; "bad users" are users with PCC < 0.99.
+batch 14 grid 7x2: min pcc 0.5518 bad users [7, 8, 9, 10, 11, 12, 13]
+batch 14 grid 2x7: min pcc 0.5518 bad users [7, 8, 9, 10, 11, 12, 13]
+batch 16 grid 8x2: min pcc 1.0000 bad users []
+batch 16 grid 4x4: min pcc 0.7663 bad users [8, 9, 10, 11]
+batch 16 grid 2x8: min pcc 0.7623 bad users [8, 9, 10, 11]
+batch 12 grid 6x2: min pcc 0.6532 bad users [8, 9, 10, 11]
+batch 12 grid 4x3: min pcc 0.7663 bad users [8, 9, 10, 11]
+batch 12 grid 3x4: min pcc 0.6417 bad users [8, 9, 10, 11]
+batch 24 grid 8x3: min pcc 1.0000 bad users []
+batch 24 grid 6x4: min pcc 0.6532 bad users [8, 9, 10, 11, 12, 13, 16, 17, 18, 19, 20, 21]
+batch 32 grid 8x4: min pcc 1.0000 bad users []
+batch 32 grid 4x8: min pcc 0.7329 bad users [8, 9, 10, 11, 16, 17, 18, 19, 24, 25, 26, 27]
+batch 8 grid 8x1: min pcc 1.0000 bad users []
+batch 8 grid 4x2: min pcc 1.0000 bad users []

@@ -608,10 +608,22 @@ class FunctionalDecoder(LightweightModule):
         return out
 
     def _pad_sequence(self, x: ttnn.Tensor, front: int, back: int) -> ttnn.Tensor:
-        """Zero-pad the sequence axis on device. TILE tensors need a row-major detour for front padding."""
+        """Zero-pad the sequence axis on device.
+
+        The rows past the logical end become cache and attention inputs and must be finite,
+        so the input's implicit tile padding is zero-filled first. ``fill_implicit_tile_padding``
+        works in place (and returns the input itself when nothing needs filling) and ``ttnn.pad``
+        returns a view when the padding stays inside the tile, so the result may alias the
+        caller's buffer; nothing that aliases it is ever deallocated. Front padding needs a
+        row-major detour.
+        """
         pad = [(0, 0), (0, 0), (front, back), (0, 0)]
         if front == 0:
-            return ttnn.pad(x, pad, 0.0)
+            cleaned = ttnn.fill_implicit_tile_padding(x, 0.0, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            padded = ttnn.pad(cleaned, pad, 0.0)
+            if not _same_buffer(padded, cleaned) and not _same_buffer(cleaned, x):
+                cleaned.deallocate(True)
+            return padded
         rm = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT)
         padded = ttnn.pad(rm, pad, 0.0)
         rm.deallocate(True)
@@ -840,11 +852,30 @@ class FunctionalDecoder(LightweightModule):
         kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
     ) -> ttnn.Tensor:
         batch = hidden_states.shape[-2]
-        if not 1 <= batch <= MAX_DECODE_BATCH:
-            raise ValueError(f"decode batch must be in [1, {MAX_DECODE_BATCH}], got {batch}")
+        grid = self.mesh_device.compute_with_storage_grid_size()
+        physical, _, _ = decode_physical_batch(batch, grid.x, grid.y)
+        owned = []
+        if physical != batch:
+            extra = physical - batch
+            cleaned = ttnn.fill_implicit_tile_padding(hidden_states, 0.0, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            if not _same_buffer(cleaned, hidden_states):
+                owned.append(cleaned)
+            hidden_states = ttnn.pad(cleaned, [(0, 0), (0, 0), (0, extra), (0, 0)], 0.0)
+            if not _same_buffer(hidden_states, cleaned):
+                owned.append(hidden_states)
+            rope_pos = ttnn.pad(current_pos, [(0, extra)], 0)
+            padded_pos = ttnn.pad(current_pos, [(0, extra)], -1)
+            padded_table = ttnn.pad(page_table, [(0, extra), (0, 0)], 0)
+            for padded, source in ((rope_pos, current_pos), (padded_pos, current_pos), (padded_table, page_table)):
+                if not _same_buffer(padded, source):
+                    owned.append(padded)
+            current_pos = padded_pos
+            page_table = padded_table
+        else:
+            rope_pos = current_pos
         residual = hidden_states
         attn_in = self._rms_norm(hidden_states, self.weights.input_ln)
-        attn_out = self._attention_decode(attn_in, current_pos, page_table, kv_cache)
+        attn_out = self._attention_decode(attn_in, current_pos, page_table, kv_cache, rope_pos=rope_pos)
         attn_in.deallocate(True)
         h = ttnn.add(residual, attn_out, memory_config=ttnn.DRAM_MEMORY_CONFIG)
         attn_out.deallocate(True)
@@ -854,6 +885,14 @@ class FunctionalDecoder(LightweightModule):
         out = ttnn.add(h, mlp_out, memory_config=ttnn.DRAM_MEMORY_CONFIG)
         h.deallocate(True)
         mlp_out.deallocate(True)
+        if physical != batch:
+            sliced = ttnn.slice(
+                out, [0, 0, 0, 0], [1, 1, batch, self.geometry.hidden_size], memory_config=ttnn.DRAM_MEMORY_CONFIG
+            )
+            out.deallocate(True)
+            out = sliced
+            for tensor in owned:
+                tensor.deallocate(True)
         return out
 
     def _decode_rope(self, current_pos: ttnn.Tensor, batch: int, heads_mem_config) -> tuple[ttnn.Tensor, ttnn.Tensor]:
@@ -877,9 +916,12 @@ class FunctionalDecoder(LightweightModule):
         current_pos: ttnn.Tensor,
         page_table: ttnn.Tensor,
         kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
+        rope_pos: ttnn.Tensor | None = None,
     ) -> ttnn.Tensor:
         g = self.geometry
         batch = x.shape[-2]
+        if rope_pos is None:
+            rope_pos = current_pos
         xqkv = self._linear(x, self.weights.qkv)
         heads_mem_config = _decode_height_sharded_memory_config(self.mesh_device, batch, g.head_dim)
         q_heads, k_heads, v_heads = ttnn.experimental.nlp_create_qkv_heads_decode(
@@ -906,7 +948,7 @@ class FunctionalDecoder(LightweightModule):
         k_sh = ttnn.to_memory_config(k_normed, heads_mem_config, dtype=k_normed.dtype)
         k_normed.deallocate(True)
 
-        cos, sin = self._decode_rope(current_pos, batch, heads_mem_config)
+        cos, sin = self._decode_rope(rope_pos, batch, heads_mem_config)
         q_rot = ttnn.experimental.rotary_embedding_hf(
             q_sh, cos, sin, is_decode_mode=True, compute_kernel_config=self.compute_config
         )
@@ -974,14 +1016,37 @@ def _single_user_update_memory_config(head_dim: int) -> ttnn.MemoryConfig:
     )
 
 
+def decode_physical_batch(
+    batch: int, grid_x: int, grid_y: int, max_batch: int = MAX_DECODE_BATCH
+) -> tuple[int, int, int]:
+    """Physical decode batch and the ``x * y`` core rectangle its height-sharded users occupy.
+
+    The decode head and cache ops map users to cores in rows of 8: measured on this checkout,
+    every 8-wide rectangle (8x1 to 8x4) and every single-row rectangle up to 8 users is exact,
+    while 7x2, 4x4, 6x2, 4x3, 6x4 and 4x8 corrupt the users outside an 8-wide row mapping
+    (``doc/functional_decoder/tt_metal_decode_grid/``). So up to 8 users run as one
+    ``batch x 1`` row and larger batches run as ``round_up(batch, 8)`` users on ``8 x n``
+    rows; the padded users are given position ``-1`` so the cache update and attention skip
+    them, and their rows are sliced away. Returns ``(physical, x, y)``.
+    """
+    if not 1 <= batch <= max_batch:
+        raise ValueError(f"decode batch must be in [1, {max_batch}], got {batch}")
+    if batch <= 8:
+        physical, x, y = batch, batch, 1
+    else:
+        physical = round_up(batch, 8)
+        x, y = 8, physical // 8
+    if x > grid_x or y > grid_y:
+        raise ValueError(f"decode batch {batch} needs a {x}x{y} core rectangle; the grid is {grid_x}x{grid_y}")
+    return physical, x, y
+
+
 def _decode_height_sharded_memory_config(mesh_device: ttnn.MeshDevice, batch: int, width: int) -> ttnn.MemoryConfig:
     grid = mesh_device.compute_with_storage_grid_size()
-    num_cores = max(1, batch)
-    grid_x = min(num_cores, grid.x)
-    while num_cores % grid_x != 0 or num_cores // grid_x > grid.y:
-        grid_x -= 1
-    grid_y = num_cores // grid_x
-    cores = ttnn.CoreRangeSet([ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(grid_x - 1, grid_y - 1))])
+    physical, x, y = decode_physical_batch(batch, grid.x, grid.y)
+    if physical != batch:
+        raise ValueError(f"decode batch {batch} must be padded to {physical} users before sharding")
+    cores = ttnn.CoreRangeSet([ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(x - 1, y - 1))])
     return ttnn.create_sharded_memory_config(
         shape=(TILE_SIZE, width),
         core_grid=cores,

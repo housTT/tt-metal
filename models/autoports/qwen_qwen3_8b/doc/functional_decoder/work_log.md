@@ -1,5 +1,10 @@
 # Qwen3-8B functional decoder: work log
 
+Abbreviations: HF (Hugging Face), PCC (Pearson correlation coefficient), KV
+(key/value), RoPE (rotary position embedding), SDPA (scaled dot-product
+attention), MLP (multi-layer perceptron), DRAM (device dynamic RAM), L1
+(per-core local memory), ET (Eastern Time).
+
 Stage 1 (functional decoder) for `Qwen/Qwen3-8B` in
 `/home/hous/dev/tt-metal-wt-qwen3` (branch `hous/qwen3-8b-autoport`, started
 at HEAD `4f3c2b13fa`). Hardware: Blackhole P300, one chip per process
@@ -100,6 +105,12 @@ Result: 3 failed, 4 passed (`/tmp/qwen3_scratch/logs/default_suite_run1.log`).
    negative controls at starts 32 and 37 did not fail (see section 3).
 3. `test_real_weights_prefill_decode_pcc[17]`: prefill PCC 0.999996, decode
    PCC 0.007 at position 1024 (Gaussian fallback inputs, 33-block table).
+   This is the decode form of the same defect: the 33-block table spans 1056
+   positions, `k_chunk_size` was a fixed 128, so the decode kernel's padded K
+   walk for `cur_pos=1024` reached 1152 and read past the row.
+   `tt_metal_sdpa_padded_k/repro_paged_decode_sdpa.py` case B is exactly that
+   geometry (PCC 0.012); the fresh-process rerun passed only because the
+   stale memory past the row happened to be finite there.
 
 Investigation (scratch scripts `narrow*.py`, all on chip 0):
 
@@ -144,19 +155,7 @@ Also fixed in the suite: layer-0 inputs now come from real text, the layer-17
 real test uses 1000 tokens plus two decode steps so every row is a real
 activation, and the continuation gate uses the resumed window.
 
-## 5. Suite run 2 (final code)
-
-See README.md for the result tables. Commands and logs are listed in
-section 7.
-
-## 6. Hash note
-
-`black` reformatted the four Python files at 20:42 ET while suite run 1 and
-the first context run were already executing the pre-format code. Behaviour
-was identical, but every evidence JSON in the final set was regenerated from
-the final files so the recorded `functional_decoder_sha256` matches HEAD.
-
-## 7. Commands and logs
+## 5. Suite runs 2 to 5 and the first stage review
 
 Run 2 (20:52 ET, chip 0, `default_suite_run2.log`): 5 passed, 2 failed.
 `test_prefill_continuation`: the no-history control at start 32 scored 0.997
@@ -183,12 +182,50 @@ default suite on chip 0 (`default_suite_run4.log`, 7 passed, 4 skipped,
 123.7 s), context tests on chip 1 (`context_run4.log`, 3 passed, 59.9 s),
 Tracy and watcher on chip 1 (`perf_run4.log`, `watcher_run4.log`), trace
 allocation tracking and its positive control on chip 0
-(`trace_alloc_tracking4.log`). All evidence JSON carry
-`functional_decoder_sha256 = 0fd1cb7dde0f7cbc...` and
-`test_sha256 = 4247601ddaa4f1af...` (HEAD).
+(`trace_alloc_tracking4.log`). Committed as `1152228251`.
 
-Results are tabulated in `README.md`; the raw numbers are in the JSON files
-listed there.
+Stage review 1 (21:19 to 21:33 ET, fresh xhigh subagent, read-only):
+`more-work-needed`. Required work: `_decode_height_sharded_memory_config`
+searched for a grid divisor without a floor and would raise
+`ZeroDivisionError` for decode batches 13, 17, 19, 23, 26, 29 and 31 on the
+11x10 grid (device evidence covered batches 1, 4 and 32 only). Fix:
+`ttnn.num_cores_to_corerangeset(batch, grid, row_wise=True)` with an explicit
+range check; `test_decode_core_grid_for_every_batch_host` builds the core set
+for every batch 1..32 on 11x10, 13x10 and 8x8 grids; `test_traced_decode`
+gained batch 13 and 31 variants. Other review items addressed in the same
+round: `_pad_sequence` now zero-fills the implicit tile padding into a fresh
+copy before padding (the padded rows become cache and attention inputs, and
+the caller's buffer is never aliased); evidence JSON from the watcher and
+tracker runs get a `QWEN3_EVIDENCE_SUFFIX` name instead of overwriting the
+default-suite files; `pcc_layer*.json` record `input_origin` and the test
+asserts a real origin; a block-size-64 device test (prefill, continuation at
+start 37 with 27 token-by-token rows, decode); length 33 re-run after 8225 on
+the same instance and cache; a profiled continuation-prefill window
+(`PERF_PREFILL_CONT_*`); the README gained a capability-contract table, the
+real no-fallback basis (the `throw_exception_on_fallback` override is only
+declared in this checkout and nothing reads it), the chunk-32 cliff for
+32-aligned starts, and the note that no tt-metal issue has been filed yet.
+
+Run 5 (21:36 ET): all device evidence regenerated with those changes; see
+section 7.
+
+## 6. Concurrency and hash notes
+
+Two chips were used concurrently (chip 0 for the default suite, chip 1 for
+the context, Tracy and watcher runs) as the environment for this run
+explicitly permits one process per chip on chips 0 and 1; watcher and
+profiler never shared a process or a chip. `tt-device-usage` asks for one
+device command at a time; this run departs from that on purpose to fit the
+budget, and the `Inspector RPC server: Address already in use` warnings in
+the logs are the visible side effect (the second process cannot bind the
+shared inspector port; nothing else is affected).
+
+### Hash note
+
+`black` reformatted the four Python files at 20:42 ET while suite run 1 and
+the first context run were already executing the pre-format code. Behaviour
+was identical, but every evidence JSON in the final set was regenerated from
+the final files so the recorded `functional_decoder_sha256` matches HEAD.
 
 ## 7. Commands and logs
 
@@ -222,3 +259,97 @@ with refreshed inputs), token and current_pos refreshed by
 never refreshed after setup, no synchronization inside the replayed region.
 Positions advance on the host in this layer-level harness; the generator
 stage owns on-device advancement.
+
+### Device contention event (21:40 to 22:04 ET)
+
+- Signature: `UMD | Waiting for lock 'CHIP_IN_USE_0_PCIe' which is currently
+  held by thread TID: 1633428, PID: 1633428` in `default_suite_run6.log`
+  and the same for `CHIP_IN_USE_1_PCIe` in `context_run6.log`; the
+  `mesh_device` fixture then hit the 300 s pytest-timeout inside
+  `ttnn.get_pcie_device_ids()` (`conftest.py:572`), reported as an ERROR at
+  setup of `test_advertised_context_prefill_and_decode[ctx40960]`; the two
+  later tests in that process passed once the lock was released.
+- Cause: PID 1633428 is another bringup job's pytest
+  (`/home/hous/dev/ornith-1.5-9b/tt-metal/python_env/bin/python -m pytest ...
+  models/autoports/ornith_ai_ornith_1_5_9b/tests`), started without
+  `TT_VISIBLE_DEVICES` (checked read-only in `/proc/1633428/environ`), so it
+  opened all four chips, including chips 0 and 1 assigned to this stage.
+- Actions: none against that job (not mine to stop); my own parked run-6
+  default-suite process (PID 1637727) was stopped; no `tt-smi -r`, no lock
+  files cleared, no mesh smoke needed (the device opened normally afterwards).
+  The battery was restarted after the other process exited (its outer
+  `timeout 1500` bounds it). This is infrastructure contention, not a model
+  result; the evidence recorded for the stage comes from the restarted runs.
+
+### Run 7 (22:01 ET) and the padded-batch alias incident
+
+Run 7 started on both chips as soon as the other job released them. Chip 1
+finished the context tests (3 passed, 59.6 s) and the Tracy run. On chip 0
+`test_traced_decode[batch13]` failed at 22:03:16 with `TT_THROW: Tensor is
+not allocated` on the trace-capture call that follows the eager call, and
+the watcher run on chip 1 (which also runs batch 13) stopped at the same
+point. Cause: for the padded physical batch, `decode_forward` padded the
+caller's ROW_MAJOR int32 `current_pos` with `ttnn.pad`; for a `[13]` tensor
+that pad fits inside the buffer's alignment slack and comes back as a view of
+the caller's buffer (the same mechanism as the tile-padding view found in
+run 2), and the decoder deallocated it as its own, so the caller's
+`current_pos` was dead on the next call. The exception fired inside an open
+trace capture, and both pytest processes then spun on the host inside
+`ttnn.close_mesh_device` during the fixture teardown (py-spy stacks in
+`triage/host_stacks_batch13_spin.txt`, both at
+`ttnn/distributed/distributed.py:689`, 100 percent CPU for 30 minutes, while
+the watcher on chip 1 kept dumping healthy device state, 173 dumps, no fatal
+lines). This is a host-side consequence of the bug, not a device hang.
+`tools/tt-triage.py` was not run because it attaches to all four chips and
+chips 2 and 3 were serving another job's vLLM tests at the time.
+
+Fix: the padded position, RoPE-position and page-table tensors are released
+only when `_same_buffer` says they do not alias the caller's tensors (same
+guard as the hidden-state path). Recovery: my two processes were stopped
+(`kill`, then `kill -9` for the two Python workers; nothing of the other job
+was touched, no reset, no lock files cleared); a bounded mesh smoke
+(`open_mesh_device`, one `ttnn.add`, `close_mesh_device`) passed on chip 1
+immediately and chip 0 was by then held by my own tracker run, which had
+started with the fixed decoder. The battery was restarted: chip 1 runs
+context, Tracy and watcher; chip 0 runs the tracker gate, the positive
+control and then the default suite (run 8).
+
+### The decode core-rectangle rule (23:08 to 23:14 ET)
+
+With the alias fix in place, `test_traced_decode[batch13]` still failed: 12
+users at PCC 0.99998 and one at 0.588. An explicit batch of 14 real users on
+the same 7x2 rectangle (no padding at all) reproduced it exactly: users 0..6
+correct, users 7..13 wrong, so the padding logic was not the cause. A
+14-rectangle probe (`tt_metal_decode_grid/probe_decode_core_rectangles.py`
+and `.log`) gave the rule: every 8-wide rectangle (8x1, 8x2, 8x3, 8x4) and
+every single-row rectangle up to 8 users (and 4x2) is exact; 7x2, 2x7, 4x4,
+2x8, 6x2, 4x3, 3x4, 6x4 and 4x8 corrupt exactly the users that fall outside
+an 8-wide row mapping (for 32 users on 4x8: users 8..11, 16..19, 24..27).
+One of the decode ops therefore maps height-sharded users to cores in rows
+of 8, the convention `tt_transformers` uses (batch 32 on 8x4). The decoder
+now runs up to 8 users as one `batch x 1` row and larger batches as
+`round_up(batch, 8)` users on `8 x n`; batch 13 runs as 16 on 8x2 and batch
+31 as 32 on 8x4, both passing the traced-decode test on chip 1 (37 s) before
+the final battery was started. `test_decode_core_grid_for_every_batch_host`
+pins the rule for every batch 1..32 on three grids. The 8-wide requirement
+is a tt-metal op property this stage records as evidence; no issue has been
+filed for it.
+
+### Run 9 (23:14 to 23:18 ET, final evidence)
+
+Both batteries ran on the final files (decoder sha256 `6e3d5f8a7b3ff76b...`,
+test sha256 `c3ae0fa4fd92a3c3...`): chip 0 ran the default suite
+(`default_suite_run9.log`: 10 passed, 4 opt-in skipped, 162 s), the trace
+allocation gate over all four traced-decode variants
+(`trace_alloc_tracking9.log`: 4 passed, 64 s, `TT_METAL_TRACE_ALLOC_TRACKING=1
+TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0`, evidence suffix `tracked`) and the
+tracker positive control (raised as expected); chip 1 ran the context tests
+(`context_run9.log`: 3 passed, 58 s), Tracy (`perf_run9.log`, 1 passed; CSV
+`generated/profiler/qwen3_functional/reports/2026_10_27_23_15_27/`) and the
+watcher over all four traced-decode variants (`watcher_run9.log`: 4 passed,
+81 s, evidence suffix `watcher`; `watcher/summary.json` clean, 4 dumps, 0
+fatal-pattern matches). Every evidence JSON under `doc/functional_decoder`
+records those two hashes. Results are tabulated in `README.md`.
+
+The second stage-review pass and the stage commit SHA are recorded at the end
+of this file.

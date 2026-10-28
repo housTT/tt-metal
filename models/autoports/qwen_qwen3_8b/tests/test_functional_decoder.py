@@ -96,7 +96,11 @@ def _provenance(mesh_device, exact_command: str, weight_origin: str) -> dict:
 
 
 def _write_json(name: str, payload: dict) -> Path:
+    """Write evidence JSON; ``QWEN3_EVIDENCE_SUFFIX`` keeps debug-gate runs from overwriting suite evidence."""
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    suffix = os.getenv("QWEN3_EVIDENCE_SUFFIX", "")
+    if suffix:
+        name = name.replace(".json", f".{suffix}.json")
     path = ARTIFACT_DIR / name
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     return path
@@ -136,9 +140,9 @@ def _blocks_for(tokens: int) -> int:
     return (tokens + BLOCK_SIZE - 1) // BLOCK_SIZE
 
 
-def _kv_cache(mesh_device, num_blocks: int):
+def _kv_cache(mesh_device, num_blocks: int, block_size: int = BLOCK_SIZE):
     return FunctionalDecoder.allocate_kv_cache(
-        mesh_device, num_blocks=num_blocks, block_size=BLOCK_SIZE, num_kv_heads=NUM_KV_HEADS, head_dim=HEAD_DIM
+        mesh_device, num_blocks=num_blocks, block_size=block_size, num_kv_heads=NUM_KV_HEADS, head_dim=HEAD_DIM
     )
 
 
@@ -155,6 +159,7 @@ class LayerFixture:
         self._embedding = None
         self._token_ids = None
         self._captured = None
+        self.input_origin = "unset"
 
     def reference(self) -> HFLayerReference:
         return HFLayerReference(self.config, self.layer_idx, self.state)
@@ -172,6 +177,7 @@ class LayerFixture:
                 )
             if seq_len <= self._token_ids.shape[0]:
                 offset = int(torch.randint(0, self._token_ids.shape[0] - seq_len + 1, (1,), generator=generator))
+                self.input_origin = "real_text_tokens_through_real_embedding"
                 return self._embedding[self._token_ids[offset : offset + seq_len]].unsqueeze(0)
         if captured is not None:
             artifact = ARTIFACT_DIR / captured["artifact"]
@@ -179,14 +185,17 @@ class LayerFixture:
                 if self._captured is None:
                     self._captured = torch.load(artifact)["hidden"]
                 offset = int(torch.randint(0, captured["tokens"] - seq_len + 1, (1,), generator=generator))
+                self.input_origin = "real_captured_hidden_state"
                 return self._captured[offset : offset + seq_len].unsqueeze(0).to(torch.bfloat16)
         if self.layer_idx == 0 and self.weight_origin == "real":
             if self._embedding is None:
                 self._embedding = weight_source.load_embedding()
             tokens = torch.randint(0, self.config.vocab_size, (seq_len,), generator=generator)
+            self.input_origin = "random_tokens_through_real_embedding"
             return self._embedding[tokens].unsqueeze(0)
         if captured is None:
             raise RuntimeError(f"no recorded input statistics for layer {self.layer_idx}")
+        self.input_origin = "gaussian_with_recorded_statistics"
         return (torch.randn(1, seq_len, HIDDEN, generator=generator) * captured["std"] + captured["mean"]).to(
             torch.bfloat16
         )
@@ -305,6 +314,39 @@ def test_synthetic_weights_host():
             assert tuple(real[key].shape) == tuple(stats["layers"]["0"]["weights"][key]["shape"])
 
 
+class _GridStub:
+    def __init__(self, x: int, y: int):
+        self._grid = ttnn.CoreCoord(x, y)
+
+    def compute_with_storage_grid_size(self):
+        return self._grid
+
+
+@pytest.mark.parametrize("grid", [(11, 10), (13, 10), (8, 8)], ids=["grid11x10", "grid13x10", "grid8x8"])
+def test_decode_core_grid_for_every_batch_host(grid, expect_error):
+    """Every decode batch in 1..32 gets exactly one core per user on each plausible grid."""
+    stub = _GridStub(*grid)
+    padded = {}
+    for batch in range(1, 33):
+        physical, x, y = decoder_module.decode_physical_batch(batch, *grid)
+        assert batch <= physical <= 32 and x * y == physical and x <= grid[0] and y <= grid[1], (grid, batch)
+        assert (x, y) == ((batch, 1) if batch <= 8 else (8, physical // 8)), (grid, batch, x, y)
+        if physical != batch:
+            padded[batch] = physical
+        config = decoder_module._decode_height_sharded_memory_config(stub, physical, HEAD_DIM)
+        assert config.shard_spec.grid.num_cores() == physical, (grid, batch)
+        assert len(config.shard_spec.grid.ranges()) == 1
+        assert tuple(config.shard_spec.shape) == (TILE_SIZE, HEAD_DIM)
+    assert padded == {b: ((b + 7) // 8) * 8 for b in range(9, 33) if b % 8}, padded
+    with expect_error(ValueError, "decode batch must be in"):
+        decoder_module.decode_physical_batch(0, *grid)
+    with expect_error(ValueError, "decode batch must be in"):
+        decoder_module.decode_physical_batch(33, *grid)
+    if padded:
+        with expect_error(ValueError, "must be padded"):
+            decoder_module._decode_height_sharded_memory_config(stub, next(iter(padded)), HEAD_DIM)
+
+
 def test_hot_path_fallback_audit():
     forbidden = (
         "torch.",
@@ -385,6 +427,7 @@ def test_real_weights_prefill_decode_pcc(mesh_device, device_params, layer_idx, 
         "page_table_users": users,
         "page_table": table.tolist(),
         "pcc_bar": PCC_BAR,
+        "input_origin": fixture.input_origin,
         "prefill": {"pcc": prefill_pcc, "delta_pcc": prefill_delta_pcc, "repeat_bit_equal": prefill_repeat_bit_equal},
         "decode": decode_records,
         "provenance": _provenance(
@@ -397,6 +440,9 @@ def test_real_weights_prefill_decode_pcc(mesh_device, device_params, layer_idx, 
     }
     _write_json(f"pcc_layer{layer_idx}_{LAYER_KIND}.json", payload)
     assert fixture.weight_origin == "real" or os.getenv("QWEN3_FORCE_SYNTHETIC_WEIGHTS") == "1"
+    assert (
+        fixture.input_origin.startswith("real_") or os.getenv("QWEN3_FORCE_SYNTHETIC_WEIGHTS") == "1"
+    ), fixture.input_origin
     assert prefill_pcc >= PCC_BAR, prefill_pcc
     assert prefill_delta_pcc >= DELTA_PCC_BAR, prefill_delta_pcc
     assert prefill_repeat_bit_equal
@@ -405,7 +451,7 @@ def test_real_weights_prefill_decode_pcc(mesh_device, device_params, layer_idx, 
         assert record["delta_pcc"] >= DELTA_PCC_BAR, record
 
 
-BOUNDARY_LENGTHS = [1, 31, 32, 33, 63, 64, 65, 255, 256, 257, 1023, 1024, 1025, 4095, 4096, 4097, 8192, 8225]
+BOUNDARY_LENGTHS = [1, 31, 32, 33, 63, 64, 65, 255, 256, 257, 1023, 1024, 1025, 4095, 4096, 4097, 8192, 8225, 33]
 
 
 @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
@@ -724,12 +770,92 @@ def test_multi_row_prefill(mesh_device, device_params):
         assert record["pcc"] >= PCC_BAR and record["padding_is_zero"], record
 
 
+@pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+@pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
+def test_block_size_64_prefill_continuation_decode(mesh_device, device_params):
+    """A 64-token cache block: fresh prefill, continuation at a tile-unaligned start, then decode."""
+    fixture = _layer(0)
+    decoder = _decoder(mesh_device, fixture)
+    block_size = 64
+    seq_len = 300
+    start = 37
+    users = 2
+    user_id = 1
+    blocks = (seq_len + 1 + block_size - 1) // block_size
+    table, page_table = _page_table(mesh_device, users, blocks, seed=23)
+    hidden = fixture.inputs(seq_len + 1, seed=1100)
+    reference = fixture.reference()
+    hf_full = reference.forward(hidden[:, :seq_len], 0)
+    hf_next = reference.forward(hidden[:, seq_len:], seq_len)
+    kv_full = _kv_cache(mesh_device, users * blocks, block_size=block_size)
+    tt_full = _to_torch(
+        decoder.prefill_forward(
+            _tt(mesh_device, hidden[:, :seq_len].unsqueeze(1)), page_table=page_table, kv_cache=kv_full, user_id=user_id
+        )
+    )[:, 0]
+    kv_cont = _kv_cache(mesh_device, users * blocks, block_size=block_size)
+    decoder.prefill_forward(
+        _tt(mesh_device, hidden[:, :start].unsqueeze(1)), page_table=page_table, kv_cache=kv_cont, user_id=user_id
+    )
+    cont = _to_torch(
+        decoder.prefill_forward(
+            _tt(mesh_device, hidden[:, start:seq_len].unsqueeze(1)),
+            page_table=page_table,
+            kv_cache=kv_cont,
+            user_id=user_id,
+            start_pos=start,
+        )
+    )[:, 0]
+    resumed_in = hidden[:, start:seq_len]
+    ref_delta = hf_full[:, start:].to(torch.float32) - resumed_in.to(torch.float32)
+    act_delta = cont.to(torch.float32) - resumed_in.to(torch.float32)
+    per_row = [_pcc(ref_delta[0, r], act_delta[0, r]) for r in range(seq_len - start)]
+    user_table = _tt(mesh_device, table[user_id : user_id + 1], dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT)
+    xd = _tt(mesh_device, hidden[:, seq_len:].reshape(1, 1, 1, HIDDEN))
+    current_pos = _tt(
+        mesh_device, torch.tensor([seq_len], dtype=torch.int32), dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT
+    )
+    od = _to_torch(
+        decoder.decode_forward(xd, current_pos=current_pos, page_table=user_table, kv_cache=kv_cont)
+    ).reshape(1, 1, HIDDEN)
+    token_positions, fill_start = plan_cache_writes(start, seq_len, block_size)
+    payload = {
+        "layer_idx": 0,
+        "block_size": block_size,
+        "sequence_length": seq_len,
+        "continuation_start": start,
+        "token_by_token_rows": token_positions,
+        "fill_start": fill_start,
+        "page_table": table.tolist(),
+        "full_prefill_pcc_vs_hf": _pcc(hf_full, tt_full),
+        "continuation_pcc_vs_hf": _pcc(hf_full[:, start:], cont),
+        "continuation_delta_pcc_vs_tt_full": _delta_pcc(tt_full[:, start:], cont, resumed_in),
+        "continuation_row_delta_pcc_min_vs_hf": min(per_row),
+        "decode_after_continuation_pcc_vs_hf": _pcc(hf_next, od),
+        "decode_k_chunk": decoder_module.decode_sdpa_k_chunk_size(blocks * block_size),
+        "provenance": _provenance(
+            mesh_device,
+            _evidence_command(
+                "python -m pytest -q models/autoports/qwen_qwen3_8b/tests/test_functional_decoder.py -k test_block_size_64_prefill_continuation_decode"
+            ),
+            fixture.weight_origin,
+        ),
+    }
+    _write_json(f"block64_{LAYER_KIND}.json", payload)
+    assert len(token_positions) == block_size - start and fill_start == block_size
+    assert payload["full_prefill_pcc_vs_hf"] >= PCC_BAR
+    assert payload["continuation_pcc_vs_hf"] >= PCC_BAR
+    assert payload["continuation_delta_pcc_vs_tt_full"] >= DELTA_PCC_BAR
+    assert payload["continuation_row_delta_pcc_min_vs_hf"] >= ROW_DELTA_PCC_BAR
+    assert payload["decode_after_continuation_pcc_vs_hf"] >= PCC_BAR
+
+
 DECODE_LENGTH_CHOICES = [1, 31, 32, 33, 100, 255, 256, 257, 600]
 
 
 @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
 @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
-@pytest.mark.parametrize("batch", [1, 32], ids=["batch1", "batch32"])
+@pytest.mark.parametrize("batch", [1, 13, 31, 32], ids=["batch1", "batch13", "batch31", "batch32"])
 def test_traced_decode(mesh_device, device_params, batch):
     """Eager and traced paged decode for a batch of users with distinct positions and permuted pages."""
     fixture = _layer(0)
@@ -1054,6 +1180,33 @@ def test_functional_decoder_perf_profile(mesh_device, device_params, batch):
     signpost(f"PERF_PREFILL_{case_id}_END")
     ttnn.ReadDeviceProfiler(mesh_device)
 
+    cont_start = 37
+    cont_len = 100
+    cont_table, cont_page_table = _page_table(mesh_device, 1, _blocks_for(cont_start + cont_len), seed=29)
+    cont_cache = _kv_cache(mesh_device, cont_page_table.shape[1])
+    cont_hidden = fixture.inputs(cont_start + cont_len, seed=901)
+    decoder.prefill_forward(
+        _tt(mesh_device, cont_hidden[:, :cont_start].unsqueeze(1)), page_table=cont_page_table, kv_cache=cont_cache
+    )
+    cont_args = dict(
+        hidden_states=_tt(mesh_device, cont_hidden[:, cont_start:].unsqueeze(1)),
+        page_table=cont_page_table,
+        kv_cache=cont_cache,
+        start_pos=cont_start,
+    )
+    decoder.prefill_forward(**cont_args)
+    ttnn.synchronize_device(mesh_device)
+    ttnn.ReadDeviceProfiler(mesh_device)
+    signpost(f"PERF_PREFILL_CONT_{case_id}")
+    started = time.perf_counter()
+    cont_out = decoder.prefill_forward(**cont_args)
+    ttnn.synchronize_device(mesh_device)
+    measured["prefill_continuation_host_ms"] = (time.perf_counter() - started) * 1000
+    measured["prefill_continuation"] = {"start_pos": cont_start, "tokens": cont_len}
+    signpost(f"PERF_PREFILL_CONT_{case_id}_END")
+    ttnn.ReadDeviceProfiler(mesh_device)
+    assert cont_out.shape[-2] == cont_len
+
     trace_id = ttnn.begin_trace_capture(mesh_device, cq_id=0)
     traced_out = decoder.decode_forward(**decode_args)
     ttnn.end_trace_capture(mesh_device, trace_id, cq_id=0)
@@ -1085,6 +1238,7 @@ def test_functional_decoder_perf_profile(mesh_device, device_params, batch):
             "decode_batch": batch,
             "signposts": {
                 "prefill": [f"PERF_PREFILL_{case_id}", f"PERF_PREFILL_{case_id}_END"],
+                "prefill_continuation": [f"PERF_PREFILL_CONT_{case_id}", f"PERF_PREFILL_CONT_{case_id}_END"],
                 "decode": [f"PERF_DECODE_{case_id}", f"PERF_DECODE_{case_id}_END"],
             },
             "provenance": _provenance(
