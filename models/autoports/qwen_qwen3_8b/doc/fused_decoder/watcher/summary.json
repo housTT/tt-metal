@@ -1,0 +1,33 @@
+{
+  "command": "TT_VISIBLE_DEVICES=1 TT_METAL_WATCHER=10 TT_METAL_LOGS_PATH=models/autoports/qwen_qwen3_8b/doc/fused_decoder/watcher QWEN3_EVIDENCE_SUFFIX=watcher timeout 2400 python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_fused_decoder.py -k 'test_traced_decode or test_repeated_runs_stress' -p no:cacheprovider",
+  "console_log": "/tmp/qwen3_fused/logs/watcher_final.log (scratch, not committed)",
+  "coverage_note": "the watcher rewrites generated/watcher/watcher.log on every device open unless TT_METAL_WATCHER_APPEND=1 is set and the mesh_device fixture opens one device per test, so the committed log holds the last session only; the other tests are covered by the pass status of the same pytest process with the watcher armed, which re-throws any watcher error",
+  "evidence_json_from_this_run": [
+    "trace_full_attention_batch1.watcher.json",
+    "trace_full_attention_batch13.watcher.json",
+    "trace_full_attention_batch31.watcher.json",
+    "trace_full_attention_batch32.watcher.json",
+    "stress_full_attention.watcher.json"
+  ],
+  "fatal_pattern_scan": {
+    "matches": [],
+    "pattern": "error|assert|fatal|hang|deadlock|watcher.*fail|invalid|mismatch|exception"
+  },
+  "fused_decoder_sha256": "330c9fe1e6800454332e02e80090cf9d43776151cb17e32e343d85343601b3e6",
+  "hardware": "Blackhole P300, 1x1 mesh, TT_VISIBLE_DEVICES=1",
+  "model_id": "Qwen/Qwen3-8B",
+  "note": "the repo pre-commit hook strips trailing whitespace from watcher.log before commit; the sha256 is recomputed on the committed file",
+  "pytest_result": "5 passed, 21 deselected in 81.79s (0:01:21)",
+  "recorded_utc": "2026-10-28T17:38:35Z",
+  "result": "clean",
+  "tests": [
+    "test_traced_decode[blackhole-batch1-device_params0-mesh_device0]",
+    "test_repeated_runs_stress[blackhole-device_params0-mesh_device0]",
+    "test_traced_decode[blackhole-batch13-device_params0-mesh_device0]",
+    "test_traced_decode[blackhole-batch31-device_params0-mesh_device0]",
+    "test_traced_decode[blackhole-batch32-device_params0-mesh_device0]"
+  ],
+  "watcher_dumps": 6,
+  "watcher_log": "generated/watcher/watcher.log",
+  "watcher_log_lines": 948
+}
