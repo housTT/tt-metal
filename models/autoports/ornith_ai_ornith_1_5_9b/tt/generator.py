@@ -356,16 +356,20 @@ class OrnithGenerator(Generator):
             self._active_slots = old_active
             return 0
         moved = 0
+        row_index = self.model.upload(
+            torch.tensor(values, dtype=torch.int32).reshape(1, -1), dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT
+        )
         for layer in self.kv_cache.decode_layers:
             if layer.is_full_attention:
                 continue
             if hasattr(layer, "remap_recurrent_rows"):
                 layer.remap_recurrent_rows(values)
+                layer.remap_conv_rows(row_index)
             else:
-                self._remap_serving_rows(layer.recurrent_state, values)
-            for target in layer.conv_state:
-                self._remap_serving_rows(target, values)
+                for target in [layer.recurrent_state] + layer.conv_state:
+                    self._remap_serving_rows(target, values)
             moved += 1
+        ttnn.deallocate(row_index)
         for target in (self.kv_cache.active_recurrent, self.kv_cache.active_conv):
             self._remap_serving_rows(target, values)
         lanes = values + list(range(self.max_batch_size, 32))

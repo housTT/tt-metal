@@ -998,22 +998,70 @@ class OptimizedDecoder(FusedDecoder):
         ttnn.where(select, state_row, dst, output_tensor=dst)
         ttnn.deallocate(select)
 
+    def _state_staging_memory(self):
+        dst = self.recurrent_state
+        shape = [int(d) for d in dst.shape]
+        grid = ttnn.num_cores_to_corerangeset(shape[1], self.device.compute_with_storage_grid_size(), True)
+        return ttnn.MemoryConfig(
+            ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
+            ttnn.BufferType.L1,
+            ttnn.ShardSpec(grid, [shape[2], shape[3]], ttnn.ShardOrientation.ROW_MAJOR),
+        )
+
     def remap_recurrent_rows(self, values):
-        """Permute recurrent-state rows in place (``values[new] = old``) through row snapshots and slot writes."""
+        """Permute recurrent-state rows in place (``values[new] = old``), one cycle at a time.
+
+        Each cycle keeps one DRAM snapshot of its first row; every other move
+        slices the source row straight into the sharded staging layout and
+        writes it to its new slot, so a move costs two ops.
+        """
         target = self.recurrent_state
         shape = [int(d) for d in target.shape]
-        moves = [(row, source) for row, source in enumerate(values) if row != source]
-        saved = {}
-        for _, source in moves:
-            begins, ends = [0] * len(shape), list(shape)
-            begins[0], ends[0] = source, source + 1
-            saved[source] = ttnn.slice(target, begins, ends)
-        try:
-            for row, source in moves:
-                self.scatter_recurrent_row(saved[source], row)
-        finally:
-            for tensor in saved.values():
-                ttnn.deallocate(tensor)
+        staging = self._state_staging_memory()
+        ends = list(shape)
+        seen = set()
+
+        def row_bounds(index):
+            begins, finish = [0] * len(shape), list(ends)
+            begins[0], finish[0] = index, index + 1
+            return begins, finish
+
+        for start in range(shape[0]):
+            if start in seen or values[start] == start:
+                continue
+            begins, finish = row_bounds(start)
+            saved = ttnn.slice(target, begins, finish)
+            current = start
+            while True:
+                seen.add(current)
+                source = values[current]
+                if source == start:
+                    self.scatter_recurrent_row(saved, current)
+                    break
+                begins, finish = row_bounds(source)
+                staged = ttnn.slice(target, begins, finish, memory_config=staging)
+                ttnn.experimental.slice_write(
+                    staged, target, [current, 0, 0, 0], [current + 1] + shape[1:], [1, 1, 1, 1]
+                )
+                ttnn.deallocate(staged)
+                current = source
+            ttnn.deallocate(saved)
+
+    def remap_conv_rows(self, index_tensor):
+        """Permute the ``[B, 1, conv_dim]`` conv buffers with one row gather per buffer."""
+        for buffer in self.conv_state:
+            shape = [int(d) for d in buffer.shape]
+            flat = ttnn.reshape(
+                ttnn.to_layout(buffer, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG),
+                [shape[0], shape[2]],
+            )
+            gathered = ttnn.embedding(
+                index_tensor, flat, layout=ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG
+            )
+            moved = ttnn.reshape(gathered, shape)
+            ttnn.copy(moved, buffer)
+            ttnn.deallocate(moved)
+            ttnn.deallocate(flat)
 
     def scatter_conv_tails(self, flat_tokens, tail_slot_index, group_mask):
         """Gather each tap's tail row per slot from the ``[rows * seq, conv_dim]`` stream and mask it in."""
