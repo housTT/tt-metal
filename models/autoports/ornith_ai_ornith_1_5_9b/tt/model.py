@@ -356,8 +356,8 @@ class OrnithModel:
 
     def batched_prefill_buckets(self, max_batch):
         """``(rows, seq)`` shapes the batched path can execute for a cache of ``max_batch`` slots."""
-        policy = self.batched_prefill
-        if not policy["enabled"] or max_batch < 2:
+        policy = getattr(self, "batched_prefill", None)
+        if policy is None or not policy["enabled"] or max_batch < 2:
             return []
         shapes = []
         for seq in range(128, min(policy["max_len"], self.prefill_chunk) + 1, 128):
@@ -796,8 +796,14 @@ class OrnithModel:
 
     def _batched_prefill_groups(self, prompt_lens, starts, cache, return_all_logits):
         """Index groups of fresh rows that share one padded bucket, each padded to a warmed row bucket."""
-        policy = self.batched_prefill
-        if cache.batched is None or not policy["enabled"] or return_all_logits or self.prefix_cache is not None:
+        policy = getattr(self, "batched_prefill", None)
+        if (
+            getattr(cache, "batched", None) is None
+            or policy is None
+            or not policy["enabled"]
+            or return_all_logits
+            or self.prefix_cache is not None
+        ):
             return []
         by_bucket = {}
         for user, (length, start) in enumerate(zip(prompt_lens, starts)):
