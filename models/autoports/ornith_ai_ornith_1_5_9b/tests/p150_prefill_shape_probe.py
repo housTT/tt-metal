@@ -11,6 +11,7 @@ from pathlib import Path
 import torch
 from transformers import AutoConfig, AutoTokenizer
 
+import ttnn
 from models.common.sampling import SamplingParams
 
 from ..tt.functional_decoder import num_blocks_for_context

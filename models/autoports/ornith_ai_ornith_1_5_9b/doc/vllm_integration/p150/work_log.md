@@ -337,8 +337,12 @@ disposition of the controlled sampling failure. Actions:
   growth 1121 to 1122 is the same). The merge warm (`refresh_serving_inputs`
   before the first capture) is applied in the second follow-up commit; the
   second recheck below records whether the dummy admission still compiles
-  after capture. In every run, zero captures or releases happen after
-  `Application startup complete`.
+  after capture. On the final servers (`tracked_b32`, `b32_final`,
+  `b1_primary`, `b32_recheck`, `b32_recheck2`) zero captures or releases
+  happen after `Application startup complete`; `b32_compat_prefinal` had the
+  one in-workload recapture (21:36:42 UTC, penalized history reset) that the
+  `reset_output_state` warm fixed, and the kept attempt logs under
+  `tracked_b32/` show the earlier in-workload recaptures before their fixes.
 - Recheck server (`b32_recheck/`, 19:19 to 19:24): non-aligned
   requests pass with the corrected chat parity assertion (rendered template
   equals the server's 25 prompt tokens); mixed-shape 41/41, zero captures,
@@ -390,7 +394,7 @@ hashes and `git_head` recorded): zero new programs and zero captures for 128,
 identical greedy outputs. `readiness_vllm/server.log` and
 `vllm_run_summary.json` are the B1 primary server's files.
 
-## Record-keeping notes (20:25)
+## Record-keeping notes (20:10)
 
 - `prefill_shape_probe_v8_tracked_committed.json`: the `source_sha256`,
   `git_head` and `git_dirty_files` fields were appended after the run by a
@@ -405,8 +409,10 @@ identical greedy outputs. `readiness_vllm/server.log` and
   remap warms, identical results to `adapter_device_tracker_p150.json`) is the
   later of the two tracked adapter probes; both predate the sampler-key and
   merge warms. The committed-source coverage of the async decode contract is
-  indirect: greedy token ids of the mixed-shape and non-aligned requests are
-  byte-identical across the five B32 servers, and the v8 tracked probe passes.
+  indirect: greedy token ids of the mixed-shape requests are byte-identical
+  across the five B32 servers, the non-aligned ids across the four B32 servers
+  that ran that script (`b32_compat_prefinal` has no non-aligned file) and the
+  ten B1 rows, and the v8 tracked probe passes.
 - Process cleanup: the `pgrep` results after each stop were observed in the
   chained command outputs and not archived; each server directory's
   `runner.log` ends with the runner's `Run summary:` line, and the final

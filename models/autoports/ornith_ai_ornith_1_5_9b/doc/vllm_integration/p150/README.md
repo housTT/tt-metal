@@ -128,8 +128,11 @@ merge before the first capture: the `b32_recheck2` server (committed sources,
 at 1122 programs with no later growth, release or recapture, and serves the
 non-aligned and mixed-shape workloads with zero captures
 (`b32_recheck2/trace_reuse_summary.json`: one startup capture, 38 eager
-prefills, zero workload captures or releases). In every earlier run the
-recapture happened before `Application startup complete` and never after.
+prefills, zero workload captures or releases). On the other final servers
+(`tracked_b32`, `b32_final`, `b1_primary`, `b32_recheck`) the merge recapture
+happened before `Application startup complete` and nothing was captured or
+released after it; `b32_compat_prefinal` is the one served run with an
+in-workload recapture (the penalized history reset, fixed before `b32_final`).
 
 Residual: the generator accepts a continuation at a start position that is
 not a multiple of 128 through its legacy path, which compiles per-position
@@ -146,7 +149,9 @@ variant is the original 32-row graph.
 
 ## Non-aligned prompt lengths
 
-`tracked_b32/nonaligned_requests.json` (`nonaligned_requests.py`): raw
+`tracked_b32/nonaligned_requests.json` (`nonaligned_requests.py`; the chat
+parity field there predates the script fix, `b32_recheck2/nonaligned_requests.json`
+carries the corrected assertion): raw
 completions of 131, 65, 2305, 129 and 33 tokens singly, as one prompt list
 `[A, B, A]`, and as six concurrent requests, all with exact `prompt_tokens`
 usage, 12 in-vocabulary token ids each and identical greedy ids for repeated
@@ -195,7 +200,7 @@ unchanged), greedy and sampled, 256 tokens each. All twelve texts were read:
 coherent, on-topic English reasoning in the checkpoint's thinking format, no
 mechanical repetition (most frequent bigram "Let me", at most 6 of 144 words),
 no gibberish, no wrong-language drift (0 CJK characters; French appears only
-as the requested translation, `Bonjour, comment allez-vous aujourd'hui ?`), no
+as the requested translation, `Bonjour, comment allez-vous aujourd'hui?`), no
 cross-request contamination. Thinking consumes most of the budget: the story,
 the sampled French answer and the greedy Fibonacci answer reach the final
 answer; the others end inside `<think>`. The greedy haiku reasoning
