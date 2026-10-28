@@ -1,5 +1,10 @@
 # TT_VISIBLE_DEVICES=1 python models/autoports/qwen_qwen3_8b/doc/functional_decoder/tt_metal_decode_grid/probe_decode_core_rectangles.py
 # (2026 Oct 27, 23:12 ET; decoder at the state before the 8-wide rule, with decode_physical_batch overridden per case)
+# All cases ran in one process on one device with the same users in the same order and no L1 scrub between cases;
+# the '4x2 exact' row ran right after 8x1 and reads users 4..7 from cores outside the 4x2 rectangle, so it is
+# explained by stale L1 from the previous case and is not evidence that 4x2 is safe. Only 8x1, 8x2, 8x3, 8x4 and
+# single rows up to 8 users (1x1, 4x1, 8x1 measured) are relied on. Mechanism (stage review 2): the decode SDPA
+# reads sharded Q from the core it assigns to user b on its program-config grid, (b % grid.x, b // grid.x).
 # Per-user PCC of eager paged decode against the HF layer for each core rectangle; "bad users" are users with PCC < 0.99.
 batch 14 grid 7x2: min pcc 0.5518 bad users [7, 8, 9, 10, 11, 12, 13]
 batch 14 grid 2x7: min pcc 0.5518 bad users [7, 8, 9, 10, 11, 12, 13]

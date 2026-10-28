@@ -39,11 +39,13 @@ past each row's logical length.
 `decode_forward(hidden_states, *, current_pos, page_table, kv_cache)`:
 `hidden_states` is `[1, 1, B, 4096]` for `1 <= B <= 32`, `current_pos` is a
 device int32 `[B]` tensor that drives cache update, attention length and the
-on-device RoPE lookup, `page_table` is `[B, blocks]` int32. The decode ops map height-sharded
-users to cores in rows of 8 (measured: 8-wide rectangles and single rows up
-to 8 users are exact, other rectangles corrupt users outside an 8-wide row
-mapping; see `tt_metal_decode_grid/`), so up to 8 users run as one row and
-a larger batch runs as `round_up(B, 8)` users on `8 x n` cores; the padded
+on-device RoPE lookup, `page_table` is `[B, blocks]` int32. `paged_scaled_dot_product_attention_decode`
+reads sharded Q from the core it assigns to user `b` on its own program-config
+grid, `(b % grid.x, b // grid.x)`, so the user shard rectangle must have that
+grid's width (8 here) or fewer users than one row (measured in
+`tt_metal_decode_grid/`: 8x1 to 8x4 and 1x1/4x1/8x1 exact, 7x2, 4x4, 6x2,
+4x3, 6x4, 4x8 corrupt users outside an 8-wide row mapping). Up to 8 users run
+as one row and a larger batch runs as `round_up(B, 8)` users on `8 x n` cores; the padded
 users get position `-1`, which makes the cache update and attention skip
 them, a zero page-table row, and their rows are sliced away before
 returning.
@@ -100,20 +102,23 @@ before the first block boundary) is in `block64_full_attention.json`.
 
 Multi-row prefill (`prefill_multi_row_full_attention.json`): one call with
 rows of lengths 5, 200, 4097 and 33 (the last a continuation at 70) on
-page-table rows 3, 0, 2, 1: PCC >= 0.99998 per row, zero padding verified, a
+page-table rows 3, 0, 2, 1: PCC >= 0.999979 per row, zero padding verified, a
 batch-4 decode over those rows PCC >= 0.999969, and two rows (33 and 60
 tokens) that pad into the same tile run twice on the same input tensor
 (PCC >= 0.999981) as the regression for an aliasing bug found during bringup.
 
 Traced decode (`trace_full_attention_batch{1,13,31,32}.json`): per-user
-prefills of 1 to 600 tokens on permuted page tables, eager decode PCC >= 0.999965 per
+prefills of 1 to 600 tokens on permuted page tables, eager decode PCC >= 0.999942 per
 user, trace replay equals eager (PCC 1.0), repeat replay bit-equal, and two
 further steps with refreshed tokens and positions change the output and match
-HF (PCC >= 0.999971). The same tests pass under
+HF (PCC >= 0.999947). The same tests pass under
 `TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0`
 (`trace_alloc_tracking/`, with a positive control proving the tracker raises)
-and under `TT_METAL_WATCHER=10` (`watcher/summary.json`, fatal-pattern scan
-empty).
+and under `TT_METAL_WATCHER=10` (`watcher/summary.json`: all four batch
+variants passed with the watcher armed, which re-throws any watcher error; the
+committed `watcher.log` holds the last device session only, the batch-32 test,
+because the watcher rewrites its log per device open unless
+`TT_METAL_WATCHER_APPEND=1` is set, and its fatal-pattern scan is empty).
 
 Advertised context (`prefill_capacity_full_attention_{40960,40959}.json`,
 `advertised_context_decode_full_attention.json`): real-weight prefill at
@@ -164,7 +169,7 @@ functional baselines only.
 | paged decode, batch 1..32, per-user positions and permuted pages | `trace_full_attention_batch{1,13,31,32}.json` (13 runs as 16 on 8x2, 31 as 32 on 8x4), host test of the rectangle choice for every batch 1..32 on three grids, `tt_metal_decode_grid/` probe of 14 rectangles | `current_pos` is not validated against the page-table extent on the tensor path; padded users cost their share of the decode ops |
 | traced decode with refreshed inputs, repeat replay, allocation tracking | `trace_*.json`, `trace_alloc_tracking/` (gate plus positive control) | positions advance on the host in this harness; the generator stage owns on-device advancement |
 | cache block size any multiple of 32 | block 32 everywhere, block 64 in `block64_full_attention.json`, host tests for 64 and 128 | block 128 is host-tested only |
-| watcher clean | `watcher/summary.json` | watcher covered the traced-decode tests, not the 40K prefill |
+| watcher clean | `watcher/summary.json` (4 traced-decode variants passed with the watcher armed; per-dump log kept for the batch-32 session only) | watcher covered the traced-decode tests, not the 40K prefill; batch 1/13/31 dumps were overwritten by the batch-32 session |
 
 ## Reproduction
 

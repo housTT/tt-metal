@@ -288,12 +288,12 @@ finished the context tests (3 passed, 59.6 s) and the Tracy run. On chip 0
 `test_traced_decode[batch13]` failed at 22:03:16 with `TT_THROW: Tensor is
 not allocated` on the trace-capture call that follows the eager call, and
 the watcher run on chip 1 (which also runs batch 13) stopped at the same
-point. Cause: for the padded physical batch, `decode_forward` padded the
-caller's ROW_MAJOR int32 `current_pos` with `ttnn.pad`; for a `[13]` tensor
-that pad fits inside the buffer's alignment slack and comes back as a view of
-the caller's buffer (the same mechanism as the tile-padding view found in
-run 2), and the decoder deallocated it as its own, so the caller's
-`current_pos` was dead on the next call. The exception fired inside an open
+point. Cause (corrected after stage review 2, which checked `pad.cpp`): ROW_MAJOR
+pads allocate a new buffer, so the position pads were never views; the
+aliased tensor was the TILE `hidden_states`, where `fill_implicit_tile_padding`
+works in place and returns the input and the row pad inside the tile is a
+view (`invoke_tile`), and the decoder deallocated that as its own, so the
+caller's `hidden_states` was dead on the next call. The exception fired inside an open
 trace capture, and both pytest processes then spun on the host inside
 `ttnn.close_mesh_device` during the fixture teardown (py-spy stacks in
 `triage/host_stacks_batch13_spin.txt`, both at
@@ -325,8 +325,15 @@ and `.log`) gave the rule: every 8-wide rectangle (8x1, 8x2, 8x3, 8x4) and
 every single-row rectangle up to 8 users (and 4x2) is exact; 7x2, 2x7, 4x4,
 2x8, 6x2, 4x3, 3x4, 6x4 and 4x8 corrupt exactly the users that fall outside
 an 8-wide row mapping (for 32 users on 4x8: users 8..11, 16..19, 24..27).
-One of the decode ops therefore maps height-sharded users to cores in rows
-of 8, the convention `tt_transformers` uses (batch 32 on 8x4). The decoder
+Stage review 2 traced the mechanism in source:
+`paged_scaled_dot_product_attention_decode` reads sharded Q from the core it
+assigns to user `b` on its program-config grid, `(b % grid.x, b // grid.x)`
+(`sdpa_decode_program_factory.cpp` lines 301-313, `dataflow_common.hpp`
+lines 524-560), while the head and cache ops walk the shard grid row-major,
+so the shard rectangle must have the SDPA grid's width (8) or fit one row;
+the "4x2 exact" probe row is explained by stale L1 from the preceding 8x1
+case and is not relied on. `decode_physical_batch` now derives the row width
+from the same constant as `decode_sdpa_grid` and the constructor asserts it. The decoder
 now runs up to 8 users as one `batch x 1` row and larger batches as
 `round_up(batch, 8)` users on `8 x n`; batch 13 runs as 16 on 8x2 and batch
 31 as 32 on 8x4, both passing the traced-decode test on chip 1 (37 s) before
@@ -353,3 +360,38 @@ records those two hashes. Results are tabulated in `README.md`.
 
 The second stage-review pass and the stage commit SHA are recorded at the end
 of this file.
+
+### Stage review 2 and the stage commits
+
+Stage review 2 (2026 Oct 28, 23:40 to 00:01 ET, fresh xhigh subagent,
+read-only): `more-work-needed` with two P2 items, both closed here without
+hardware: (1) the 8-wide decode rule was explained by the wrong ops and one
+probe row was contaminated; the mechanism, docstring, README, work log and
+probe annotation are corrected above and the decoder now couples the shard
+row width to the SDPA program grid width with a constructor check; (2) the
+committed `watcher.log` holds only the batch-32 device session because the
+watcher rewrites its log per device open without `TT_METAL_WATCHER_APPEND=1`;
+`summary.json` and the README now state that coverage, and the batch 1/13/31
+watcher-clean evidence is the pass status of `watcher_run9.log` with the
+watcher armed (it re-throws fatal watcher errors). Other review notes
+recorded: the README PCC minima now include batches 13 and 31; the run-7
+alias mechanism text is corrected; the `-1` sentinel for padded users relies
+on tt-metal's row-major pad converting a negative float to uint32; the test
+harness leaves a trace capture open on exception (hardening deferred); no
+tt-metal issues were filed for the padded-K SDPA read, the SDPA-decode
+Q-shard/reducer coupling, or the close-after-exception spin.
+
+Stage commits on `hous/qwen3-8b-autoport` (never pushed): `1152228251`
+(functional decoder, tests, first evidence set), `a988dd67f8` (review-round-1
+fixes, decode batch padding, evidence refresh), `3f4e5ef43c` (stop tracking
+the raw Tracy CSV), and the commit that records this section. The time budget
+was exhausted before a third review pass; the final recorded verdict is
+`more-work-needed` with the two P2 items addressed but not re-reviewed.
+
+Hash note for the final commit: the evidence JSON record the decoder as
+committed in `a988dd67f8` (sha256 `6e3d5f8a7b3ff76b...`). The final commit
+changes `tt/functional_decoder.py` only by the `DECODE_ROW_WIDTH` constant,
+the constructor check that the SDPA grid has that width, and docstring text
+(`git diff a988dd67f8 HEAD -- models/autoports/qwen_qwen3_8b/tt/functional_decoder.py`);
+the computed core rectangles and every op call are unchanged, host tests pass
+(19), and no device run was repeated because the time budget was exhausted.

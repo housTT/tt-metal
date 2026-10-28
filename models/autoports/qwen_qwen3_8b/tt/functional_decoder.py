@@ -69,6 +69,7 @@ PREFILL_CHUNK_SIZE = 4096
 PREFILL_SDPA_MAX_CHUNK = 256
 MODEL_TYPE = "qwen3"
 MAX_DECODE_BATCH = 32
+DECODE_ROW_WIDTH = 8
 
 
 def _float32(value: float) -> float:
@@ -323,7 +324,9 @@ class FunctionalDecoder(LightweightModule):
         )
         grid = mesh_device.compute_with_storage_grid_size()
         self.prefill_sdpa_grid = grid
-        self.decode_sdpa_grid = ttnn.CoreCoord(min(8, grid.x), min(8, grid.y))
+        self.decode_sdpa_grid = ttnn.CoreCoord(min(DECODE_ROW_WIDTH, grid.x), min(8, grid.y))
+        if self.decode_sdpa_grid.x != DECODE_ROW_WIDTH:
+            raise ValueError(f"decode needs a {DECODE_ROW_WIDTH}-wide SDPA grid; this device grid is {grid.x}x{grid.y}")
         self._decode_sdpa_program_configs: dict[int, ttnn.SDPAProgramConfig] = {}
 
     def _decode_sdpa_program_config(self, kv_extent: int) -> ttnn.SDPAProgramConfig:
@@ -1021,21 +1024,24 @@ def decode_physical_batch(
 ) -> tuple[int, int, int]:
     """Physical decode batch and the ``x * y`` core rectangle its height-sharded users occupy.
 
-    The decode head and cache ops map users to cores in rows of 8: measured on this checkout,
-    every 8-wide rectangle (8x1 to 8x4) and every single-row rectangle up to 8 users is exact,
-    while 7x2, 4x4, 6x2, 4x3, 6x4 and 4x8 corrupt the users outside an 8-wide row mapping
-    (``doc/functional_decoder/tt_metal_decode_grid/``). So up to 8 users run as one
-    ``batch x 1`` row and larger batches run as ``round_up(batch, 8)`` users on ``8 x n``
-    rows; the padded users are given position ``-1`` so the cache update and attention skip
-    them, and their rows are sliced away. Returns ``(physical, x, y)``.
+    ``paged_scaled_dot_product_attention_decode`` reads sharded Q from the core it assigns
+    to user ``b`` on its own program-config grid, ``(b % grid.x, b // grid.x)``, not from
+    the core that holds user ``b``'s shard; the head and cache ops walk the shard grid
+    row-major. The shard rectangle must therefore have the SDPA grid's width
+    (``DECODE_ROW_WIDTH``, 8 on this checkout) or fewer users than one row, which is what
+    the 14-rectangle probe under ``doc/functional_decoder/tt_metal_decode_grid/``
+    measured. Up to ``DECODE_ROW_WIDTH`` users run as one ``batch x 1`` row and larger
+    batches run as ``round_up(batch, DECODE_ROW_WIDTH)`` users on ``DECODE_ROW_WIDTH x n``
+    rows; the padded users are given position ``-1`` so the cache update and attention
+    skip them, and their rows are sliced away. Returns ``(physical, x, y)``.
     """
     if not 1 <= batch <= max_batch:
         raise ValueError(f"decode batch must be in [1, {max_batch}], got {batch}")
-    if batch <= 8:
+    if batch <= DECODE_ROW_WIDTH:
         physical, x, y = batch, batch, 1
     else:
-        physical = round_up(batch, 8)
-        x, y = 8, physical // 8
+        physical = round_up(batch, DECODE_ROW_WIDTH)
+        x, y = DECODE_ROW_WIDTH, physical // DECODE_ROW_WIDTH
     if x > grid_x or y > grid_y:
         raise ValueError(f"decode batch {batch} needs a {x}x{y} core rectangle; the grid is {grid_x}x{grid_y}")
     return physical, x, y

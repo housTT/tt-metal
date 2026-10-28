@@ -1,6 +1,7 @@
 {
   "command": "TT_VISIBLE_DEVICES=1 TT_METAL_WATCHER=10 TT_METAL_LOGS_PATH=models/autoports/qwen_qwen3_8b/doc/functional_decoder/watcher QWEN3_EVIDENCE_SUFFIX=watcher timeout 2400 python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_functional_decoder.py -k test_traced_decode -p no:cacheprovider",
   "console_log": "/tmp/qwen3_scratch/logs/watcher_run9.log (scratch, not committed)",
+  "coverage_note": "the watcher rewrites generated/watcher/watcher.log on every device open unless TT_METAL_WATCHER_APPEND=1 is set and the mesh_device fixture opens one device per test, so the committed log holds the last session only (test_traced_decode[batch32]: attach, dumps 1..4, detach); batch 1, 13 and 31 are covered by the pass status of the same pytest process with the watcher armed, which re-throws any watcher error",
   "fatal_pattern_scan": {
     "matches": [],
     "pattern": "error|assert|fatal|hang|deadlock|watcher.*fail|invalid|mismatch|exception"
@@ -27,5 +28,7 @@
   "watcher_dumps": 4,
   "watcher_log": "generated/watcher/watcher.log",
   "watcher_log_lines": 1264,
+  "watcher_log_session_test": "test_traced_decode[blackhole-batch32-device_params0-mesh_device0]",
+  "watcher_log_sessions": 1,
   "watcher_log_sha256": "4d2b74e614f1c7ce3373d559866d16a95452e416c55fef7f4ee98bc57b80fdcd"
 }
