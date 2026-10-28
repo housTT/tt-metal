@@ -345,7 +345,7 @@ class OrnithModel:
     def _batched_prefill_config():
         """Model-side batched prefill policy; ``ORNITH_BATCHED_PREFILL=0`` keeps the per-row path for A/B runs."""
         enabled = os.environ.get("ORNITH_BATCHED_PREFILL", "1") == "1"
-        max_len = int(os.environ.get("ORNITH_BATCHED_PREFILL_MAX_LEN", "128"))
+        max_len = int(os.environ.get("ORNITH_BATCHED_PREFILL_MAX_LEN", "512"))
         max_tokens = int(os.environ.get("ORNITH_BATCHED_PREFILL_MAX_TOKENS", "4096"))
         buckets = sorted({int(v) for v in os.environ.get("ORNITH_BATCHED_PREFILL_ROWS", "2,4,8,16,32").split(",")})
         if max_len % 128 or max_len < 128 or any(b < 2 or b > 32 for b in buckets) or max_tokens < 256:
@@ -844,16 +844,15 @@ class OrnithModel:
         keep = torch.zeros((rows, seq), dtype=torch.float32)
         lengths, row_slots = [], []
         for row in range(rows):
-            if row < len(users):
-                user = users[row]
-                length = int(prompt_lens[user])
-                slot = slots[user]
-                host_ids[row, :length] = torch.as_tensor(tokens[user][:length]).to(torch.int32)
-                chunk_blocks = table[slot][:blocks_per_chunk].to(torch.int32)
-                fill[row, : chunk_blocks.numel()] = chunk_blocks
-                page_rows[row] = table[slot].to(torch.int32)
-            else:
-                length, slot = seq, None
+            # A dummy row repeats the last real row: identical tokens into the
+            # same pages, so it writes nothing new and has no slot to receive state.
+            user = users[min(row, len(users) - 1)]
+            length = int(prompt_lens[user])
+            slot = slots[user] if row < len(users) else None
+            host_ids[row, :length] = torch.as_tensor(tokens[user][:length]).to(torch.int32)
+            chunk_blocks = table[slots[user]][:blocks_per_chunk].to(torch.int32)
+            fill[row, : chunk_blocks.numel()] = chunk_blocks
+            page_rows[row] = table[slots[user]].to(torch.int32)
             keep[row, :length] = 1
             lengths.append(length)
             row_slots.append(slot)

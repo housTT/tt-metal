@@ -14,7 +14,7 @@
     "--model",
     "ornith-ai/Ornith-1.5-9B",
     "--base-url",
-    "http://localhost:8000",
+    "http://localhost:8001",
     "--endpoint",
     "/v1/completions",
     "--dataset-name",
@@ -36,7 +36,7 @@
     "--temperature",
     "0.0"
   ],
-  "command_string": "/home/hous/dev/ornith-1.5-9b/tt-metal/python_env/bin/python -m vllm.entrypoints.cli.main bench serve --backend vllm --model ornith-ai/Ornith-1.5-9B --base-url http://localhost:8000 --endpoint /v1/completions --dataset-name random --random-input-len 128 --random-output-len 32 --num-prompts 32 --ignore-eos --percentile-metrics ttft,tpot,itl,e2el --save-result --result-filename /home/hous/dev/tt-metal-wt-ornith/models/autoports/ornith_ai_ornith_1_5_9b/readiness_vllm/vllm_prefill_burst_result.json --max-concurrency 32 --temperature 0.0",
+  "command_string": "/home/hous/dev/ornith-1.5-9b/tt-metal/python_env/bin/python -m vllm.entrypoints.cli.main bench serve --backend vllm --model ornith-ai/Ornith-1.5-9B --base-url http://localhost:8001 --endpoint /v1/completions --dataset-name random --random-input-len 128 --random-output-len 32 --num-prompts 32 --ignore-eos --percentile-metrics ttft,tpot,itl,e2el --save-result --result-filename /home/hous/dev/tt-metal-wt-ornith/models/autoports/ornith_ai_ornith_1_5_9b/readiness_vllm/vllm_prefill_burst_result.json --max-concurrency 32 --temperature 0.0",
   "config": {
     "prompt_len": 128,
     "output_len": 32,
@@ -47,38 +47,38 @@
     "dataset_name": "random",
     "ignore_eos": true
   },
-  "elapsed_s": 9.223043008998502,
+  "elapsed_s": 7.795030980021693,
   "completed_requests": 32,
   "total_input_tokens": 4096.0,
   "total_output_tokens": 1024.0,
   "requested_output_tokens": 1024,
   "missing_output_tokens": 0,
   "ttft_ms": {
-    "p50": 3765.086761995917,
-    "p99": 3766.1253437865525,
-    "mean": 3732.226075091603
+    "p50": 2422.1747885167133,
+    "p99": 2423.4961641859263,
+    "mean": 2420.4275135634816
   },
   "tpot_ms": {
-    "p50": 176.0022426296341,
-    "p99": 199.42505323164724,
-    "mean": 177.0627319555417
+    "p50": 173.25653337062366,
+    "p99": 174.60503798918876,
+    "mean": 173.31666027219455
   },
   "itl_ms": {
-    "p50": 168.55799799668603,
-    "p99": 395.4761950275861,
-    "mean": 177.06273476206633
+    "p50": 167.84713498782367,
+    "p99": 335.4438963520806,
+    "mean": 173.31666285873885
   },
   "e2el_ms": {
-    "p50": 9221.161348978058,
-    "p99": 9222.349542888696,
-    "mean": 9221.170765713396
+    "p50": 7793.175208964385,
+    "p99": 7794.649380024057,
+    "mean": 7793.243982001513
   },
-  "itl_p50_decode_tps": 5.932676063343258,
-  "itl_mean_decode_tps": 5.64771577341659,
-  "vllm_mean_tpot_decode_tps": 5.647715862935447,
-  "mean_per_request_decode_tps": 5.647715862935447,
+  "itl_p50_decode_tps": 5.957802020704996,
+  "itl_mean_decode_tps": 5.769785683071031,
+  "vllm_mean_tpot_decode_tps": 5.7697857691781955,
+  "mean_per_request_decode_tps": 5.7697857691781955,
   "mean_per_request_decode_tps_basis": "1000 / mean_tpot_ms from vllm bench serve; this is the TPOT-derived decode value. For burst-serving profiles, scheduler admission and chunked prefill can affect TPOT, so use the single-user profile for headline decode t/s/u.",
-  "output_throughput_tok_per_s": 111.02626313256155,
-  "request_throughput_per_s": 3.4695707228925485,
-  "total_token_throughput_tok_per_s": 555.1313156628078
+  "output_throughput_tok_per_s": 131.36573833054226,
+  "request_throughput_per_s": 4.1051793228294455,
+  "total_token_throughput_tok_per_s": 656.8286916527112
 }

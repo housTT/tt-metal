@@ -312,7 +312,7 @@ servers were launched from `5cff1036cc`, which differs only by those two
 lookups). The two `test_contract_extensions.py` device tests passed on the
 device they should never have opened.
 
-## Final servers on commit `5cff1036cc` (01:15 to 02:05, Oct 28)
+## Final servers on commits `5cff1036cc` (serial v4, B32) and `9d4de01a6d` (B1 v3) (01:15 to 02:05, Oct 28)
 
 - `serial_b32_v4/` (chip 3 port 8001, batching off, host sampling
   compatibility on): prefill burst TTFT p50/p99/mean 2422.2 / 2423.5 /
@@ -369,3 +369,31 @@ Stage gate `10-optimized-vllm.check.sh` (`stage_check.log`): exit 0:
 degeneracy pass, context contract pass with the stage 9 advisory line about
 `doc/vllm_integration/runner_compatibility_report.md` (a 2048-token CPU
 registry probe of the p150x4 stage), prefill features pass.
+
+## Independent review 1 and follow-up (23:05 to 23:40 ET, Oct 27)
+
+The first stage review (`stage_review_1.md`) returned more-work-needed with
+three P2 items and several concerns:
+
+1. The allocation-tracker evidence (`tracked_b32/`) predates the final remap
+   code. Action: a tracked B32 server from the final tree runs the stage 10
+   mixed-shape workload again (`tracked_b32_final/`, below).
+2. `readiness_vllm/vllm_prefill_burst_serial_benchmark.json` was still the
+   stage 9 copy (3765 ms) while the burst file's `serial_reference` named
+   `serial_b32_v4` (2422 ms). Action: replaced by the `serial_b32_v4` copy and
+   listed in the README provenance.
+3. Watcher was not run over the new op configurations. Action: `TT_METAL_WATCHER=10`
+   runs of the batched probe (groups 2, 3, 5, 8, 31, 32, including the
+   dummy-row buckets) and of the remap probe on the reduced two-layer model
+   (`watcher/`), with the watcher logs kept beside them.
+4. Dummy rows wrote their padded tokens into block 0 (vLLM's null block) and
+   would collide with slot 0 under the generator-owned page table. Action:
+   a dummy row now repeats the last real row of the group (same tokens, same
+   page-table row): it writes the same bytes into the same pages and has no
+   slot. `batched_probe_full_v4_dummy_rows.json` runs groups of 3, 5 and 31
+   rows (buckets 4, 8 and 32) on the full model for the equality checks.
+5. `ORNITH_BATCHED_PREFILL_MAX_LEN` defaulted to 128 in code while every
+   server used 512. Action: the code default is 512.
+6. The `b1_final_v3` server ran commit `9d4de01a6d` (two `getattr` guards
+   beyond `5cff1036cc`); the work-log heading now says so. The host sweep log
+   is kept as `host_sweep_opened_devices.log`.

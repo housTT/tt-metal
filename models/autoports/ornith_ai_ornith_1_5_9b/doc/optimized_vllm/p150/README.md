@@ -56,7 +56,7 @@ Environment of the batched path (model side, read at model construction):
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `ORNITH_BATCHED_PREFILL` | `1` | `0` keeps every row on the single-row path (A/B override) |
-| `ORNITH_BATCHED_PREFILL_MAX_LEN` | `128` in code, served with `512` | largest padded 128-token bucket that batches |
+| `ORNITH_BATCHED_PREFILL_MAX_LEN` | `512` | largest padded 128-token bucket that batches |
 | `ORNITH_BATCHED_PREFILL_ROWS` | `2,4,8,16,32` | warmed row buckets; a group is padded with dummy rows to the next bucket |
 | `ORNITH_BATCHED_PREFILL_MAX_TOKENS` | `4096` | cap on `rows x seq` per group |
 
@@ -68,7 +68,10 @@ Environment of the batched path (model side, read at model construction):
   `_prefill_batched_group`: one embedding, every dense op on `[B, S, H]`,
   per-row residual keep masks, the last hidden row of each real row gathered
   with a runtime index. Rows outside the rules keep the single-row path in
-  the same call; output order is preserved. `allocate_cache` allocates the
+  the same call; output order is preserved. A dummy row repeats the last real
+  row of the group (same tokens, same page-table row) so it writes the same
+  bytes into the same pages and never depends on an unowned block; it has no
+  slot and receives no state. `allocate_cache` allocates the
   batched-prefill constants (zero conv history, zero initial states for
   sub-batches of 1 to 3 rows, per-slot masks) before any capture.
 - `tt/optimized_decoder.py`: `_gdn_prefill_batched` runs the KDA causal
@@ -229,5 +232,8 @@ and rows above 512 tokens stay single-row.
 (`b32_final/`, chip 2, commit `5cff1036cc`); `vllm_benchmark.json`,
 `vllm_result.json` and `vllm_benchmark.log` are copies of the primary
 single-user first request from `b1_final_v3/first/` (the B32 server's own
-128/128/1 diagnostic, 88.5 ms / 168.3 ms, is in `b32_final/runner_benchmark.log`). The stage 9 copies are in
+128/128/1 diagnostic, 88.5 ms / 168.3 ms, is in `b32_final/runner_benchmark.log`);
+`vllm_prefill_burst_serial_benchmark.json` is the copy of
+`serial_b32_v4/vllm_prefill_burst_serial_benchmark.json` that the burst file's
+`serial_reference.path` names (the stage 9 copy was replaced after the review). The stage 9 copies are in
 `readiness_vllm_stage9_snapshot/`.
