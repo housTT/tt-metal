@@ -461,3 +461,35 @@ file). Everything else in review 3 is the device-bound rerun list of
 section 8.2 and is blocked on the operator reset of chips 0 and 1; the
 goal's two rereviews are used, so the stage ends here with the review
 verdict `more-work-needed` and the hardware dependency recorded.
+
+## 9. Reruns on chip 2 at commit `6e3b243e25` (14:46 ET onward, coordinator order)
+
+Chips 0 and 1 stay wedged (operator reset pending). Chip 3 could not be
+opened: `mesh_smoke_chip3.log` reports its sysmem NoC mapping held by another
+process (the `uvicorn ... qwen_image_2_1.server.app` process of another run,
+PID 1090381, not started by this stage, left running). Chip 2 passed the
+mesh smoke (`mesh_smoke_chip2.log`) and runs every step below through
+`logs/rerun_chain_chip2.sh` (status in `logs/rerun_chain_chip2.status`).
+
+| Step (ET) | Command (chip 2) | Result |
+| --- | --- | --- |
+| 14:47 | `QWEN3_FULL_MODEL_LAYERS=36 pytest test_full_model.py` | 8 passed in 179 s (`logs/pytest_full_model_36_rerun.log`); weights on device in 49.6 s, `prepare()` 64.0 s (17 prefill lengths, 32-row call, 5 buckets x 2 variants). Evidence JSON (all with `checkout_git_sha 6e3b243e25`, `visible_devices 2`): `perf_batch1_128_128.json` token-out 21.86 ms/token = 45.7 t/s/u with `sampler_traced true`, TTFT 54.5 ms, teacher-forced 21.9 ms/token; `host_work_counters.json` 63 decode and 63 sampling replays, 0 token refreshes, 1 position and 1 page-table refresh, 0 seeded eager steps, repeat bit-equal; `split_sampling_trace.json` (default sampler) token feedback and on-device positions over 4 replays, sampled -> greedy -> sampled = 3 sampling-trace replays, 0 captures added, 1 slot; `batch_decode_{8,32}.json` solo arm in the same physical bucket with -1 rows: every user bit-equal over 32 tokens (the earlier user-18 flip was bucket-1 versus bucket-32 numerics); `multi_row_prefill.json` unchanged (PCC 1.0000, bit-equal reruns); `tracked_replay_workload.json` program cache 451 before and after a 3-row prefill, a 32-row prefill and an 8192-token generation after the first capture; `seeded_sampling.json` seeded runs equal (12 distinct tokens), 22 seeded eager steps and 0 trace replays while seeded, 11 trace replays and 0 eager steps for the greedy request after |
+| 14:50 | tracker gate: `QWEN3_EVIDENCE_SUFFIX=tracked TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0 pytest -k 'test_split_sampling_trace or test_host_work_counters or test_tracked_replay_workload or test_batch_decode'` | 4 passed, 1 failed in 594 s (`logs/pytest_full_model_36_tracked_rerun.log`). The failure is `test_batch_decode[32]`: pytest-timeout (300 s default from the repo `pytest.ini`) fired inside the tracker's per-replay `gc.collect`, not a tracker violation and not a device error; the tracked batch-32 control reruns alone below with `--timeout 1800`. `split_sampling_trace.tracked.json`, `host_work_counters.tracked.json`, `batch_decode_8.tracked.json`, `tracked_replay_workload.tracked.json` all carry `checkout_git_sha 6e3b243e25`, `visible_devices 2` and the tracking environment; program cache 451 before and after the post-capture workload; sampling traces replayed under the tracker (host-work 63 sampling replays, mode alternation 3 replays) |
+| 15:00 | `run_prefill_check` (AIME24 chat reference) | exit 0: top-1 0.990 (99/100), top-5 1.000, top-100 1.000; weights 49.4 s, `prepare()` 56.7 s (`logs/run_prefill_check_rerun.log`, `readiness/readiness_rerun_chip2.json`) |
+| 15:02 | `run_teacher_forcing` (traced decode, traced sampler) | exit 0: top-1 0.980 (98/100), top-5 1.000, top-100 1.000, TTFT 80.51 ms, decode 44.91 t/s/u, e2e 43.76 t/s/u; weights 50.3 s, `prepare()` 56.8 s (`logs/run_teacher_forcing_rerun.log`, `readiness/readiness_rerun_chip2.json`) |
+| 15:04 | tracked batch-32 control alone: `QWEN3_EVIDENCE_SUFFIX=tracked TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0 pytest -k 'test_batch_decode and 32' --timeout 1800` | 1 passed in 529 s (`logs/pytest_full_model_36_tracked_batch32_rerun.log`); `batch_decode_32.tracked.json`: 32 of 32 users bit-equal over 32 tokens against the same-bucket solo arm, 31 decode and 31 sampling trace replays, 0 captures, 0 eager steps, no tracker error. The test needs about 500 s under the tracker (a `gc.collect` per replay); the repo default pytest-timeout is 300 s |
+| 15:13 | corrected capacity probe, `timeout 1200 python logs/capacity_probe.py` | exit 0 in 137 s (`logs/capacity_probe_chip2.log`, `capacity_probe_budget.json` with a provenance block appended by hand: chip 2, `6e3b243e25`). Pool 3510 blocks (112,320 tokens, DRAM free after build 253.8 MB per bank); one three-row prefill call of 40955, 40960 and 200 tokens in 24.6 s; four bucket-8 decode steps with row 0 at positions 40955, 40956, 40957, 40958 and row 2 at 200 to 203 (row 1 is a prefill-only full-context row at -1); tokens printed per step; row 0 text " had eyes to see,"; 1 decode and 1 sampling capture, 4 replays each, program cache 451. Nothing checked against HF |
+| 15:15 | stage-by-stage twin, `timeout 1200 python logs/capacity_bisect.py` | exit 0 in 138 s (`logs/capacity_bisect_chip2.log`): every stage synchronized and printed (build 108.7 s, prefill row 0 at 121.2 s, row 1 at 133.5 s, row 2, gather, `rows_to_tile`, `logits_from_tile`, eager sample, decode step 1 capture and replay, decode step 2); first tokens `[1030, 19652, 311]` and decode tokens `[6414, 48409, 1817]`, `[311, 89852, 1008]` bit-equal to the probe |
+| 15:18 | `doc/context_contract.json` regenerated (`logs/update_context_contract.py`) | `full_model.capacity_probe.status` passed with chip and commit; `largest_executed_decode_position` 40958 added next to the HF-checked 314; `full_context_decode_status` "demonstrated without an output check" |
+
+Probe outcome against the AutoDebug attribution (`triage/AUTODEBUG.md`):
+the same pool, rows, bucket and decode path that hung twice run clean when
+row 0 stays inside [0, 40960). That is consistent with the attribution
+(positions 40960 and above index the page table past its 1280 columns in
+the SDPA decode and fused KV update kernels) and is not a positive
+reproduction: the out-of-contract step was not re-executed on chip 2 (it
+would wedge the only usable chip), and the generator code also changed
+between the hung runs (uncommitted tree over `db7a12e7c4`) and
+`6e3b243e25` (seed admission, per-row page tables, `rows_to_tile`), so a
+code change cannot be excluded as the reason the corrected probe passes.
+No SIGTERM was sent during this chain; every step exited on its own.

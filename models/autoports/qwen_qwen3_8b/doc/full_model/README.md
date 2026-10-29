@@ -2,12 +2,14 @@
 
 Status: accuracy, qualitative, resumed-prefill and serving-contract gates
 pass on one Blackhole P300 chip (1x1 mesh, p150 mesh graph descriptor); the
-stage gate script exits 0. Stage review 1 returned `more-work-needed`
-(`work_log.md` section 8); the host-side findings are fixed in commit
-history below, and the device-side follow-ups (listed under "Open items")
-wait for an operator reset of chips 0 and 1. Stages 4 and 5 (multichip)
-were skipped by the operator; one chip is the target topology. This stage
-claims nothing about vLLM serving (stage 9) beyond `serving_contract.json`.
+stage gate script exits 0. Stage reviews 1 to 3 returned `more-work-needed`
+(`work_log.md` section 8); the host-side findings are fixed in the commit
+history below and every device rerun the reviews asked for ran on chip 2 at
+commit `6e3b243e25` (`work_log.md` section 9), including the corrected
+capacity probe. Chips 0 and 1 stay wedged until an operator reset (not
+touched since 13:24 ET). Stages 4 and 5 (multichip) were skipped by the
+operator; one chip is the target topology. This stage claims nothing about
+vLLM serving (stage 9) beyond `serving_contract.json`.
 
 Abbreviations: HF (Hugging Face), PCC (Pearson correlation coefficient), KV
 (key/value), LM (language model), RoPE (rotary position embedding), SDPA
@@ -17,22 +19,22 @@ LoFi/HiFi2/HiFi4 (tt-metal math fidelity levels), TTFT (time to first
 token), t/s/u (tokens per second per user), APC (automatic prefix caching),
 ET (Eastern Time).
 
-## Headline numbers (batch 1, real weights, chip 0, commit in `work_log.md`)
+## Headline numbers (batch 1, real weights, chip 2, commit `6e3b243e25`, `work_log.md` section 9)
 
 | Metric | Value | Workload | Artifact |
 | --- | ---: | --- | --- |
-| Readiness teacher forcing, traced decode and traced sampler (AIME24 chat, 158-token prompt, 100 tokens) | TTFT 80.4 ms, decode 45.2 t/s/u (22.1 ms/token), top-1 0.980, top-5 1.000, top-100 1.000 | `run_teacher_forcing`, commit `2eaaa0b3f9` (later commits change seed registration, warmup and ownership code paths that this run does not exercise; rerun pending the device reset) | `logs/run_teacher_forcing_final.log` |
-| Readiness prefill check | top-1 0.990, top-5 1.000, top-100 1.000 | `run_prefill_check`, commit `2eaaa0b3f9` | `logs/run_prefill_check_final.log` |
-| Token-out TTFT, 128-token prompt | 54.5 ms | prefill + first sampled token readback | `perf_batch1_128_128.json` |
-| Token-out decode, 128/128 | 21.79 ms/token = 45.9 t/s/u, superseded: measured with the sampler on its eager path (review 1 P1, `work_log.md` 8.1); to be re-measured on the traced sampler after the device reset | 128 generated tokens | `perf_batch1_128_128.json` |
+| Readiness teacher forcing, traced decode and traced sampler (AIME24 chat, 158-token prompt, 100 tokens) | TTFT 80.5 ms, decode 44.9 t/s/u (22.3 ms/token), e2e 43.8 t/s/u, top-1 0.980, top-5 1.000, top-100 1.000 | `run_teacher_forcing`, commit `6e3b243e25`, chip 2 (`2eaaa0b3f9` on chip 0: TTFT 80.4 ms, 45.2 t/s/u, same accuracy, `logs/run_teacher_forcing_final.log`) | `logs/run_teacher_forcing_rerun.log`, `../../readiness/readiness_rerun_chip2.json` |
+| Readiness prefill check | top-1 0.990, top-5 1.000, top-100 1.000 | `run_prefill_check`, commit `6e3b243e25`, chip 2 (same numbers at `2eaaa0b3f9`, `logs/run_prefill_check_final.log`) | `logs/run_prefill_check_rerun.log`, `../../readiness/readiness_rerun_chip2.json` |
+| Token-out TTFT, 128-token prompt | 54.5 ms | prefill + first sampled token readback, commit `6e3b243e25`, chip 2 | `perf_batch1_128_128.json` |
+| Token-out decode, 128/128 | 21.86 ms/token = 45.7 t/s/u, `sampler_traced true` (decode trace and sampling trace replayed every step; the earlier 21.79 ms/token at `2eaaa0b3f9` was taken with the sampler on its eager path, review 1 P1) | 128 generated tokens, commit `6e3b243e25`, chip 2 | `perf_batch1_128_128.json` |
 
 Teacher-forcing and token-out decode do not differ in this generator: both
 replay the decode trace and the sampling trace and read one token back; the
 teacher-forced loop only adds a 128-byte token write when the forced token
 differs from the prediction. The readiness teacher-forcing run never sets a
 request seed, so its sampler ran through the trace; the 128/128 pytest
-numbers were taken after a seeded test in the same process and are not
-trace-verified for the sampler.
+numbers at `6e3b243e25` were taken before the seeded test (which now runs
+last) and `perf_batch1_128_128.json` records `sampler_traced true`.
 
 ## What the full model is
 
@@ -132,8 +134,8 @@ rejected for lacking trace, seed and penalty ownership). Greedy decode is the
 split top-k path with semantically greedy parameters (k=1, p=0, temp=1): one
 sampling trace per bucket serves greedy and sampled requests, so greedy ->
 sampled -> greedy reuses the first trace (`split_sampling_trace.tracked.json`
-`mode_alternation`: zero new captures; the traced-replay assertion of that
-sequence is in the test and reruns after the device reset). Force-argmax
+`mode_alternation` at `6e3b243e25`: unseeded sampled -> greedy -> sampled
+= 3 sampling-trace replays, 0 new captures, 1 slot). Force-argmax
 (`allow_force_argmax=True`) is a benchmark alternative only: the common
 sampler releases every sampling trace when that state flips (see
 `perf_batch1_128_128_force_argmax.json` and `work_log.md` section 6).
@@ -149,14 +151,14 @@ deferred to first use and kept until `teardown()`.
 
 | Gate | Result | Artifact |
 | --- | --- | --- |
-| `run_prefill_check` (AIME24 chat reference, 100 tokens, top-100) | top-1 0.990, top-5 1.000, top-100 1.000 | `logs/run_prefill_check.log`, reference `bringup/references/qwen3_8b_aime24_chat.refpt` |
-| `run_teacher_forcing` (traced decode) | top-1 0.980, top-5 1.000, top-100 1.000; TTFT 80.85 ms; 44.59 t/s/u | `logs/run_teacher_forcing.log` |
+| `run_prefill_check` (AIME24 chat reference, 100 tokens, top-100) | top-1 0.990, top-5 1.000, top-100 1.000 (chip 2, `6e3b243e25`; same at `2eaaa0b3f9` and the first build) | `logs/run_prefill_check_rerun.log`, `logs/run_prefill_check_final.log`, `logs/run_prefill_check.log`, reference `bringup/references/qwen3_8b_aime24_chat.refpt` |
+| `run_teacher_forcing` (traced decode) | top-1 0.980, top-5 1.000, top-100 1.000; TTFT 80.51 ms; 44.91 t/s/u (chip 2, `6e3b243e25`; first build 80.85 ms, 44.59 t/s/u) | `logs/run_teacher_forcing_rerun.log`, `logs/run_teacher_forcing.log` |
 | `run_autoregressive` (raw 59-token prompt, continuation stress) | HF and TT 256 coherent tokens, identical first 18; degeneracy check: adjacent duplication 0.0, trigram loop 0.014, none detected, exit 0 | `../../readiness_autoregressive/`, `degenerate_output_autoregressive.json` |
 | Shared qualitative suite, chat template, HF control | six prompts; every TT output coherent, on topic, English, HF-like `<think>` structure; first divergence at tokens 34, 4, 32, 39, 40, 22 | `qualitative/{qualitative_prompt_format,rendered_prompts,hf_outputs,tt_outputs,verdict}.json` |
 | Resumed prefill (`run_prefill_resume_check`, lengths 2560 and 16384, block 32, natural text) | `status=pass` at 8 starts (PCC mean 0.9997 to 1.0000, min 0.9897 to 1.0000, top-1 1.000 except the 32-position hit at 2528: 0.969); both controls fail at every 257-position window (`no_history` PCC mean 0.782 to 0.934, `fresh_suffix` 0.934 to 0.955, top-1 0.67 to 0.90) | `../../readiness/prefill_resume_check.json` |
 | Resumed prefill, default thresholds | fails only on 32-position hit windows (one or two BF16 near-tie flips) and on one outlier position where the fresh TT path is itself at PCC 0.90 against HF (continuation 0.94); classified in `work_log.md` section 4 | `../../readiness/prefill_resume_check_block32_bf16_logits.json`, `..._block32_256_default_thresholds.json`, `resume_margin_probe_*.json` |
 | Multi-row prefill equals solo (one call, rows 5, 31, 33, 127, 129, 257, 640, 1000) | PCC 1.0000 per row, top-1 equal, rerun bit-equal, reordered rows bit-equal | `multi_row_prefill.json` |
-| Batched decode equals single-user (6 greedy tokens) | batch 8: 8 of 8 users identical; batch 32: 31 identical, one user differs at the sixth token | `batch_decode_{8,32}.json` |
+| Batched decode equals single-user (32 greedy tokens, solo arm decoded in the same physical bucket with -1 rows) | batch 8: 8 of 8 users bit-equal; batch 32: 32 of 32 bit-equal (the earlier user-18 flip at the sixth token was a bucket-1 versus bucket-32 control) | `batch_decode_{8,32}.json` (chip 2, `6e3b243e25`) |
 | Determinism | repeated `generate` bit-equal (64 tokens), repeated prefill bit-equal, row order independent | `host_work_counters.json`, `multi_row_prefill.json` |
 
 ### Split-sampling and trace evidence
@@ -169,18 +171,17 @@ replay sampled on device, `current_pos` advances by one on device, the
 sampler-ready logits change, the sampled token equals the argmax of those
 logits; host work during the four replays: 0 token, 0 position, 0 page-table
 refreshes; an unchanged page table costs no copy, a changed one costs one
-copy and the next replay uses it. The recorded sampled -> greedy -> sampled
-steps carried a request seed, which the common sampler serves eagerly, so
-that part of the record does not show trace reuse; the test now alternates
-unseeded sampled and greedy parameters and asserts three sampling-trace
-replays (rerun pending the device reset).
+copy and the next replay uses it. The sampled -> greedy -> sampled steps
+are unseeded and the record shows 3 sampling-trace replays and 0 captures
+(chip 2, `6e3b243e25`; the earlier record carried a request seed, which the
+common sampler serves eagerly, review 1 P1).
 
 `host_work_counters.json`: 64-token generation = 1 prefill, 63 decode
 replays, 0 token refreshes, 1 position refresh (request start), 1 page-table
 refresh (request start), 64 token readbacks (the caller-visible prediction),
-0 eager decode steps; its 63 "sampling replays" counted calls while the
-sampler was on its eager path (review 1 P1), so the sampler-side claim is
-superseded until the rerun.
+0 eager decode steps, 63 sampling-trace replays, 0 seeded eager sampling
+steps (chip 2, `6e3b243e25`; the test asserts `seeded_eager_sampling_steps
+== 0` and runs before the seeded test).
 
 Trace allocation gate: `TT_METAL_TRACE_ALLOC_TRACKING=1
 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0` over the split-sampling test, the
@@ -189,10 +190,12 @@ host-work test, both batch tests and the representative workload
 bucket lengths, a sampled generation, a host-logits decode, a batch-8
 prefill and decode, then the first prompt again): every decode trace key
 replayed in generator order with program-cache allocations included and no
-tracker error; the bucket-8 and bucket-32 sampling traces were captured but
-not replayed in that run because the sampler was on its eager path after
-the seeded step (`work_log.md` 8.1), so the sampler-side part of this gate
-is pending the rerun; see `work_log.md` section 5 and `logs/pytest_full_model_36_tracked.log`.
+tracker error, sampling traces included (chip 2, `6e3b243e25`:
+`logs/pytest_full_model_36_tracked_rerun.log`, 4 passed, program cache 451
+before and after the post-capture workload; `test_batch_decode[32]` hit the
+300 s pytest-timeout inside the tracker's per-replay `gc.collect` and was
+rerun alone with `--timeout 1800`, `logs/pytest_full_model_36_tracked_batch32_rerun.log`,
+`work_log.md` section 9).
 Acknowledged buffers: each decode trace output (`ttnn.mark_corruptible`;
 consumed only by the same bucket's sampling replay or host read immediately
 after its replay) and, through `SamplingGenerator.set_trace_bucket`, the
@@ -211,10 +214,17 @@ context would need 193 GB and is a hard physical limit of the 33.6 GB chip,
 which bounds the simultaneous full-context users, not the per-request
 context. Largest tested decode batch: 32 at short contexts
 (`batch_decode_32.json`); largest prefill: 40960 tokens in every build
-(warmup, `prepare()`); the capacity probe that was to demonstrate a 40959
-and a 40960-token row together with a decode at position 40959 through the
-full model hung on the device and was terminated (`work_log.md` sections
-5.1 to 5.3), so that combination is an open item, not evidence.
+(warmup, `prepare()`). The capacity probe (`capacity_probe_budget.json`,
+chip 2, `6e3b243e25`, `logs/capacity_probe_chip2.log`) builds the 3510-block
+pool, prefills three rows of 40955, 40960 and 200 tokens in one call
+(24.6 s), then runs four bucket-8 decode steps with row 0 at positions
+40955 to 40958 (the on-device position ends at 40959) and row 2 at 200 to
+203; it finished in 137 s inside a 1200 s timeout and row 0 decoded
+" had eyes to see,". Those tokens are not checked against HF; the largest
+HF-checked decode position stays 314 (`readiness_autoregressive/`) and the
+largest HF-checked prefill 16384 (`readiness/prefill_resume_check.json`).
+The first probe, which stepped row 0 to positions 40959 to 40962, hung on
+chips 1 and 0 (`work_log.md` sections 5.1 to 5.3, 8.3 and 9).
 
 ### Performance accounting
 
@@ -267,16 +277,28 @@ rows; `work_log.md` section 6 has the force-argmax comparison.
   served transcript token for token.
 - Logits are BF16 on the sampler path; the readiness all-rows path returns
   float32 so near-tie comparisons are not quantized to 0.125.
-- Open device items (chips 0 and 1 were left with a wedged dispatch path
-  after the hung capacity probes and need an operator reset before any
-  further device work, `work_log.md` section 5.3): the capacity probe
-  (two concurrent full-context rows plus decode at position 40959 through
-  the full model) hung twice with the same host backtrace; `$autodebug`
-  (`triage/AUTODEBUG.md`, `work_log.md` 8.3) attributes it to the probe's
-  own positions past the context from its second replay (an out-of-bounds
-  page-table index in the SDPA decode and KV update kernels); the guard and
-  the corrected probe are committed and the device run is pending; the LoFi LM head measurement (`QWEN3_LM_HEAD_DECODE_FIDELITY=lofi`)
-  was not run, so the LM head stays at HiFi2 (stage 7 lever).
+- Capacity probe hang (`work_log.md` 5.1 to 5.3, 8.3, 9): the first probe
+  stepped row 0 to positions 40959, 40960, 40961, 40962 and hung on chips 1
+  and 0 with the same host backtrace; `$autodebug` (`triage/AUTODEBUG.md`)
+  attributes the hang to the positions past the context (an out-of-bounds
+  page-table index in the SDPA decode and KV update kernels).
+  `decode_forward` now rejects positions at or past 40960 and `generate`
+  rejects `len(prompt) + max_new_tokens > 40960`. The corrected probe (same
+  pool, rows and bucket, positions 40955 to 40958) and its stage-by-stage
+  twin ran clean on chip 2 at `6e3b243e25` (probe 137 s, bisect 138 s, both inside a 1200 s timeout; the bisect's first tokens and two decode steps are bit-equal to the probe's). This is consistent with the attribution and is not a positive
+  reproduction: the out-of-contract step was not re-executed (it would
+  wedge chip 2), and the code between the hung runs (uncommitted tree over
+  `db7a12e7c4`) and `6e3b243e25` also changed (seed admission, per-row
+  page tables, `rows_to_tile`). Chips 0 and 1 stay wedged (mesh opens, a
+  single add never completes) until an operator reset.
+- Chip 3 was not usable: its sysmem NoC mapping is held by another run's
+  process (`logs/mesh_smoke_chip3.log`, PID 1090381, not started by this
+  stage and left alone).
+- The LoFi LM head measurement (`QWEN3_LM_HEAD_DECODE_FIDELITY=lofi`) was
+  not run, so the LM head stays at HiFi2 (stage 7 lever).
+- `test_batch_decode[32]` under the trace allocation tracker needs
+  `--timeout 1800`: the repo `pytest.ini` 300 s pytest-timeout fires inside
+  the tracker's per-replay `gc.collect` (`work_log.md` section 9).
 
 ## Reproduction
 
@@ -287,12 +309,14 @@ From the checkout root, every command through
 ```bash
 PY=/home/hous/dev/tt-metal/python_env/bin/python; S=models/autoports/qwen_qwen3_8b/doc/full_model/logs/stage_env.sh
 $S 9 $PY models/autoports/qwen_qwen3_8b/doc/full_model/logs/generate_reference_wrapper.py
-$S 0 $PY -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150
-$S 1 $PY -m readiness_check.run_teacher_forcing --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150
+$S 2 $PY -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150
+$S 2 $PY -m readiness_check.run_teacher_forcing --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150
 $S 1 $PY -m readiness_check.run_autoregressive --model-dir models/autoports/qwen_qwen3_8b --hf-model Qwen/Qwen3-8B --mesh-device N150
 $S 0 $PY -m readiness_check.run_prefill_resume_check --model-dir models/autoports/qwen_qwen3_8b --mesh-device N150 --lengths 2560,16384 --block-sizes 32 --pcc-min-min 0.90 --top1-min 0.93 --output models/autoports/qwen_qwen3_8b/readiness/prefill_resume_check.json
-$S 0 env QWEN3_FULL_MODEL_LAYERS=36 $PY -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -p no:cacheprovider
-$S 0 env QWEN3_FULL_MODEL_LAYERS=36 QWEN3_EVIDENCE_SUFFIX=tracked TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0 $PY -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k 'test_split_sampling_trace or test_host_work_counters or test_tracked_replay_workload or test_batch_decode' -p no:cacheprovider
+$S 2 env QWEN3_FULL_MODEL_LAYERS=36 $PY -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -p no:cacheprovider
+$S 2 env QWEN3_FULL_MODEL_LAYERS=36 QWEN3_EVIDENCE_SUFFIX=tracked TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0 $PY -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k 'test_split_sampling_trace or test_host_work_counters or test_tracked_replay_workload or test_batch_decode' --timeout 1800 -p no:cacheprovider
+$S 2 timeout 1200 env PYTHONUNBUFFERED=1 $PY models/autoports/qwen_qwen3_8b/doc/full_model/logs/capacity_probe.py
+$S 2 timeout 1200 env PYTHONUNBUFFERED=1 $PY models/autoports/qwen_qwen3_8b/doc/full_model/logs/capacity_bisect.py
 $S 9 $PY models/autoports/qwen_qwen3_8b/doc/full_model/logs/qualitative_hf.py 128
 $S 1 $PY models/autoports/qwen_qwen3_8b/doc/full_model/logs/qualitative_tt.py 128
 $PY /home/hous/dev/skills/plugins/tt-model-bringup/runtime/readiness_check/check_degenerate_output.py --model-dir models/autoports/qwen_qwen3_8b --missing-artifacts critical --scope autoregressive
@@ -303,8 +327,8 @@ MODEL_DIR=models/autoports/qwen_qwen3_8b bash /home/hous/dev/skills/plugins/tt-m
 
 - `serving_contract.json`: pinned plugin (`f96662a7d239c077e1435b658c0e7d316f9c4799`), 37 rows.
 - `perf_batch1_128_128.json`, `perf_batch1_128_128_force_argmax.json`: batch-1 TTFT and decode.
-- `split_sampling_trace.tracked.json` (default sampler), `split_sampling_trace_force_argmax.json`, `host_work_counters.json`, `tracked_replay_workload.json`, `*.tracked.json`: trace evidence (sampler-side claims superseded until the rerun, `work_log.md` 8.1).
-- `multi_row_prefill.json`, `batch_decode_{8,32}.json` (the capacity probe produced no JSON; its logs and triage are under `logs/capacity_probe*.log` and `triage/`).
+- `split_sampling_trace.tracked.json` (default sampler), `split_sampling_trace_force_argmax.json`, `host_work_counters.json`, `tracked_replay_workload.json`, `*.tracked.json`: trace evidence, every file at `6e3b243e25` on chip 2 (`provenance.checkout_git_sha`, `provenance.visible_devices`) except `split_sampling_trace_force_argmax.json` (chip 0, first build on the uncommitted tree over `db7a12e7c4`, `QWEN3_ALLOW_FORCE_ARGMAX=1` variant not rerun).
+- `multi_row_prefill.json`, `batch_decode_{8,32}.json`, `capacity_probe_budget.json` (chip 2, `6e3b243e25`; the hung first probes left only `logs/capacity_probe*.log` and `triage/`).
 - `resume_margin_probe_*.json`, `degenerate_output_autoregressive.json`, `qualitative/`.
 - `profile/`: tt-perf-report of the reduced variant.
 - `logs/`: every command's console log, the environment wrapper and the probe scripts.

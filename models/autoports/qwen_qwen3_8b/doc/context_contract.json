@@ -216,8 +216,10 @@
         "largest_checked_non_aligned_prefill_artifact": "full_model/multi_row_prefill.json (lengths 5, 31, 33, 127, 129, 257, 640, 1000)",
         "largest_checked_decode_position": 314,
         "largest_checked_decode_position_artifact": "readiness_autoregressive/autoregressive_meta.json (59-token prompt plus 256 generated)",
+        "largest_executed_decode_position": 40958,
+        "largest_executed_decode_position_artifact": "full_model/capacity_probe_budget.json (chip 2, commit 6e3b243e25: row 0 prefilled 40955 tokens, decoded at positions 40955 to 40958 next to a 40960-token row and a 200-token row; no HF check of those tokens, row 0 text ' had eyes to see,')",
         "largest_tested_decode_batch": 32,
-        "full_context_decode_status": "not demonstrated: the capacity probe (decode at 40959 after two full-context rows) hung on the device; see full_model.capacity_probe"
+        "full_context_decode_status": "demonstrated without an output check: see full_model.capacity_probe"
       }
     },
     "generator_defaults": {
@@ -237,8 +239,46 @@
       "full_model/README.md"
     ],
     "capacity_probe": {
-      "status": "not_completed",
-      "note": "logs/capacity_probe*.log and triage/: a pool of 3510 blocks allocated and prepared (40960-token warmup prefill included) and the three-row prefill (40959, 40960, 200 tokens) returned, then a bucket-8 decode step never completed on chip 1 and on chip 0 (the probe stepped row 0 past position 40959 from its second step, which decode_forward now rejects; the hung step index is unknown); max_users_at_full_context is the DRAM arithmetic, not a demonstrated run"
+      "status": "passed",
+      "note": "logs/capacity_probe*.log and triage/: the first probe (chip 1, then chip 0, uncommitted tree over db7a12e7c4) prefilled rows of 40959, 40960 and 200 tokens and stepped row 0 to positions 40959, 40960, ... in four decode steps; a bucket-8 decode step never completed on either chip (positions 40960 and above index the page table past its 1280 columns, which decode_forward now rejects; the hung step index is unknown). The corrected probe (logs/capacity_probe.py: row 0 at 40955, four steps to 40958) and its stage-by-stage twin (logs/capacity_bisect.py) ran on chip 2 at commit 6e3b243e25 inside a 1200 s timeout: logs/capacity_probe_chip2.log, logs/capacity_bisect_chip2.log",
+      "num_blocks": 3510,
+      "rows": [
+        1030,
+        19652,
+        311
+      ],
+      "decode_steps": {
+        "live_rows": [
+          0,
+          2
+        ],
+        "tokens": [
+          [
+            6414,
+            48409,
+            1817
+          ],
+          [
+            311,
+            89852,
+            1008
+          ],
+          [
+            1490,
+            17681,
+            11
+          ],
+          [
+            11,
+            2729,
+            323
+          ]
+        ]
+      },
+      "chip": 2,
+      "checkout_git_sha": "6e3b243e256bf0cb17e4f1f5a54921436e325f28",
+      "decoded_text_row0": " had eyes to see,",
+      "prefill_3_rows_s": 24.573840141296387
     }
   },
   "notes": [
