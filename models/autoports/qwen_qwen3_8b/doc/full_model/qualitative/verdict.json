@@ -1,0 +1,75 @@
+{
+  "prompt_mode": "chat (HF chat template, add_generation_prompt=True)",
+  "control": "HF Qwen/Qwen3-8B bf16 greedy on CPU, same rendered token ids (hf_outputs.json)",
+  "tt": "Qwen3Generator.generate greedy, traced split sampling, 128 tokens (tt_outputs.json)",
+  "rows": [
+    {
+      "id": 0,
+      "prompt": "Write a haiku about machine learning.",
+      "hf_tokens": 128,
+      "tt_tokens": 128,
+      "first_divergence_index": 34,
+      "tt_adjacent_duplicate_fraction": 0.0,
+      "tt_snippet": "<think>\nOkay, the user wants a haiku about machine learning. Let me start by recalling what a haiku is. It's a traditional Japanese poem with three lines, sylla",
+      "hf_snippet": "<think>\nOkay, the user wants a haiku about machine learning. Let me start by recalling what a haiku is. It's a traditional Japanese poem with three lines. The s",
+      "verdict": "coherent, on topic, English, chat-template <think> block like HF, no repetition or control-token leakage"
+    },
+    {
+      "id": 1,
+      "prompt": "Explain the difference between supervised and unsupervised learning in simple terms.",
+      "hf_tokens": 128,
+      "tt_tokens": 128,
+      "first_divergence_index": 4,
+      "tt_adjacent_duplicate_fraction": 0.0,
+      "tt_snippet": "<think>\nOkay, I need to explain the difference between supervised and unsupervised learning in simple terms. Let me start by recalling what I know about machine",
+      "hf_snippet": "<think>\nOkay, so I need to explain the difference between supervised and unsupervised learning in simple terms. Let me start by recalling what I know about mach",
+      "verdict": "coherent, on topic, English, chat-template <think> block like HF, no repetition or control-token leakage"
+    },
+    {
+      "id": 2,
+      "prompt": "Complete this story: Once upon a time, in a faraway kingdom, there lived a curious young inventor who discovered",
+      "hf_tokens": 128,
+      "tt_tokens": 128,
+      "first_divergence_index": 32,
+      "tt_adjacent_duplicate_fraction": 0.0,
+      "tt_snippet": "<think>\nOkay, the user wants me to complete the story about a curious young inventor in a faraway kingdom. Let me start by recalling the beginning they provided",
+      "hf_snippet": "<think>\nOkay, the user wants me to complete the story about a curious young inventor in a faraway kingdom. Let me start by recalling the beginning they provided",
+      "verdict": "coherent, on topic, English, chat-template <think> block like HF, no repetition or control-token leakage"
+    },
+    {
+      "id": 3,
+      "prompt": "What are the three laws of thermodynamics?",
+      "hf_tokens": 128,
+      "tt_tokens": 128,
+      "first_divergence_index": 39,
+      "tt_adjacent_duplicate_fraction": 0.0,
+      "tt_snippet": "<think>\nOkay, so I need to figure out the three laws of thermodynamics. Let me start by recalling what I know. I remember that thermodynamics deals with heat, e",
+      "hf_snippet": "<think>\nOkay, so I need to figure out the three laws of thermodynamics. Let me start by recalling what I know. I remember that thermodynamics deals with heat, e",
+      "verdict": "coherent, on topic, English, chat-template <think> block like HF, no repetition or control-token leakage"
+    },
+    {
+      "id": 4,
+      "prompt": "Translate the following to French: \"Hello, how are you today?\"",
+      "hf_tokens": 128,
+      "tt_tokens": 128,
+      "first_divergence_index": 40,
+      "tt_adjacent_duplicate_fraction": 0.0,
+      "tt_snippet": "<think>\nOkay, the user wants to translate \"Hello, how are you today?\" into French. Let me start by recalling the basic French greetings. \"Hello\" in French is us",
+      "hf_snippet": "<think>\nOkay, the user wants to translate \"Hello, how are you today?\" into French. Let me start by recalling the basic French greetings. \"Hello\" in French is us",
+      "verdict": "coherent, on topic, English, chat-template <think> block like HF, no repetition or control-token leakage"
+    },
+    {
+      "id": 5,
+      "prompt": "Write a Python function to calculate the Fibonacci sequence.",
+      "hf_tokens": 128,
+      "tt_tokens": 128,
+      "first_divergence_index": 22,
+      "tt_adjacent_duplicate_fraction": 0.0,
+      "tt_snippet": "<think>\nOkay, I need to write a Python function that calculates the Fibonacci sequence. Let me think about how the Fibonacci sequence works. Oh right, it starts",
+      "hf_snippet": "<think>\nOkay, I need to write a Python function that calculates the Fibonacci sequence. Let me think about how to approach this. The Fibonacci sequence starts w",
+      "verdict": "coherent, on topic, English, chat-template <think> block like HF, no repetition or control-token leakage"
+    }
+  ],
+  "overall": "pass: every TT output is coherent and matches the HF control in topic, language and format; greedy divergence after the first 4 to 40 tokens is near-tie behaviour (see resume_margin_probe_*.json for the BF16 margin evidence), not a feedback, position or cache defect; the teacher-forced top-5 of 100 percent covers the same model path",
+  "degenerate_output_check": "doc/full_model/degenerate_output_autoregressive.json (scope autoregressive, exit 0)"
+}

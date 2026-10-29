@@ -352,9 +352,14 @@ class OptimizedDecoder(FusedDecoder):
         tensor_cache_path: str | Path | None = None,
         prefill_chunk_size: int = 4096,
         prefill_minimal_matmul_min_rows: int | None = None,
+        rope_tables: tuple[ttnn.Tensor, ttnn.Tensor, ttnn.Tensor, ttnn.Tensor] | None = None,
         **_: Any,
     ) -> "OptimizedDecoder":
-        """Build the layer from canonical HF keys with per-role weight dtypes and DRAM-sharded placement."""
+        """Build the layer from canonical HF keys with per-role weight dtypes and DRAM-sharded placement.
+
+        ``rope_tables`` (``rope_cos, rope_sin, rope_cos_table, rope_sin_table`` of an already built layer)
+        shares the position-independent RoPE tables instead of loading a 42 MB copy per layer.
+        """
         import torch
 
         geometry = validate_hf_config(hf_config, layer_idx)
@@ -441,10 +446,18 @@ class OptimizedDecoder(FusedDecoder):
                 k_norm=as_tt(
                     "k_norm", local["self_attn.k_norm.weight"].to(torch.float32).reshape(head_norm_shape), ttnn.bfloat16
                 ),
-                rope_cos=as_tt("rope_cos", cos.unsqueeze(0).unsqueeze(0), ttnn.bfloat16),
-                rope_sin=as_tt("rope_sin", sin.unsqueeze(0).unsqueeze(0), ttnn.bfloat16),
-                rope_cos_table=as_tt("rope_cos_table", cos, ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT),
-                rope_sin_table=as_tt("rope_sin_table", sin, ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT),
+                rope_cos=rope_tables[0] if rope_tables else as_tt("rope_cos", cos.unsqueeze(0).unsqueeze(0), ttnn.bfloat16),
+                rope_sin=rope_tables[1] if rope_tables else as_tt("rope_sin", sin.unsqueeze(0).unsqueeze(0), ttnn.bfloat16),
+                rope_cos_table=(
+                    rope_tables[2]
+                    if rope_tables
+                    else as_tt("rope_cos_table", cos, ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+                ),
+                rope_sin_table=(
+                    rope_tables[3]
+                    if rope_tables
+                    else as_tt("rope_sin_table", sin, ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+                ),
             )
         kwargs = {}
         if prefill_minimal_matmul_min_rows is not None:

@@ -1,0 +1,259 @@
+{
+  "plugin": {
+    "repository": "tenstorrent/vllm-tt-plugin",
+    "commit": "f96662a7d239c077e1435b658c0e7d316f9c4799",
+    "note": "nested checkout plugins/vllm-tt-plugin inside the vLLM fork /home/hous/dev/vllm at that commit (operator-recorded deviation; the standalone repository is the published home)"
+  },
+  "vllm": {
+    "version": "0.1.dev14202+gf96662a7d (fork /home/hous/dev/vllm at f96662a7d, installed editable in /home/hous/dev/tt-metal/python_env)"
+  },
+  "documents_read": [
+    "docs/SCHEDULING.md",
+    "README.md",
+    "src/vllm_tt_plugin/model_runner.py",
+    "src/vllm_tt_plugin/async_decode.py",
+    "src/vllm_tt_plugin/platform.py",
+    "src/vllm_tt_plugin/worker.py",
+    "src/vllm_tt_plugin/model_input.py",
+    "src/vllm_tt_plugin/input_batch.py",
+    "src/vllm_tt_plugin/loader.py",
+    "tests/tt/test_logprobs.py",
+    "tests/tt/test_seeding_and_variety.py",
+    "tests/tt/test_tt_penalties.py",
+    "tests/tt/test_request_isolation.py",
+    "tests/tt/test_host_only_params.py",
+    "tests/tt/test_structured_output_dp1.py"
+  ],
+  "rows": [
+    {
+      "item": "initialize_vllm_model(hf_config, mesh_device, max_batch_size, ...)",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "tt/generator.py build_generator (real weights from HF_HOME, mesh passed in); the vLLM adapter class wrapper is stage 9 work; loader.py:38"
+    },
+    {
+      "item": "allocate_kv_cache(shape, dtype, num_layers)",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "tt/model.py Qwen3Model.allocate_kv_cache(num_blocks, dtype) with one extra scratch block; doc/full_model/README.md (cache ownership); model_runner.py:500"
+    },
+    {
+      "item": "get_kv_cache_spec hook",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "not needed: one layer kind (full attention, block 32); the plugin default FullAttentionSpec path (worker.py:_build_default_kv_cache_spec) applies"
+    },
+    {
+      "item": "get_max_tokens_all_users(model_name, num_devices, tt_data_parallel, max_model_len, max_num_seqs)",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "tt/generator.py Qwen3Generator.max_tokens_all_users from the DRAM byte accounting in doc/context_contract.json (worker.py:541)"
+    },
+    {
+      "item": "prefill_forward(tokens, page_table, kv_cache, enable_trace, prompt_lens, start_pos, sampling_params, empty_slots)",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "doc/full_model/multi_row_prefill.json (rows of different lengths in one call equal solo), readiness/prefill_resume_check.json (nonzero start_pos), doc/full_model/batch_decode_32.json (32 rows then decode); model_runner.py:2770-2840"
+    },
+    {
+      "item": "prefill_forward: several rows per call with per-row start_pos and prompt_lens ends",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "doc/full_model/multi_row_prefill.json; tt/generator.py prefill_forward (row loop, absolute positions)"
+    },
+    {
+      "item": "prefill_forward: return_all_logits=True",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "readiness prefill check (logs/run_prefill_check.log) through prefill_logits -> prefill_forward(return_all_logits=True)"
+    },
+    {
+      "item": "prefill_forward: enable_trace (traced prefill)",
+      "kind": "call",
+      "status": "not_supported",
+      "declaration": "prefill_forward accepts enable_trace and ignores it: prefill chunks run eagerly (tt/generator.py); the plugin passes enable_trace=trace_mode in ['all'] and does not require prefill traces (model_runner.py:2775)",
+      "reason": "prefill is eager in this stage; requests run unchanged, TTFT is the eager prefill time recorded in doc/full_model/README.md"
+    },
+    {
+      "item": "prefill_forward: empty_slots",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "accepted and ignored: the model keeps no per-slot recurrent state; cache rows follow execution-row order (tt/generator.py prefill_forward)"
+    },
+    {
+      "item": "prefill_forward: page_tables_per_layer",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "not sent for uniform models (model_runner.py:2781 sends it only when block_tables_per_layer is set); single page table per request"
+    },
+    {
+      "item": "prefill_forward: original_prompt_lens / supports_original_prompt_lens",
+      "kind": "call",
+      "status": "not_supported",
+      "declaration": "supports_original_prompt_lens is absent, which the plugin reads as False (model_runner.py:2794)",
+      "reason": "after a preemption the plugin re-prefills accepted tokens as prompt tokens; no exact-output replay through decode is claimed"
+    },
+    {
+      "item": "decode_forward(tokens, page_table, kv_cache, start_pos, sampling_params, enable_trace, read_from_device)",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "doc/full_model/split_sampling_trace.json, doc/full_model/batch_decode_{8,32}.json, doc/full_model/host_work_counters.json; async_decode.py:625"
+    },
+    {
+      "item": "decode_forward: reset_batch / slot_remap",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "reset_batch reloads tokens and positions from the host (tt/generator.py decode_forward reload rule); slot_remap is accepted; with supports_async_decode False the host tokens are current, so no device-token merge is needed"
+    },
+    {
+      "item": "decode_forward: prompt_tokens / output_tokens (device penalties state)",
+      "kind": "call",
+      "status": "not_supported",
+      "declaration": "model_capabilities['supports_device_penalties'] = False (platform.py:745 reads it; default True)",
+      "reason": "the penalties variant of the sampler trace is not prepared in this stage; requests with penalties take the plugin's host sampling over the logits that decode_forward returns without sampling_params"
+    },
+    {
+      "item": "read_decode_output(tt_out, async_read=True) / process_decode_output_host",
+      "kind": "call",
+      "status": "not_supported",
+      "declaration": "model_capabilities['supports_async_decode'] = False (platform.py:779; default False disables async scheduling)",
+      "reason": "decode_forward reads the sampled token or logits synchronously; the async split is stage 9/10 work"
+    },
+    {
+      "item": "warmup_model_prefill / warmup_model_decode (two-phase)",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "tt/generator.py Qwen3Generator.prepare: prefill buckets, decode buckets in both variants and sampler precompile before the first capture; the adapter maps both hooks to prepare() (model_runner.py:3478-3489)"
+    },
+    {
+      "item": "tt_supported_decode_batch_sizes",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "Qwen3Generator.decode_buckets = (1, 8, 16, 24, 32), each prepared before capture (model_runner.py:1096)"
+    },
+    {
+      "item": "supports_sample_on_device",
+      "kind": "capability",
+      "status": "supported",
+      "evidence": "doc/full_model/split_sampling_trace.json (traced split sampling, tt_out_tok feedback, on-device position advance); doc/full_model/perf_batch1_128_128.json"
+    },
+    {
+      "item": "max_device_top_k",
+      "kind": "capability",
+      "status": "supported",
+      "evidence": "32 (SamplingGenerator max_top_k); tt/generator.py MAX_TOP_K"
+    },
+    {
+      "item": "supports_device_seeded_sampling",
+      "kind": "capability",
+      "status": "supported",
+      "evidence": "SeedManager request seeds (seeded requests sample eagerly, unseeded ones through the sampling trace); doc/full_model/split_sampling_trace.json mode_alternation uses seed 7"
+    },
+    {
+      "item": "supports_device_penalties",
+      "kind": "capability",
+      "status": "not_supported",
+      "declaration": "model_capabilities['supports_device_penalties'] = False",
+      "reason": "see decode_forward prompt_tokens/output_tokens; host (compat) sampling serves penalties; the plugin suite tests/tt/test_tt_penalties.py runs through that path"
+    },
+    {
+      "item": "supports_async_decode",
+      "kind": "capability",
+      "status": "not_supported",
+      "declaration": "model_capabilities['supports_async_decode'] = False (default)",
+      "reason": "no read_decode_output/process_decode_output_host split yet; stage 9/10"
+    },
+    {
+      "item": "supports_prefix_caching",
+      "kind": "capability",
+      "status": "supported",
+      "evidence": "readiness/prefill_resume_check.json"
+    },
+    {
+      "item": "supports_prefix_caching_sliding_window",
+      "kind": "capability",
+      "status": "not_supported",
+      "declaration": "absent (default False); only read for models with a sliding window (platform.py:838)",
+      "reason": "Qwen3-8B has no sliding window (config.json sliding_window null, use_sliding_window false)"
+    },
+    {
+      "item": "output_tokens_per_step",
+      "kind": "capability",
+      "status": "supported",
+      "evidence": "one token per step (default); no block output"
+    },
+    {
+      "item": "batched_prefill",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "doc/full_model/multi_row_prefill.json: one prefill_forward call with rows of different lengths equals the single-row results (per-row loop over the full decoder; packed-row compute is stage 10 per prefill-features.md)"
+    },
+    {
+      "item": "chunked prefill / continuation at any start position",
+      "kind": "call",
+      "status": "supported",
+      "evidence": "readiness/prefill_resume_check.json (starts 32, 64, 68, 2528, 2559, 16352, 16383 on natural text with failing controls); doc/optimized_decoder/prefill_continuation_full_attention.json"
+    },
+    {
+      "item": "temperature / top_k / top_p",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "doc/full_model/split_sampling_trace.json mode_alternation (sampled and greedy on the same traces); tests/tt/test_seeding_and_variety.py path"
+    },
+    {
+      "item": "seed",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "SeedManager (seeded steps run the sampler eagerly on the same programs); doc/full_model/split_sampling_trace.json"
+    },
+    {
+      "item": "logprobs (any count, single chip)",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "host sampling: platform.compat_sampling_required routes any logprobs request on one chip to host sampling (platform.py:894); decode_forward without sampling_params returns [B, 151936] logits (doc/full_model/tracked_replay_workload.json host_logits_decode)"
+    },
+    {
+      "item": "prompt_logprobs",
+      "kind": "request_feature",
+      "status": "not_supported",
+      "declaration": "TTPlatform.validate_request raises for prompt_logprobs (platform.py:882)",
+      "reason": "plugin rejects the request before the model; not a model path"
+    },
+    {
+      "item": "presence_penalty / frequency_penalty / repetition_penalty",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "host sampling via supports_device_penalties=False (platform.py:745, worker.py:384 can_sample_device); logits path as above"
+    },
+    {
+      "item": "min_p, bad_words, structured_outputs, logit_bias, allowed_token_ids, min_tokens",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "host (compat) sampling per platform.compat_sampling_required (platform.py:900-908) over decode_forward logits; tests/tt/test_host_only_params.py and test_structured_output_dp1.py exercise that path"
+    },
+    {
+      "item": "n > 1 / parallel sampling",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "vLLM v1 ParentRequest children (seed + i) arrive as separate rows; no model-side handling"
+    },
+    {
+      "item": "max_num_seqs up to 32",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "doc/full_model/batch_decode_32.json; decode bucket 32"
+    },
+    {
+      "item": "prompt lengths not divisible by chunk/tile/page sizes",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "doc/full_model/multi_row_prefill.json lengths 5, 31, 33, 127, 129, 257, 640, 1000; readiness AIME prompt 158 tokens; doc/full_model/README.md"
+    },
+    {
+      "item": "max_model_len 40960",
+      "kind": "request_feature",
+      "status": "supported",
+      "evidence": "doc/context_contract.json full_model section (40960 retained, batch at full context bounded by DRAM)"
+    }
+  ]
+}

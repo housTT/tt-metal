@@ -1,0 +1,313 @@
+{
+  "model_dir": "/home/hous/dev/tt-metal-wt-qwen3/models/autoports/qwen_qwen3_8b",
+  "prompt_source": "natural",
+  "text_file": "models/tt_transformers/tests/tale-of-two-cities.txt.bz2",
+  "lengths": [
+    2560,
+    16384
+  ],
+  "block_sizes": [
+    32,
+    256
+  ],
+  "sliding_window": null,
+  "tile": 32,
+  "window": 256,
+  "controls": [
+    "no_history",
+    "fresh_suffix"
+  ],
+  "thresholds": {
+    "pcc_mean_min": 0.99,
+    "pcc_min_min": 0.98,
+    "top1_min": 0.98,
+    "control_min_window": 64
+  },
+  "cases": [
+    {
+      "length": 2560,
+      "start": 32,
+      "kind": "block_aligned",
+      "positions": 257,
+      "pcc_mean": 0.9996670172445221,
+      "pcc_min": 0.9897163296342831,
+      "top1_agreement": 1.0,
+      "last_top1_equal": true,
+      "pass": true,
+      "reasons": [],
+      "controls": {
+        "no_history": {
+          "positions": 257,
+          "pcc_mean": 0.9340163220821762,
+          "pcc_min": 0.193161909422223,
+          "top1_agreement": 0.8988326787948608,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        },
+        "fresh_suffix": {
+          "positions": 257,
+          "pcc_mean": 0.9341404599949286,
+          "pcc_min": 0.18789458009656326,
+          "top1_agreement": 0.9027237296104431,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        }
+      },
+      "elapsed_s": 2.69238383800257
+    },
+    {
+      "length": 2560,
+      "start": 256,
+      "kind": "lcm_aligned",
+      "positions": 257,
+      "pcc_mean": 0.9993590527358448,
+      "pcc_min": 0.916931232900312,
+      "top1_agreement": 0.9844357967376709,
+      "last_top1_equal": true,
+      "pass": false,
+      "reasons": [
+        "pcc_min 0.9169 < 0.98"
+      ],
+      "controls": {
+        "no_history": {
+          "positions": 257,
+          "pcc_mean": 0.6489341785804801,
+          "pcc_min": 0.06724210976962615,
+          "top1_agreement": 0.5603112578392029,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        },
+        "fresh_suffix": {
+          "positions": 257,
+          "pcc_mean": 0.8545140520216649,
+          "pcc_min": 0.08630528597424109,
+          "top1_agreement": 0.8132295608520508,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        }
+      },
+      "elapsed_s": 6.215164294932038
+    },
+    {
+      "length": 2560,
+      "start": 516,
+      "kind": "tile_unaligned",
+      "positions": 257,
+      "pcc_mean": 0.9996762000968644,
+      "pcc_min": 0.987830519688361,
+      "top1_agreement": 1.0,
+      "last_top1_equal": true,
+      "pass": true,
+      "reasons": [],
+      "controls": {
+        "no_history": {
+          "positions": 257,
+          "pcc_mean": 0.6697894602128891,
+          "pcc_min": 0.14039057065550756,
+          "top1_agreement": 0.5447470545768738,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        },
+        "fresh_suffix": {
+          "positions": 257,
+          "pcc_mean": 0.8957946885123508,
+          "pcc_min": 0.2616002605402013,
+          "top1_agreement": 0.8677042722702026,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        }
+      },
+      "elapsed_s": 5.438444086001255
+    },
+    {
+      "length": 2560,
+      "start": 2304,
+      "kind": "prefix_cache_hit",
+      "positions": 256,
+      "pcc_mean": 0.9999231630381471,
+      "pcc_min": 0.9995224688565068,
+      "top1_agreement": 0.9921875,
+      "last_top1_equal": true,
+      "pass": true,
+      "reasons": [],
+      "controls": {
+        "no_history": {
+          "positions": 256,
+          "pcc_mean": 0.6800707970888785,
+          "pcc_min": 0.37604477124495667,
+          "top1_agreement": 0.265625,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        },
+        "fresh_suffix": {
+          "positions": 256,
+          "pcc_mean": 0.9531105197740481,
+          "pcc_min": 0.31163720026430647,
+          "top1_agreement": 0.7265625,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        }
+      },
+      "elapsed_s": 3.7319050719961524
+    },
+    {
+      "length": 2560,
+      "start": 2559,
+      "kind": "last_token",
+      "positions": 1,
+      "pcc_mean": 0.9999647695619454,
+      "pcc_min": 0.9999647695619454,
+      "top1_agreement": 1.0,
+      "last_top1_equal": true,
+      "pass": true,
+      "reasons": [],
+      "controls": {},
+      "elapsed_s": 0.9878773480886593
+    },
+    {
+      "length": 16384,
+      "start": 32,
+      "kind": "block_aligned",
+      "positions": 257,
+      "pcc_mean": 0.9996669793801823,
+      "pcc_min": 0.9897163296342831,
+      "top1_agreement": 1.0,
+      "last_top1_equal": true,
+      "pass": true,
+      "reasons": [],
+      "controls": {
+        "no_history": {
+          "positions": 257,
+          "pcc_mean": 0.9340180086829356,
+          "pcc_min": 0.193161909422223,
+          "top1_agreement": 0.8988326787948608,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        },
+        "fresh_suffix": {
+          "positions": 257,
+          "pcc_mean": 0.9341421993076185,
+          "pcc_min": 0.18789458009656326,
+          "top1_agreement": 0.9027237296104431,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        }
+      },
+      "elapsed_s": 21.908047609962523
+    },
+    {
+      "length": 16384,
+      "start": 256,
+      "kind": "lcm_aligned",
+      "positions": 257,
+      "pcc_mean": 0.9993590058736548,
+      "pcc_min": 0.916931232900312,
+      "top1_agreement": 0.9844357967376709,
+      "last_top1_equal": true,
+      "pass": false,
+      "reasons": [
+        "pcc_min 0.9169 < 0.98"
+      ],
+      "controls": {
+        "no_history": {
+          "positions": 257,
+          "pcc_mean": 0.6489842988455409,
+          "pcc_min": 0.06724210976962615,
+          "top1_agreement": 0.5603112578392029,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        },
+        "fresh_suffix": {
+          "positions": 257,
+          "pcc_mean": 0.8545259491585552,
+          "pcc_min": 0.08630528597424109,
+          "top1_agreement": 0.8132295608520508,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        }
+      },
+      "elapsed_s": 19.096256210003048
+    },
+    {
+      "length": 16384,
+      "start": 516,
+      "kind": "tile_unaligned",
+      "positions": 257,
+      "pcc_mean": 0.9996761391146455,
+      "pcc_min": 0.987830519688361,
+      "top1_agreement": 1.0,
+      "last_top1_equal": true,
+      "pass": true,
+      "reasons": [],
+      "controls": {
+        "no_history": {
+          "positions": 257,
+          "pcc_mean": 0.6701348044514266,
+          "pcc_min": 0.14039057065550756,
+          "top1_agreement": 0.5447470545768738,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        },
+        "fresh_suffix": {
+          "positions": 257,
+          "pcc_mean": 0.8958062166639372,
+          "pcc_min": 0.2616002605402013,
+          "top1_agreement": 0.8677042722702026,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        }
+      },
+      "elapsed_s": 21.029130192939192
+    },
+    {
+      "length": 16384,
+      "start": 16128,
+      "kind": "prefix_cache_hit",
+      "positions": 256,
+      "pcc_mean": 0.9999108590183127,
+      "pcc_min": 0.9979831861257829,
+      "top1_agreement": 0.98828125,
+      "last_top1_equal": true,
+      "pass": true,
+      "reasons": [],
+      "controls": {
+        "no_history": {
+          "positions": 256,
+          "pcc_mean": 0.7235981699969702,
+          "pcc_min": 0.20935226169147803,
+          "top1_agreement": 0.29296875,
+          "last_top1_equal": false,
+          "failed_as_expected": true
+        },
+        "fresh_suffix": {
+          "positions": 256,
+          "pcc_mean": 0.9394849915974718,
+          "pcc_min": 0.3364721180610879,
+          "top1_agreement": 0.74609375,
+          "last_top1_equal": false,
+          "failed_as_expected": true
+        }
+      },
+      "elapsed_s": 7.845400896971114
+    },
+    {
+      "length": 16384,
+      "start": 16383,
+      "kind": "last_token",
+      "positions": 1,
+      "pcc_mean": 0.9998954966763863,
+      "pcc_min": 0.9998954966763863,
+      "top1_agreement": 1.0,
+      "last_top1_equal": true,
+      "pass": true,
+      "reasons": [],
+      "controls": {},
+      "elapsed_s": 5.860888506984338
+    }
+  ],
+  "status": "fail",
+  "reasons": [
+    "L=2560 s=256 (lcm_aligned): pcc_min 0.9169 < 0.98",
+    "L=16384 s=256 (lcm_aligned): pcc_min 0.9169 < 0.98"
+  ]
+}
