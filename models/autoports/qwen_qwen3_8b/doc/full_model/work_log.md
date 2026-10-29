@@ -357,11 +357,46 @@ The stall itself: the three-row `prefill_forward` call (40959, 40960 and
 200 tokens, slots 0, 1 and 2) returned on both chips (the "active trace"
 warning is printed only once a trace exists, and `prepare()` captures
 none), and the first bucket-8 `decode_forward` at positions 40959 and 200
-(decode trace capture and replay, sampler, token readback) never completed.
+(decode trace capture and replay, sampler, token readback) was reached; the
+probe printed nothing per step and the gdb captures hold no Python frames,
+so the hung step index is unknown. Review 2 found that the probe itself
+stepped row 0 past position 40959 from its second step (and the bisect
+script turned the inactive row's -1 into 0); `decode_forward` now rejects
+positions outside the context and both probe scripts hold row 0 at 40955
+tokens so four steps stay inside it.
 The layer-level stage-3 test decoded 32 users at position 40959 through a
 trace; the full-model bucket-8 decode trace at the context end with a
-full-width page table has no other run. Localizing it needs a device and the
+full-width page table, and the inactive-row (-1) path in the traced full
+model, have no other run. Localizing it needs a device and the
 staged run `logs/capacity_bisect.py` (sync and print after every stage);
 recorded as an open item.
 
 ## 8. Gate, commit, review (13:25 ET onward)
+
+| Step (ET) | Command | Result |
+| --- | --- | --- |
+| 13:24 | `MODEL_DIR=models/autoports/qwen_qwen3_8b bash .../06-full-model.check.sh` | exit 0: no degenerate output, context contract OK (40960), serving contract OK (37 rows) (`logs/gate_06_full_model.log`) |
+| 13:25 | `git commit` | `2eaaa0b3f9` (sources, tests, evidence), `7a7e8cee97` (shared RoPE, multi-row warmup, fp32 readiness logits, capacity accounting, docs) |
+| 13:26 to 13:46 | `$stage-review` 1, fresh subagent, read-only | `more-work-needed` (`logs/stage_review_1.md`) |
+| 13:50 to 14:30 | fixes (section 8.1), `git commit` | `f9cc5b210a`, `1cccb01d89` |
+| 13:53 to 14:15 | `$stage-review` 2 | `more-work-needed` (`logs/stage_review_2.md`): P1 hang unlocalized and the probe out of contract from its second step; P1 no device evidence for the fixes; P2 seed admission against the sampler's slot contract; P2 prompt lengths 4097 to 36864 unwarmed; P2 test ordering and batch-32 control; P2 stale citations |
+| 14:12 | `$autodebug` (static, isolated child, `logs/autodebug_launcher.log`, `AUTODEBUG.md`) on the hang | section 8.3 |
+
+### 8.1 Fixes after review 1 (13:50 to 14:30 ET; no device available)
+
+- Seeds (`tt/generator.py` `_apply_sampling_params`): request seeds are registered at admission, not on every step; `_replay` counts `sampling_trace_replays` only when the sampler's own condition selects the trace (`has_active_request_seed()` false) and `seeded_eager_sampling_steps` otherwise. The recorded `host_work_counters.json`, `perf_batch1_128_128.json`, `batch_decode_*.json` and `tracked_replay_workload*.json` were produced after `test_split_sampling_trace` seeded slot 0 (every pytest process), so their sampler ran eagerly with a per-token seed write; they are superseded and must be regenerated on a device. The readiness runs (`run_teacher_forcing_final.log`: 45.22 t/s/u, TTFT 80.41 ms) and the qualitative run never set a seed and ran the traced sampler.
+- Row-count-independent multi-row prefill: `prefill_forward` passes each row its own `[1, 1280]` page table (no per-user slice program in the decoder) and `Qwen3Model.rows_to_tile` places row `i` by a pad into its own 32-row tile and sums (32 pad variants plus one add instead of a concat per row count); `prepare()` warms one 32-row call, which covers every pad variant. Continuation rows (`start_pos > 0`) still compile per offset; that remains open (stage 10 runtime-indexed prefill per `prefill-features.md`) and the serving-contract rows say so.
+- Cache ownership: `Qwen3Model.allocate_kv_cache(num_blocks)` allocates `num_blocks + 1` with the last block as scratch; the generator requires `scratch_block=` for any cache that is not its own (`_scratch_for`), invalidates the bucket's device state after prefill sampling, and gains `release_owned_cache()`; `max_tokens_all_users(mesh_device=...)` measures free DRAM.
+- Artifacts: the force-argmax split-sampling record is `split_sampling_trace_force_argmax.json`; the default-path record is `split_sampling_trace.tracked.json`; `doc/context_contract.json` records demonstrated values (largest checked prefill 16384, largest checked decode position 314, full-context decode not demonstrated).
+
+### 8.2 Fixes after review 2 (14:20 to 14:45 ET; no device available)
+
+- `decode_forward` raises when any position is outside `[0, 40960)`; `capacity_probe.py` and `capacity_bisect.py` hold row 0 at 40955 tokens (four steps end at 40958), keep the inactive row at -1 and print before and after every step.
+- Seed admission mirrors `models/tt_transformers/tt/generator.py` `sample_decode_on_device`: prefill registers the prefill rows' seeds with a fresh salt and touches nothing else; decode derives the live slots from positions at or above 0, applies `slot_remap` through `apply_slot_remap`, deactivates slots that are no longer live, re-registers every live slot on `admit` (`reset_batch`, first decode after prefill, mode change) and only changed slots otherwise, aligns the (re)registered counters to the positions, then advances; `salt_duplicate_seeds=False` (the vLLM reproducibility contract).
+- `DEFAULT_WARMUP_PREFILL_LENGTHS` now includes every multiple of 4096 up to 40960 (prompt lengths 4097 to 36864 compile per rounded length in the embedding, untilize and chunk slices).
+- `_write_page_table` pads inactive rows with the resolved scratch block.
+- Tests: `test_seeded_sampling_last` is defined after `test_perf_batch1` (module order); `test_batch_decode` decodes the solo arm in the same physical batch with inactive rows at -1 and requires bit-equal tokens; `test_tracked_replay_workload` adds a 3-row and a 32-row prefill and, on the full model, an 8192-token generation after the first capture and asserts `num_program_cache_entries()` unchanged.
+- Documentation: serving-contract rows cite `split_sampling_trace.tracked.json` and describe the seed path; the README headline carries the readiness teacher-forcing numbers (traced sampler, commit `2eaaa0b3f9`) and marks the 128/128 numbers superseded; this section and 8.1 were missing from the committed work log (an append anchor did not match) and are added here.
+- Still blocked on the operator reset of chips 0 and 1: every device rerun (focused module, tracked gate with program-cache allocations, `run_prefill_check`, `run_teacher_forcing`, `test_perf_batch1`, the corrected capacity probe and bisect, the two-slot seeded check, the batch-32 same-bucket control, the 8192-token tracked case).
+
+### 8.3 AutoDebug (static) on the hang

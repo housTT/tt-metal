@@ -48,7 +48,7 @@ from models.common.sampling import SamplingGenerator, SamplingParams, format_sam
 
 SLOT_WIDTH = 32
 MAX_TOP_K = 32
-DEFAULT_WARMUP_PREFILL_LENGTHS = PREFILL_BUCKETS + (40960,)
+DEFAULT_WARMUP_PREFILL_LENGTHS = PREFILL_BUCKETS + tuple(range(2 * PREFILL_CHUNK, 40960 + 1, PREFILL_CHUNK))
 COUNTER_NAMES = (
     "decode_trace_replays",
     "sampling_trace_replays",
@@ -179,7 +179,7 @@ class Qwen3Generator(Generator):
                 }
             },
             pad_logits_to_power_of_2=False,
-            salt_duplicate_seeds=True,
+            salt_duplicate_seeds=False,
             use_unfused_ccl=False,
             use_topk_logprobs=False,
         )
@@ -360,8 +360,9 @@ class Qwen3Generator(Generator):
         state.host_pos = host
         self.counters["position_refreshes"] += 1
 
-    def _write_page_table(self, state: DecodeBucket, table: torch.Tensor) -> None:
-        host = torch.full((state.bucket, self.page_table_width), self.scratch_block, dtype=torch.int32)
+    def _write_page_table(self, state: DecodeBucket, table: torch.Tensor, scratch: int | None = None) -> None:
+        pad_block = self.scratch_block if scratch is None else int(scratch)
+        host = torch.full((state.bucket, self.page_table_width), pad_block, dtype=torch.int32)
         host[: table.shape[0]] = table.to(torch.int32)
         if torch.equal(host, state.host_table):
             return
@@ -377,13 +378,25 @@ class Qwen3Generator(Generator):
 
     # ----------------------------------------------------------- sampling
 
-    def _apply_sampling_params(self, sampling_params: SamplingParams, batch: int, *, admit: bool) -> None:
-        """Refresh k/p/temp on change; register request seeds at admission; advance seeded slots every step.
+    def _apply_sampling_params(
+        self,
+        sampling_params: SamplingParams,
+        batch: int,
+        *,
+        admit: bool,
+        positions: Sequence[int] | None = None,
+        slot_remap: Any = None,
+    ) -> None:
+        """Refresh k/p/temp on change and keep the common sampler's seed manager in step with the batch.
 
-        ``admit`` is true when the rows are new requests (prefill) or the host is authoritative again
-        (``reset_batch``, first decode after prefill, mode change): seeds are then registered for the rows,
-        ``None`` entries clear a slot's seed, and slots outside the batch are deactivated. Steady decode
-        steps only advance the seeded slots (``get_new_values``), which is a no-op for unseeded slots.
+        Prefill (``positions`` is None): the rows are freshly admitted requests, their seeds are registered
+        with a fresh salt and nothing else is touched. Decode: the live slots are the rows at a position
+        of 0 or more; ``slot_remap`` is applied first, slots that are no longer live are deactivated, seeds
+        are re-registered for every live slot when ``admit`` (``reset_batch``, first decode after prefill,
+        mode change) and only for slots whose seed changed otherwise, counters are aligned to the
+        authoritative positions of the (re)registered slots, and ``get_new_values`` advances the seeded
+        slots (a no-op for unseeded steady state). Mirrors ``models/tt_transformers/tt/generator.py``
+        ``sample_decode_on_device``.
         """
         formatted = format_sampling_params(sampling_params, SLOT_WIDTH, MAX_TOP_K)
         signature = (
@@ -403,11 +416,29 @@ class Qwen3Generator(Generator):
             self.sampling.reset_sampling_params(formatted)
             self._sampling_signature = signature
             self.counters["sampling_param_refreshes"] += 1
-        slots = list(range(batch))
-        if admit:
-            self.sampling.seed_manager.reset_seed_from_slots(formatted.seed, slots)
-            self.sampling.seed_manager.deactivate_slots_except(slots)
-        self.sampling.seed_manager.get_new_values(slots)
+        manager = self.sampling.seed_manager
+        if positions is None:
+            slots = list(range(batch))
+            manager.reset_seed(formatted.seed, slots)
+            manager.get_new_values(slots)
+            return
+        position_list = [int(p) for p in positions]
+        live = [slot for slot, p in enumerate(position_list[:SLOT_WIDTH]) if p >= 0]
+        if slot_remap is not None:
+            remap = torch.as_tensor(slot_remap).reshape(-1).to(torch.int64)
+            full = torch.arange(SLOT_WIDTH, dtype=torch.int64)
+            full[: min(SLOT_WIDTH, remap.numel())] = remap[:SLOT_WIDTH]
+            manager.apply_slot_remap(full)
+        manager.deactivate_slots_except(live)
+        if live:
+            if admit:
+                manager.reset_seed_from_slots(formatted.seed, live)
+                align = list(live)
+            else:
+                align = manager.reset_seed_from_slots_if_needed(formatted.seed, live)
+            if align:
+                manager.align_seed_counters_to_positions(formatted.seed, align, position_list)
+        manager.get_new_values(live)
 
     def _sampler_is_traced(self) -> bool:
         """Mirror of ``SamplingGenerator.sample``: explicit request seeds run the sampler eagerly."""
@@ -600,22 +631,30 @@ class Qwen3Generator(Generator):
         bucket = decode_bucket(batch, self.model.grid.x, self.model.grid.y)
         state = self.buckets[bucket]
         positions = torch.as_tensor(start_pos).reshape(-1).to(torch.int32)
+        if positions.numel() != batch:
+            raise ValueError(f"start_pos has {positions.numel()} entries for {batch} rows")
+        if int(positions.max()) >= self.max_context:
+            raise ValueError(f"decode position {int(positions.max())} is outside the {self.max_context}-token context")
         reload = (
             mode == "host" or reset_batch or not state.device_state_valid or state.last_mode != mode or not enable_trace
         )
         if reload:
             self._write_tokens(state, torch.as_tensor(tokens).reshape(-1))
             self._write_positions(state, positions)
+        scratch = self._scratch_for(kv_cache, kwargs.get("scratch_block"))
         self._write_page_table(
             state,
-            self._redirect_table(
-                torch.as_tensor(page_table),
-                [int(p) + 1 for p in positions],
-                self._scratch_for(kv_cache, kwargs.get("scratch_block")),
-            ),
+            self._redirect_table(torch.as_tensor(page_table), [int(p) + 1 for p in positions], scratch),
+            scratch,
         )
         if mode == "device":
-            self._apply_sampling_params(sampling_params, batch, admit=reload)
+            self._apply_sampling_params(
+                sampling_params,
+                batch,
+                admit=reload,
+                positions=positions.tolist(),
+                slot_remap=kwargs.get("slot_remap"),
+            )
         if enable_trace:
             out = self._replay(state, mode, kv_cache)
         else:
@@ -740,7 +779,7 @@ class Qwen3Generator(Generator):
                 break
             if forced != predictions[-1]:
                 self._write_tokens(state, torch.tensor([forced], dtype=torch.int32))
-            self._apply_sampling_params(params, 1, admit=False)
+            self._apply_sampling_params(params, 1, admit=False, positions=[len(ids) + step - 1])
             if enable_trace:
                 self._replay(state, "device", self.kv_cache)
             else:

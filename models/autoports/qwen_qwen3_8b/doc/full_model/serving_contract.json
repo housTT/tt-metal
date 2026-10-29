@@ -97,13 +97,13 @@
       "item": "decode_forward(tokens, page_table, kv_cache, start_pos, sampling_params, enable_trace, read_from_device)",
       "kind": "call",
       "status": "supported",
-      "evidence": "doc/full_model/split_sampling_trace.json, doc/full_model/batch_decode_{8,32}.json, doc/full_model/host_work_counters.json; async_decode.py:625"
+      "evidence": "doc/full_model/split_sampling_trace.tracked.json, doc/full_model/batch_decode_{8,32}.json, doc/full_model/host_work_counters.json; async_decode.py:625"
     },
     {
       "item": "decode_forward: reset_batch / slot_remap",
       "kind": "call",
       "status": "supported",
-      "evidence": "reset_batch, the first decode after a prefill and a sampling-mode change reload tokens and positions from the host and re-register request seeds for the rows (tt/generator.py decode_forward and _apply_sampling_params(admit=True)); slot_remap is accepted; with supports_async_decode False the host tokens are current"
+      "evidence": "reset_batch, the first decode after a prefill and a sampling-mode change reload tokens and positions from the host and re-register every live slot's seed (admit); slot_remap is applied to the seed manager before deactivation (tt/generator.py decode_forward, _apply_sampling_params); untested on hardware since the fix"
     },
     {
       "item": "decode_forward: prompt_tokens / output_tokens (device penalties state)",
@@ -135,7 +135,7 @@
       "item": "supports_sample_on_device",
       "kind": "capability",
       "status": "supported",
-      "evidence": "doc/full_model/split_sampling_trace.json (traced split sampling, tt_out_tok feedback, on-device position advance); doc/full_model/perf_batch1_128_128.json"
+      "evidence": "doc/full_model/split_sampling_trace.tracked.json (traced split sampling, tt_out_tok feedback, on-device position advance); doc/full_model/perf_batch1_128_128.json"
     },
     {
       "item": "max_device_top_k",
@@ -147,7 +147,7 @@
       "item": "supports_device_seeded_sampling",
       "kind": "capability",
       "status": "supported",
-      "evidence": "SeedManager request seeds (seeded requests sample eagerly, unseeded ones through the sampling trace); doc/full_model/split_sampling_trace.json mode_alternation uses seed 7"
+      "evidence": "SeedManager with salt_duplicate_seeds=False (vLLM reproducibility contract); seeds registered at prefill admission, re-registered on reset_batch, slot_remap applied, live slots from positions >= 0, counters aligned to positions (tt/generator.py _apply_sampling_params); seeded steps run the sampler eagerly per the common sampler and are counted in seeded_eager_sampling_steps; tests/test_full_model.py test_seeded_sampling_last (rerun pending the device reset)"
     },
     {
       "item": "supports_device_penalties",
@@ -198,13 +198,13 @@
       "item": "temperature / top_k / top_p",
       "kind": "request_feature",
       "status": "supported",
-      "evidence": "doc/full_model/split_sampling_trace.json mode_alternation (sampled and greedy on the same traces); tests/tt/test_seeding_and_variety.py path"
+      "evidence": "doc/full_model/split_sampling_trace.tracked.json mode_alternation (sampled and greedy on the same traces); tests/tt/test_seeding_and_variety.py path"
     },
     {
       "item": "seed",
       "kind": "request_feature",
       "status": "supported",
-      "evidence": "SeedManager: seeds registered at admission (prefill or reset_batch), None entries clear the slot, seeded steps run the sampler eagerly per the common sampler's contract and are counted in seeded_eager_sampling_steps; tests/test_full_model.py test_seeded_sampling_last (rerun pending the device reset)"
+      "evidence": "see supports_device_seeded_sampling; the single-slot generate path and the multi-slot serving path are untested on hardware since the fix (pending the device reset)"
     },
     {
       "item": "logprobs (any count, single chip)",

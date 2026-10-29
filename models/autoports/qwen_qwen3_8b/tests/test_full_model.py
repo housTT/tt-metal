@@ -303,7 +303,28 @@ def test_batch_decode(generator, batch):
     solo = []
     for ids in prompts:
         gen.reset()
-        solo.append(gen.generate(ids, steps, next_input=None, enable_trace=True, stop_on_eos=False))
+        gen._ensure_blocks(0, len(ids) + steps)
+        table = gen._host_page_table([0])
+        first = gen.prefill_forward(
+            torch.tensor([ids]),
+            page_table=table,
+            kv_cache=gen.kv_cache,
+            prompt_lens=[len(ids)],
+            sampling_params=greedy_sampling_params(1),
+        )
+        run = [int(first[0])]
+        rows = torch.zeros(batch, 1, dtype=torch.int64)
+        pos = torch.full((batch,), -1, dtype=torch.int32)
+        wide_table = torch.full((batch, gen.page_table_width), gen.scratch_block, dtype=torch.int32)
+        wide_table[0] = table[0]
+        for step in range(1, steps):
+            rows[0, 0] = run[-1]
+            pos[0] = len(ids) + step - 1
+            out = gen.decode_forward(
+                rows, pos, page_table=wide_table, kv_cache=gen.kv_cache, sampling_params=greedy_sampling_params(batch)
+            )
+            run.append(int(out[0]))
+        solo.append(run)
     gen.reset()
     width = max(lengths)
     tokens = torch.zeros(batch, width, dtype=torch.int64)
@@ -339,6 +360,7 @@ def test_batch_decode(generator, batch):
         next((k for k, (a, b) in enumerate(zip(solo[i], generated[i])) if a != b), None) for i in range(batch)
     ]
     payload = {
+        "solo_arm": f"one live row decoded in physical batch {batch} with {batch - 1} inactive rows at position -1",
         "first_divergence_per_user": first_divergence,
         "batch": batch,
         "steps": steps,
@@ -356,7 +378,7 @@ def test_batch_decode(generator, batch):
     assert delta["token_refreshes"] == 1 and delta["position_refreshes"] == 1
     assert delta["decode_trace_replays"] == steps - 1
     for i in range(batch):
-        assert first_divergence[i] is None or first_divergence[i] >= 8, (i, solo[i], generated[i])
+        assert first_divergence[i] is None, (i, solo[i], generated[i])
 
 
 def test_host_work_counters(generator):
@@ -452,6 +474,31 @@ def test_tracked_replay_workload(generator):
         )
         positions = positions + 1
     log.append({"kind": "batch8_decode", "tokens": first.tolist()})
+    entries_before = gen.mesh_device.num_program_cache_entries()
+    for rows_n in (3, 32):
+        gen.reset()
+        lens = [len(prompts[0]) + (i % 3) for i in range(rows_n)]
+        toks = torch.zeros(rows_n, max(lens), dtype=torch.int64)
+        for i, n in enumerate(lens):
+            toks[i, :n] = torch.tensor((prompts[0] + prompts[2])[:n])
+            gen._ensure_blocks(i, n)
+        tab = gen._host_page_table(list(range(rows_n)))
+        out = gen.prefill_forward(
+            toks,
+            page_table=tab,
+            kv_cache=gen.kv_cache,
+            prompt_lens=lens,
+            sampling_params=greedy_sampling_params(rows_n),
+        )
+        log.append({"kind": f"prefill_{rows_n}_rows_after_capture", "tokens": out.tolist()})
+    if FULL:
+        gen.reset()
+        long_prompt = _book_ids(tok, 8192, offset=3000)
+        out = gen.generate(long_prompt, 4, next_input=None, enable_trace=True, stop_on_eos=False)
+        log.append({"kind": "generate_8192_after_capture", "tokens": out})
+    entries_after = gen.mesh_device.num_program_cache_entries()
+    log.append({"kind": "program_cache_entries", "before": entries_before, "after": entries_after})
+    assert entries_after == entries_before, (entries_before, entries_after)
     gen.reset()
     again = gen.generate(prompts[0], 8, next_input=None, enable_trace=True, stop_on_eos=False)
     log.append({"kind": "greedy_generate_again", "tokens": again, "equal_to_first": again == log[0]["tokens"]})
@@ -479,41 +526,6 @@ def test_tracked_replay_workload(generator):
     }
     _write_json("tracked_replay_workload.json", payload)
     assert again == log[0]["tokens"]
-
-
-def test_seeded_sampling_last(generator):
-    """Explicit request seeds run the sampler eagerly by the common sampler's contract and must not leak into
-    later unseeded requests; this test runs last in the module so the earlier evidence stays on the traced sampler."""
-    gen = generator
-    tok = gen.tokenizer
-    prompt = _chat_ids(tok, "Pick a random animal.")
-    seeded = SamplingParams(temperature=[0.9], top_k=[20], top_p=[0.95], seed=[7])
-    before = gen.counter_snapshot()
-    gen.reset()
-    first = gen.generate(prompt, 12, next_input=None, enable_trace=True, stop_on_eos=False, sampling_params=seeded)
-    gen.reset()
-    second = gen.generate(prompt, 12, next_input=None, enable_trace=True, stop_on_eos=False, sampling_params=seeded)
-    seeded_delta = {k: gen.counter_snapshot()[k] - before[k] for k in before}
-    mid = gen.counter_snapshot()
-    gen.reset()
-    greedy = gen.generate(prompt, 12, next_input=None, enable_trace=True, stop_on_eos=False)
-    greedy_delta = {k: gen.counter_snapshot()[k] - mid[k] for k in mid}
-    payload = {
-        "seeded_runs": [first, second],
-        "seeded_runs_equal": first == second,
-        "seeded_distinct_tokens": len(set(first)),
-        "host_work_seeded": seeded_delta,
-        "greedy_after_seeded": greedy,
-        "host_work_greedy_after_seeded": greedy_delta,
-        "provenance": _provenance(
-            gen,
-            "python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_seeded_sampling_last",
-        ),
-    }
-    _write_json("seeded_sampling.json", payload)
-    assert first == second
-    assert seeded_delta["seeded_eager_sampling_steps"] == 22 and seeded_delta["sampling_trace_replays"] == 0
-    assert greedy_delta["sampling_trace_replays"] == 11 and greedy_delta["seeded_eager_sampling_steps"] == 0
 
 
 def test_perf_batch1(generator):
@@ -582,3 +594,38 @@ def test_perf_batch1(generator):
     suffix = "_force_argmax" if gen.allow_force_argmax else ""
     _write_json(f"perf_batch1_128_128{suffix}.json", payload)
     assert payload["sampler_traced"]
+
+
+def test_seeded_sampling_last(generator):
+    """Explicit request seeds run the sampler eagerly by the common sampler's contract and must not leak into
+    later unseeded requests; this test runs last in the module so the earlier evidence stays on the traced sampler."""
+    gen = generator
+    tok = gen.tokenizer
+    prompt = _chat_ids(tok, "Pick a random animal.")
+    seeded = SamplingParams(temperature=[0.9], top_k=[20], top_p=[0.95], seed=[7])
+    before = gen.counter_snapshot()
+    gen.reset()
+    first = gen.generate(prompt, 12, next_input=None, enable_trace=True, stop_on_eos=False, sampling_params=seeded)
+    gen.reset()
+    second = gen.generate(prompt, 12, next_input=None, enable_trace=True, stop_on_eos=False, sampling_params=seeded)
+    seeded_delta = {k: gen.counter_snapshot()[k] - before[k] for k in before}
+    mid = gen.counter_snapshot()
+    gen.reset()
+    greedy = gen.generate(prompt, 12, next_input=None, enable_trace=True, stop_on_eos=False)
+    greedy_delta = {k: gen.counter_snapshot()[k] - mid[k] for k in mid}
+    payload = {
+        "seeded_runs": [first, second],
+        "seeded_runs_equal": first == second,
+        "seeded_distinct_tokens": len(set(first)),
+        "host_work_seeded": seeded_delta,
+        "greedy_after_seeded": greedy,
+        "host_work_greedy_after_seeded": greedy_delta,
+        "provenance": _provenance(
+            gen,
+            "python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_seeded_sampling_last",
+        ),
+    }
+    _write_json("seeded_sampling.json", payload)
+    assert first == second
+    assert seeded_delta["seeded_eager_sampling_steps"] == 22 and seeded_delta["sampling_trace_replays"] == 0
+    assert greedy_delta["sampling_trace_replays"] == 11 and greedy_delta["seeded_eager_sampling_steps"] == 0

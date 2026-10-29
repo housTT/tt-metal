@@ -29,7 +29,7 @@ gen = Qwen3Generator(mesh, model, tokenizer, num_blocks=pool)
 stage("build")
 text = bz2.open("models/tt_transformers/tests/tale-of-two-cities.txt.bz2", "rt", encoding="utf-8").read()
 ids = tokenizer.encode(text, add_special_tokens=False)
-rows = [ids[:40959], ids[1000 : 1000 + 40960], ids[5000:5200]]
+rows = [ids[:40955], ids[1000 : 1000 + 40960], ids[5000:5200]]
 gen.reset()
 for i, r in enumerate(rows):
     gen._ensure_blocks(i, len(r))
@@ -56,7 +56,7 @@ gen._sample_eager(logits, bucket)
 stage("sample_eager")
 first = gen._read_tokens(bucket, 3)
 print("first tokens", first.tolist(), flush=True)
-positions = torch.tensor([40959, -1, 200], dtype=torch.int32)
+positions = torch.tensor([40955, -1, 200], dtype=torch.int32)
 out = gen.decode_forward(
     torch.tensor([[int(first[0])], [0], [int(first[2])]]),
     positions,
@@ -68,7 +68,7 @@ stage("decode step 1 (capture + replay)")
 print("decode tokens", out.tolist(), flush=True)
 out = gen.decode_forward(
     torch.tensor([[int(out[0])], [0], [int(out[2])]]),
-    positions + 1,
+    torch.tensor([40956, -1, 201], dtype=torch.int32),
     page_table=table,
     kv_cache=gen.kv_cache,
     sampling_params=greedy_sampling_params(3),

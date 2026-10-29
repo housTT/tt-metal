@@ -21,8 +21,8 @@ ET (Eastern Time).
 
 | Metric | Value | Workload | Artifact |
 | --- | ---: | --- | --- |
-| Readiness teacher forcing, traced decode and traced sampler (AIME24 chat, 158-token prompt, 100 tokens) | TTFT 80.4 ms, decode 45.2 t/s/u (22.1 ms/token), top-1 0.980, top-5 1.000, top-100 1.000 | `run_teacher_forcing` on the final code | `logs/run_teacher_forcing_final.log` |
-| Readiness prefill check | top-1 0.990, top-5 1.000, top-100 1.000 | `run_prefill_check` on the final code | `logs/run_prefill_check_final.log` |
+| Readiness teacher forcing, traced decode and traced sampler (AIME24 chat, 158-token prompt, 100 tokens) | TTFT 80.4 ms, decode 45.2 t/s/u (22.1 ms/token), top-1 0.980, top-5 1.000, top-100 1.000 | `run_teacher_forcing`, commit `2eaaa0b3f9` (later commits change seed registration, warmup and ownership code paths that this run does not exercise; rerun pending the device reset) | `logs/run_teacher_forcing_final.log` |
+| Readiness prefill check | top-1 0.990, top-5 1.000, top-100 1.000 | `run_prefill_check`, commit `2eaaa0b3f9` | `logs/run_prefill_check_final.log` |
 | Token-out TTFT, 128-token prompt | 54.5 ms | prefill + first sampled token readback | `perf_batch1_128_128.json` |
 | Token-out decode, 128/128 | 21.79 ms/token = 45.9 t/s/u, superseded: measured with the sampler on its eager path (review 1 P1, `work_log.md` 8.1); to be re-measured on the traced sampler after the device reset | 128 generated tokens | `perf_batch1_128_128.json` |
 
@@ -187,9 +187,12 @@ TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0` over the split-sampling test, the
 host-work test, both batch tests and the representative workload
 (`tracked_replay_workload.tracked.json`: three greedy prompts of three
 bucket lengths, a sampled generation, a host-logits decode, a batch-8
-prefill and decode, then the first prompt again): every decode and sampling
-trace key replayed in generator order with program-cache allocations
-included; see `work_log.md` section 5 for the run and `logs/pytest_full_model_36_tracked.log`.
+prefill and decode, then the first prompt again): every decode trace key
+replayed in generator order with program-cache allocations included and no
+tracker error; the bucket-8 and bucket-32 sampling traces were captured but
+not replayed in that run because the sampler was on its eager path after
+the seeded step (`work_log.md` 8.1), so the sampler-side part of this gate
+is pending the rerun; see `work_log.md` section 5 and `logs/pytest_full_model_36_tracked.log`.
 Acknowledged buffers: each decode trace output (`ttnn.mark_corruptible`;
 consumed only by the same bucket's sampling replay or host read immediately
 after its replay) and, through `SamplingGenerator.set_trace_bucket`, the

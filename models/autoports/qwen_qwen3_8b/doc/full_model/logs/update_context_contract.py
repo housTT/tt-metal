@@ -80,7 +80,6 @@ section = {
     },
     "generator_defaults": {"num_blocks": 1280, "max_batch_size": 32, "decode_buckets": [1, 8, 16, 24, 32]},
     "artifacts": [
-        "full_model/capacity_probe_3x40960.json",
         "full_model/batch_decode_32.json",
         "full_model/multi_row_prefill.json",
         "full_model/README.md",
@@ -88,7 +87,7 @@ section = {
 }
 section["capacity_probe"] = {
     "status": "not_completed",
-    "note": "logs/capacity_probe*.log and triage/: a pool of 3510 blocks allocated and prepared (40960-token warmup prefill included) and the three-row prefill (40959, 40960, 200 tokens) returned, then the first bucket-8 decode step at positions 40959 and 200 (trace capture, replay, sampler, token readback) never completed on chip 1 and on chip 0; max_users_at_full_context is the DRAM arithmetic, not a demonstrated run",
+    "note": "logs/capacity_probe*.log and triage/: a pool of 3510 blocks allocated and prepared (40960-token warmup prefill included) and the three-row prefill (40959, 40960, 200 tokens) returned, then a bucket-8 decode step never completed on chip 1 and on chip 0 (the probe stepped row 0 past position 40959 from its second step, which decode_forward now rejects; the hung step index is unknown); max_users_at_full_context is the DRAM arithmetic, not a demonstrated run",
 }
 if probe is not None:
     section["capacity_probe"].update(
