@@ -104,6 +104,7 @@ class Qwen3Generator(Generator):
         decode_buckets: Sequence[int] = DECODE_BUCKETS,
         warmup_prefill_lengths: Sequence[int] = DEFAULT_WARMUP_PREFILL_LENGTHS,
         warmup_chunk_starts: Sequence[int] = DEFAULT_WARMUP_CHUNK_STARTS,
+        warmup_multi_row: bool = True,
         allow_force_argmax: bool = False,
         prepare: bool = True,
         log: Callable[[str], None] = print,
@@ -131,6 +132,7 @@ class Qwen3Generator(Generator):
         self.decode_buckets = tuple(sorted({decode_bucket(b, model.grid.x, model.grid.y) for b in decode_buckets}))
         self.warmup_prefill_lengths = tuple(warmup_prefill_lengths)
         self.warmup_chunk_starts = tuple(warmup_chunk_starts)
+        self.warmup_multi_row = warmup_multi_row
         self._bound_cache_id = None
         self._sampling_signature = None
         self.sampling = SamplingGenerator(args=self._sampling_args(), mesh_device=mesh_device, tt_ccl=None)
@@ -232,23 +234,24 @@ class Qwen3Generator(Generator):
                     hidden.deallocate(True)
             scratch_table.deallocate(True)
         rows = SLOT_WIDTH
-        self.log(f"warmup multi-row prefill {rows} rows")
-        self.reset()
-        lengths = [PREFILL_BUCKETS[i % 2] for i in range(rows)]
-        tokens = torch.zeros(rows, max(lengths), dtype=torch.int64)
-        for i, n in enumerate(lengths):
-            tokens[i, :n] = torch.arange(1, n + 1)
-            self._ensure_blocks(i, n)
-        table = self._host_page_table(list(range(rows)))
-        self.prefill_forward(tokens, page_table=table, kv_cache=self.kv_cache, prompt_lens=lengths)
-        self.prefill_forward(
-            tokens,
-            page_table=table,
-            kv_cache=self.kv_cache,
-            prompt_lens=lengths,
-            sampling_params=greedy_sampling_params(rows),
-        )
-        self.reset()
+        if self.warmup_multi_row and rows in self.buckets:
+            self.log(f"warmup multi-row prefill {rows} rows")
+            self.reset()
+            lengths = [PREFILL_BUCKETS[i % 2] for i in range(rows)]
+            tokens = torch.zeros(rows, max(lengths), dtype=torch.int64)
+            for i, n in enumerate(lengths):
+                tokens[i, :n] = torch.arange(1, n + 1)
+                self._ensure_blocks(i, n)
+            table = self._host_page_table(list(range(rows)))
+            self.prefill_forward(tokens, page_table=table, kv_cache=self.kv_cache, prompt_lens=lengths)
+            self.prefill_forward(
+                tokens,
+                page_table=table,
+                kv_cache=self.kv_cache,
+                prompt_lens=lengths,
+                sampling_params=greedy_sampling_params(rows),
+            )
+            self.reset()
         for bucket in self.decode_buckets:
             state = self.buckets[bucket]
             table = torch.full((bucket, self.page_table_width), self.scratch_block, dtype=torch.int32)
@@ -867,8 +870,8 @@ def build_generator(model_dir: str | Path, mesh_device, **kwargs) -> Qwen3Genera
     """Readiness-contract factory: real Qwen3-8B weights from the local HF snapshot.
 
     Keyword overrides: ``num_layers`` (reduced probe), ``decode_buckets``, ``warmup_prefill_lengths``,
-    ``num_blocks``, ``max_batch_size``, ``allow_force_argmax``, ``policy``, ``terminal_policy``,
-    ``tensor_cache_path``, ``prepare``.
+    ``warmup_chunk_starts``, ``warmup_multi_row``, ``num_blocks``, ``max_batch_size``,
+    ``allow_force_argmax``, ``policy``, ``terminal_policy``, ``tensor_cache_path``, ``prepare``.
     """
     from transformers import AutoConfig, AutoTokenizer
 

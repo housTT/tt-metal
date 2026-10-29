@@ -3,7 +3,9 @@
   "prompt_source": "natural",
   "text_file": "models/tt_transformers/tests/tale-of-two-cities.txt.bz2",
   "lengths": [
+    1500,
     2560,
+    5000,
     16384
   ],
   "block_sizes": [
@@ -23,6 +25,96 @@
     "control_min_window": 64
   },
   "cases": [
+    {
+      "length": 1500,
+      "start": 32,
+      "kind": "block_aligned",
+      "positions": 257,
+      "pcc_mean": 0.9996673000678633,
+      "pcc_min": 0.9897163296342831,
+      "top1_agreement": 1.0,
+      "last_top1_equal": true,
+      "pass": true,
+      "reasons": [],
+      "controls": {
+        "no_history": {
+          "positions": 257,
+          "pcc_mean": 0.9340165005204397,
+          "pcc_min": 0.193161909422223,
+          "top1_agreement": 0.8988326787948608,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        },
+        "fresh_suffix": {
+          "positions": 257,
+          "pcc_mean": 0.9341401098260887,
+          "pcc_min": 0.18789458009656326,
+          "top1_agreement": 0.9027237296104431,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        }
+      },
+      "elapsed_s": 1.3185879200464115
+    },
+    {
+      "length": 1500,
+      "start": 68,
+      "kind": "tile_unaligned",
+      "positions": 257,
+      "pcc_mean": 0.9996988387488001,
+      "pcc_min": 0.994862533589968,
+      "top1_agreement": 1.0,
+      "last_top1_equal": true,
+      "pass": true,
+      "reasons": [],
+      "controls": {
+        "no_history": {
+          "positions": 257,
+          "pcc_mean": 0.7823558193242295,
+          "pcc_min": 0.1428177291843065,
+          "top1_agreement": 0.6731517314910889,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        },
+        "fresh_suffix": {
+          "positions": 257,
+          "pcc_mean": 0.9552311839631198,
+          "pcc_min": 0.1390175255576004,
+          "top1_agreement": 0.9066147804260254,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        }
+      },
+      "elapsed_s": 1.3412973020458594
+    },
+    {
+      "length": 1500,
+      "start": 1472,
+      "kind": "prefix_cache_hit",
+      "positions": 28,
+      "pcc_mean": 0.9998977025228483,
+      "pcc_min": 0.9998107574766809,
+      "top1_agreement": 1.0,
+      "last_top1_equal": true,
+      "pass": true,
+      "reasons": [],
+      "controls": {},
+      "elapsed_s": 0.41614998900331557
+    },
+    {
+      "length": 1500,
+      "start": 1499,
+      "kind": "last_token",
+      "positions": 1,
+      "pcc_mean": 0.9999265781211358,
+      "pcc_min": 0.9999265781211358,
+      "top1_agreement": 1.0,
+      "last_top1_equal": true,
+      "pass": true,
+      "reasons": [],
+      "controls": {},
+      "elapsed_s": 0.4112844589399174
+    },
     {
       "length": 2560,
       "start": 32,
@@ -52,7 +144,7 @@
           "failed_as_expected": true
         }
       },
-      "elapsed_s": 2.2502949479967356
+      "elapsed_s": 2.003743104985915
     },
     {
       "length": 2560,
@@ -83,7 +175,7 @@
           "failed_as_expected": true
         }
       },
-      "elapsed_s": 2.2348532209871337
+      "elapsed_s": 1.9361856179311872
     },
     {
       "length": 2560,
@@ -97,7 +189,7 @@
       "pass": true,
       "reasons": [],
       "controls": {},
-      "elapsed_s": 0.982879885006696
+      "elapsed_s": 0.7408744300482795
     },
     {
       "length": 2560,
@@ -111,7 +203,97 @@
       "pass": true,
       "reasons": [],
       "controls": {},
-      "elapsed_s": 0.983902559033595
+      "elapsed_s": 0.7316546690417454
+    },
+    {
+      "length": 5000,
+      "start": 32,
+      "kind": "block_aligned",
+      "positions": 257,
+      "pcc_mean": 0.9996672424214058,
+      "pcc_min": 0.9897163296342831,
+      "top1_agreement": 1.0,
+      "last_top1_equal": true,
+      "pass": true,
+      "reasons": [],
+      "controls": {
+        "no_history": {
+          "positions": 257,
+          "pcc_mean": 0.9340172599802813,
+          "pcc_min": 0.193161909422223,
+          "top1_agreement": 0.8988326787948608,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        },
+        "fresh_suffix": {
+          "positions": 257,
+          "pcc_mean": 0.9341410172070443,
+          "pcc_min": 0.18789458009656326,
+          "top1_agreement": 0.9027237296104431,
+          "last_top1_equal": true,
+          "failed_as_expected": true
+        }
+      },
+      "elapsed_s": 4.021777273970656
+    },
+    {
+      "length": 5000,
+      "start": 68,
+      "kind": "tile_unaligned",
+      "positions": 257,
+      "pcc_mean": 0.9996983461964851,
+      "pcc_min": 0.994862533589968,
+      "top1_agreement": 1.0,
+      "last_top1_equal": true,
+      "pass": true,
+      "reasons": [],
+      "controls": {
+        "no_history": {
+          "positions": 257,
+          "pcc_mean": 0.7824286943809337,
+          "pcc_min": 0.1428177291843065,
+          "top1_agreement": 0.6692606806755066,
+          "last_top1_equal": false,
+          "failed_as_expected": true
+        },
+        "fresh_suffix": {
+          "positions": 257,
+          "pcc_mean": 0.9552316643648309,
+          "pcc_min": 0.1390175255576004,
+          "top1_agreement": 0.9027237296104431,
+          "last_top1_equal": false,
+          "failed_as_expected": true
+        }
+      },
+      "elapsed_s": 3.552763661951758
+    },
+    {
+      "length": 5000,
+      "start": 4992,
+      "kind": "prefix_cache_hit",
+      "positions": 8,
+      "pcc_mean": 0.9999380399169218,
+      "pcc_min": 0.9999161041157422,
+      "top1_agreement": 1.0,
+      "last_top1_equal": true,
+      "pass": true,
+      "reasons": [],
+      "controls": {},
+      "elapsed_s": 1.3424948849715292
+    },
+    {
+      "length": 5000,
+      "start": 4999,
+      "kind": "last_token",
+      "positions": 1,
+      "pcc_mean": 0.9999315978837866,
+      "pcc_min": 0.9999315978837866,
+      "top1_agreement": 1.0,
+      "last_top1_equal": true,
+      "pass": true,
+      "reasons": [],
+      "controls": {},
+      "elapsed_s": 1.3290433570509776
     },
     {
       "length": 16384,
@@ -142,7 +324,7 @@
           "failed_as_expected": true
         }
       },
-      "elapsed_s": 21.911526191048324
+      "elapsed_s": 22.656678086030297
     },
     {
       "length": 16384,
@@ -173,7 +355,7 @@
           "failed_as_expected": true
         }
       },
-      "elapsed_s": 15.908887811936438
+      "elapsed_s": 16.274030718021095
     },
     {
       "length": 16384,
@@ -187,7 +369,7 @@
       "pass": true,
       "reasons": [],
       "controls": {},
-      "elapsed_s": 5.855417366954498
+      "elapsed_s": 5.843360244994983
     },
     {
       "length": 16384,
@@ -201,7 +383,7 @@
       "pass": true,
       "reasons": [],
       "controls": {},
-      "elapsed_s": 5.853399646002799
+      "elapsed_s": 5.850697490037419
     }
   ],
   "status": "pass",

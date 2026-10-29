@@ -1,25 +1,25 @@
 {
   "counters": {
-    "decode_trace_captures": 4,
-    "decode_trace_replays": 1478,
+    "decode_trace_captures": 6,
+    "decode_trace_replays": 2786,
     "eager_decode_steps": 0,
-    "eager_sampling_steps": 72,
+    "eager_sampling_steps": 109,
     "logits_readbacks": 14,
-    "page_table_refreshes": 93,
-    "position_refreshes": 80,
-    "prefill_calls": 85,
-    "program_cache_entries_after_capture": 451,
+    "page_table_refreshes": 153,
+    "position_refreshes": 117,
+    "prefill_calls": 122,
+    "program_cache_entries_after_capture": 639,
     "sampling_param_refreshes": 7,
-    "sampling_trace_captures": 3,
-    "sampling_trace_replays": 1477,
+    "sampling_trace_captures": 5,
+    "sampling_trace_replays": 2785,
     "seeded_eager_sampling_steps": 0,
-    "token_readbacks": 1549,
-    "token_refreshes": 44
+    "token_readbacks": 2894,
+    "token_refreshes": 86
   },
-  "program_cache_entries": 451,
+  "program_cache_entries": 639,
   "provenance": {
     "allow_force_argmax": false,
-    "checkout_git_sha": "6e3b243e256bf0cb17e4f1f5a54921436e325f28",
+    "checkout_git_sha": "4c9a98d810a207f552c9583ca2c3ee59e812cf9f",
     "checkpoint_revision": "b968826d9c46dd6066d109eabc6255188de91218",
     "decode_buckets": [
       1,
@@ -33,10 +33,10 @@
       "TT_METAL_HOME": "/home/hous/dev/tt-metal"
     },
     "exact_command": "TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0 python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_tracked_replay_workload",
-    "generator_sha256": "5204daef41ebfb67c4669c7d67a03800eaa03b65808389086ba507b5e29ac086",
+    "generator_sha256": "deb634921d983f6de03d33cab4b462d439cec293a39878e84b015699f993f861",
     "kv_cache_dtype": "DataType.BFLOAT16",
     "model_id": "Qwen/Qwen3-8B",
-    "model_sha256": "2d3c442b9b0366054122f9dc0b9e37d87d7023a79d4147ff6cd20584e68b436d",
+    "model_sha256": "ceb4290b2c7cab264994f35d88dc331d9ef64fb3d33788ee6a0663eafb190bff",
     "num_layers": 36,
     "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.39",
     "policy": {
@@ -74,6 +74,8 @@
       "prefill_bfp8_fidelity": "lofi",
       "prefill_fp32_acc": true,
       "prefill_interleaved_copy_max_rows": 256,
+      "prefill_kernel_table": "stage7",
+      "prefill_sharded_norm_max_rows": 0,
       "qkv": {
         "cores": 32,
         "dtype": "bfp8",
@@ -95,12 +97,12 @@
         "readers": 3
       }
     },
-    "recorded_utc": "2026-10-29T18:49:58Z",
+    "recorded_utc": "2026-10-29T21:23:23Z",
     "terminal_policy": {
       "embedding_dtype": "bf16",
       "final_norm_dtype": "bf16",
       "final_norm_fidelity": "hifi4",
-      "lm_head_decode_fidelity": "hifi2",
+      "lm_head_decode_fidelity": "lofi",
       "lm_head_dtype": "bfp8",
       "lm_head_in0_block_w": 4,
       "lm_head_prefill_fidelity": "hifi2",
@@ -109,7 +111,7 @@
       "lm_head_split": 16384,
       "prefill_logits_dtype": "fp32"
     },
-    "test_sha256": "ee8d2f6aee77d3f07b89e58ea96fd346a23fe75023a8485289053be9108d7c56",
+    "test_sha256": "9eec3b7fb6c178c7012612977ea2652ecc04b655f9758a73736f913fd89fc2cd",
     "trace_region_size": 536870912,
     "visible_devices": "2",
     "warmup_prefill_lengths": [
@@ -119,25 +121,18 @@
       256,
       512,
       1024,
+      1536,
       2048,
-      4096,
-      8192,
-      12288,
-      16384,
-      20480,
-      24576,
-      28672,
-      32768,
-      36864,
-      40960
+      3072,
+      4096
     ]
   },
-  "sampling_trace_slots": 3,
+  "sampling_trace_slots": 5,
   "traces": {
     "1": {
       "decode_traces": {
         "device": "MeshTraceId(0)",
-        "host": "MeshTraceId(6)"
+        "host": "MeshTraceId(10)"
       },
       "prepared": [
         "device",
@@ -145,14 +140,18 @@
       ]
     },
     "16": {
-      "decode_traces": {},
+      "decode_traces": {
+        "device": "MeshTraceId(4)"
+      },
       "prepared": [
         "device",
         "host"
       ]
     },
     "24": {
-      "decode_traces": {},
+      "decode_traces": {
+        "device": "MeshTraceId(6)"
+      },
       "prepared": [
         "device",
         "host"
@@ -160,7 +159,7 @@
     },
     "32": {
       "decode_traces": {
-        "device": "MeshTraceId(4)"
+        "device": "MeshTraceId(8)"
       },
       "prepared": [
         "device",
@@ -205,10 +204,10 @@
         11,
         1340,
         572,
-        537,
-        1172,
-        3259,
-        323
+        304,
+        279,
+        14132,
+        315
       ]
     },
     {
@@ -234,7 +233,7 @@
         11,
         279,
         1196,
-        4588,
+        6801,
         752
       ]
     },
@@ -310,8 +309,26 @@
       ]
     },
     {
-      "after": 451,
-      "before": 451,
+      "kind": "generate_5000_after_capture",
+      "tokens": [
+        825,
+        11,
+        358,
+        4411
+      ]
+    },
+    {
+      "kind": "generate_12345_after_capture",
+      "tokens": [
+        11,
+        448,
+        1059,
+        1968
+      ]
+    },
+    {
+      "after": 639,
+      "before": 639,
       "kind": "program_cache_entries"
     },
     {

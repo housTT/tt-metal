@@ -7,17 +7,17 @@
     "decode_trace_captures": 1,
     "decode_trace_replays": 8,
     "eager_decode_steps": 0,
-    "eager_sampling_steps": 19,
+    "eager_sampling_steps": 12,
     "logits_readbacks": 1,
-    "page_table_refreshes": 21,
-    "position_refreshes": 28,
-    "prefill_calls": 20,
-    "program_cache_entries_after_capture": 451,
+    "page_table_refreshes": 14,
+    "position_refreshes": 21,
+    "prefill_calls": 13,
+    "program_cache_entries_after_capture": 639,
     "sampling_param_refreshes": 4,
     "sampling_trace_captures": 1,
     "sampling_trace_replays": 8,
     "seeded_eager_sampling_steps": 0,
-    "token_readbacks": 27,
+    "token_readbacks": 20,
     "token_refreshes": 0
   },
   "first_token": 151667,
@@ -30,7 +30,7 @@
     "page_table_refreshes": 0,
     "position_refreshes": 0,
     "prefill_calls": 0,
-    "program_cache_entries_after_capture": 451,
+    "program_cache_entries_after_capture": 639,
     "sampling_param_refreshes": 0,
     "sampling_trace_captures": 1,
     "sampling_trace_replays": 4,
@@ -43,7 +43,7 @@
     "sampled_then_greedy_then_sampled": [
       374,
       10161,
-      311
+      369
     ],
     "sampling_trace_captures_added": 0,
     "sampling_trace_replays_added": 3,
@@ -53,7 +53,7 @@
   "prompt_len": 15,
   "provenance": {
     "allow_force_argmax": false,
-    "checkout_git_sha": "6e3b243e256bf0cb17e4f1f5a54921436e325f28",
+    "checkout_git_sha": "4c9a98d810a207f552c9583ca2c3ee59e812cf9f",
     "checkpoint_revision": "b968826d9c46dd6066d109eabc6255188de91218",
     "decode_buckets": [
       1,
@@ -67,10 +67,10 @@
       "TT_METAL_HOME": "/home/hous/dev/tt-metal"
     },
     "exact_command": "python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_split_sampling_trace",
-    "generator_sha256": "5204daef41ebfb67c4669c7d67a03800eaa03b65808389086ba507b5e29ac086",
+    "generator_sha256": "deb634921d983f6de03d33cab4b462d439cec293a39878e84b015699f993f861",
     "kv_cache_dtype": "DataType.BFLOAT16",
     "model_id": "Qwen/Qwen3-8B",
-    "model_sha256": "2d3c442b9b0366054122f9dc0b9e37d87d7023a79d4147ff6cd20584e68b436d",
+    "model_sha256": "ceb4290b2c7cab264994f35d88dc331d9ef64fb3d33788ee6a0663eafb190bff",
     "num_layers": 36,
     "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.39",
     "policy": {
@@ -108,6 +108,8 @@
       "prefill_bfp8_fidelity": "lofi",
       "prefill_fp32_acc": true,
       "prefill_interleaved_copy_max_rows": 256,
+      "prefill_kernel_table": "stage7",
+      "prefill_sharded_norm_max_rows": 0,
       "qkv": {
         "cores": 32,
         "dtype": "bfp8",
@@ -129,12 +131,12 @@
         "readers": 3
       }
     },
-    "recorded_utc": "2026-10-29T18:49:11Z",
+    "recorded_utc": "2026-10-29T21:21:59Z",
     "terminal_policy": {
       "embedding_dtype": "bf16",
       "final_norm_dtype": "bf16",
       "final_norm_fidelity": "hifi4",
-      "lm_head_decode_fidelity": "hifi2",
+      "lm_head_decode_fidelity": "lofi",
       "lm_head_dtype": "bfp8",
       "lm_head_in0_block_w": 4,
       "lm_head_prefill_fidelity": "hifi2",
@@ -143,7 +145,7 @@
       "lm_head_split": 16384,
       "prefill_logits_dtype": "fp32"
     },
-    "test_sha256": "ee8d2f6aee77d3f07b89e58ea96fd346a23fe75023a8485289053be9108d7c56",
+    "test_sha256": "9eec3b7fb6c178c7012612977ea2652ecc04b655f9758a73736f913fd89fc2cd",
     "trace_region_size": 536870912,
     "visible_devices": "2",
     "warmup_prefill_lengths": [
@@ -153,17 +155,10 @@
       256,
       512,
       1024,
+      1536,
       2048,
-      4096,
-      8192,
-      12288,
-      16384,
-      20480,
-      24576,
-      28672,
-      32768,
-      36864,
-      40960
+      3072,
+      4096
     ]
   },
   "steps": [
