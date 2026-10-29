@@ -281,4 +281,85 @@ four chunks, tie-break, `ttnn.sampling`) and the 128-byte token readback
 make up the rest. Steady-state host work per token: two `execute_trace`
 calls and one `to_torch` of the token tensor (counters in
 `host_work_counters.json`).
+## 7. Watcher, profile, final reruns (12:43 to 13:00 ET)
 
+| Step (ET) | Command (chip) | Result |
+| --- | --- | --- |
+| 12:43 | `run_prefill_check` on the final code (0) | `top1=0.990 top5=1.000 top100=1.000` (`logs/run_prefill_check_final.log`) |
+| 12:46 | `run_teacher_forcing` on the final code (0) | `top1=0.980 top5=1.000 top100=1.000 TTFT=80.41ms decode=45.22 t/s/u e2e=44.06 t/s/u` (`logs/run_teacher_forcing_final.log`) |
+| 12:51 | `TT_METAL_WATCHER=10` on the reduced model (2 layers): split-sampling, host-work and multi-row tests (0) | 3 passed in 38.6 s; 10 watcher dumps, zero fatal, assert, overflow, NoC or hang patterns (`watcher/summary.json`, `watcher/generated/watcher/watcher.log`, `*.watcher.json`) |
+| 12:43 | `python -m tracy -r -p -v --check-exit-code -o generated/profiler/qwen3_full_model_reduced logs/profile_reduced.py` (1) | reduced model (one real layer, real terminal path): signposted warmed 128-token prefill and one blocking decode-plus-sampling replay (`logs/profile_reduced.log`); tables in `profile/` (section 7.1) |
+
+### 7.1 Reduced-variant profile (chip 0, 12:58 ET)
+
+The chip-1 profile run stalled (section 5.2); the identical command on chip
+0 completed in 30 s (`logs/profile_reduced_chip0.log`,
+`generated/profiler/qwen3_full_model_reduced_chip0/reports/2026_10_29_16_59_04/`,
+path in `profile/ops_perf_results.source.txt`). `tt-perf-report` tables:
+`profile/prefill_128.{txt,csv,console.log}` (warmed 128-token prefill
+through embedding, one layer, last-row gather, final norm, LM head, eager
+greedy sampling; 101 ops) and `profile/decode.{txt,csv,console.log}` (one
+blocking decode-plus-sampling replay; 109 ops).
+
+Decode window, terminal path only (the layer rows match the stage-3 table:
+QKV 58 us, O 41 us, gate 113 us, up 70 us, down 110 us, SDPA, norms):
+
+| Op | Device time | Note |
+| --- | ---: | --- |
+| embedding (32 rows) + reshard to residual layout | 20 + 2 us | |
+| final RMSNorm (sharded) | 8 us | |
+| LM head: 9 matmuls `32 x 4096 x 16384` + 1 `32 x 4096 x 5120`, BF16 x BFP8 HiFi2 | 9 x 230 + 79 = 2,149 us | `FLOP` bound: 291 GB/s (57 percent of DRAM), 84 percent of HiFi2 FLOPs; `sharded_to_interleaved` 5 us each |
+| concat of the 10 logit pieces | 54 us | |
+| `plus_one` on `current_pos` | 1 us | on-device position advance |
+| sampler: slice valid vocab 53 us, concat 53 us, `TopkRoutePrep` 51 us, `TopkLargeIndices` 648 us, `TopkRouteFinish` 22 us, tie-break ops about 20 us, `ManualSeed` 17 us, `Sampling` 28 us | about 930 us | split top-k greedy path (k=1) |
+
+Terminal path total about 3.2 ms of the 21.8 ms token-out step; the
+sampler does not dominate (4 percent), the LM head is 10 percent and is
+FLOP-bound at HiFi2 while the decoder's BFP8 projections run at LoFi. A
+LoFi LM head (`TerminalPolicy.lm_head_decode_fidelity`) is measured in
+section 7.2.
+
+### 5.2 Capacity probe stall: localization (12:47 to 13:20 ET)
+
+| Step (ET) | Command (chip) | Result |
+| --- | --- | --- |
+| 12:47 | `logs/capacity_probe.py` unbuffered (1) | never opened the device: waited on the `CHIP_IN_USE_1_PCIe` lock held by the tracy run below; stopped at 13:02 |
+| 12:43 to 13:02 | `python -m tracy ... logs/profile_reduced.py` (1) | the profiled script (one real layer) never printed `PROFILE_OK`; its process spun at 100 percent CPU for 19 minutes after the capture tool saved its 70 s trace (`logs/profile_reduced.log`, exit 3 after SIGTERM) |
+| 12:58 | the same profile command (0) | `PROFILE_OK` in 30 s (`logs/profile_reduced_chip0.log`); report in section 7.1 |
+| 13:02 | `logs/capacity_probe.py` unbuffered (0) | build and `prepare()` complete (20.1 s), then the three-row full-context prefill call never returned in 6 minutes; gdb: main thread in `ttnn.from_device` -> `FDMeshCommandQueue::wait_for_outstanding_reads`, completion-queue thread polling (`triage/capacity_probe_chip0_gdb.txt`), the same signature as the chip-1 run; stopped at 13:08 (the chip-1 twin had already passed the 30-minute rule with the same backtrace) |
+| 13:08 | `logs/capacity_bisect.py` under `TT_METAL_WATCHER=10` (0): same pool and rows, one stage at a time with a device sync and a print after each | section 5.3 |
+
+Chip 1 is set aside after the two out-of-memory exits and the stalled
+profile there: the identical profile ran on chip 0, so chip 1 may need
+operator attention (no reset was issued, per the operator rule). Every
+later device job runs on chip 0.
+
+### 5.3 Device state after the stalled probes (13:08 to 13:24 ET)
+
+| Step (ET) | Command (chip) | Result |
+| --- | --- | --- |
+| 13:08 | `logs/capacity_bisect.py` under `TT_METAL_WATCHER=10` (0) | weight loading crawled (layer 1 after 6 minutes against 100 s for 36 layers an hour earlier); stopped (`logs/capacity_bisect_watcher_abandoned.log`) |
+| 13:15 | `logs/capacity_bisect.py` without the watcher (0) | same crawl at layer 1 after 4 minutes; stopped (`logs/capacity_bisect_slow_load_abandoned.log`) |
+| 13:21 | `logs/mesh_smoke.py` (0) and (1), 120 s timeout | the mesh opens in 0.7 s on both chips but one `ttnn.add` of a `[1, 1, 32, 4096]` tensor plus its readback never completes (`logs/mesh_smoke_chip{0,1}.log`, exit 124); `timeout 60 tt-smi -ls --local` still lists all four chips |
+
+Reading: the two probe processes whose device work never completed were
+terminated with SIGTERM (12:43 on chip 1, 13:08 on chip 0); both chips are
+left with a wedged dispatch path. `tt-device-usage` recovers this with the
+bounded `tt-smi -r` sequence plus a mesh smoke; the operator brief reserves
+resets to the operator, so no reset was issued. Chips 2 and 3 belong to
+another run and were not touched. Every device gate of this stage was
+complete before the stall (sections 3 to 7); the only device work left
+undone is the capacity probe's decode at position 40959 and the proof of
+two concurrent full-context users, and the LoFi LM head measurement
+(section 7.2 not run).
+
+The stall itself: three rows in one `prefill_forward` call (40959, 40960
+and 200 tokens, slots 0, 1 and 2) followed by a bucket-8 decode step. The
+40960-token single-row prefill runs in every build (warmup) and a one-row
+40959 compute length is the same physical workload, so the suspects are the
+second full-context row on slot 1 (blocks 1280 to 2559) and the decode at
+position 40959 through the full model; the layer-level stage-3 tests passed
+both. Localizing it needs a device and a staged run (`logs/capacity_bisect.py`
+is that run); recorded as an open item.
+
+## 8. Gate, commit, review (13:25 ET onward)

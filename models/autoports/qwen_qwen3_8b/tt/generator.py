@@ -25,6 +25,7 @@ the lifetime of the generator.
 from __future__ import annotations
 
 import math
+import os
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -32,6 +33,7 @@ from types import SimpleNamespace
 from typing import Any, Callable, List, Optional, Sequence
 
 import torch
+from readiness_check.contract import Generator
 
 import ttnn
 from models.autoports.qwen_qwen3_8b.tt.hf_weights import MODEL_ID, CheckpointReader
@@ -39,15 +41,10 @@ from models.autoports.qwen_qwen3_8b.tt.model import (
     DECODE_BUCKETS,
     PREFILL_BUCKETS,
     PREFILL_CHUNK,
-    DEFAULT_TERMINAL_POLICY,
     Qwen3Model,
-    TerminalPolicy,
     decode_bucket,
-    prefill_compute_len,
 )
-from models.autoports.qwen_qwen3_8b.tt.optimized_decoder import DEFAULT_POLICY, OptimizedPolicy
 from models.common.sampling import SamplingGenerator, SamplingParams, format_sampling_params
-from readiness_check.contract import Generator
 
 SLOT_WIDTH = 32
 MAX_TOP_K = 32
@@ -192,7 +189,9 @@ class Qwen3Generator(Generator):
         host_table = torch.full((bucket, self.page_table_width), self.scratch_block, dtype=torch.int32)
         tokens = ttnn.from_torch(host_tokens, dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device)
         current_pos = ttnn.from_torch(host_pos, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device)
-        page_table = ttnn.from_torch(host_table, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device)
+        page_table = ttnn.from_torch(
+            host_table, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device
+        )
         return DecodeBucket(bucket, tokens, current_pos, page_table, host_pos.clone(), host_table.clone(), host_tokens)
 
     def prepare(self) -> None:
@@ -217,7 +216,11 @@ class Qwen3Generator(Generator):
             table = self._host_page_table(list(range(rows)))
             self.prefill_forward(tokens, page_table=table, kv_cache=self.kv_cache, prompt_lens=lengths)
             self.prefill_forward(
-                tokens, page_table=table, kv_cache=self.kv_cache, prompt_lens=lengths, sampling_params=greedy_sampling_params(rows)
+                tokens,
+                page_table=table,
+                kv_cache=self.kv_cache,
+                prompt_lens=lengths,
+                sampling_params=greedy_sampling_params(rows),
             )
         self.reset()
         for bucket in self.decode_buckets:
@@ -229,7 +232,11 @@ class Qwen3Generator(Generator):
             for mode in ("device", "host"):
                 self.log(f"warmup decode bucket {bucket} mode {mode}")
                 out = self.model.ttnn_decode_forward(
-                    state.tokens, state.current_pos, state.page_table, self.kv_cache, on_device_sampling=(mode == "device")
+                    state.tokens,
+                    state.current_pos,
+                    state.page_table,
+                    self.kv_cache,
+                    on_device_sampling=(mode == "device"),
                 )
                 if mode == "device":
                     self.sampling.set_trace_bucket(bucket)
@@ -311,14 +318,18 @@ class Qwen3Generator(Generator):
     def _write_tokens(self, state: DecodeBucket, tokens: torch.Tensor) -> None:
         host = torch.zeros(1, 1, 1, SLOT_WIDTH, dtype=torch.int32)
         host[0, 0, 0, : tokens.numel()] = tokens.reshape(-1).to(torch.int32)
-        ttnn.copy_host_to_device_tensor(ttnn.from_torch(host, dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT), state.tokens)
+        ttnn.copy_host_to_device_tensor(
+            ttnn.from_torch(host, dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT), state.tokens
+        )
         state.host_tokens = host
         self.counters["token_refreshes"] += 1
 
     def _write_positions(self, state: DecodeBucket, positions: torch.Tensor) -> None:
         host = torch.full((state.bucket,), -1, dtype=torch.int32)
         host[: positions.numel()] = positions.reshape(-1).to(torch.int32)
-        ttnn.copy_host_to_device_tensor(ttnn.from_torch(host, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT), state.current_pos)
+        ttnn.copy_host_to_device_tensor(
+            ttnn.from_torch(host, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT), state.current_pos
+        )
         state.host_pos = host
         self.counters["position_refreshes"] += 1
 
@@ -327,7 +338,9 @@ class Qwen3Generator(Generator):
         host[: table.shape[0]] = table.to(torch.int32)
         if torch.equal(host, state.host_table):
             return
-        ttnn.copy_host_to_device_tensor(ttnn.from_torch(host, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT), state.page_table)
+        ttnn.copy_host_to_device_tensor(
+            ttnn.from_torch(host, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT), state.page_table
+        )
         state.host_table = host
         self.counters["page_table_refreshes"] += 1
 
@@ -346,7 +359,9 @@ class Qwen3Generator(Generator):
             tuple(formatted.presence_penalty),
             tuple(formatted.frequency_penalty),
             tuple(formatted.repetition_penalty),
-            tuple(formatted.enable_log_probs) if isinstance(formatted.enable_log_probs, list) else formatted.enable_log_probs,
+            tuple(formatted.enable_log_probs)
+            if isinstance(formatted.enable_log_probs, list)
+            else formatted.enable_log_probs,
         )
         if signature != self._sampling_signature:
             self.sampling.reset_sampling_params(formatted)
@@ -442,7 +457,9 @@ class Qwen3Generator(Generator):
             if rows != 1:
                 raise ValueError("return_all_logits supports one row per call")
             ids = tokens[0, starts[0] : ends[0]].tolist()
-            hidden = self.model.prefill_hidden(ids, start_pos=starts[0], user_slot=0, page_table=tt_table, kv_cache=kv_cache)
+            hidden = self.model.prefill_hidden(
+                ids, start_pos=starts[0], user_slot=0, page_table=tt_table, kv_cache=kv_cache
+            )
             logits = self.model.logits_all_rows(hidden)[: len(ids)]
             hidden.deallocate(True)
             tt_table.deallocate(True)
@@ -450,7 +467,9 @@ class Qwen3Generator(Generator):
         pieces = []
         for i in range(rows):
             ids = tokens[i, starts[i] : ends[i]].tolist()
-            hidden = self.model.prefill_hidden(ids, start_pos=starts[i], user_slot=i, page_table=tt_table, kv_cache=kv_cache)
+            hidden = self.model.prefill_hidden(
+                ids, start_pos=starts[i], user_slot=i, page_table=tt_table, kv_cache=kv_cache
+            )
             pieces.append(self.model.gather_rows(hidden, [len(ids) - 1]))
             hidden.deallocate(True)
         tt_table.deallocate(True)
@@ -470,13 +489,17 @@ class Qwen3Generator(Generator):
         logits.deallocate(True)
         return host.unsqueeze(1)
 
-    def prefill_logits_rows(self, token_ids: Sequence[int], start: int, positions: Sequence[int], slot: int = 0) -> torch.Tensor:
+    def prefill_logits_rows(
+        self, token_ids: Sequence[int], start: int, positions: Sequence[int], slot: int = 0
+    ) -> torch.Tensor:
         """Continuation prefill of ``token_ids`` at absolute ``start`` on the generator cache; logits at ``positions``."""
         ids = list(token_ids)
         self._ensure_blocks(slot, start + len(ids))
         table = self._host_page_table([slot])
         tt_table = ttnn.from_torch(table, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device)
-        hidden = self.model.prefill_hidden(ids, start_pos=start, user_slot=0, page_table=tt_table, kv_cache=self.kv_cache)
+        hidden = self.model.prefill_hidden(
+            ids, start_pos=start, user_slot=0, page_table=tt_table, kv_cache=self.kv_cache
+        )
         tt_table.deallocate(True)
         local = [p - start for p in positions]
         if any(not 0 <= p < len(ids) for p in local):
@@ -524,18 +547,16 @@ class Qwen3Generator(Generator):
         state = self.buckets[bucket]
         positions = torch.as_tensor(start_pos).reshape(-1).to(torch.int32)
         reload = (
-            mode == "host"
-            or reset_batch
-            or not state.device_state_valid
-            or state.last_mode != mode
-            or not enable_trace
+            mode == "host" or reset_batch or not state.device_state_valid or state.last_mode != mode or not enable_trace
         )
         if reload:
             self._write_tokens(state, torch.as_tensor(tokens).reshape(-1))
             self._write_positions(state, positions)
         self._write_page_table(
             state,
-            self._redirect_table(torch.as_tensor(page_table), [int(p) + 1 for p in positions], kwargs.get("scratch_block")),
+            self._redirect_table(
+                torch.as_tensor(page_table), [int(p) + 1 for p in positions], kwargs.get("scratch_block")
+            ),
         )
         if mode == "device":
             self._apply_sampling_params(sampling_params, batch)
@@ -682,7 +703,7 @@ class Qwen3Generator(Generator):
     # ----------------------------------------------------------- budgets
 
     DEVICE_DRAM_BYTES = 33_641_860_096
-    WEIGHTS_RESIDENT_BYTES = 15_500_000_000
+    WEIGHTS_RESIDENT_BYTES = 14_928_363_520
     RUNTIME_RESERVE_BYTES = 2_147_483_648
     KV_BYTES_PER_TOKEN = 147_456
 
@@ -733,6 +754,20 @@ def build_generator(model_dir: str | Path, mesh_device, **kwargs) -> Qwen3Genera
         for key in ("num_layers", "policy", "terminal_policy", "tensor_cache_path")
         if key in kwargs
     }
+    if "terminal_policy" not in model_kwargs:
+        overrides = {
+            name: os.environ[env]
+            for name, env in (
+                ("lm_head_decode_fidelity", "QWEN3_LM_HEAD_DECODE_FIDELITY"),
+                ("lm_head_prefill_fidelity", "QWEN3_LM_HEAD_PREFILL_FIDELITY"),
+                ("lm_head_dtype", "QWEN3_LM_HEAD_DTYPE"),
+                ("prefill_logits_dtype", "QWEN3_PREFILL_LOGITS_DTYPE"),
+            )
+            if env in os.environ
+        }
+        if overrides:
+            model_kwargs["terminal_policy"] = TerminalPolicy(**overrides)
+            log(f"terminal policy overrides from the environment: {overrides}")
     started = time.perf_counter()
     model = Qwen3Model(mesh_device, hf_config=hf_config, reader=reader, log=log, **model_kwargs)
     log(f"model weights on device in {time.perf_counter() - started:.1f} s")

@@ -17,7 +17,10 @@ gen = build_generator(
 )
 print("BUILD s", round(time.perf_counter() - t0, 1), flush=True)
 tok = gen.tokenizer
-prompt = tok.encode(tok.apply_chat_template([{"role": "user", "content": "What is 2+2?"}], add_generation_prompt=True, tokenize=False), add_special_tokens=False)
+prompt = tok.encode(
+    tok.apply_chat_template([{"role": "user", "content": "What is 2+2?"}], add_generation_prompt=True, tokenize=False),
+    add_special_tokens=False,
+)
 print("prompt len", len(prompt), flush=True)
 t0 = time.perf_counter()
 out = gen.generate(prompt, 12, next_input=None, enable_trace=True)
@@ -31,11 +34,19 @@ logits = gen.prefill_logits(prompt + out[:5])
 print("prefill_logits", tuple(logits.shape), logits[0, len(prompt) - 1 :].argmax(-1).tolist(), flush=True)
 ref = gen.prefill_logits_continuation(prompt + out[:5], 0, positions=[len(prompt) - 1, len(prompt) + 3])
 cand = gen.prefill_logits_continuation(prompt + out[:5], len(prompt) - 3, positions=[len(prompt) - 1, len(prompt) + 3])
-ctrl = gen.prefill_logits_continuation(prompt + out[:5], len(prompt) - 3, positions=[len(prompt) - 1, len(prompt) + 3], prefill_prefix=False)
+ctrl = gen.prefill_logits_continuation(
+    prompt + out[:5], len(prompt) - 3, positions=[len(prompt) - 1, len(prompt) + 3], prefill_prefix=False
+)
+
+
 def pcc(a, b):
-    a = a.flatten().float(); b = b.flatten().float()
-    a = a - a.mean(); b = b - b.mean()
+    a = a.flatten().float()
+    b = b.flatten().float()
+    a = a - a.mean()
+    b = b - b.mean()
     return float(a @ b / (a.norm() * b.norm()))
+
+
 print("continuation pcc", pcc(ref, cand), "control pcc", pcc(ref, ctrl), flush=True)
 gen.reset()
 blocks = gen._ensure_blocks(0, len(prompt) + 4)
@@ -46,9 +57,17 @@ toks = torch.tensor([[int(last[0, 0].argmax())]])
 pos = torch.tensor([len(prompt)])
 host_logits = gen.decode_forward(toks, pos, page_table=table, kv_cache=gen.kv_cache)
 print("decode host logits", tuple(host_logits.shape), int(host_logits[0].argmax()), flush=True)
-dev = gen.decode_forward(torch.tensor([[int(host_logits[0].argmax())]]), pos + 1, page_table=table, kv_cache=gen.kv_cache, sampling_params=greedy_sampling_params(1))
+dev = gen.decode_forward(
+    torch.tensor([[int(host_logits[0].argmax())]]),
+    pos + 1,
+    page_table=table,
+    kv_cache=gen.kv_cache,
+    sampling_params=greedy_sampling_params(1),
+)
 print("decode device token", dev.tolist(), flush=True)
-dev2 = gen.decode_forward(torch.tensor([[0]]), pos + 2, page_table=table, kv_cache=gen.kv_cache, sampling_params=greedy_sampling_params(1))
+dev2 = gen.decode_forward(
+    torch.tensor([[0]]), pos + 2, page_table=table, kv_cache=gen.kv_cache, sampling_params=greedy_sampling_params(1)
+)
 print("decode device token 2", dev2.tolist(), "counters", gen.counter_snapshot(), flush=True)
 print("traces", gen.trace_summary(), flush=True)
 gen.teardown()

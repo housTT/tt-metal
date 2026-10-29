@@ -6,9 +6,6 @@ trace after two warm replays). Run under `python -m tracy -r -p -v -o <dir> <thi
 """
 import bz2
 import os
-import time
-
-import torch
 
 import ttnn
 
@@ -21,7 +18,14 @@ from models.autoports.qwen_qwen3_8b.tt.generator import build_generator
 
 layers = int(os.environ.get("QWEN3_PROFILE_LAYERS", "1"))
 mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=256 * 1024 * 1024)
-gen = build_generator("models/autoports/qwen_qwen3_8b", mesh, num_layers=layers, decode_buckets=(1,), warmup_prefill_lengths=(32, 128), num_blocks=256)
+gen = build_generator(
+    "models/autoports/qwen_qwen3_8b",
+    mesh,
+    num_layers=layers,
+    decode_buckets=(1,),
+    warmup_prefill_lengths=(32, 128),
+    num_blocks=256,
+)
 tok = gen.tokenizer
 text = bz2.open("models/tt_transformers/tests/tale-of-two-cities.txt.bz2", "rt", encoding="utf-8").read(50000)
 prompt = tok.encode(text, add_special_tokens=False)[:128]

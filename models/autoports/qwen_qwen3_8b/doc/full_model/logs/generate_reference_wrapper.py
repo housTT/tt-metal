@@ -25,11 +25,16 @@ def _chat_or_plain_prompt_tokens(tokenizer, prompt_text, *, chat_template):
 g._chat_or_plain_prompt_tokens = _chat_or_plain_prompt_tokens
 sys.argv = [
     "readiness_check.generate",
-    "--hf-model", "Qwen/Qwen3-8B",
-    "--prompt-source", "aime24",
+    "--hf-model",
+    "Qwen/Qwen3-8B",
+    "--prompt-source",
+    "aime24",
     "--chat-template",
-    "--gen-len", "100",
-    "--top-k", "100",
-    "--output", "bringup/references/qwen3_8b_aime24_chat.refpt",
+    "--gen-len",
+    "100",
+    "--top-k",
+    "100",
+    "--output",
+    "bringup/references/qwen3_8b_aime24_chat.refpt",
 ]
 g._main()

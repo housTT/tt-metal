@@ -183,12 +183,16 @@ read). No `corruptible_allocation_scope` is used.
 retained for every request; weights resident 14.93 GB measured
 (`ttnn.get_memory_view` after load), KV 147,456 bytes per token over 36
 layers, 6.04 GB per user at full context; `max_tokens_all_users` = 112,320
-tokens (3510 blocks) with a 2 GiB runtime reserve, so two users at full
-context plus 30,400 tokens of spare; 32 users at full context would need
-193 GB and is a hard physical limit of the 33.6 GB chip, which bounds the
-simultaneous full-context users, not the per-request context. Largest
-tested decode batch: 32 (`batch_decode_32.json`); largest tested prompt:
-40960 (warmup) and 40959 (capacity probe, `capacity_probe_budget.json`).
+tokens (3510 blocks) with a 2 GiB runtime reserve, which is two users at
+full context plus 30,400 tokens of spare by arithmetic; 32 users at full
+context would need 193 GB and is a hard physical limit of the 33.6 GB chip,
+which bounds the simultaneous full-context users, not the per-request
+context. Largest tested decode batch: 32 at short contexts
+(`batch_decode_32.json`); largest prefill: 40960 tokens in every build
+(warmup, `prepare()`); the capacity probe that was to demonstrate a 40959
+and a 40960-token row together with a decode at position 40959 through the
+full model hung on the device and was terminated (`work_log.md` sections
+5.1 to 5.3), so that combination is an open item, not evidence.
 
 ### Performance accounting
 
@@ -236,6 +240,13 @@ rows; `work_log.md` section 6 has the force-argmax comparison.
   `serving_contract.json`; both are stage 9/10 work.
 - Logits are BF16 on the sampler path; the readiness all-rows path returns
   float32 so near-tie comparisons are not quantized to 0.125.
+- Open device items (chips 0 and 1 were left with a wedged dispatch path
+  after the hung capacity probes and need an operator reset before any
+  further device work, `work_log.md` section 5.3): the capacity probe
+  (two concurrent full-context rows plus decode at position 40959 through
+  the full model) hung twice with the same host backtrace and is not
+  localized; the LoFi LM head measurement (`QWEN3_LM_HEAD_DECODE_FIDELITY=lofi`)
+  was not run, so the LM head stays at HiFi2 (stage 7 lever).
 
 ## Reproduction
 
@@ -263,8 +274,8 @@ MODEL_DIR=models/autoports/qwen_qwen3_8b bash /home/hous/dev/skills/plugins/tt-m
 - `serving_contract.json`: pinned plugin (`f96662a7d239c077e1435b658c0e7d316f9c4799`), 37 rows.
 - `perf_batch1_128_128.json`, `perf_batch1_128_128_force_argmax.json`: batch-1 TTFT and decode.
 - `split_sampling_trace.json`, `host_work_counters.json`, `tracked_replay_workload.json`, `*.tracked.json`: trace evidence.
-- `multi_row_prefill.json`, `batch_decode_{8,32}.json`, `capacity_probe_budget.json`.
+- `multi_row_prefill.json`, `batch_decode_{8,32}.json` (the capacity probe produced no JSON; its logs and triage are under `logs/capacity_probe*.log` and `triage/`).
 - `resume_margin_probe_*.json`, `degenerate_output_autoregressive.json`, `qualitative/`.
 - `profile/`: tt-perf-report of the reduced variant.
 - `logs/`: every command's console log, the environment wrapper and the probe scripts.
-- `triage/`: tt-triage and gdb captures of the stalled capacity probe (section 5 of the work log).
+- `triage/`: tt-triage and gdb captures of the stalled capacity probes on both chips (work log sections 5.1 to 5.3).

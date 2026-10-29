@@ -149,5 +149,95 @@
     ],
     "weight_bytes_per_layer_resident": 359661568,
     "weight_copy_note": "Prefill chunks up to 256 rows use an interleaved copy of each projection weight (ttnn.linear); the DRAM-sharded copy serves decode and longer prefill chunks. Resident weight bytes are twice weight_bytes_per_layer unless OptimizedPolicy.prefill_interleaved_copy_max_rows is 0."
-  }
+  },
+  "full_model": {
+    "hardware": "one Blackhole P300 chip per process (1x1 mesh, p150 mesh graph descriptor); readiness runners on TT_VISIBLE_DEVICES=0 and 1",
+    "device_dram_bytes_allocatable": 33641860096,
+    "device_dram_bytes_allocatable_source": "ttnn.get_memory_view(mesh_device, ttnn.BufferType.DRAM) in logs/capacity_probe.log: 8 banks x 4205232512 total_bytes_per_bank with a 512 MB trace region reserved (stage 1 recorded 4272341376 free per bank with trace_region_size=0)",
+    "weights": {
+      "decoder_layer_resident_bytes": 359661568,
+      "decoder_stack_resident_bytes": 12947816448,
+      "decoder_weight_bytes_per_token": 6473908224,
+      "embedding_bytes_bf16": 1244659712,
+      "lm_head_bytes_bfp8_padded_152576": 664010752,
+      "rope_tables_shared_bytes": 41943040,
+      "norm_weight_bytes": 616448,
+      "total_resident_bytes_computed": 14899046400,
+      "total_resident_bytes_measured": 14928363520,
+      "total_resident_bytes_measured_source": "ttnn.get_memory_view after Qwen3Model load: 8 banks x 1866045440 total_bytes_allocated_per_bank (logs/capacity_probe.log)",
+      "note": "decoder_stack_resident includes the interleaved prefill copy of every projection (OptimizedPolicy.prefill_interleaved_copy_max_rows=256); without it the stack is 6473908224 bytes. Before RoPE sharing each layer held its own 41.9 MB of tables and a 3 x 1280-block pool did not fit (logs/capacity_probe_3x1280.log)"
+    },
+    "kv_cache": {
+      "dtype": "bf16",
+      "bytes_per_token_all_layers": 147456,
+      "bytes_per_user_at_full_context": 6039797760,
+      "block_size": 32,
+      "page_table_width_blocks": 1280,
+      "scratch_block": "one extra block per cache; page-table columns past a request's allocation name it"
+    },
+    "runtime_reserve_bytes": 2147483648,
+    "runtime_reserve_note": "prefill activations (two [1, 1, 40960, 4096] BF16 tensors are 671 MB plus chunk intermediates), sampler state, zero-fill rows, dynamic trace storage when the mesh is opened without a trace region",
+    "max_tokens_all_users": 112320,
+    "max_tokens_all_users_formula": "((free DRAM after weights - runtime_reserve) // kv_bytes_per_token) rounded down to 32; free DRAM measured by ttnn.get_memory_view when a mesh is given, else DEVICE_DRAM_BYTES - WEIGHTS_RESIDENT_BYTES (Qwen3Generator.max_tokens_all_users)",
+    "max_users_at_full_context": 2,
+    "batch_32_at_full_context_bytes": 193273528320,
+    "batch_32_at_full_context_fits": false,
+    "batch_32_at_full_context_note": "32 users x 40960 tokens need 193 GB of BF16 KV cache against 34.18 GB of device DRAM; the hard physical limit bounds the simultaneous full-context users, not the per-request context",
+    "layer_kinds": {
+      "full_attention": {
+        "num_layers_of_kind": 36,
+        "cache_block_size": 32,
+        "num_kv_heads": 8,
+        "head_dim": 128,
+        "prefill_chunk_size": 4096,
+        "prefill_compute_buckets": [
+          32,
+          64,
+          128,
+          256,
+          512,
+          1024,
+          2048,
+          4096,
+          "then multiples of 4096"
+        ],
+        "decode_physical_batches": [
+          1,
+          8,
+          16,
+          24,
+          32
+        ],
+        "tested_prefill_context": 40960,
+        "tested_decode_context": 40960,
+        "largest_tested_non_aligned_prefill": 40959,
+        "largest_tested_decode_batch": 32
+      }
+    },
+    "generator_defaults": {
+      "num_blocks": 1280,
+      "max_batch_size": 32,
+      "decode_buckets": [
+        1,
+        8,
+        16,
+        24,
+        32
+      ]
+    },
+    "artifacts": [
+      "full_model/batch_decode_32.json",
+      "full_model/multi_row_prefill.json",
+      "full_model/README.md",
+      "full_model/work_log.md"
+    ],
+    "capacity_probe": {
+      "status": "not_completed",
+      "note": "logs/capacity_probe*.log and triage/: a pool of 3510 blocks allocated and prepared (prefill of 40960 tokens included), but the three-row full-context prefill plus decode at 40959 hung on the device twice (chips 1 and 0) and the processes were terminated; max_users_at_full_context is the DRAM arithmetic, not a demonstrated run"
+    }
+  },
+  "notes": [
+    "full-model stage: the HF-advertised 40960-token context is retained for every request; the number of simultaneous full-context users is bounded by device DRAM (see full_model.max_users_at_full_context).",
+    "full-model stage: the HF-advertised 40960-token context is retained for every request; the number of simultaneous full-context users is bounded by device DRAM (see full_model.max_users_at_full_context)."
+  ]
 }

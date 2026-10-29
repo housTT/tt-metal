@@ -18,7 +18,9 @@ H, V, VP = 4096, 151936, 152576
 tok_host = torch.zeros(1, 1, 1, 32, dtype=torch.int32)
 tok_host[0, 0, 0, 0] = 5
 tokens = ttnn.from_torch(tok_host, dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT, device=mesh)
-emb_w = ttnn.from_torch(torch.randn(V, H).to(torch.bfloat16), dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=mesh)
+emb_w = ttnn.from_torch(
+    torch.randn(V, H).to(torch.bfloat16), dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=mesh
+)
 e = ttnn.embedding(tokens, emb_w, layout=ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG)
 print("embedding out", e.shape, e.layout, flush=True)
 e4 = ttnn.unsqueeze_to_4D(e)
@@ -29,6 +31,7 @@ print("residual sharded", x.shape, x.memory_config().memory_layout, flush=True)
 
 role = DecodeMatmulRole("bfp8", "hifi2", False, 32, 4, 1)
 import os
+
 SW = int(os.environ.get("SPLIT", "16384"))
 splits = [SW] * (VP // SW) + ([VP % SW] if VP % SW else [])
 print("splits", splits, flush=True)
@@ -44,7 +47,11 @@ for w in splits:
         )
     )
 ckc = ttnn.init_device_compute_kernel_config(
-    mesh.arch(), math_fidelity=ttnn.MathFidelity.HiFi2, math_approx_mode=False, fp32_dest_acc_en=False, packer_l1_acc=True
+    mesh.arch(),
+    math_fidelity=ttnn.MathFidelity.HiFi2,
+    math_approx_mode=False,
+    fp32_dest_acc_en=False,
+    packer_l1_acc=True,
 )
 outs = []
 for w, wt in zip(splits, weights):
@@ -60,7 +67,9 @@ for w, wt in zip(splits, weights):
 logits = ttnn.concat(outs, dim=3, memory_config=ttnn.DRAM_MEMORY_CONFIG)
 print("logits", logits.shape, logits.dtype, flush=True)
 
-pos = ttnn.from_torch(torch.tensor([7, -1], dtype=torch.int32), dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=mesh)
+pos = ttnn.from_torch(
+    torch.tensor([7, -1], dtype=torch.int32), dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=mesh
+)
 ttnn.plus_one(pos, skip_negative_entries=True)
 print("plus_one", ttnn.to_torch(pos).tolist(), flush=True)
 
@@ -96,7 +105,13 @@ for _ in range(3):
 t0 = time.perf_counter()
 for _ in range(10):
     ttnn.execute_trace(mesh, trace_id, cq_id=0, blocking=True)
-print("lm head trace replay ms", round((time.perf_counter() - t0) * 100, 3), "pos", ttnn.to_torch(pos).tolist(), flush=True)
+print(
+    "lm head trace replay ms",
+    round((time.perf_counter() - t0) * 100, 3),
+    "pos",
+    ttnn.to_torch(pos).tolist(),
+    flush=True,
+)
 ttnn.release_trace(mesh, trace_id)
 ttnn.close_mesh_device(mesh)
 print("PROBE_OK", flush=True)

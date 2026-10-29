@@ -446,8 +446,12 @@ class OptimizedDecoder(FusedDecoder):
                 k_norm=as_tt(
                     "k_norm", local["self_attn.k_norm.weight"].to(torch.float32).reshape(head_norm_shape), ttnn.bfloat16
                 ),
-                rope_cos=rope_tables[0] if rope_tables else as_tt("rope_cos", cos.unsqueeze(0).unsqueeze(0), ttnn.bfloat16),
-                rope_sin=rope_tables[1] if rope_tables else as_tt("rope_sin", sin.unsqueeze(0).unsqueeze(0), ttnn.bfloat16),
+                rope_cos=rope_tables[0]
+                if rope_tables
+                else as_tt("rope_cos", cos.unsqueeze(0).unsqueeze(0), ttnn.bfloat16),
+                rope_sin=rope_tables[1]
+                if rope_tables
+                else as_tt("rope_sin", sin.unsqueeze(0).unsqueeze(0), ttnn.bfloat16),
                 rope_cos_table=(
                     rope_tables[2]
                     if rope_tables

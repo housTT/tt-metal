@@ -10,17 +10,22 @@ from pathlib import Path
 import torch
 
 import ttnn
-from models.autoports.qwen_qwen3_8b.tt.generator import Qwen3Generator, build_generator, greedy_sampling_params
+from models.autoports.qwen_qwen3_8b.tt.generator import Qwen3Generator, greedy_sampling_params
 
 OUT = Path("models/autoports/qwen_qwen3_8b/doc/full_model/capacity_probe_budget.json")
 from transformers import AutoConfig, AutoTokenizer
+
 from models.autoports.qwen_qwen3_8b.tt.hf_weights import CheckpointReader
 from models.autoports.qwen_qwen3_8b.tt.model import Qwen3Model
 
 mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=512 * 1024 * 1024)
+
+
 def view():
     v = ttnn.get_memory_view(mesh, ttnn.BufferType.DRAM)
     return {k: int(getattr(v, k)) for k in dir(v) if not k.startswith("_") and isinstance(getattr(v, k), int)}
+
+
 fresh = view()
 reader = CheckpointReader()
 cfg = AutoConfig.from_pretrained(str(reader.snapshot), local_files_only=True)
@@ -36,14 +41,25 @@ build_s = time.time() - t0
 after_build = view()
 tok = gen.tokenizer
 import bz2
+
 text = bz2.open("models/tt_transformers/tests/tale-of-two-cities.txt.bz2", "rt", encoding="utf-8").read()
 ids = tok.encode(text, add_special_tokens=False)
 lengths = [40959, 40960, 200]
-prompts = [ids[:40959], ids[1000:1000 + 40960], ids[5000:5200]]
+prompts = [ids[:40959], ids[1000 : 1000 + 40960], ids[5000:5200]]
 for i, n in enumerate(lengths):
     assert len(prompts[i]) == n
 gen.reset()
-record = {"num_blocks": budget, "budget_tokens": budget_tokens, "build_s": build_s, "dram_view_fresh": fresh, "dram_view_after_weights": after_weights, "dram_view_after_build": after_build, "weight_bytes_computed": gen.model.weight_bytes(), "kv_bytes_per_token": gen.model.kv_bytes_per_token(), "rows": []}
+record = {
+    "num_blocks": budget,
+    "budget_tokens": budget_tokens,
+    "build_s": build_s,
+    "dram_view_fresh": fresh,
+    "dram_view_after_weights": after_weights,
+    "dram_view_after_build": after_build,
+    "weight_bytes_computed": gen.model.weight_bytes(),
+    "kv_bytes_per_token": gen.model.kv_bytes_per_token(),
+    "rows": [],
+}
 first_tokens = []
 for i, ids_i in enumerate(prompts):
     gen._ensure_blocks(i, len(ids_i) if len(ids_i) == 40960 else len(ids_i) + 1)
@@ -52,7 +68,9 @@ t0 = time.time()
 tokens = torch.zeros(3, 40960, dtype=torch.int64)
 for i, ids_i in enumerate(prompts):
     tokens[i, : len(ids_i)] = torch.tensor(ids_i)
-first = gen.prefill_forward(tokens, page_table=table, kv_cache=gen.kv_cache, prompt_lens=lengths, sampling_params=greedy_sampling_params(3))
+first = gen.prefill_forward(
+    tokens, page_table=table, kv_cache=gen.kv_cache, prompt_lens=lengths, sampling_params=greedy_sampling_params(3)
+)
 record["prefill_3_rows_s"] = time.time() - t0
 record["first_tokens"] = first.tolist()
 positions = torch.tensor(lengths, dtype=torch.int32)
@@ -63,7 +81,9 @@ pos = positions.clone()
 for step in range(4):
     rows = torch.tensor([[int(cur[i])] if i in live else [0] for i in range(3)])
     p = torch.tensor([int(pos[i]) if i in live else -1 for i in range(3)], dtype=torch.int32)
-    out = gen.decode_forward(rows, p, page_table=table, kv_cache=gen.kv_cache, sampling_params=greedy_sampling_params(3))
+    out = gen.decode_forward(
+        rows, p, page_table=table, kv_cache=gen.kv_cache, sampling_params=greedy_sampling_params(3)
+    )
     steps.append(out.tolist())
     for i in live:
         cur[i] = out[i]

@@ -62,7 +62,9 @@ def _provenance(gen, command: str) -> dict:
         "test": Path(__file__),
     }
     try:
-        git_sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=Path(__file__).parents[4], text=True).strip()
+        git_sha = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=Path(__file__).parents[4], text=True
+        ).strip()
     except (OSError, subprocess.CalledProcessError):
         git_sha = "unavailable"
     return {
@@ -80,7 +82,9 @@ def _provenance(gen, command: str) -> dict:
         "visible_devices": os.getenv("TT_VISIBLE_DEVICES"),
         "platform": platform.platform(),
         "exact_command": os.getenv("QWEN3_EVIDENCE_COMMAND", command),
-        "environment": {k: v for k, v in sorted(os.environ.items()) if k.startswith("QWEN3_") or k.startswith("TT_METAL_")},
+        "environment": {
+            k: v for k, v in sorted(os.environ.items()) if k.startswith("QWEN3_") or k.startswith("TT_METAL_")
+        },
         "recorded_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         **{f"{name}_sha256": hashlib.sha256(path.read_bytes()).hexdigest() for name, path in files.items()},
     }
@@ -97,7 +101,9 @@ def _write_json(name: str, payload: dict) -> Path:
 
 
 def _chat_ids(tokenizer, text: str) -> list[int]:
-    rendered = tokenizer.apply_chat_template([{"role": "user", "content": text}], add_generation_prompt=True, tokenize=False)
+    rendered = tokenizer.apply_chat_template(
+        [{"role": "user", "content": text}], add_generation_prompt=True, tokenize=False
+    )
     return tokenizer.encode(rendered, add_special_tokens=False)
 
 
@@ -159,7 +165,9 @@ def test_split_sampling_trace(generator):
                 "logits_changed": None if logits_prev is None else bool(not torch.equal(logits, logits_prev)),
             }
         )
-        assert consumed_token == tokens_seen[-1], "the token the trace consumed is not the one sampled by the previous replay"
+        assert (
+            consumed_token == tokens_seen[-1]
+        ), "the token the trace consumed is not the one sampled by the previous replay"
         assert after_pos == consumed_pos + 1, "current_pos did not advance on device"
         assert sampled == int(logits.argmax()), "sampled token is not the greedy token of the sampler-ready logits"
         if logits_prev is not None:
@@ -176,7 +184,9 @@ def test_split_sampling_trace(generator):
     table_before = state.host_table.clone()
     gen._write_page_table(state, state.host_table)
     assert gen.counter_snapshot()["page_table_refreshes"] == after["page_table_refreshes"]
-    gen._ensure_blocks(0, len(state.host_table[0][state.host_table[0] != gen.scratch_block]) * gen.block_size + gen.block_size)
+    gen._ensure_blocks(
+        0, len(state.host_table[0][state.host_table[0] != gen.scratch_block]) * gen.block_size + gen.block_size
+    )
     changed = gen._host_page_table([0])
     gen._write_page_table(state, changed)
     assert gen.counter_snapshot()["page_table_refreshes"] == after["page_table_refreshes"] + 1
@@ -189,9 +199,23 @@ def test_split_sampling_trace(generator):
     sampled_params = SamplingParams(temperature=[0.7], top_k=[20], top_p=[0.95], seed=[7])
     captures = (gen.counter_snapshot()["decode_trace_captures"], gen.counter_snapshot()["sampling_trace_captures"])
     pos = torch.tensor([int(_tensor(gen, "current_pos")[0])])
-    tok_a = gen.decode_forward(torch.tensor([[sampled]]), pos, page_table=changed, kv_cache=gen.kv_cache, sampling_params=sampled_params)
-    tok_b = gen.decode_forward(torch.tensor([[int(tok_a[0])]]), pos + 1, page_table=changed, kv_cache=gen.kv_cache, sampling_params=greedy_sampling_params(1))
-    tok_c = gen.decode_forward(torch.tensor([[int(tok_b[0])]]), pos + 2, page_table=changed, kv_cache=gen.kv_cache, sampling_params=sampled_params)
+    tok_a = gen.decode_forward(
+        torch.tensor([[sampled]]), pos, page_table=changed, kv_cache=gen.kv_cache, sampling_params=sampled_params
+    )
+    tok_b = gen.decode_forward(
+        torch.tensor([[int(tok_a[0])]]),
+        pos + 1,
+        page_table=changed,
+        kv_cache=gen.kv_cache,
+        sampling_params=greedy_sampling_params(1),
+    )
+    tok_c = gen.decode_forward(
+        torch.tensor([[int(tok_b[0])]]),
+        pos + 2,
+        page_table=changed,
+        kv_cache=gen.kv_cache,
+        sampling_params=sampled_params,
+    )
     record["mode_alternation"] = {
         "sampled_then_greedy_then_sampled": [int(tok_a[0]), int(tok_b[0]), int(tok_c[0])],
         "decode_trace_captures_added": gen.counter_snapshot()["decode_trace_captures"] - captures[0],
@@ -200,7 +224,10 @@ def test_split_sampling_trace(generator):
     }
     assert record["mode_alternation"]["decode_trace_captures_added"] == 0
     record["counters"] = gen.counter_snapshot()
-    record["provenance"] = _provenance(gen, "python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_split_sampling_trace")
+    record["provenance"] = _provenance(
+        gen,
+        "python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_split_sampling_trace",
+    )
     _write_json("split_sampling_trace.json", record)
 
 
@@ -228,7 +255,9 @@ def test_multi_row_prefill_equals_solo(generator):
     batched = gen.prefill_forward(tokens, page_table=table, kv_cache=gen.kv_cache, prompt_lens=lengths)
     rerun = gen.prefill_forward(tokens, page_table=table, kv_cache=gen.kv_cache, prompt_lens=lengths)
     order = list(reversed(range(rows)))
-    reordered = gen.prefill_forward(tokens[order], page_table=table[order], kv_cache=gen.kv_cache, prompt_lens=[lengths[i] for i in order])
+    reordered = gen.prefill_forward(
+        tokens[order], page_table=table[order], kv_cache=gen.kv_cache, prompt_lens=[lengths[i] for i in order]
+    )
     records = []
     for i in range(rows):
         records.append(
@@ -244,7 +273,10 @@ def test_multi_row_prefill_equals_solo(generator):
         "rows": rows,
         "lengths": lengths,
         "cases": records,
-        "provenance": _provenance(gen, "python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_multi_row_prefill_equals_solo"),
+        "provenance": _provenance(
+            gen,
+            "python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_multi_row_prefill_equals_solo",
+        ),
     }
     _write_json("multi_row_prefill.json", payload)
     for record in records:
@@ -272,13 +304,25 @@ def test_batch_decode(generator, batch):
         tokens[i, : len(ids)] = torch.tensor(ids)
         gen._ensure_blocks(i, len(ids) + steps)
     table = gen._host_page_table(list(range(batch)))
-    first = gen.prefill_forward(tokens, page_table=table, kv_cache=gen.kv_cache, prompt_lens=lengths, sampling_params=greedy_sampling_params(batch))
+    first = gen.prefill_forward(
+        tokens,
+        page_table=table,
+        kv_cache=gen.kv_cache,
+        prompt_lens=lengths,
+        sampling_params=greedy_sampling_params(batch),
+    )
     generated = [[int(first[i])] for i in range(batch)]
     positions = torch.tensor(lengths, dtype=torch.int32)
     before = gen.counter_snapshot()
     for step in range(1, steps):
         next_tokens = torch.tensor([[generated[i][-1]] for i in range(batch)])
-        out = gen.decode_forward(next_tokens, positions, page_table=table, kv_cache=gen.kv_cache, sampling_params=greedy_sampling_params(batch))
+        out = gen.decode_forward(
+            next_tokens,
+            positions,
+            page_table=table,
+            kv_cache=gen.kv_cache,
+            sampling_params=greedy_sampling_params(batch),
+        )
         for i in range(batch):
             generated[i].append(int(out[i]))
         positions = positions + 1
@@ -292,7 +336,10 @@ def test_batch_decode(generator, batch):
         "batched": generated,
         "matching_tokens_per_user": matches,
         "host_work_during_batched_decode": delta,
-        "provenance": _provenance(gen, f"python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k 'test_batch_decode and {batch}'"),
+        "provenance": _provenance(
+            gen,
+            f"python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k 'test_batch_decode and {batch}'",
+        ),
     }
     _write_json(f"batch_decode_{batch}.json", payload)
     assert delta["token_refreshes"] == 1 and delta["position_refreshes"] == 1
@@ -320,7 +367,10 @@ def test_host_work_counters(generator):
         "repeat_equal": out == repeat,
         "elapsed_s": elapsed,
         "host_work": delta,
-        "provenance": _provenance(gen, "python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_host_work_counters"),
+        "provenance": _provenance(
+            gen,
+            "python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_host_work_counters",
+        ),
     }
     _write_json("host_work_counters.json", payload)
     assert len(out) == 64
@@ -343,13 +393,27 @@ def test_tracked_replay_workload(generator):
         out = gen.generate(ids, 8, next_input=None, enable_trace=True, stop_on_eos=False)
         log.append({"kind": "greedy_generate", "prompt_len": len(ids), "tokens": out})
     gen.reset()
-    sampled = gen.generate(prompts[0], 8, next_input=None, enable_trace=True, stop_on_eos=False, sampling_params=SamplingParams(temperature=[0.8], top_k=[10], top_p=[0.9]))
+    sampled = gen.generate(
+        prompts[0],
+        8,
+        next_input=None,
+        enable_trace=True,
+        stop_on_eos=False,
+        sampling_params=SamplingParams(temperature=[0.8], top_k=[10], top_p=[0.9]),
+    )
     log.append({"kind": "sampled_generate", "tokens": sampled})
     gen.reset()
     gen._ensure_blocks(0, len(prompts[0]) + 4)
     table = gen._host_page_table([0])
-    last = gen.prefill_forward(torch.tensor([prompts[0]]), page_table=table, kv_cache=gen.kv_cache, prompt_lens=[len(prompts[0])])
-    host_logits = gen.decode_forward(torch.tensor([[int(last[0, 0].argmax())]]), torch.tensor([len(prompts[0])]), page_table=table, kv_cache=gen.kv_cache)
+    last = gen.prefill_forward(
+        torch.tensor([prompts[0]]), page_table=table, kv_cache=gen.kv_cache, prompt_lens=[len(prompts[0])]
+    )
+    host_logits = gen.decode_forward(
+        torch.tensor([[int(last[0, 0].argmax())]]),
+        torch.tensor([len(prompts[0])]),
+        page_table=table,
+        kv_cache=gen.kv_cache,
+    )
     log.append({"kind": "host_logits_decode", "argmax": int(host_logits[0].argmax())})
     batch = 8
     gen.reset()
@@ -358,23 +422,48 @@ def test_tracked_replay_workload(generator):
     for i in range(batch):
         gen._ensure_blocks(i, lengths[i] + 4)
     table = gen._host_page_table(list(range(batch)))
-    first = gen.prefill_forward(tokens, page_table=table, kv_cache=gen.kv_cache, prompt_lens=lengths, sampling_params=greedy_sampling_params(batch))
+    first = gen.prefill_forward(
+        tokens,
+        page_table=table,
+        kv_cache=gen.kv_cache,
+        prompt_lens=lengths,
+        sampling_params=greedy_sampling_params(batch),
+    )
     positions = torch.tensor(lengths, dtype=torch.int32)
     for _ in range(3):
-        first = gen.decode_forward(first.reshape(batch, 1), positions, page_table=table, kv_cache=gen.kv_cache, sampling_params=greedy_sampling_params(batch))
+        first = gen.decode_forward(
+            first.reshape(batch, 1),
+            positions,
+            page_table=table,
+            kv_cache=gen.kv_cache,
+            sampling_params=greedy_sampling_params(batch),
+        )
         positions = positions + 1
     log.append({"kind": "batch8_decode", "tokens": first.tolist()})
     gen.reset()
     again = gen.generate(prompts[0], 8, next_input=None, enable_trace=True, stop_on_eos=False)
     log.append({"kind": "greedy_generate_again", "tokens": again, "equal_to_first": again == log[0]["tokens"]})
     payload = {
-        "tracking_env": {k: os.environ.get(k) for k in ("TT_METAL_TRACE_ALLOC_TRACKING", "TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE", "TT_METAL_TRACE_ALLOC_TRACEBACKS")},
+        "tracking_env": {
+            k: os.environ.get(k)
+            for k in (
+                "TT_METAL_TRACE_ALLOC_TRACKING",
+                "TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE",
+                "TT_METAL_TRACE_ALLOC_TRACEBACKS",
+            )
+        },
         "workload": log,
         "counters": gen.counter_snapshot(),
-        "traces": {str(k): {"decode_traces": {m: str(t) for m, t in v["decode_traces"].items()}, "prepared": v["prepared"]} for k, v in gen.trace_summary().items()},
+        "traces": {
+            str(k): {"decode_traces": {m: str(t) for m, t in v["decode_traces"].items()}, "prepared": v["prepared"]}
+            for k, v in gen.trace_summary().items()
+        },
         "sampling_trace_slots": len(gen.sampling._trace_states),
         "program_cache_entries": gen.mesh_device.num_program_cache_entries(),
-        "provenance": _provenance(gen, "TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0 python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_tracked_replay_workload"),
+        "provenance": _provenance(
+            gen,
+            "TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0 python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_tracked_replay_workload",
+        ),
     }
     _write_json("tracked_replay_workload.json", payload)
     assert again == log[0]["tokens"]
@@ -400,7 +489,14 @@ def test_perf_batch1(generator):
         out = gen.generate(prompt, 128, next_input=next_input, enable_trace=True, stop_on_eos=False)
         ttft = stamps[0] - started
         decode = (stamps[-1] - stamps[0]) / (len(stamps) - 1)
-        runs.append({"ttft_ms": ttft * 1000, "decode_ms_per_token": decode * 1000, "decode_t_s_u": 1 / decode, "tokens": len(out)})
+        runs.append(
+            {
+                "ttft_ms": ttft * 1000,
+                "decode_ms_per_token": decode * 1000,
+                "decode_t_s_u": 1 / decode,
+                "tokens": len(out),
+            }
+        )
     teacher = []
     for _ in range(2):
         gen.reset()
@@ -413,14 +509,27 @@ def test_perf_batch1(generator):
 
         started = time.perf_counter()
         gen.generate(prompt, 128, next_input=next_input_tf, enable_trace=True)
-        teacher.append({"ttft_ms": (stamps[0] - started) * 1000, "decode_ms_per_token": (stamps[-1] - stamps[0]) / (len(stamps) - 1) * 1000, "token_refreshes": gen.counter_snapshot()["token_refreshes"]})
+        teacher.append(
+            {
+                "ttft_ms": (stamps[0] - started) * 1000,
+                "decode_ms_per_token": (stamps[-1] - stamps[0]) / (len(stamps) - 1) * 1000,
+                "token_refreshes": gen.counter_snapshot()["token_refreshes"],
+            }
+        )
     payload = {
-        "workload": {"prompt_tokens": 128, "generated_tokens": 128, "batch": 1, "sampling": "greedy split sampling (top-k path, k=1)"},
+        "workload": {
+            "prompt_tokens": 128,
+            "generated_tokens": 128,
+            "batch": 1,
+            "sampling": "greedy split sampling (top-k path, k=1)",
+        },
         "token_out_runs": runs,
         "teacher_forced_runs": teacher,
         "best_token_out": min(runs, key=lambda r: r["decode_ms_per_token"]),
         "counters": gen.counter_snapshot(),
-        "provenance": _provenance(gen, "python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_perf_batch1"),
+        "provenance": _provenance(
+            gen, "python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_perf_batch1"
+        ),
     }
     suffix = "_force_argmax" if gen.allow_force_argmax else ""
     _write_json(f"perf_batch1_128_128{suffix}.json", payload)

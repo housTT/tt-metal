@@ -8,32 +8,38 @@ contract = json.loads(path.read_text())
 probe_path = MODEL_DIR / "doc" / "full_model" / "capacity_probe_3x40960.json"
 probe = json.loads(probe_path.read_text()) if probe_path.is_file() else None
 
-dram = 34178731008
+dram = 33641860096
 layer_resident = 359661568
 layers = 36
 embedding = 151936 * 4096 * 2
 lm_head = int(4096 * 152576 * 1.0625)
 norm = 4096 * 2
-weights = layer_resident * layers + embedding + lm_head + norm
+rope_shared = 4 * 40960 * 128 * 2
+norm_weights = layers * 2 * (4096 + 128) * 2 + 4096 * 2
+weights_computed = layer_resident * layers + embedding + lm_head + rope_shared + norm_weights
+weights = 1866045440 * 8
 kv_per_token = 2 * 8 * 128 * 2 * layers
 per_user = kv_per_token * 40960
-reserve = 1073741824
+reserve = 2147483648
 budget_tokens = ((dram - weights - reserve) // kv_per_token) // 32 * 32
 users_full_context = budget_tokens // 40960
 
 section = {
     "hardware": "one Blackhole P300 chip per process (1x1 mesh, p150 mesh graph descriptor); readiness runners on TT_VISIBLE_DEVICES=0 and 1",
     "device_dram_bytes_allocatable": dram,
-    "device_dram_bytes_allocatable_source": "ttnn.get_memory_view(mesh_device, ttnn.BufferType.DRAM): 8 banks x 4272341376 bytes free on a fresh device (stage 1)",
+    "device_dram_bytes_allocatable_source": "ttnn.get_memory_view(mesh_device, ttnn.BufferType.DRAM) in logs/capacity_probe.log: 8 banks x 4205232512 total_bytes_per_bank with a 512 MB trace region reserved (stage 1 recorded 4272341376 free per bank with trace_region_size=0)",
     "weights": {
         "decoder_layer_resident_bytes": layer_resident,
         "decoder_stack_resident_bytes": layer_resident * layers,
         "decoder_weight_bytes_per_token": 179830784 * layers,
         "embedding_bytes_bf16": embedding,
         "lm_head_bytes_bfp8_padded_152576": lm_head,
-        "final_norm_bytes": norm,
-        "total_resident_bytes": weights,
-        "note": "decoder_stack_resident includes the interleaved prefill copy of every projection (OptimizedPolicy.prefill_interleaved_copy_max_rows=256); without it the stack is 6473908224 bytes",
+        "rope_tables_shared_bytes": rope_shared,
+        "norm_weight_bytes": norm_weights,
+        "total_resident_bytes_computed": weights_computed,
+        "total_resident_bytes_measured": weights,
+        "total_resident_bytes_measured_source": "ttnn.get_memory_view after Qwen3Model load: 8 banks x 1866045440 total_bytes_allocated_per_bank (logs/capacity_probe.log)",
+        "note": "decoder_stack_resident includes the interleaved prefill copy of every projection (OptimizedPolicy.prefill_interleaved_copy_max_rows=256); without it the stack is 6473908224 bytes. Before RoPE sharing each layer held its own 41.9 MB of tables and a 3 x 1280-block pool did not fit (logs/capacity_probe_3x1280.log)",
     },
     "kv_cache": {
         "dtype": "bf16",
@@ -44,9 +50,9 @@ section = {
         "scratch_block": "one extra block per cache; page-table columns past a request's allocation name it",
     },
     "runtime_reserve_bytes": reserve,
-    "runtime_reserve_note": "prefill activations (two [1, 1, 40960, 4096] BF16 tensors are 671 MB), trace buffers, sampler and zero-fill buffers",
+    "runtime_reserve_note": "prefill activations (two [1, 1, 40960, 4096] BF16 tensors are 671 MB plus chunk intermediates), sampler state, zero-fill rows, dynamic trace storage when the mesh is opened without a trace region",
     "max_tokens_all_users": budget_tokens,
-    "max_tokens_all_users_formula": "((dram_allocatable - total_resident_weights - runtime_reserve) // kv_bytes_per_token) rounded down to 32 (Qwen3Generator.max_tokens_all_users)",
+    "max_tokens_all_users_formula": "((free DRAM after weights - runtime_reserve) // kv_bytes_per_token) rounded down to 32; free DRAM measured by ttnn.get_memory_view when a mesh is given, else DEVICE_DRAM_BYTES - WEIGHTS_RESIDENT_BYTES (Qwen3Generator.max_tokens_all_users)",
     "max_users_at_full_context": users_full_context,
     "batch_32_at_full_context_bytes": 32 * per_user,
     "batch_32_at_full_context_fits": False,
@@ -87,4 +93,11 @@ contract["notes"] = contract.get("notes", []) + [
     "full-model stage: the HF-advertised 40960-token context is retained for every request; the number of simultaneous full-context users is bounded by device DRAM (see full_model.max_users_at_full_context)."
 ]
 path.write_text(json.dumps(contract, indent=2) + "\n")
-print("current_supported_context", contract["current_supported_context"], "budget_tokens", budget_tokens, "users", users_full_context)
+print(
+    "current_supported_context",
+    contract["current_supported_context"],
+    "budget_tokens",
+    budget_tokens,
+    "users",
+    users_full_context,
+)

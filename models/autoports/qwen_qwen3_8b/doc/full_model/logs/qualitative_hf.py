@@ -46,7 +46,16 @@ for entry in rendered:
     with torch.no_grad():
         out = model.generate(ids, max_new_tokens=MAX_NEW, do_sample=False, num_beams=1, pad_token_id=tok.pad_token_id)
     gen = out[0, ids.shape[1] :].tolist()
-    results.append({"id": entry["id"], "prompt": entry["prompt"], "token_ids": gen, "num_tokens": len(gen), "text": tok.decode(gen, skip_special_tokens=False), "seconds": time.time() - t0})
+    results.append(
+        {
+            "id": entry["id"],
+            "prompt": entry["prompt"],
+            "token_ids": gen,
+            "num_tokens": len(gen),
+            "text": tok.decode(gen, skip_special_tokens=False),
+            "seconds": time.time() - t0,
+        }
+    )
     print(f"prompt {entry['id']} done {len(gen)} tokens in {time.time() - t0:.0f}s", flush=True)
     (OUT / "hf_outputs.json").write_text(json.dumps(results, indent=2) + "\n")
 print("HF_QUALITATIVE_DONE", flush=True)
