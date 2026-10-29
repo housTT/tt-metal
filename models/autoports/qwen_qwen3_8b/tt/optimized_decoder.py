@@ -6,12 +6,15 @@
 chunk planning and padding rules of ``FusedDecoder`` and changes the weight
 precision, the weight placement and the decode activation layout:
 
-* Projection weights are stored once, width-sharded across the DRAM banks,
-  in the dtype given by ``OptimizedPolicy``. Prefill reads them with
-  ``minimal_matmul`` at the fidelity that matches the dtype (the residual add
-  returns to a separate ``ttnn.add`` because the addcmul-fused kernel needs
-  equal weight and residual tile sizes); decode reads them with DRAM-sharded
-  matmuls.
+* Projection weights are width-sharded across the DRAM banks in the dtype
+  given by ``OptimizedPolicy``; decode reads them with DRAM-sharded matmuls
+  and prefill chunks longer than ``prefill_interleaved_copy_max_rows`` read
+  them with ``minimal_matmul`` at the fidelity that matches the dtype (the
+  residual add is a separate ``ttnn.add`` because the addcmul-fused kernel
+  needs equal weight and residual tile sizes). Shorter prefill chunks use
+  ``ttnn.linear`` on an interleaved copy of each weight, where the DRAM-sharded
+  read is 1.3x to 2x slower; ``prefill_interleaved_copy_max_rows=0`` drops the
+  copy.
 * Decode activations stay width-sharded in L1 across the residual stream,
   both RMSNorms, the QKV projection, the attention output projection and the
   MLP. The layer accepts a DRAM-interleaved residual (the functional contract)
@@ -92,6 +95,7 @@ class OptimizedPolicy:
     sdpa_fidelity: str = "hifi4"
     prefill_fp32_acc: bool = True
     prefill_bfp8_fidelity: str = "lofi"
+    prefill_interleaved_copy_max_rows: int = 256
 
     def describe(self) -> dict:
         return asdict(self)
@@ -211,6 +215,7 @@ class OptimizedDecoder(FusedDecoder):
         weights: DecoderWeights,
         policy: OptimizedPolicy = DEFAULT_POLICY,
         weight_dtypes: dict[str, str] | None = None,
+        prefill_weights: dict[str, ttnn.Tensor] | None = None,
         activation_dtype: ttnn.DataType = ttnn.bfloat16,
         prefill_chunk_size: int = 4096,
         prefill_minimal_matmul_min_rows: int = PREFILL_MINIMAL_MATMUL_MIN_ROWS,
@@ -225,6 +230,7 @@ class OptimizedDecoder(FusedDecoder):
             prefill_minimal_matmul_min_rows=prefill_minimal_matmul_min_rows,
         )
         self.policy = policy
+        self.prefill_weights = dict(prefill_weights or {})
         self.weight_dtypes = weight_dtypes or {
             "qkv": policy.qkv.dtype,
             "o_proj": policy.o_proj.dtype,
@@ -249,16 +255,21 @@ class OptimizedDecoder(FusedDecoder):
 
         self.norm_compute_config = ckc(policy.norm_fidelity, True, False)
         self.sdpa_compute_config = ckc(policy.sdpa_fidelity, True, False)
-        self._prefill_compute = {
-            id(weight): ckc(policy.prefill_fidelity(self.weight_dtypes[name]), policy.prefill_fp32_acc, False)
-            for name, weight in (
-                ("qkv", weights.qkv),
-                ("o_proj", weights.o_proj),
-                ("gate_proj", weights.gate_proj),
-                ("up_proj", weights.up_proj),
-                ("down_proj", weights.down_proj),
-            )
-        }
+        self._prefill_compute = {}
+        self._interleaved_copy = {}
+        for name, weight in (
+            ("qkv", weights.qkv),
+            ("o_proj", weights.o_proj),
+            ("gate_proj", weights.gate_proj),
+            ("up_proj", weights.up_proj),
+            ("down_proj", weights.down_proj),
+        ):
+            config = ckc(policy.prefill_fidelity(self.weight_dtypes[name]), policy.prefill_fp32_acc, False)
+            self._prefill_compute[id(weight)] = config
+            copy = self.prefill_weights.get(name)
+            if copy is not None:
+                self._prefill_compute[id(copy)] = config
+                self._interleaved_copy[id(weight)] = copy
         self.decode_compute = {
             "qkv": ckc(policy.qkv.fidelity, policy.qkv.fp32_acc, True),
             "o_proj": ckc(policy.o_proj.fidelity, policy.o_proj.fp32_acc, True),
@@ -306,6 +317,10 @@ class OptimizedDecoder(FusedDecoder):
     def decode_residual_memory_config(self) -> ttnn.MemoryConfig:
         """Layout a caller may use for decode residual input and output to skip the DRAM round trip."""
         return self.residual_memory_config
+
+    def weight_bytes_resident(self) -> int:
+        """DRAM bytes of all projection weights including the interleaved prefill copies."""
+        return self.weight_bytes_per_token() * (2 if self._interleaved_copy else 1)
 
     def weight_bytes_per_token(self) -> int:
         g = self.geometry
@@ -379,17 +394,34 @@ class OptimizedDecoder(FusedDecoder):
                 memory_config=dram_sharded_weight_memory_config(k, n, dram_banks),
             )
 
+        prefill_copies: dict[str, ttnn.Tensor] = {}
+
+        def interleaved_copy(name: str, tensor: torch.Tensor) -> None:
+            if policy.prefill_interleaved_copy_max_rows > 0:
+                prefill_copies[name] = as_tt(
+                    f"{name}_{dtypes[name]}_il", tensor.unsqueeze(0).unsqueeze(0), DTYPE_NAMES[dtypes[name]]
+                )
+
         with torch.no_grad():
             qkv = torch.cat([local[f"self_attn.{p}_proj.weight"].to(torch.float32).T for p in ("q", "k", "v")], dim=-1)
             norm_shape = (1, 1, 1, geometry.hidden_size)
             head_norm_shape = (1, 1, 1, geometry.head_dim)
             cos, sin = hf_rope_tables(geometry)
+            projections = {
+                "qkv": qkv,
+                "o_proj": local["self_attn.o_proj.weight"].to(torch.float32).T,
+                "gate_proj": local["mlp.gate_proj.weight"].to(torch.float32).T,
+                "up_proj": local["mlp.up_proj.weight"].to(torch.float32).T,
+                "down_proj": local["mlp.down_proj.weight"].to(torch.float32).T,
+            }
+            for name, tensor in projections.items():
+                interleaved_copy(name, tensor)
             weights = DecoderWeights(
-                qkv=projection("qkv", qkv),
-                o_proj=projection("o_proj", local["self_attn.o_proj.weight"].to(torch.float32).T),
-                gate_proj=projection("gate_proj", local["mlp.gate_proj.weight"].to(torch.float32).T),
-                up_proj=projection("up_proj", local["mlp.up_proj.weight"].to(torch.float32).T),
-                down_proj=projection("down_proj", local["mlp.down_proj.weight"].to(torch.float32).T),
+                qkv=projection("qkv", projections["qkv"]),
+                o_proj=projection("o_proj", projections["o_proj"]),
+                gate_proj=projection("gate_proj", projections["gate_proj"]),
+                up_proj=projection("up_proj", projections["up_proj"]),
+                down_proj=projection("down_proj", projections["down_proj"]),
                 input_ln=as_tt(
                     "input_ln", local["input_layernorm.weight"].to(torch.float32).reshape(norm_shape), ttnn.bfloat16
                 ),
@@ -419,6 +451,7 @@ class OptimizedDecoder(FusedDecoder):
             weights=weights,
             policy=policy,
             weight_dtypes=dtypes,
+            prefill_weights=prefill_copies,
             activation_dtype=activation_dtype,
             prefill_chunk_size=prefill_chunk_size,
             **kwargs,
@@ -460,7 +493,17 @@ class OptimizedDecoder(FusedDecoder):
         return self._prefill_compute[id(weight)]
 
     def _linear(self, x: ttnn.Tensor, weight: ttnn.Tensor) -> ttnn.Tensor:
-        """Every prefill projection uses ``minimal_matmul``; it reads the DRAM-sharded weights directly."""
+        """Prefill projection: ``minimal_matmul`` on the DRAM-sharded weight, or ``ttnn.linear`` on the
+        interleaved copy for chunks up to ``prefill_interleaved_copy_max_rows`` when that copy exists."""
+        copy = self._interleaved_copy.get(id(weight))
+        if copy is not None and x.shape[-2] <= self.policy.prefill_interleaved_copy_max_rows:
+            return ttnn.linear(
+                x,
+                copy,
+                dtype=self.activation_dtype,
+                compute_kernel_config=self._prefill_compute_config(copy),
+                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+            )
         return ttnn.experimental.minimal_matmul(
             x,
             weight,
@@ -608,7 +651,10 @@ class OptimizedDecoder(FusedDecoder):
         (rows past the physical batch are never read by a cross-row op), and the result is sliced back
         to ``B`` rows in DRAM. A residual already in ``decode_residual_memory_config`` (``[1, 1, 32, H]``,
         users in the first ``current_pos.shape[0]`` rows, which must be a physical batch) is the
-        layer-stack contract and comes back in the same layout without any DRAM round trip.
+        layer-stack contract and comes back in the same layout without any DRAM round trip. Padded
+        users of that contract carry position ``-1`` (the cache update and SDPA skip them) and any
+        page-table row; their RoPE index is clamped to 0 on device so the gather never reads out of
+        bounds, and their rows of the result are unspecified.
         """
         hidden = self.geometry.hidden_size
         sharded_in = hidden_states.is_sharded()
@@ -624,7 +670,8 @@ class OptimizedDecoder(FusedDecoder):
                     f"got {hidden_states.shape[-2]} rows and {users} users (physical {physical})"
                 )
             x = hidden_states
-            rope_pos = current_pos
+            rope_pos = ttnn.relu(current_pos)
+            owned.append(rope_pos)
         else:
             batch = hidden_states.shape[-2]
             physical, _, _ = decode_physical_batch(batch, self.grid.x, self.grid.y)

@@ -340,6 +340,13 @@ def test_optimized_matches_fused_on_device(mesh_device, device_params):
     blocks = base._blocks_for(max(lens) + 2)
     table, page_table = base._page_table(mesh_device, batch, blocks, seed=13)
     batch_outs = {}
+    hf_rows = []
+    for user in range(batch):
+        hidden = fixture.inputs(lens[user] + 1, seed=820 + user)
+        reference = fixture.reference()
+        reference.forward(hidden[:, : lens[user]], 0)
+        hf_rows.append(reference.forward(hidden[:, lens[user] :], lens[user])[0])
+    hf_batch = torch.cat(hf_rows, dim=0)
     for name, decoder in (("fused", fused), ("optimized", optimized)):
         kv_cache = (_original_kv_cache if name == "fused" else base._kv_cache)(mesh_device, batch * blocks)
         tokens = []
@@ -367,6 +374,8 @@ def test_optimized_matches_fused_on_device(mesh_device, device_params):
             base._delta_pcc(batch_outs["fused"][u], batch_outs["optimized"][u], torch.cat(tokens, dim=1)[0, u])
             for u in range(batch)
         ],
+        "optimized_pcc_vs_hf_per_user": [base._pcc(hf_batch[u], batch_outs["optimized"][u]) for u in range(batch)],
+        "fused_pcc_vs_hf_per_user": [base._pcc(hf_batch[u], batch_outs["fused"][u]) for u in range(batch)],
     }
     _write_optimized_json(
         f"optimized_vs_fused_{base.LAYER_KIND}.json",
@@ -379,6 +388,8 @@ def test_optimized_matches_fused_on_device(mesh_device, device_params):
             "runtime_weights": runtime,
             "kv_cache_dtype": KV_CACHE_DTYPE,
             "weight_bytes_per_token": optimized.weight_bytes_per_token(),
+            "weight_bytes_resident": optimized.weight_bytes_resident(),
+            "prefill_interleaved_copy_max_rows": optimized.policy.prefill_interleaved_copy_max_rows,
             "prefill_cases": cases,
             "decode_batch32": batch_record,
             "provenance": _optimized_provenance(
@@ -399,16 +410,21 @@ def test_optimized_matches_fused_on_device(mesh_device, device_params):
         assert min(record["decode_delta_pcc"]) >= DELTA_PCC_BAR, record
     assert min(batch_record["decode_pcc_per_user"]) >= BATCH_USER_PCC_BAR, batch_record
     assert min(batch_record["decode_delta_pcc_per_user"]) >= DELTA_PCC_BAR, batch_record
+    assert min(batch_record["optimized_pcc_vs_hf_per_user"]) >= PCC_BAR, batch_record
 
 
 @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
 @pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
 def test_sharded_residual_contract(mesh_device, device_params):
-    """A residual passed in ``decode_residual_memory_config`` gives the same output as the DRAM contract and stays sharded."""
+    """A residual passed in ``decode_residual_memory_config`` gives the same output as the DRAM contract and stays sharded.
+
+    Batch 13 runs as the physical batch 16 with padded users at position -1 and zero page-table rows, the
+    layer-stack encoding of padded users; the same cache is reused after the DRAM-contract call wrote it.
+    """
     fixture = base._layer(0)
     decoder = _optimized_decoder(mesh_device, fixture)
     records = []
-    for batch in (1, 8, 32):
+    for batch in (1, 8, 13, 32):
         lens = [base.DECODE_LENGTH_CHOICES[u % len(base.DECODE_LENGTH_CHOICES)] for u in range(batch)]
         blocks = base._blocks_for(max(lens) + 3)
         table, page_table = base._page_table(mesh_device, batch, blocks, seed=21 + batch)
@@ -436,8 +452,15 @@ def test_sharded_residual_contract(mesh_device, device_params):
         x_rows = torch.zeros(1, 1, 32, HIDDEN, dtype=x.dtype)
         x_rows[:, :, :batch] = x
         sharded_in = ttnn.to_memory_config(base._tt(mesh_device, x_rows), decoder.decode_residual_memory_config)
+        padded_pos = torch.full((physical,), -1, dtype=torch.int32)
+        padded_pos[:batch] = torch.tensor(lens, dtype=torch.int32)
+        padded_table = torch.zeros(physical, blocks, dtype=torch.int32)
+        padded_table[:batch] = table
         sharded_out = decoder.decode_forward(
-            sharded_in, current_pos=current_pos, page_table=page_table, kv_cache=kv_cache
+            sharded_in,
+            current_pos=base._tt(mesh_device, padded_pos, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT),
+            page_table=base._tt(mesh_device, padded_table, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT),
+            kv_cache=kv_cache,
         )
         assert sharded_out.is_sharded()
         assert same_layout(sharded_out.memory_config(), decoder.decode_residual_memory_config)
@@ -469,6 +492,70 @@ def test_sharded_residual_contract(mesh_device, device_params):
     )
     for record in records:
         assert record["pcc_sharded_vs_dram"] >= base.REPLAY_PCC_BAR, record
+
+
+@pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
+@pytest.mark.parametrize("device_params", DEVICE_PARAMS, indirect=True)
+def test_block64_long_lead_rows(mesh_device, device_params):
+    """A 64-row block with a 1-token prefix: the continuation writes 63 lead rows in two pseudo-user groups."""
+    fixture = base._layer(0)
+    decoder = _optimized_decoder(mesh_device, fixture)
+    block_size = 64
+    prefix, length = 1, 200
+    hidden = fixture.inputs(prefix + length + 2, seed=870)
+    reference = fixture.reference()
+    reference.forward(hidden[:, :prefix], 0)
+    hf_cont = reference.forward(hidden[:, prefix : prefix + length], prefix)
+    hf_decode = reference.forward(hidden[:, prefix + length : prefix + length + 1], prefix + length)
+    blocks = (prefix + length + 2 + block_size - 1) // block_size
+    table, page_table = base._page_table(mesh_device, 2, blocks, seed=31)
+    kv_cache = base._kv_cache(mesh_device, 2 * blocks, block_size=block_size)
+    decoder.prefill_forward(
+        base._tt(mesh_device, hidden[:, :prefix].unsqueeze(1)), page_table=page_table, kv_cache=kv_cache, user_id=1
+    )
+    out = decoder.prefill_forward(
+        base._tt(mesh_device, hidden[:, prefix : prefix + length].unsqueeze(1)),
+        page_table=page_table,
+        kv_cache=kv_cache,
+        user_id=1,
+        start_pos=prefix,
+    )
+    out_t = base._to_torch(out)[:, 0]
+    user_table = base._tt(mesh_device, table[1:2], dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT)
+    position = prefix + length
+    od = decoder.decode_forward(
+        base._tt(mesh_device, hidden[:, position : position + 1].reshape(1, 1, 1, HIDDEN)),
+        current_pos=base._tt(
+            mesh_device, torch.tensor([position], dtype=torch.int32), dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT
+        ),
+        page_table=user_table,
+        kv_cache=kv_cache,
+    )
+    od_t = base._to_torch(od).reshape(1, 1, HIDDEN)
+    record = {
+        "layer_idx": 0,
+        "block_size": block_size,
+        "prefix": prefix,
+        "continuation_tokens": length,
+        "lead_rows": block_size - prefix,
+        "lead_groups": 2,
+        "continuation_pcc_vs_hf": base._pcc(hf_cont, out_t),
+        "continuation_delta_pcc_vs_hf": base._delta_pcc(hf_cont, out_t, hidden[:, prefix : prefix + length]),
+        "decode_after_pcc_vs_hf": base._pcc(hf_decode, od_t),
+        "decode_after_delta_pcc_vs_hf": base._delta_pcc(hf_decode, od_t, hidden[:, position : position + 1]),
+        "provenance": _optimized_provenance(
+            mesh_device,
+            _optimized_evidence_command(
+                "python -m pytest -q models/autoports/qwen_qwen3_8b/tests/test_optimized_decoder.py -k test_block64_long_lead_rows"
+            ),
+            fixture.weight_origin,
+        ),
+    }
+    _write_optimized_json(f"block64_long_lead_{base.LAYER_KIND}.json", record)
+    assert record["continuation_pcc_vs_hf"] >= PCC_BAR, record
+    assert record["continuation_delta_pcc_vs_hf"] >= DELTA_PCC_BAR, record
+    assert record["decode_after_pcc_vs_hf"] >= PCC_BAR, record
+    assert record["decode_after_delta_pcc_vs_hf"] >= DELTA_PCC_BAR, record
 
 
 @pytest.mark.parametrize("mesh_device", [(1, 1)], indirect=True)
