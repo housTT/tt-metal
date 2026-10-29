@@ -293,7 +293,7 @@ def test_multi_row_prefill_equals_solo(generator):
         assert record["reordered_row_bit_equal"], record
 
 
-@pytest.mark.parametrize("batch", [8, 32])
+@pytest.mark.parametrize("batch", [8, 16, 24, 32])
 def test_batch_decode(generator, batch):
     gen = generator
     tok = gen.tokenizer

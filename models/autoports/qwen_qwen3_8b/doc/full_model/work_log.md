@@ -493,3 +493,36 @@ between the hung runs (uncommitted tree over `db7a12e7c4`) and
 `6e3b243e25` (seed admission, per-row page tables, `rows_to_tile`), so a
 code change cannot be excluded as the reason the corrected probe passes.
 No SIGTERM was sent during this chain; every step exited on its own.
+
+## 10. Stage review 4 and its P2 (15:19 to 15:50 ET)
+
+Review 4 (`logs/stage_review_4.md`, fresh read-only subagent on HEAD
+`814e401a7b`, the one extra review the operator granted) returned
+`more-work-needed` with one required item, P2: decode buckets 16 and 24 are
+declared in `serving_contract.json` but no full-model test captured,
+replayed or checked them (`tracked_replay_workload.tracked.json` shows empty
+trace maps for 16 and 24; the pinned plugin pads 9 to 24 live users into
+those buckets). It confirmed every chip-2 rerun by hash: the three source
+files hash to the `6e3b243e25` blobs and every evidence JSON carries that
+commit and `visible_devices 2`.
+
+Fix (no further review; the review budget is spent): `test_batch_decode`
+parametrized over 8, 16, 24, 32 and run on chip 2 through
+`logs/rerun_chain3_chip2.sh`.
+
+| Step (ET) | Command (chip 2) | Result |
+| --- | --- | --- |
+| 15:37 | `QWEN3_FULL_MODEL_LAYERS=36 pytest -k test_batch_decode` | 4 passed in 183 s (`logs/pytest_full_model_36_batch_buckets.log`); `batch_decode_{8,16,24,32}.json` at `814e401a7b` on chip 2: every user bit-equal over 32 greedy tokens against the same-bucket solo arm, 31 decode and 31 sampling trace replays, 0 captures during the batched decode, 0 eager steps; `serving_contract.json` row `tt_supported_decode_batch_sizes` now cites them |
+| 15:40 | `logs/qualitative_tt.py 128` (review 4 concern: suite predated the generator changes) | exit 0 (`logs/qualitative_tt_rerun.log`): six prompts, 128 tokens each in 2.8 s; first divergence against the HF control at tokens 34, 4, 32, 39, 40, 22, the same indices as the first build; `tt_counters.json` program cache 451, 0 seeded eager steps; `verdict.json` regenerated (build provenance added, `overall` now names the teacher-forced AIME24 run as the control, per the review's nit) |
+
+Host-side nits from review 4 fixed in the same commit: README performance
+accounting now uses 21.86 ms; `context_contract.json` `full_model.hardware`
+names chip 2 for the reruns. Not done (recorded as open items for stage 7
+and 9): `_redirect_table` clamps a narrow caller table instead of raising;
+`max_tokens_all_users` subtracts only the KV pool (measured headroom after
+build 1.89 GiB against the 2 GiB nominal reserve); the canonical resume
+check keeps `--pcc-min-min 0.90` (restore 0.98 on the next rerun);
+continuation prefill after capture has no tracked case (stage 9 mixed-shape
+check); seeded served requests sample eagerly per token; the chunk-boundary
+TTFT step and the HiFi2 LM head are stage-7 levers. Chips 0 and 1 were not
+touched; chip 3 stayed with the other run's process.

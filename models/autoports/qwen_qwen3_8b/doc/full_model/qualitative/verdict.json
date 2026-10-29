@@ -1,7 +1,7 @@
 {
   "prompt_mode": "chat (HF chat template, add_generation_prompt=True)",
   "control": "HF Qwen/Qwen3-8B bf16 greedy on CPU, same rendered token ids (hf_outputs.json)",
-  "tt": "Qwen3Generator.generate greedy, traced split sampling, 128 tokens (tt_outputs.json)",
+  "tt": "Qwen3Generator.generate greedy, traced split sampling, 128 tokens (tt_outputs.json; rerun on chip 2 at commit 814e401a7b, program cache 451 after capture, tt_counters.json; first build on chip 1 gave the same divergence indices)",
   "rows": [
     {
       "id": 0,
@@ -70,6 +70,19 @@
       "verdict": "coherent, on topic, English, chat-template <think> block like HF, no repetition or control-token leakage"
     }
   ],
-  "overall": "pass: every TT output is coherent and matches the HF control in topic, language and format; greedy divergence after the first 4 to 40 tokens is near-tie behaviour (see resume_margin_probe_*.json for the BF16 margin evidence), not a feedback, position or cache defect; the teacher-forced top-5 of 100 percent covers the same model path",
-  "degenerate_output_check": "doc/full_model/degenerate_output_autoregressive.json (scope autoregressive, exit 0)"
+  "overall": "pass: every TT output is coherent and matches the HF control in topic, language and format; greedy divergence after the first 4 to 40 tokens has no feedback, position or cache signature (no doubled tokens, no prompt echo, no language drift); the control that applies is the teacher-forced AIME24 chat run on the same model path (logs/run_teacher_forcing_rerun.log: top-1 0.980, top-5 1.000, top-100 1.000), which shows the divergences are near-tie greedy flips of a model whose next-token distribution matches HF",
+  "degenerate_output_check": "doc/full_model/degenerate_output_autoregressive.json (scope autoregressive, exit 0)",
+  "tt_build": {
+    "checkout_git_sha": "814e401a7b",
+    "visible_devices": "2",
+    "log": "doc/full_model/logs/qualitative_tt_rerun.log",
+    "first_build_divergence_indices": [
+      34,
+      4,
+      32,
+      39,
+      40,
+      22
+    ]
+  }
 }

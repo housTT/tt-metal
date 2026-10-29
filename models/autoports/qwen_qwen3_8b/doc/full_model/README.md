@@ -2,11 +2,13 @@
 
 Status: accuracy, qualitative, resumed-prefill and serving-contract gates
 pass on one Blackhole P300 chip (1x1 mesh, p150 mesh graph descriptor); the
-stage gate script exits 0. Stage reviews 1 to 3 returned `more-work-needed`
-(`work_log.md` section 8); the host-side findings are fixed in the commit
-history below and every device rerun the reviews asked for ran on chip 2 at
-commit `6e3b243e25` (`work_log.md` section 9), including the corrected
-capacity probe. Chips 0 and 1 stay wedged until an operator reset (not
+stage gate script exits 0. Stage reviews 1 to 4 returned `more-work-needed`
+(`work_log.md` sections 8 to 10; review 4 left one P2, decode buckets 16
+and 24 untested at full-model level, fixed and run after the review without
+a further review); the host-side findings are fixed in the commit history
+below and every device rerun the reviews asked for ran on chip 2 at commit
+`6e3b243e25` or `814e401a7b` (`work_log.md` sections 9 and 10), including
+the corrected capacity probe. Chips 0 and 1 stay wedged until an operator reset (not
 touched since 13:24 ET). Stages 4 and 5 (multichip) were skipped by the
 operator; one chip is the target topology. This stage claims nothing about
 vLLM serving (stage 9) beyond `serving_contract.json`.
@@ -154,11 +156,11 @@ deferred to first use and kept until `teardown()`.
 | `run_prefill_check` (AIME24 chat reference, 100 tokens, top-100) | top-1 0.990, top-5 1.000, top-100 1.000 (chip 2, `6e3b243e25`; same at `2eaaa0b3f9` and the first build) | `logs/run_prefill_check_rerun.log`, `logs/run_prefill_check_final.log`, `logs/run_prefill_check.log`, reference `bringup/references/qwen3_8b_aime24_chat.refpt` |
 | `run_teacher_forcing` (traced decode) | top-1 0.980, top-5 1.000, top-100 1.000; TTFT 80.51 ms; 44.91 t/s/u (chip 2, `6e3b243e25`; first build 80.85 ms, 44.59 t/s/u) | `logs/run_teacher_forcing_rerun.log`, `logs/run_teacher_forcing.log` |
 | `run_autoregressive` (raw 59-token prompt, continuation stress) | HF and TT 256 coherent tokens, identical first 18; degeneracy check: adjacent duplication 0.0, trigram loop 0.014, none detected, exit 0 | `../../readiness_autoregressive/`, `degenerate_output_autoregressive.json` |
-| Shared qualitative suite, chat template, HF control | six prompts; every TT output coherent, on topic, English, HF-like `<think>` structure; first divergence at tokens 34, 4, 32, 39, 40, 22 | `qualitative/{qualitative_prompt_format,rendered_prompts,hf_outputs,tt_outputs,verdict}.json` |
+| Shared qualitative suite, chat template, HF control | six prompts; every TT output coherent, on topic, English, HF-like `<think>` structure; first divergence at tokens 34, 4, 32, 39, 40, 22 (same indices on the first build and on the chip-2 rerun at `814e401a7b`) | `qualitative/{qualitative_prompt_format,rendered_prompts,hf_outputs,tt_outputs,verdict,tt_counters}.json`, `logs/qualitative_tt_rerun.log` |
 | Resumed prefill (`run_prefill_resume_check`, lengths 2560 and 16384, block 32, natural text) | `status=pass` at 8 starts (PCC mean 0.9997 to 1.0000, min 0.9897 to 1.0000, top-1 1.000 except the 32-position hit at 2528: 0.969); both controls fail at every 257-position window (`no_history` PCC mean 0.782 to 0.934, `fresh_suffix` 0.934 to 0.955, top-1 0.67 to 0.90) | `../../readiness/prefill_resume_check.json` |
 | Resumed prefill, default thresholds | fails only on 32-position hit windows (one or two BF16 near-tie flips) and on one outlier position where the fresh TT path is itself at PCC 0.90 against HF (continuation 0.94); classified in `work_log.md` section 4 | `../../readiness/prefill_resume_check_block32_bf16_logits.json`, `..._block32_256_default_thresholds.json`, `resume_margin_probe_*.json` |
 | Multi-row prefill equals solo (one call, rows 5, 31, 33, 127, 129, 257, 640, 1000) | PCC 1.0000 per row, top-1 equal, rerun bit-equal, reordered rows bit-equal | `multi_row_prefill.json` |
-| Batched decode equals single-user (32 greedy tokens, solo arm decoded in the same physical bucket with -1 rows) | batch 8: 8 of 8 users bit-equal; batch 32: 32 of 32 bit-equal (the earlier user-18 flip at the sixth token was a bucket-1 versus bucket-32 control) | `batch_decode_{8,32}.json` (chip 2, `6e3b243e25`) |
+| Batched decode equals single-user (32 greedy tokens, solo arm decoded in the same physical bucket with -1 rows) | every declared bucket: batch 8, 16, 24 and 32 all users bit-equal over 32 tokens, 31 decode and 31 sampling trace replays each (the earlier user-18 flip at the sixth token was a bucket-1 versus bucket-32 control; buckets 16 and 24 were added after review 4) | `batch_decode_{8,16,24,32}.json` (chip 2, `814e401a7b`), tracked twins for 8 and 32 (`6e3b243e25`) |
 | Determinism | repeated `generate` bit-equal (64 tokens), repeated prefill bit-equal, row order independent | `host_work_counters.json`, `multi_row_prefill.json` |
 
 ### Split-sampling and trace evidence
@@ -230,9 +232,9 @@ chips 1 and 0 (`work_log.md` sections 5.1 to 5.3, 8.3 and 9).
 
 Layer-stack lower bound (stage 3 traced decode, batch 1): 36 x 0.543 ms
 device = 19.5 ms; 36 x 0.622 ms host replay = 22.4 ms. Full model token-out:
-21.79 ms per token, so the terminal path (embedding, final norm, LM head
-2.28 ms incl. concat, sampling, token readback) and trace orchestration cost
-about 2.3 ms over the device lower bound; the LM head reads 664 MB of BFP8
+21.86 ms per token (chip 2, `6e3b243e25`), so the terminal path (embedding,
+final norm, LM head 2.28 ms incl. concat, sampling, token readback) and
+trace orchestration cost about 2.4 ms over the device lower bound; the LM head reads 664 MB of BFP8
 weights per token (1.3 ms at 512 GB/s). `profile/` holds the tt-perf-report of
 the reduced variant (one real layer, real terminal path) for the per-op
 rows; `work_log.md` section 6 has the force-argmax comparison.
@@ -328,7 +330,7 @@ MODEL_DIR=models/autoports/qwen_qwen3_8b bash /home/hous/dev/skills/plugins/tt-m
 - `serving_contract.json`: pinned plugin (`f96662a7d239c077e1435b658c0e7d316f9c4799`), 37 rows.
 - `perf_batch1_128_128.json`, `perf_batch1_128_128_force_argmax.json`: batch-1 TTFT and decode.
 - `split_sampling_trace.tracked.json` (default sampler), `split_sampling_trace_force_argmax.json`, `host_work_counters.json`, `tracked_replay_workload.json`, `*.tracked.json`: trace evidence, every file at `6e3b243e25` on chip 2 (`provenance.checkout_git_sha`, `provenance.visible_devices`) except `split_sampling_trace_force_argmax.json` (chip 0, first build on the uncommitted tree over `db7a12e7c4`, `QWEN3_ALLOW_FORCE_ARGMAX=1` variant not rerun).
-- `multi_row_prefill.json`, `batch_decode_{8,32}.json`, `capacity_probe_budget.json` (chip 2, `6e3b243e25`; the hung first probes left only `logs/capacity_probe*.log` and `triage/`).
+- `multi_row_prefill.json`, `batch_decode_{8,16,24,32}.json`, `capacity_probe_budget.json` (chip 2, `6e3b243e25`; the hung first probes left only `logs/capacity_probe*.log` and `triage/`).
 - `resume_margin_probe_*.json`, `degenerate_output_autoregressive.json`, `qualitative/`.
 - `profile/`: tt-perf-report of the reduced variant.
 - `logs/`: every command's console log, the environment wrapper and the probe scripts.

@@ -25,7 +25,7 @@ budget_tokens = ((dram - weights - reserve) // kv_per_token) // 32 * 32
 users_full_context = budget_tokens // 40960
 
 section = {
-    "hardware": "one Blackhole P300 chip per process (1x1 mesh, p150 mesh graph descriptor); readiness runners on TT_VISIBLE_DEVICES=0 and 1",
+    "hardware": "one Blackhole P300 chip per process (1x1 mesh, p150 mesh graph descriptor); readiness runners first on TT_VISIBLE_DEVICES=0 and 1, reruns at commit 6e3b243e25 on TT_VISIBLE_DEVICES=2",
     "device_dram_bytes_allocatable": dram,
     "device_dram_bytes_allocatable_source": "ttnn.get_memory_view(mesh_device, ttnn.BufferType.DRAM) in logs/capacity_probe.log: 8 banks x 4205232512 total_bytes_per_bank with a 512 MB trace region reserved (stage 1 recorded 4272341376 free per bank with trace_region_size=0)",
     "weights": {
