@@ -251,11 +251,17 @@ class Qwen3Model:
     # ---------------------------------------------------------------- caches
 
     def allocate_kv_cache(self, num_blocks: int, dtype: ttnn.DataType = ttnn.bfloat16) -> list[tuple]:
+        """Per-layer ``(K, V)`` paged caches with ``num_blocks + 1`` blocks; block ``num_blocks`` is the scratch block.
+
+        Page-table columns past a request's allocation name the scratch block, so padded prefill rows never
+        touch another request's pages; callers that pass this cache to the generator pass
+        ``scratch_block=num_blocks``.
+        """
         g = self.geometry
         return [
             OptimizedDecoder.allocate_kv_cache(
                 self.mesh_device,
-                num_blocks=num_blocks,
+                num_blocks=num_blocks + 1,
                 block_size=self.block_size,
                 num_kv_heads=g.num_kv_heads,
                 head_dim=g.head_dim,
@@ -324,8 +330,32 @@ class Qwen3Model:
         rows.deallocate(True)
         return picked
 
-    def rows_to_tile(self, rows: list[ttnn.Tensor], pad_to: int = TILE_SIZE) -> ttnn.Tensor:
-        """Stack ``[1, n_i, H]`` row-major pieces into ``[1, 1, pad_to, H]`` TILE DRAM (zero rows past them)."""
+    def rows_to_tile(self, rows: list[ttnn.Tensor]) -> ttnn.Tensor:
+        """Place ``[1, 1, H]`` row-major pieces at rows ``0..n-1`` of one ``[1, 1, 32, H]`` TILE DRAM tile.
+
+        Row ``i`` is padded into its own 32-row tile and the tiles are summed, so the program set is the 32
+        pad variants plus one add, independent of the row count (a concat over ``n`` inputs would compile per
+        ``n``). Rows past ``n`` are zero.
+        """
+        if not 1 <= len(rows) <= TILE_SIZE:
+            raise ValueError(f"rows_to_tile takes 1 to {TILE_SIZE} rows, got {len(rows)}")
+        tile = None
+        for i, piece in enumerate(rows):
+            padded = ttnn.pad(piece, [(0, 0), (i, TILE_SIZE - 1 - i), (0, 0)], 0.0)
+            tiled = ttnn.to_layout(padded, ttnn.TILE_LAYOUT)
+            if padded.buffer_address() != piece.buffer_address():
+                padded.deallocate(True)
+            if tile is None:
+                tile = tiled
+                continue
+            summed = ttnn.add(tile, tiled, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            tile.deallocate(True)
+            tiled.deallocate(True)
+            tile = summed
+        return ttnn.unsqueeze_to_4D(tile)
+
+    def stack_rows_tile(self, rows: list[ttnn.Tensor], pad_to: int = TILE_SIZE) -> ttnn.Tensor:
+        """Stack ``[1, n_i, H]`` row-major pieces into ``[1, 1, pad_to, H]`` TILE DRAM (eager readiness paths)."""
         stacked = rows[0] if len(rows) == 1 else ttnn.concat(rows, dim=1, memory_config=ttnn.DRAM_MEMORY_CONFIG)
         count = stacked.shape[1]
         padded = stacked

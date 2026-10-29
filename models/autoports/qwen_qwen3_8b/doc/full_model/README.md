@@ -1,9 +1,13 @@
 # Qwen3-8B full model
 
-Status: full-model gates pass on one Blackhole P300 chip (1x1 mesh, p150 mesh
-graph descriptor). Stages 4 and 5 (multichip) were skipped by the operator;
-one chip is the target topology. This stage claims nothing about vLLM
-serving (stage 9) beyond the serving contract in `serving_contract.json`.
+Status: accuracy, qualitative, resumed-prefill and serving-contract gates
+pass on one Blackhole P300 chip (1x1 mesh, p150 mesh graph descriptor); the
+stage gate script exits 0. Stage review 1 returned `more-work-needed`
+(`work_log.md` section 8); the host-side findings are fixed in commit
+history below, and the device-side follow-ups (listed under "Open items")
+wait for an operator reset of chips 0 and 1. Stages 4 and 5 (multichip)
+were skipped by the operator; one chip is the target topology. This stage
+claims nothing about vLLM serving (stage 9) beyond `serving_contract.json`.
 
 Abbreviations: HF (Hugging Face), PCC (Pearson correlation coefficient), KV
 (key/value), LM (language model), RoPE (rotary position embedding), SDPA
@@ -17,16 +21,18 @@ ET (Eastern Time).
 
 | Metric | Value | Workload | Artifact |
 | --- | ---: | --- | --- |
-| TTFT, token-out path | 54.5 ms | 128-token book prompt, prefill + first sampled token readback | `perf_batch1_128_128.json` |
-| Token-out decode (trace-verified) | 21.79 ms/token = 45.9 t/s/u | 128 generated tokens, greedy split sampling on device, one token readback per step | `perf_batch1_128_128.json` |
-| Teacher-forced decode (readiness harness shape) | 21.81 ms/token = 45.9 t/s/u | same prompt, forced next tokens (81 and 77 token refreshes of 128) | `perf_batch1_128_128.json` |
-| Readiness teacher forcing (AIME24 chat, 158-token prompt) | TTFT 80.9 ms, decode 44.6 t/s/u, top-1 0.980, top-5 1.000, top-100 1.000 | `run_teacher_forcing` | `logs/run_teacher_forcing.log` |
-| Readiness prefill check | top-1 0.990, top-5 1.000, top-100 1.000 | `run_prefill_check` | `logs/run_prefill_check.log` |
+| Readiness teacher forcing, traced decode and traced sampler (AIME24 chat, 158-token prompt, 100 tokens) | TTFT 80.4 ms, decode 45.2 t/s/u (22.1 ms/token), top-1 0.980, top-5 1.000, top-100 1.000 | `run_teacher_forcing` on the final code | `logs/run_teacher_forcing_final.log` |
+| Readiness prefill check | top-1 0.990, top-5 1.000, top-100 1.000 | `run_prefill_check` on the final code | `logs/run_prefill_check_final.log` |
+| Token-out TTFT, 128-token prompt | 54.5 ms | prefill + first sampled token readback | `perf_batch1_128_128.json` |
+| Token-out decode, 128/128 | 21.79 ms/token = 45.9 t/s/u, superseded: measured with the sampler on its eager path (review 1 P1, `work_log.md` 8.1); to be re-measured on the traced sampler after the device reset | 128 generated tokens | `perf_batch1_128_128.json` |
 
 Teacher-forcing and token-out decode do not differ in this generator: both
 replay the decode trace and the sampling trace and read one token back; the
 teacher-forced loop only adds a 128-byte token write when the forced token
-differs from the prediction.
+differs from the prediction. The readiness teacher-forcing run never sets a
+request seed, so its sampler ran through the trace; the 128/128 pytest
+numbers were taken after a seeded test in the same process and are not
+trace-verified for the sampler.
 
 ## What the full model is
 
@@ -80,8 +86,11 @@ argument of `from_state_dict` (loader, not the compute path).
 ### Cache ownership and page tables
 
 Standalone: the generator owns `num_blocks` (default 1280 = one 40960-token
-user) plus one scratch block, a block pool handed to slots on demand, and a
-full-width page table (1280 columns). `reset()` zeroes the used blocks with
+user) plus the scratch block that `Qwen3Model.allocate_kv_cache` appends
+(block `num_blocks`), a block pool handed to slots on demand, and a
+full-width page table (1280 columns). Callers that own the cache pass
+`scratch_block=<their extra block>` on every call (the generator raises
+otherwise) and may call `release_owned_cache()` after `prepare()`. `reset()` zeroes the used blocks with
 `paged_fill_cache` of a persistent 4096-row zero tensor (128-block windows,
 one program variant) and frees them. External callers pass their own cache
 and page table; every column past a request's blocks is redirected to the
@@ -95,9 +104,11 @@ One row at a time through every layer (the decoder chunks a row in 4096-token
 physical chunks and attends to the cached prefix). A fresh row is computed at
 a bucket length (32, 64, ..., 4096, then whole 4096-token chunks); cache
 rows past the prompt land in the row's last block (tile padding, as in
-stage 1) or in the scratch block. All bucket programs, the 40960-token chunk
-starts, and multi-row calls of 8, 16, 24 and 32 rows are compiled by
-`prepare()` before any trace capture. Continuation rows (`start_pos > 0`)
+stage 1) or in the scratch block. Each row gets its own `[1, 1280]` page
+table and the last rows are placed into one 32-row tile by per-row pads
+and adds, so a multi-row call of any row count uses the single-row and
+32-pad programs that `prepare()` compiles (bucket lengths, the 40960-token
+chunk starts, one 32-row call) before any trace capture. Continuation rows (`start_pos > 0`)
 run at their exact length with the decoder's per-offset programs (eager; see
 limitations). The last hidden row of each prompt is gathered by a runtime
 index (`ttnn.embedding` over the untilized rows), stacked into one 32-row
@@ -149,19 +160,26 @@ deferred to first use and kept until `teardown()`.
 
 ### Split-sampling and trace evidence
 
-`split_sampling_trace.json` (full model): four replays after a prefill;
+`split_sampling_trace.tracked.json` (full model, default sampler; the
+force-argmax variant is `split_sampling_trace_force_argmax.json`): four
+replays after a prefill;
 at each step the token the trace consumed equals the token the previous
 replay sampled on device, `current_pos` advances by one on device, the
 sampler-ready logits change, the sampled token equals the argmax of those
 logits; host work during the four replays: 0 token, 0 position, 0 page-table
 refreshes; an unchanged page table costs no copy, a changed one costs one
-copy and the next replay uses it; sampled (temperature 0.7, top-k 20,
-seed 7) -> greedy -> sampled adds no decode or sampling capture.
+copy and the next replay uses it. The recorded sampled -> greedy -> sampled
+steps carried a request seed, which the common sampler serves eagerly, so
+that part of the record does not show trace reuse; the test now alternates
+unseeded sampled and greedy parameters and asserts three sampling-trace
+replays (rerun pending the device reset).
 
 `host_work_counters.json`: 64-token generation = 1 prefill, 63 decode
-replays, 63 sampling replays, 0 token refreshes, 1 position refresh (request
-start), 1 page-table refresh (request start), 64 token readbacks (the
-caller-visible prediction), 0 eager decode steps.
+replays, 0 token refreshes, 1 position refresh (request start), 1 page-table
+refresh (request start), 64 token readbacks (the caller-visible prediction),
+0 eager decode steps; its 63 "sampling replays" counted calls while the
+sampler was on its eager path (review 1 P1), so the sampler-side claim is
+superseded until the rerun.
 
 Trace allocation gate: `TT_METAL_TRACE_ALLOC_TRACKING=1
 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0` over the split-sampling test, the

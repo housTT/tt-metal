@@ -208,10 +208,16 @@
           24,
           32
         ],
-        "tested_prefill_context": 40960,
-        "tested_decode_context": 40960,
-        "largest_tested_non_aligned_prefill": 40959,
-        "largest_tested_decode_batch": 32
+        "warmup_prefill_context": 40960,
+        "warmup_prefill_note": "every build prefills a 40960-token synthetic prompt in prepare(); no output check",
+        "largest_checked_prefill": 16384,
+        "largest_checked_prefill_artifact": "readiness/prefill_resume_check.json (natural text, logits checked at 8 starts)",
+        "largest_checked_non_aligned_prefill": 1000,
+        "largest_checked_non_aligned_prefill_artifact": "full_model/multi_row_prefill.json (lengths 5, 31, 33, 127, 129, 257, 640, 1000)",
+        "largest_checked_decode_position": 314,
+        "largest_checked_decode_position_artifact": "readiness_autoregressive/autoregressive_meta.json (59-token prompt plus 256 generated)",
+        "largest_tested_decode_batch": 32,
+        "full_context_decode_status": "not demonstrated: the capacity probe (decode at 40959 after two full-context rows) hung on the device; see full_model.capacity_probe"
       }
     },
     "generator_defaults": {
@@ -226,18 +232,17 @@
       ]
     },
     "artifacts": [
+      "full_model/capacity_probe_3x40960.json",
       "full_model/batch_decode_32.json",
       "full_model/multi_row_prefill.json",
-      "full_model/README.md",
-      "full_model/work_log.md"
+      "full_model/README.md"
     ],
     "capacity_probe": {
       "status": "not_completed",
-      "note": "logs/capacity_probe*.log and triage/: a pool of 3510 blocks allocated and prepared (prefill of 40960 tokens included), but the three-row full-context prefill plus decode at 40959 hung on the device twice (chips 1 and 0) and the processes were terminated; max_users_at_full_context is the DRAM arithmetic, not a demonstrated run"
+      "note": "logs/capacity_probe*.log and triage/: a pool of 3510 blocks allocated and prepared (40960-token warmup prefill included) and the three-row prefill (40959, 40960, 200 tokens) returned, then the first bucket-8 decode step at positions 40959 and 200 (trace capture, replay, sampler, token readback) never completed on chip 1 and on chip 0; max_users_at_full_context is the DRAM arithmetic, not a demonstrated run"
     }
   },
   "notes": [
-    "full-model stage: the HF-advertised 40960-token context is retained for every request; the number of simultaneous full-context users is bounded by device DRAM (see full_model.max_users_at_full_context).",
     "full-model stage: the HF-advertised 40960-token context is retained for every request; the number of simultaneous full-context users is bounded by device DRAM (see full_model.max_users_at_full_context)."
   ]
 }

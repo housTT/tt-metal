@@ -326,7 +326,7 @@ section 7.2.
 | 12:47 | `logs/capacity_probe.py` unbuffered (1) | never opened the device: waited on the `CHIP_IN_USE_1_PCIe` lock held by the tracy run below; stopped at 13:02 |
 | 12:43 to 13:02 | `python -m tracy ... logs/profile_reduced.py` (1) | the profiled script (one real layer) never printed `PROFILE_OK`; its process spun at 100 percent CPU for 19 minutes after the capture tool saved its 70 s trace (`logs/profile_reduced.log`, exit 3 after SIGTERM) |
 | 12:58 | the same profile command (0) | `PROFILE_OK` in 30 s (`logs/profile_reduced_chip0.log`); report in section 7.1 |
-| 13:02 | `logs/capacity_probe.py` unbuffered (0) | build and `prepare()` complete (20.1 s), then the three-row full-context prefill call never returned in 6 minutes; gdb: main thread in `ttnn.from_device` -> `FDMeshCommandQueue::wait_for_outstanding_reads`, completion-queue thread polling (`triage/capacity_probe_chip0_gdb.txt`), the same signature as the chip-1 run; stopped at 13:08 (the chip-1 twin had already passed the 30-minute rule with the same backtrace) |
+| 13:02 | `logs/capacity_probe.py` unbuffered (0) | build and `prepare()` complete (20.1 s); the allocator's "active trace" warning at 17:04:15 UTC (`logs/capacity_probe_chip0.log` line 92) shows the three-row prefill returned and the first bucket-8 decode step (capture, replay, sampler, token readback at positions 40959 and 200) was reached and never completed; gdb: main thread in `ttnn.from_device` -> `FDMeshCommandQueue::wait_for_outstanding_reads`, completion-queue thread polling (`triage/capacity_probe_chip0_gdb.txt`), the same signature and the same warning (16:13:23 UTC) as the chip-1 run; stopped at 13:08 (the chip-1 twin had already passed the 30-minute rule with the same backtrace) |
 | 13:08 | `logs/capacity_bisect.py` under `TT_METAL_WATCHER=10` (0): same pool and rows, one stage at a time with a device sync and a print after each | section 5.3 |
 
 Chip 1 is set aside after the two out-of-memory exits and the stalled
@@ -353,13 +353,15 @@ undone is the capacity probe's decode at position 40959 and the proof of
 two concurrent full-context users, and the LoFi LM head measurement
 (section 7.2 not run).
 
-The stall itself: three rows in one `prefill_forward` call (40959, 40960
-and 200 tokens, slots 0, 1 and 2) followed by a bucket-8 decode step. The
-40960-token single-row prefill runs in every build (warmup) and a one-row
-40959 compute length is the same physical workload, so the suspects are the
-second full-context row on slot 1 (blocks 1280 to 2559) and the decode at
-position 40959 through the full model; the layer-level stage-3 tests passed
-both. Localizing it needs a device and a staged run (`logs/capacity_bisect.py`
-is that run); recorded as an open item.
+The stall itself: the three-row `prefill_forward` call (40959, 40960 and
+200 tokens, slots 0, 1 and 2) returned on both chips (the "active trace"
+warning is printed only once a trace exists, and `prepare()` captures
+none), and the first bucket-8 `decode_forward` at positions 40959 and 200
+(decode trace capture and replay, sampler, token readback) never completed.
+The layer-level stage-3 test decoded 32 users at position 40959 through a
+trace; the full-model bucket-8 decode trace at the context end with a
+full-width page table has no other run. Localizing it needs a device and the
+staged run `logs/capacity_bisect.py` (sync and print after every stage);
+recorded as an open item.
 
 ## 8. Gate, commit, review (13:25 ET onward)

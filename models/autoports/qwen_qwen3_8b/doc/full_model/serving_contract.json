@@ -35,7 +35,7 @@
       "item": "allocate_kv_cache(shape, dtype, num_layers)",
       "kind": "call",
       "status": "supported",
-      "evidence": "tt/model.py Qwen3Model.allocate_kv_cache(num_blocks, dtype) with one extra scratch block; doc/full_model/README.md (cache ownership); model_runner.py:500"
+      "evidence": "tt/model.py Qwen3Model.allocate_kv_cache(num_blocks, dtype) allocates num_blocks + 1 blocks (the last is the scratch block that page-table columns past a request name); the adapter passes scratch_block=num_blocks on every call; model_runner.py:500"
     },
     {
       "item": "get_kv_cache_spec hook",
@@ -53,7 +53,7 @@
       "item": "prefill_forward(tokens, page_table, kv_cache, enable_trace, prompt_lens, start_pos, sampling_params, empty_slots)",
       "kind": "call",
       "status": "supported",
-      "evidence": "doc/full_model/multi_row_prefill.json (rows of different lengths in one call equal solo), readiness/prefill_resume_check.json (nonzero start_pos), doc/full_model/batch_decode_32.json (32 rows then decode); model_runner.py:2770-2840"
+      "evidence": "doc/full_model/multi_row_prefill.json (rows of different lengths in one call equal solo), readiness/prefill_resume_check.json (nonzero start_pos), doc/full_model/batch_decode_32.json (32 rows then decode); model_runner.py:2770-2840; continuation rows run eagerly with per-offset programs (README limitations; runtime-indexed prefill is the stage-10 item in prefill-features.md)"
     },
     {
       "item": "prefill_forward: several rows per call with per-row start_pos and prompt_lens ends",
@@ -103,7 +103,7 @@
       "item": "decode_forward: reset_batch / slot_remap",
       "kind": "call",
       "status": "supported",
-      "evidence": "reset_batch reloads tokens and positions from the host (tt/generator.py decode_forward reload rule); slot_remap is accepted; with supports_async_decode False the host tokens are current, so no device-token merge is needed"
+      "evidence": "reset_batch, the first decode after a prefill and a sampling-mode change reload tokens and positions from the host and re-register request seeds for the rows (tt/generator.py decode_forward and _apply_sampling_params(admit=True)); slot_remap is accepted; with supports_async_decode False the host tokens are current"
     },
     {
       "item": "decode_forward: prompt_tokens / output_tokens (device penalties state)",
@@ -167,7 +167,7 @@
       "item": "supports_prefix_caching",
       "kind": "capability",
       "status": "supported",
-      "evidence": "readiness/prefill_resume_check.json"
+      "evidence": "readiness/prefill_resume_check.json (8 starts pass, both controls fail; thresholds recorded in the file); continuation prefill is eager and compiles per start offset, so under live decode traces it is not yet trace-safe (README limitations, stage-10 runtime-indexed prefill)"
     },
     {
       "item": "supports_prefix_caching_sliding_window",
@@ -204,7 +204,7 @@
       "item": "seed",
       "kind": "request_feature",
       "status": "supported",
-      "evidence": "SeedManager (seeded steps run the sampler eagerly on the same programs); doc/full_model/split_sampling_trace.json"
+      "evidence": "SeedManager: seeds registered at admission (prefill or reset_batch), None entries clear the slot, seeded steps run the sampler eagerly per the common sampler's contract and are counted in seeded_eager_sampling_steps; tests/test_full_model.py test_seeded_sampling_last (rerun pending the device reset)"
     },
     {
       "item": "logprobs (any count, single chip)",

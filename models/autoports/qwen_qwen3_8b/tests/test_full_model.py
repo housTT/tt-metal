@@ -196,8 +196,9 @@ def test_split_sampling_trace(generator):
     sampled = int(gen._read_tokens(state, 1)[0])
     record["after_page_table_change"] = {"token": sampled, "position": int(_tensor(gen, "current_pos")[0])}
 
-    sampled_params = SamplingParams(temperature=[0.7], top_k=[20], top_p=[0.95], seed=[7])
+    sampled_params = SamplingParams(temperature=[0.7], top_k=[20], top_p=[0.95])
     captures = (gen.counter_snapshot()["decode_trace_captures"], gen.counter_snapshot()["sampling_trace_captures"])
+    traced_before = gen.counter_snapshot()["sampling_trace_replays"]
     pos = torch.tensor([int(_tensor(gen, "current_pos")[0])])
     tok_a = gen.decode_forward(
         torch.tensor([[sampled]]), pos, page_table=changed, kv_cache=gen.kv_cache, sampling_params=sampled_params
@@ -220,15 +221,21 @@ def test_split_sampling_trace(generator):
         "sampled_then_greedy_then_sampled": [int(tok_a[0]), int(tok_b[0]), int(tok_c[0])],
         "decode_trace_captures_added": gen.counter_snapshot()["decode_trace_captures"] - captures[0],
         "sampling_trace_captures_added": gen.counter_snapshot()["sampling_trace_captures"] - captures[1],
+        "sampling_trace_replays_added": gen.counter_snapshot()["sampling_trace_replays"] - traced_before,
+        "seeded_eager_sampling_steps_added": gen.counter_snapshot()["seeded_eager_sampling_steps"],
         "sampling_trace_slots": len(gen.sampling._trace_states),
     }
+    assert record["mode_alternation"]["sampling_trace_replays_added"] == 3
+    assert record["mode_alternation"]["seeded_eager_sampling_steps_added"] == 0
     assert record["mode_alternation"]["decode_trace_captures_added"] == 0
     record["counters"] = gen.counter_snapshot()
     record["provenance"] = _provenance(
         gen,
         "python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_split_sampling_trace",
     )
-    _write_json("split_sampling_trace.json", record)
+    _write_json(
+        "split_sampling_trace_force_argmax.json" if gen.allow_force_argmax else "split_sampling_trace.json", record
+    )
 
 
 def test_multi_row_prefill_equals_solo(generator):
@@ -290,7 +297,7 @@ def test_multi_row_prefill_equals_solo(generator):
 def test_batch_decode(generator, batch):
     gen = generator
     tok = gen.tokenizer
-    steps = 6
+    steps = 32
     lengths = [[5, 33, 127, 129, 31, 64, 200, 17][i % 8] for i in range(batch)]
     prompts = [_book_ids(tok, n, offset=53 * i) for i, n in enumerate(lengths)]
     solo = []
@@ -328,7 +335,11 @@ def test_batch_decode(generator, batch):
         positions = positions + 1
     delta = {k: gen.counter_snapshot()[k] - before[k] for k in before}
     matches = [sum(a == b for a, b in zip(solo[i], generated[i])) for i in range(batch)]
+    first_divergence = [
+        next((k for k, (a, b) in enumerate(zip(solo[i], generated[i])) if a != b), None) for i in range(batch)
+    ]
     payload = {
+        "first_divergence_per_user": first_divergence,
         "batch": batch,
         "steps": steps,
         "lengths": lengths,
@@ -345,7 +356,7 @@ def test_batch_decode(generator, batch):
     assert delta["token_refreshes"] == 1 and delta["position_refreshes"] == 1
     assert delta["decode_trace_replays"] == steps - 1
     for i in range(batch):
-        assert matches[i] >= steps - 1, (i, solo[i], generated[i])
+        assert first_divergence[i] is None or first_divergence[i] >= 8, (i, solo[i], generated[i])
 
 
 def test_host_work_counters(generator):
@@ -375,6 +386,7 @@ def test_host_work_counters(generator):
     _write_json("host_work_counters.json", payload)
     assert len(out) == 64
     assert delta["decode_trace_replays"] == 63 and delta["sampling_trace_replays"] == 63
+    assert delta["seeded_eager_sampling_steps"] == 0
     assert delta["token_refreshes"] == 0
     assert delta["position_refreshes"] == 1
     assert delta["page_table_refreshes"] <= 1
@@ -469,6 +481,41 @@ def test_tracked_replay_workload(generator):
     assert again == log[0]["tokens"]
 
 
+def test_seeded_sampling_last(generator):
+    """Explicit request seeds run the sampler eagerly by the common sampler's contract and must not leak into
+    later unseeded requests; this test runs last in the module so the earlier evidence stays on the traced sampler."""
+    gen = generator
+    tok = gen.tokenizer
+    prompt = _chat_ids(tok, "Pick a random animal.")
+    seeded = SamplingParams(temperature=[0.9], top_k=[20], top_p=[0.95], seed=[7])
+    before = gen.counter_snapshot()
+    gen.reset()
+    first = gen.generate(prompt, 12, next_input=None, enable_trace=True, stop_on_eos=False, sampling_params=seeded)
+    gen.reset()
+    second = gen.generate(prompt, 12, next_input=None, enable_trace=True, stop_on_eos=False, sampling_params=seeded)
+    seeded_delta = {k: gen.counter_snapshot()[k] - before[k] for k in before}
+    mid = gen.counter_snapshot()
+    gen.reset()
+    greedy = gen.generate(prompt, 12, next_input=None, enable_trace=True, stop_on_eos=False)
+    greedy_delta = {k: gen.counter_snapshot()[k] - mid[k] for k in mid}
+    payload = {
+        "seeded_runs": [first, second],
+        "seeded_runs_equal": first == second,
+        "seeded_distinct_tokens": len(set(first)),
+        "host_work_seeded": seeded_delta,
+        "greedy_after_seeded": greedy,
+        "host_work_greedy_after_seeded": greedy_delta,
+        "provenance": _provenance(
+            gen,
+            "python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_seeded_sampling_last",
+        ),
+    }
+    _write_json("seeded_sampling.json", payload)
+    assert first == second
+    assert seeded_delta["seeded_eager_sampling_steps"] == 22 and seeded_delta["sampling_trace_replays"] == 0
+    assert greedy_delta["sampling_trace_replays"] == 11 and greedy_delta["seeded_eager_sampling_steps"] == 0
+
+
 def test_perf_batch1(generator):
     gen = generator
     tok = gen.tokenizer
@@ -531,5 +578,7 @@ def test_perf_batch1(generator):
             gen, "python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_perf_batch1"
         ),
     }
+    payload["sampler_traced"] = gen.counter_snapshot()["seeded_eager_sampling_steps"] == 0
     suffix = "_force_argmax" if gen.allow_force_argmax else ""
     _write_json(f"perf_batch1_128_128{suffix}.json", payload)
+    assert payload["sampler_traced"]

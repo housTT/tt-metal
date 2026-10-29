@@ -5,7 +5,7 @@ from pathlib import Path
 MODEL_DIR = Path("models/autoports/qwen_qwen3_8b")
 path = MODEL_DIR / "doc" / "context_contract.json"
 contract = json.loads(path.read_text())
-probe_path = MODEL_DIR / "doc" / "full_model" / "capacity_probe_3x40960.json"
+probe_path = MODEL_DIR / "doc" / "full_model" / "capacity_probe_budget.json"
 probe = json.loads(probe_path.read_text()) if probe_path.is_file() else None
 
 dram = 33641860096
@@ -66,10 +66,16 @@ section = {
             "prefill_chunk_size": 4096,
             "prefill_compute_buckets": [32, 64, 128, 256, 512, 1024, 2048, 4096, "then multiples of 4096"],
             "decode_physical_batches": [1, 8, 16, 24, 32],
-            "tested_prefill_context": 40960,
-            "tested_decode_context": 40960,
-            "largest_tested_non_aligned_prefill": 40959,
+            "warmup_prefill_context": 40960,
+            "warmup_prefill_note": "every build prefills a 40960-token synthetic prompt in prepare(); no output check",
+            "largest_checked_prefill": 16384,
+            "largest_checked_prefill_artifact": "readiness/prefill_resume_check.json (natural text, logits checked at 8 starts)",
+            "largest_checked_non_aligned_prefill": 1000,
+            "largest_checked_non_aligned_prefill_artifact": "full_model/multi_row_prefill.json (lengths 5, 31, 33, 127, 129, 257, 640, 1000)",
+            "largest_checked_decode_position": 314,
+            "largest_checked_decode_position_artifact": "readiness_autoregressive/autoregressive_meta.json (59-token prompt plus 256 generated)",
             "largest_tested_decode_batch": 32,
+            "full_context_decode_status": "not demonstrated: the capacity probe (decode at 40959 after two full-context rows) hung on the device; see full_model.capacity_probe",
         }
     },
     "generator_defaults": {"num_blocks": 1280, "max_batch_size": 32, "decode_buckets": [1, 8, 16, 24, 32]},
@@ -80,18 +86,22 @@ section = {
         "full_model/README.md",
     ],
 }
+section["capacity_probe"] = {
+    "status": "not_completed",
+    "note": "logs/capacity_probe*.log and triage/: a pool of 3510 blocks allocated and prepared (40960-token warmup prefill included) and the three-row prefill (40959, 40960, 200 tokens) returned, then the first bucket-8 decode step at positions 40959 and 200 (trace capture, replay, sampler, token readback) never completed on chip 1 and on chip 0; max_users_at_full_context is the DRAM arithmetic, not a demonstrated run",
+}
 if probe is not None:
-    section["capacity_probe"] = {
-        "num_blocks": probe["num_blocks"],
-        "rows": probe.get("first_tokens"),
-        "prefill_3_rows_s": probe.get("prefill_3_rows_s"),
-        "decode_steps": probe.get("decode_steps_live_rows"),
-        "status": "passed",
-    }
+    section["capacity_probe"].update(
+        {
+            "num_blocks": probe["num_blocks"],
+            "rows": probe.get("first_tokens"),
+            "decode_steps": probe.get("decode_steps_live_rows"),
+            "status": "passed",
+        }
+    )
 contract["full_model"] = section
-contract["notes"] = contract.get("notes", []) + [
-    "full-model stage: the HF-advertised 40960-token context is retained for every request; the number of simultaneous full-context users is bounded by device DRAM (see full_model.max_users_at_full_context)."
-]
+note = "full-model stage: the HF-advertised 40960-token context is retained for every request; the number of simultaneous full-context users is bounded by device DRAM (see full_model.max_users_at_full_context)."
+contract["notes"] = [n for n in contract.get("notes", []) if n != note] + [note]
 path.write_text(json.dumps(contract, indent=2) + "\n")
 print(
     "current_supported_context",
