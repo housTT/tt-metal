@@ -46,12 +46,12 @@ from models.autoports.qwen_qwen3_8b.tt.optimized_decoder import (
 
 ARTIFACT_DIR = base.MODEL_DIR / "doc" / "optimized_decoder"
 KV_CACHE_DTYPES = {"bf16": ttnn.bfloat16, "bfp8": ttnn.bfloat8_b}
-KV_CACHE_DTYPE = os.getenv("QWEN3_KV_CACHE_DTYPE", "bfp8")
+KV_CACHE_DTYPE = os.getenv("QWEN3_KV_CACHE_DTYPE", "bf16")
 HIDDEN = base.HIDDEN
 PCC_BAR = base.PCC_BAR
 DELTA_PCC_BAR = base.DELTA_PCC_BAR
 CACHE_PCC_BAR = 0.99
-BATCH_USER_PCC_BAR = 0.99
+BATCH_USER_PCC_BAR = 0.995
 DEVICE_PARAMS = base.DEVICE_PARAMS
 
 

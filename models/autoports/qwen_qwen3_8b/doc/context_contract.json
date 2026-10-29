@@ -107,8 +107,8 @@
       "norms": "bf16"
     },
     "weight_bytes_per_layer": 179830784,
-    "kv_cache_dtype": "bfp8",
-    "kv_cache_dtype_note": "Decode writes BF16 K/V rows into the BFP8 paged cache (paged_fused_update_cache casts); prefill casts the fill tensors with ttnn.typecast before paged_fill_cache. The BF16 cache remains supported (QWEN3_KV_CACHE_DTYPE=bf16 in the tests); the optimized_decoder evidence uses BFP8.",
+    "kv_cache_dtype": "bf16",
+    "kv_cache_dtype_note": "BF16 paged cache, as in the functional and fused stages. A BFP8 cache was measured (doc/optimized_decoder/experiments/exp7.json, exp10.json): 2 to 3 percent faster at batch 32, unchanged at batch 1, but one of 32 users with a 32-token prefix falls to output PCC 0.9942 against HF (bar 0.995; 0.9993 with the BF16 cache), so BFP8 is rejected for this stage. The decoder supports either dtype (allocate_kv_cache(dtype=...); QWEN3_KV_CACHE_DTYPE=bfp8 in the tests).",
     "layer_kinds": {
       "full_attention": {
         "representative_layers": [
@@ -125,8 +125,8 @@
         "largest_tested_non_aligned_prefill": 40959,
         "largest_tested_decode_position": 40959,
         "largest_tested_decode_batch_at_full_context": 32,
-        "kv_cache_bytes_per_user_at_full_context": 89128960,
-        "kv_cache_bytes_batch32_at_full_context": 2852126720,
+        "kv_cache_bytes_per_user_at_full_context": 167772160,
+        "kv_cache_bytes_batch32_at_full_context": 5368709120,
         "decode_residual_layout": "L1 width-sharded [1, 1, 32, 4096] over the first 32 cores of the compute grid (row-major); DRAM-interleaved [1, 1, B, 4096] also accepted",
         "artifacts": [
           "optimized_decoder/prefill_capacity_full_attention_40960.json",
@@ -144,8 +144,10 @@
       }
     },
     "notes": [
-      "The HF-advertised 40960-token context is retained in full; the optimized decoder changes weight dtypes (386 MB BF16 to 180 MB BFP8/BFP4 per layer) and the KV-cache dtype (BF16 to BFP8, 167.8 MB to 89.1 MB per user at full context), both increases in capacity headroom.",
-      "Stage evidence for BFP8 cache: doc/optimized_decoder/experiments/exp7.json (layer 0 and 17 PCC with BF16 and BFP8 cache, traced decode at contexts 1024 and 8192, batch 1 and 32)."
-    ]
+      "The HF-advertised 40960-token context is retained in full; the optimized decoder changes weight dtypes (386 MB BF16 to 180 MB BFP8/BFP4 per layer, 360 MB resident with the interleaved prefill copy) and keeps the BF16 KV cache (167.8 MB per user per layer at full context).",
+      "DRAM budget on one chip (34.18 GB allocatable): 36 layers of weights 6.47 GB sharded plus 6.47 GB interleaved copy; BF16 cache 6.04 GB per user at full context over 36 layers; the full-model stage sizes batch and context against its own buffers and may drop the prefill copy."
+    ],
+    "weight_bytes_per_layer_resident": 359661568,
+    "weight_copy_note": "Prefill chunks up to 256 rows use an interleaved copy of each projection weight (ttnn.linear); the DRAM-sharded copy serves decode and longer prefill chunks. Resident weight bytes are twice weight_bytes_per_layer unless OptimizedPolicy.prefill_interleaved_copy_max_rows is 0."
   }
 }

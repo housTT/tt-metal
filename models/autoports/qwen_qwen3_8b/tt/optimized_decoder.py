@@ -532,7 +532,12 @@ class OptimizedDecoder(FusedDecoder):
         chunk: PrefillChunk,
         user_page_table: ttnn.Tensor,
     ) -> None:
-        """Lead rows: one fused K/V update per token over a prepared pseudo-user tensor; then the tile fill."""
+        """Lead rows: one fused K/V update per token over a prepared pseudo-user tensor; then the tile fill.
+
+        The per-token one-hot position vector is a slice of one ``ttnn.arange`` row padded with -1;
+        ``moreh_full`` of a ``[1, 1]`` int32 scalar trips the watcher (its writer sends a 64-byte NoC
+        write for a 4-byte page).
+        """
         g = self.geometry
         block_size = key_cache.shape[2]
         token_positions, fill_start = plan_cache_writes(chunk.abs_start, chunk.abs_end, block_size)
@@ -552,15 +557,12 @@ class OptimizedDecoder(FusedDecoder):
             k_users.deallocate(True)
             v_users.deallocate(True)
             table = ttnn.repeat(user_page_table, ttnn.Shape([count, 1])) if count > 1 else user_page_table
-            for index, position in enumerate(positions):
-                one = ttnn.moreh_full(
-                    (1, 1),
-                    position,
-                    self.mesh_device,
-                    dtype=ttnn.int32,
-                    layout=ttnn.ROW_MAJOR_LAYOUT,
-                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
-                )
+            position_row = ttnn.reshape(
+                ttnn.arange(positions[0], positions[0] + count, 1, device=self.mesh_device, dtype=ttnn.int32),
+                (1, count),
+            )
+            for index in range(count):
+                one = ttnn.slice(position_row, [0, index], [1, index + 1])
                 padded = ttnn.pad(one, [(0, 0), (index, count - 1 - index)], -1) if count > 1 else one
                 update_idxs = ttnn.reshape(padded, (count,))
                 ttnn.experimental.paged_fused_update_cache(
@@ -569,6 +571,7 @@ class OptimizedDecoder(FusedDecoder):
                 if not _same_buffer(padded, one):
                     padded.deallocate(True)
                 one.deallocate(True)
+            position_row.deallocate(True)
             if table is not user_page_table:
                 table.deallocate(True)
             k_sh.deallocate(True)
