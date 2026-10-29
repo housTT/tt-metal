@@ -266,8 +266,11 @@ rows; `work_log.md` section 6 has the force-argmax comparison.
   after the hung capacity probes and need an operator reset before any
   further device work, `work_log.md` section 5.3): the capacity probe
   (two concurrent full-context rows plus decode at position 40959 through
-  the full model) hung twice with the same host backtrace and is not
-  localized; the LoFi LM head measurement (`QWEN3_LM_HEAD_DECODE_FIDELITY=lofi`)
+  the full model) hung twice with the same host backtrace; `$autodebug`
+  (`triage/AUTODEBUG.md`, `work_log.md` 8.3) attributes it to the probe's
+  own positions past the context from its second replay (an out-of-bounds
+  page-table index in the SDPA decode and KV update kernels); the guard and
+  the corrected probe are committed and the device run is pending; the LoFi LM head measurement (`QWEN3_LM_HEAD_DECODE_FIDELITY=lofi`)
   was not run, so the LM head stays at HiFi2 (stage 7 lever).
 
 ## Reproduction

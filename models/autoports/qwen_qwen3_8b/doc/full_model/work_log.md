@@ -400,3 +400,43 @@ recorded as an open item.
 - Still blocked on the operator reset of chips 0 and 1: every device rerun (focused module, tracked gate with program-cache allocations, `run_prefill_check`, `run_teacher_forcing`, `test_perf_batch1`, the corrected capacity probe and bisect, the two-slot seeded check, the batch-32 same-bucket control, the 8192-token tracked case).
 
 ### 8.3 AutoDebug (static) on the hang
+
+`$autodebug` ran as an isolated inspection-only child (14:12 to 14:28 ET,
+`logs/autodebug_launcher.log`); its report is `AUTODEBUG.md` at the
+checkout root (copied to `doc/full_model/triage/AUTODEBUG.md`). Verdict,
+checked against the sources it cites:
+
+- (a) confirmed contract violation from the probe's second replay: the
+  position advances on device (`plus_one` inside the trace), so row 0 ran at
+  40960, 40961 and 40962; the SDPA decode reader
+  (`dataflow_common.hpp` `virtual_seq_tile_id_to_physical_tile_id`) and the
+  fused KV update reader and writer index the one-stick page-table CB at
+  entry 1280 and beyond, and the RoPE gather reads one row past the
+  40960-row table; the kernels have no bound and the op documents that the
+  caller keeps every accessed entry in the table. Step 1 (position 40959)
+  is in bounds in every kernel. Which of replays 2 to 4 stopped cannot be
+  read statically.
+- (c) full-context SDPA in physical batch 8: no mechanism (the same
+  single-core loop as the passing batch-32 layer test, one head per core).
+- (b) inactive rows at -1: no mechanism (reader, writer, compute and the
+  fused update all skip -1 users with balanced CB counts; `relu` on int32
+  clamps the RoPE index; `plus_one` skips negatives). The report's claim
+  that `test_batch_decode`'s solo arm already ran the -1 rows at buckets 8
+  and 32 is wrong: the recorded `batch_decode_*.json` came from the bucket-1
+  solo arm; the same-bucket arm with -1 rows is the review-2 change and has
+  not run.
+- (d) sampler or LM head: no mechanism (bounded loops, 128 candidates).
+- Other findings adopted: `generate()` now rejects at admission a request
+  whose last decode position would reach 40960 (`len(prompt) +
+  max_new_tokens > 40960`); the layer-level `decode_forward` and
+  `ttnn_decode_forward` still trust their callers' positions; a debug-build
+  bound assert in the SDPA decode and paged-cache kernels would turn this
+  caller error into a watcher-visible assert (tt-metal item, not changed
+  here).
+
+Resolution of the capacity-probe anomaly: cause identified as the probe's
+own positions past the context (confirmed by inspection, not yet by a
+device run); guard and corrected probes committed; the corrected probe,
+`test_batch_decode -k 8`, and the bucket-1 and bucket-8 arms at positions
+40955 to 40958 are the first runs after the operator reset, with
+`TT_METAL_WATCHER=10` on the first of them.

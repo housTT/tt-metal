@@ -753,8 +753,13 @@ class Qwen3Generator(Generator):
         """Token-in token-out generation for one prompt on slot 0 (greedy by default)."""
         if max_new_tokens < 1:
             return []
-        self.reset()
         ids = list(prompt_token_ids)
+        if len(ids) + max_new_tokens > self.max_context:
+            raise ValueError(
+                f"prompt of {len(ids)} tokens plus {max_new_tokens} generated tokens exceeds the "
+                f"{self.max_context}-token context (the last decode position must stay below it)"
+            )
+        self.reset()
         params = sampling_params if sampling_params is not None else greedy_sampling_params(1)
         self._ensure_blocks(0, len(ids) + max_new_tokens)
         table = self._host_page_table([0])
