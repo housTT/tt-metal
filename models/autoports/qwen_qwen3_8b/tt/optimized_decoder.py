@@ -11,10 +11,12 @@ precision, the weight placement and the decode activation layout:
   and prefill chunks longer than ``prefill_interleaved_copy_max_rows`` read
   them with ``minimal_matmul`` at the fidelity that matches the dtype (the
   residual add is a separate ``ttnn.add`` because the addcmul-fused kernel
-  needs equal weight and residual tile sizes). Shorter prefill chunks use
-  ``ttnn.linear`` on an interleaved copy of each weight, where the DRAM-sharded
-  read is 1.3x to 2x slower; ``prefill_interleaved_copy_max_rows=0`` drops the
-  copy.
+  needs equal weight and residual tile sizes). With the interleaved copy of
+  each weight present (``prefill_interleaved_copy_max_rows > 0``), chunks up
+  to that many rows use ``ttnn.linear`` (auto config), chunks up to
+  ``prefill_2d_max_rows`` use an explicit 2D program config for the QKV, O
+  and down projections, and every other chunk runs ``minimal_matmul`` on the
+  interleaved copy; the DRAM-sharded copy serves decode only.
 * Decode activations stay width-sharded in L1 across the residual stream,
   both RMSNorms, the QKV projection, the attention output projection and the
   MLP. The layer accepts a DRAM-interleaved residual (the functional contract)
@@ -96,6 +98,8 @@ class OptimizedPolicy:
     prefill_fp32_acc: bool = True
     prefill_bfp8_fidelity: str = "lofi"
     prefill_interleaved_copy_max_rows: int = 256
+    prefill_2d_max_rows: int = 1024
+    prefill_2d_in0_block_w: int = 16
 
     def describe(self) -> dict:
         return asdict(self)
@@ -270,6 +274,7 @@ class OptimizedDecoder(FusedDecoder):
             if copy is not None:
                 self._prefill_compute[id(copy)] = config
                 self._interleaved_copy[id(weight)] = copy
+        self._prefill_2d_roles = {id(weights.qkv), id(weights.o_proj), id(weights.down_proj)}
         self.decode_compute = {
             "qkv": ckc(policy.qkv.fidelity, policy.qkv.fp32_acc, True),
             "o_proj": ckc(policy.o_proj.fidelity, policy.o_proj.fp32_acc, True),
@@ -492,18 +497,58 @@ class OptimizedDecoder(FusedDecoder):
     def _prefill_compute_config(self, weight: ttnn.Tensor) -> ttnn.DeviceComputeKernelConfig:
         return self._prefill_compute[id(weight)]
 
+    def _prefill_2d_program_config(self, rows: int, k: int, n: int):
+        """2D matmul config on the full grid for a prefill chunk of ``rows`` rows (exp12 winners: in0_block_w 16)."""
+        grid = self.grid
+        per_core_m = -(-(rows // TILE_SIZE) // grid.y)
+        per_core_n = -(-(n // TILE_SIZE) // grid.x)
+        best = (1, 1)
+        for h in range(1, 5):
+            for w in range(1, 5):
+                if h * w <= 4 and per_core_m % h == 0 and per_core_n % w == 0 and h * w > best[0] * best[1]:
+                    best = (h, w)
+        return ttnn.MatmulMultiCoreReuseMultiCastProgramConfig(
+            compute_with_storage_grid_size=(grid.x, grid.y),
+            in0_block_w=self.policy.prefill_2d_in0_block_w,
+            out_subblock_h=best[0],
+            out_subblock_w=best[1],
+            per_core_M=per_core_m,
+            per_core_N=per_core_n,
+            transpose_mcast=False,
+            fused_activation=None,
+            fuse_batch=False,
+        )
+
     def _linear(self, x: ttnn.Tensor, weight: ttnn.Tensor) -> ttnn.Tensor:
-        """Prefill projection: ``minimal_matmul`` on the DRAM-sharded weight, or ``ttnn.linear`` on the
-        interleaved copy for chunks up to ``prefill_interleaved_copy_max_rows`` when that copy exists."""
+        """Prefill projection kernel by chunk rows (measured in work log 3.10, 8.2 and 8.8).
+
+        With the interleaved copy present: chunks up to ``prefill_interleaved_copy_max_rows`` run
+        ``ttnn.linear`` with the auto config; chunks up to ``prefill_2d_max_rows`` run the explicit 2D
+        config for the roles where it won (QKV, O, down); everything else runs ``minimal_matmul`` on the
+        interleaved copy. Without the copy every chunk runs ``minimal_matmul`` on the DRAM-sharded weight.
+        """
         copy = self._interleaved_copy.get(id(weight))
-        if copy is not None and x.shape[-2] <= self.policy.prefill_interleaved_copy_max_rows:
-            return ttnn.linear(
-                x,
-                copy,
-                dtype=self.activation_dtype,
-                compute_kernel_config=self._prefill_compute_config(copy),
-                memory_config=ttnn.DRAM_MEMORY_CONFIG,
-            )
+        rows = x.shape[-2]
+        if copy is not None:
+            if rows <= self.policy.prefill_interleaved_copy_max_rows:
+                return ttnn.linear(
+                    x,
+                    copy,
+                    dtype=self.activation_dtype,
+                    compute_kernel_config=self._prefill_compute_config(copy),
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                )
+            if rows <= self.policy.prefill_2d_max_rows and id(weight) in self._prefill_2d_roles:
+                k, n = weight.shape[-2], weight.shape[-1]
+                return ttnn.linear(
+                    x,
+                    copy,
+                    program_config=self._prefill_2d_program_config(rows, k, n),
+                    dtype=self.activation_dtype,
+                    compute_kernel_config=self._prefill_compute_config(copy),
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                )
+            weight = copy
         return ttnn.experimental.minimal_matmul(
             x,
             weight,
