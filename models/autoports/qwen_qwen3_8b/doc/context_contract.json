@@ -93,5 +93,59 @@
       "Prefill SDPA chunks and the decode K chunk are chosen so the kernels' padded K window never extends past the page-table row (tt-metal chunked/paged SDPA pad Sk to the chunk size and follow the page table that far; see functional_decoder/tt_metal_sdpa_padded_k/). A page-table extent that is a multiple of 256 positions gets the largest chunks; any multiple of 32 is correct.",
       "Decode uses one current_pos int32 tensor per user for cache update, attention length and the on-device RoPE lookup; trace replay refreshes only token, current_pos and page-table contents."
     ]
+  },
+  "optimized_decoder": {
+    "hardware": "one Blackhole P300 chip per process (1x1 mesh, p150 mesh graph descriptor); default suite on TT_VISIBLE_DEVICES=1, Tracy profiles on TT_VISIBLE_DEVICES=0",
+    "device_dram_bytes_allocatable": 34178731008,
+    "device_dram_bytes_allocatable_source": "ttnn.get_memory_view(mesh_device, ttnn.BufferType.DRAM): 8 banks x 4272341376 bytes free on a fresh device",
+    "weight_dtypes": {
+      "qkv": "bfp8",
+      "o_proj": "bfp8",
+      "gate_proj": "bfp8",
+      "up_proj": "bfp4",
+      "down_proj": "bfp8",
+      "norms": "bf16"
+    },
+    "weight_bytes_per_layer": 179830784,
+    "kv_cache_dtype": "bfp8",
+    "kv_cache_dtype_note": "Decode writes BF16 K/V rows into the BFP8 paged cache (paged_fused_update_cache casts); prefill casts the fill tensors with ttnn.typecast before paged_fill_cache. The BF16 cache remains supported (QWEN3_KV_CACHE_DTYPE=bf16 in the tests); the optimized_decoder evidence uses BFP8.",
+    "layer_kinds": {
+      "full_attention": {
+        "representative_layers": [
+          0,
+          17
+        ],
+        "num_layers_of_kind": 36,
+        "cache_block_size": 32,
+        "num_kv_heads": 8,
+        "head_dim": 128,
+        "prefill_chunk_size": 4096,
+        "tested_prefill_context": 40960,
+        "tested_decode_context": 40960,
+        "largest_tested_non_aligned_prefill": 40959,
+        "largest_tested_decode_position": 40959,
+        "largest_tested_decode_batch_at_full_context": 32,
+        "kv_cache_bytes_per_user_at_full_context": 89128960,
+        "kv_cache_bytes_batch32_at_full_context": 2852126720,
+        "decode_residual_layout": "L1 width-sharded [1, 1, 32, 4096] over the first 32 cores of the compute grid (row-major); DRAM-interleaved [1, 1, B, 4096] also accepted",
+        "artifacts": [
+          "optimized_decoder/prefill_capacity_full_attention_40960.json",
+          "optimized_decoder/prefill_capacity_full_attention_40959.json",
+          "optimized_decoder/advertised_context_decode_full_attention.json"
+        ],
+        "tested_continuation_starts": [
+          32,
+          37,
+          1000,
+          4096,
+          4101,
+          4499
+        ]
+      }
+    },
+    "notes": [
+      "The HF-advertised 40960-token context is retained in full; the optimized decoder changes weight dtypes (386 MB BF16 to 180 MB BFP8/BFP4 per layer) and the KV-cache dtype (BF16 to BFP8, 167.8 MB to 89.1 MB per user at full context), both increases in capacity headroom.",
+      "Stage evidence for BFP8 cache: doc/optimized_decoder/experiments/exp7.json (layer 0 and 17 PCC with BF16 and BFP8 cache, traced decode at contexts 1024 and 8192, batch 1 and 32)."
+    ]
   }
 }
