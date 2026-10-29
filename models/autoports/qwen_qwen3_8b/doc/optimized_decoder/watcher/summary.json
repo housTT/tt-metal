@@ -1,0 +1,21 @@
+{
+  "command": "TT_VISIBLE_DEVICES=1 TT_METAL_WATCHER=10 TT_METAL_LOGS_PATH=models/autoports/qwen_qwen3_8b/doc/optimized_decoder/watcher QWEN3_EVIDENCE_SUFFIX=watcher python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_optimized_decoder.py -k 'test_traced_decode or test_repeated_runs_stress or test_real_weights_prefill_decode_pcc or test_sharded_residual_contract or test_block64_long_lead_rows' -p no:cacheprovider",
+  "result": "9 passed in 87.6 s (traced decode batches 1, 13, 31, 32; repeated-run stress; PCC layers 0 and 17; sharded residual contract with padded users; block-64 continuation with 63 lead rows)",
+  "watcher_log": "watcher/generated/watcher/watcher.log (last device session of the run)",
+  "dumps_completed": 3,
+  "fatal_pattern_matches": 0,
+  "evidence_json": [
+    "trace_full_attention_batch1.watcher.json",
+    "trace_full_attention_batch13.watcher.json",
+    "trace_full_attention_batch31.watcher.json",
+    "trace_full_attention_batch32.watcher.json",
+    "stress_full_attention.watcher.json",
+    "pcc_layer0_full_attention.watcher.json",
+    "pcc_layer17_full_attention.watcher.json",
+    "sharded_residual_full_attention.watcher.json",
+    "block64_long_lead_full_attention.watcher.json"
+  ],
+  "console_log": "logs/final_watcher.log",
+  "commit": "0b00bbdf25",
+  "note": "Two earlier watcher trips were removed from the shipped path: the sharded-input readers of nlp_create_qkv_heads_decode (work log 3.13, 3.14) and the moreh_full scalar writer in the lead-row cache write (8.5, 8.6)."
+}

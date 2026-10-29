@@ -208,7 +208,7 @@ kernel item).
 | Reduced precision experiments with real weights | done (3.8, 3.9, 3.11) |
 | Performance accounting reconciled | done (performance evidence above) |
 | Batch capability preserved | done: batches 1, 13, 31, 32 traced; batch-32 full context; batch-32 profile; padded batch 13 on the sharded contract |
-| Stress and watcher-clean run | done: `stress_full_attention.json`; `watcher/summary.json` (9 tests including the padded-user sharded contract and the 63-lead-row continuation, 0 fatal patterns) |
+| Stress and watcher-clean run | done: `stress_full_attention.json`; `watcher/summary.json` (9 tests including the padded-user sharded contract and the 63-lead-row continuation, 0 fatal patterns, commit `0b00bbdf25`) |
 
 ## Rejected candidates (with evidence)
 
@@ -286,7 +286,7 @@ logs, is in `work_log.md`.
 - `optimized_vs_fused_full_attention.json`, `sharded_residual_full_attention.json`, `stress_full_attention.json`: optimized-specific gates.
 - `perf/before/`, `perf/full_attention/`: tt-perf-report tables (advice enabled) and CSV before and after, batch 1 and 32; `perf/README.md`: commands and conclusions.
 - `trace_alloc_tracking/`, `watcher/`: debug-gate runs; `logs/`: filtered console logs of the final battery and profiles.
-- `experiments/`: the scripts, JSON results and filtered logs behind every kept and rejected candidate (exp1 decode matmuls, exp2 small ops, exp3 prefill and contracts, exp4 SDPA A/B with its tt-perf-report tables, exp5 whole-layer policies, exp6 layout and short chunks, exp7 KV-cache dtype, exp8 head-split input under the watcher, exp9 1024-row `MinimalMatmulConfig` sweep, exp10 short-prefix cache attribution, exp11 one-hot position construction under the watcher).
+- `experiments/`: the scripts, JSON results and filtered logs behind every kept and rejected candidate (exp1 decode matmuls, exp2 small ops, exp3 prefill and contracts, exp4 SDPA A/B with its tt-perf-report tables, exp5 whole-layer policies, exp6 layout and short chunks, exp7 KV-cache dtype, exp8 head-split input under the watcher, exp9 1024-row `MinimalMatmulConfig` sweep, exp10 short-prefix cache attribution, exp11 one-hot position construction under the watcher, exp12 2D `ttnn.linear` configs at 1024 and 4096 rows).
 - `perf/short_prompts/`: first-prefill tables at 64, 128 and 256 tokens, before and after.
 - `triage/repro_cached_tensor_to_device_hang.py`: minimal repro of the tt-metal host stall on a cached-tensor device write (work log section 4).
 - `../context_contract.json`: `optimized_decoder` section (weight and cache dtypes, bytes, residual layout).

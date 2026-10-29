@@ -453,7 +453,16 @@ fused decoder's BF16 weights and BF16 cache.
   8.7 numbers and times, uncommitted harness for the short-prompt
   baselines). Hard-check gaps: the sharded-contract test captures no trace;
   the sharded contract is unprofiled; `trace_region_size=0` wording.
-  Section 8.8 records the response.
+  Section 8.8 records the response (2D configs adopted for QKV, O and down
+  at 257 to 1024 rows, commit `0b00bbdf25`; 8.9 is the battery on it), and
+  the bookkeeping slips, the byte budget and the SDPA-chunk note are
+  corrected in 8.2, 8.5, 8.7, the section 8 head and `perf/README.md`. The
+  continuation 2-op variant, the prefill non-matmul candidate table, the
+  decode RoPE/head-norm small ops, the `tensor_cache_path` guard, the issue
+  references and the dead `prefill_minimal_matmul_min_rows` knob remain
+  open concerns for the next pass.
+- Remediation commits: `0b00bbdf25` (2D prefill configs), `29bc47eb37` and
+  the final bookkeeping commit (evidence, work log).
 
 ## 7. Budget note
 
@@ -644,3 +653,23 @@ DRAM-sharded copy serves decode only. Validation on chip 1 (11:00 ET,
 (chunks of 32 to 4096 rows, including 288, 416 and 1024-row 2D cases),
 continuation and multi-row prefill: 5 passed. The final battery and
 profiles on this commit are in 8.9.
+
+### 8.9 Final battery on the committed code (commit `0b00bbdf25`; 11:03 to 11:15 ET)
+
+Every evidence JSON records `optimized_decoder_sha256 063e7582b25e…`,
+`test_sha256 b509901be226…`, `kv_cache_dtype bf16`. Tracy on chip 0 and
+the battery on chip 1 ran at the same time (device times unaffected; host
+wall values of the eager prefill windows carry contention, `perf/README.md`).
+
+| Step (ET) | Command | Result |
+| --- | --- | --- |
+| 11:05 Tracy, chip 0: batch 1, batch 32, prompts 64/128/256 | `perf/README.md` | 1 passed each; decode 543 us / 33 ops at batch 1, 1,101 us at batch 32; prefill 1024 tokens 2,841 us (QKV 230, O 151, down 407 us on the 2D config; gate 446, up 436 us on `minimal_matmul`); continuation 1,771 us / 122 ops; 64/128/256-token prompts 1,061 / 1,311 / 2,106 us |
+| 11:03 default suite, chip 1 | `-k 'not host and not audit and not perf_profile'` | 14 passed, 3 skipped (180.0 s); PCC values unchanged from 8.7 (layer 0 prefill 0.999632, layer 17 0.999979 / delta 0.996277; batch-32 per-user >= 0.999202 against HF) |
+| 11:07 context tests, chip 1 | `QWEN3_CONTEXT_TESTS=1` | 3 passed (42.2 s) |
+| 11:08 tracker, chip 1 | `TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0` | 6 passed (93.0 s) |
+| 11:10 watcher, chip 1 | `TT_METAL_WATCHER=10`, 9 tests | 9 passed (87.6 s); 3 dumps, 0 fatal-pattern matches |
+| 11:02 host tests | `-k 'host or audit'` | 3 passed |
+
+The review-2 required item is closed by 8.8 with this battery as its
+evidence. No third review was run: the coordinator's remediation
+instruction allowed one re-review, which is recorded in section 6.
