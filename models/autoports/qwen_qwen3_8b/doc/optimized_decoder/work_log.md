@@ -463,6 +463,30 @@ fused decoder's BF16 weights and BF16 cache.
   open concerns for the next pass.
 - Remediation commits: `0b00bbdf25` (2D prefill configs), `29bc47eb37` and
   the final bookkeeping commit (evidence, work log).
+- 11:25 to 11:40 ET stage review 3 on `9709acf83a` (fresh xhigh subagent,
+  reviewer mode, read-only): `more-work-needed`. Required work (not fixed,
+  per the coordinator's instruction): (P2) the prefill non-matmul ops on
+  short and medium chunks run on 2 to 32 cores with no candidate,
+  measurement or rejection evidence: the two chunk RMSNorms (85 us each,
+  flat from 64 to 1024 rows), `nlp_create_qkv_heads` (78 us) and
+  `nlp_concat_heads` (51 us) are 299 of 1,061 us at 64 tokens, 306 of
+  2,106 us at 256 tokens, 345 of 2,841 us at 1024 tokens. Required next
+  step: measure full-grid sharded norm configs and sharded-input or
+  full-grid head ops for 64, 128, 256 and 1024-row chunks on the committed
+  code, adopt winners or record exact op-contract blockers, re-profile the
+  affected prefill windows only. Other concerns (notes): 8.8/8.9 clock text
+  5 to 8 minutes late; the 8.8 QKV "auto 364 us" cell is the exp6 256-row
+  gate value (exp12 measured 1,311 us at 1024 rows); the "input 0 in L1"
+  advice was answered on `minimal_matmul`, not on the adopted 2D kernel;
+  candidate-versus-final metric mix (569 us un-instrumented replay versus
+  543 us device / 622 us host under Tracy); the README "no tilize/untilize"
+  claim misses the inherited front-pad detour of tile-unaligned
+  continuations (untilize, pad, tilize rows, `functional_decoder.py`
+  `_pad_sequence`); the fused short-prompt baselines were taken with an
+  uncommitted test harness (fused decoder hash matches); open review-2
+  concerns unchanged. Hard-check gaps: uncommitted harness for the fused
+  short-prompt baselines, eager-only sharded contract, no un-instrumented
+  replay wall time in the traced-decode JSONs.
 
 ## 7. Budget note
 
@@ -671,5 +695,7 @@ wall values of the eager prefill windows carry contention, `perf/README.md`).
 | 11:02 host tests | `-k 'host or audit'` | 3 passed |
 
 The review-2 required item is closed by 8.8 with this battery as its
-evidence. No third review was run: the coordinator's remediation
-instruction allowed one re-review, which is recorded in section 6.
+evidence. (Clock note: the times in 8.8 and 8.9 are 5 to 8 minutes
+later than the artifact timestamps; the log and CSV timestamps in
+`logs/` and `perf/*/ops_perf_results.source.txt` are authoritative.)
+A third review followed on `9709acf83a` (section 6).
