@@ -1,0 +1,74 @@
+Detected CSV format: v2.1 (with device arch and worker core count)
+Using user-specified architecture: p150 (CSV detected blackhole)
+Architecture: blackhole, Worker cores: 110
+Sorting CSV by 'HOST START TS' column...
+Using operations after 'PERF_PREFILL_layer0_full_attention_seq1024_batch32'.
+Using operations until 'PERF_PREFILL_layer0_full_attention_seq1024_batch32_END'.
+Detected data from 1 devices. Merging device data...
+Warning: Unclassified operation 'MinimalMatmulDeviceOperation' found. Please add to OPERATION_CATEGORIES for proper classification.
+Warning: Unclassified operation 'RotaryEmbeddingHfDeviceOperation' found. Please add to OPERATION_CATEGORIES for proper classification.
+Warning: Unclassified operation 'PagedFillCacheDeviceOperation' found. Please add to OPERATION_CATEGORIES for proper classification.
+
+🚀 Performance Report 🚀
+========================
+
+ID   Total %  Bound  OP Code                                           Device   Device Time  Op-to-Op Gap  Cores  DRAM      DRAM %  FLOPs         FLOPs %  Math Fidelity
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 82    0.0 %         SliceDeviceOperation                                    0         1 μs                    1                                                     INT32 => INT32
+ 83    6.4 %         LayerNormDeviceOperation                                0       100 μs         98 μs     32                                                 BF16, BF16 => BF16
+ 84    8.7 %   SLOW  MinimalMatmulDeviceOperation 1024 x 4096 x 6144         0       269 μs          0 μs    110  171 GB/s  33.4 %  191.2 TFLOPs   31.4 %  LoFi BF16 x BFP8 => BF16
+ 85    2.9 %         NlpCreateHeadsDeviceOperation                           0        88 μs          1 μs     32                                                       BF16 => BF16
+ 86    1.5 %         LayerNormDeviceOperation                                0        47 μs          0 μs    110                                                 BF16, BF16 => BF16
+ 87    0.6 %         LayerNormDeviceOperation                                0        19 μs          0 μs    110                                                 BF16, BF16 => BF16
+ 88    0.1 %         SliceDeviceOperation                                    0         3 μs          0 μs    110                                                       BF16 => BF16
+ 89    0.1 %         SliceDeviceOperation                                    0         3 μs          0 μs    110                                                       BF16 => BF16
+ 90    3.7 %         RotaryEmbeddingHfDeviceOperation                        0       114 μs          0 μs    110                                                 BF16, BF16 => BF16
+ 91    1.7 %         RotaryEmbeddingHfDeviceOperation                        0        52 μs          0 μs    110                                                 BF16, BF16 => BF16
+ 92    0.3 %         TypecastDeviceOperation                                 0         8 μs          0 μs    110                                                       BF16 => BFP8
+ 93    0.3 %         TypecastDeviceOperation                                 0         9 μs          0 μs    110                                                       BF16 => BFP8
+ 94    0.2 %         PagedFillCacheDeviceOperation                           0         7 μs          0 μs    110                                                 BFP8, BFP8 => BFP8
+ 95    0.2 %         PagedFillCacheDeviceOperation                           0         7 μs          0 μs    110                                                 BFP8, BFP8 => BFP8
+ 96    7.9 %         SDPAOperation                                           0       245 μs          0 μs    110                                                 BF16, BFP8 => BF16
+ 97    1.9 %         NLPConcatHeadsDeviceOperation                           0        59 μs          1 μs     32                                                       BF16 => BF16
+ 98    6.0 %   SLOW  MinimalMatmulDeviceOperation 1024 x 4096 x 4096         0       184 μs          0 μs    110  182 GB/s  35.5 %  186.3 TFLOPs   30.6 %  LoFi BF16 x BFP8 => BF16
+ 99    1.8 %         BinaryNgDeviceOperation                                 0        57 μs          0 μs    110                                                 BF16, BF16 => BF16
+100    3.2 %         LayerNormDeviceOperation                                0        99 μs          0 μs     32                                                 BF16, BF16 => BF16
+101   14.7 %   SLOW  MinimalMatmulDeviceOperation 1024 x 4096 x 12288        0       453 μs          0 μs    110  185 GB/s  36.2 %  227.7 TFLOPs   37.4 %  LoFi BF16 x BFP8 => BF16
+102   14.1 %   SLOW  MinimalMatmulDeviceOperation 1024 x 4096 x 12288        0       436 μs          0 μs    110  135 GB/s  26.3 %  236.4 TFLOPs   38.9 %  LoFi BF16 x BFP4 => BF16
+103    6.8 %         BinaryNgDeviceOperation                                 0       210 μs          0 μs    110                                                 BF16, BF16 => BF16
+104   15.0 %   SLOW  MinimalMatmulDeviceOperation 1024 x 12288 x 4096        0       462 μs          0 μs    110  182 GB/s  35.5 %  223.2 TFLOPs   36.7 %  LoFi BF16 x BFP8 => BF16
+105    1.8 %         BinaryNgDeviceOperation                                 0        54 μs          0 μs    110                                                 BF16, BF16 => BF16
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+     100.0 %         24 device ops, 0 host ops, 0 signposts                        2,985 μs        103 μs         103 GB/s  20.0 %
+
+💡 Advice 💡
+============
+
+High Op-to-Op Gap
+----------------
+ 83    6.4 %         LayerNormDeviceOperation                                0       100 μs         98 μs     32                                                 BF16, BF16 => BF16
+
+These ops have a >6 μs gap since the previous operation. Running with tracing could save 92 μs (3.0% of overall time)
+Alternatively ensure device is not waiting for the host. Experts can try moving runtime args in the kernels to compile-time args.
+
+Matmul Optimization
+-------------------
+ 84    8.7 %   SLOW  MinimalMatmulDeviceOperation 1024 x 4096 x 6144         0       269 μs          0 μs    110  171 GB/s  33.4 %  191.2 TFLOPs   31.4 %  LoFi BF16 x BFP8 => BF16
+- If possible place input 0 in L1 (currently in DEV_0_DRAM_INTERLEAVED)
+- No program_config specified, try using one to override in0_block_w and out_subblock_h/w
+
+ 98    6.0 %   SLOW  MinimalMatmulDeviceOperation 1024 x 4096 x 4096         0       184 μs          0 μs    110  182 GB/s  35.5 %  186.3 TFLOPs   30.6 %  LoFi BF16 x BFP8 => BF16
+- If possible place input 0 in L1 (currently in DEV_0_DRAM_INTERLEAVED)
+- No program_config specified, try using one to override in0_block_w and out_subblock_h/w
+
+101   14.7 %   SLOW  MinimalMatmulDeviceOperation 1024 x 4096 x 12288        0       453 μs          0 μs    110  185 GB/s  36.2 %  227.7 TFLOPs   37.4 %  LoFi BF16 x BFP8 => BF16
+- If possible place input 0 in L1 (currently in DEV_0_DRAM_INTERLEAVED)
+- No program_config specified, try using one to override in0_block_w and out_subblock_h/w
+
+102   14.1 %   SLOW  MinimalMatmulDeviceOperation 1024 x 4096 x 12288        0       436 μs          0 μs    110  135 GB/s  26.3 %  236.4 TFLOPs   38.9 %  LoFi BF16 x BFP4 => BF16
+- If possible place input 0 in L1 (currently in DEV_0_DRAM_INTERLEAVED)
+- No program_config specified, try using one to override in0_block_w and out_subblock_h/w
+
+104   15.0 %   SLOW  MinimalMatmulDeviceOperation 1024 x 12288 x 4096        0       462 μs          0 μs    110  182 GB/s  35.5 %  223.2 TFLOPs   36.7 %  LoFi BF16 x BFP8 => BF16
+- If possible place input 0 in L1 (currently in DEV_0_DRAM_INTERLEAVED)
+- No program_config specified, try using one to override in0_block_w and out_subblock_h/w

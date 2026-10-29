@@ -1,0 +1,19 @@
+{
+  "command": "TT_VISIBLE_DEVICES=1 TT_METAL_WATCHER=10 TT_METAL_LOGS_PATH=models/autoports/qwen_qwen3_8b/doc/optimized_decoder/watcher QWEN3_EVIDENCE_SUFFIX=watcher python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_optimized_decoder.py -k 'test_traced_decode or test_repeated_runs_stress or test_real_weights_prefill_decode_pcc' -p no:cacheprovider",
+  "result": "7 passed in 106.32 s (traced decode batches 1, 13, 31, 32; repeated-run stress; PCC layers 0 and 17)",
+  "watcher_log": "watcher/generated/watcher/watcher.log (last device session of the run)",
+  "dumps_completed": 3,
+  "fatal_pattern_matches": 0,
+  "evidence_json": [
+    "trace_full_attention_batch1.watcher.json",
+    "trace_full_attention_batch13.watcher.json",
+    "trace_full_attention_batch31.watcher.json",
+    "trace_full_attention_batch32.watcher.json",
+    "stress_full_attention.watcher.json",
+    "pcc_layer0_full_attention.watcher.json",
+    "pcc_layer17_full_attention.watcher.json"
+  ],
+  "console_log": "logs/final_watcher.log",
+  "commit": "20df38fd5e",
+  "note": "A first watcher run on the pre-commit sharded-input head-split path tripped in reader_tm_tile_layout_nlp_create_qkv_heads_decode_on_subcoregrids.cpp (runtime arg index out of bounds); see work_log.md 3.13 and 3.14. The committed path reads the head-split input from L1 interleaved and is clean."
+}

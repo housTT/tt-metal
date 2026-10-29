@@ -1,0 +1,68 @@
+{
+  "decode_batch": 1,
+  "decode_position": 1024,
+  "decode_trace_host_ms": 1.3212310150265694,
+  "decode_trace_iterations": 1,
+  "decode_trace_warmups": 2,
+  "layer_idx": 0,
+  "prefill_continuation": {
+    "start_pos": 37,
+    "tokens": 100
+  },
+  "prefill_continuation_host_ms": 5.636680987663567,
+  "prefill_host_ms": 5.189189920201898,
+  "provenance": {
+    "checkout_git_sha": "8a88d4f3a6541f5f8bd335a7117f0613d497f50e",
+    "checkpoint_snapshot": "/home/hous/.cache/huggingface/hub/models--Qwen--Qwen3-8B/snapshots/b968826d9c46dd6066d109eabc6255188de91218",
+    "decoder": "fused_baseline",
+    "environment": {
+      "QWEN3_EVIDENCE_SUFFIX": "fused_before",
+      "QWEN3_PERF": "1",
+      "QWEN3_PERF_TRACE_ITERATIONS": "1",
+      "QWEN3_PERF_TRACE_WARMUPS": "2",
+      "TT_METAL_DEVICE_PROFILER": "1",
+      "TT_METAL_HOME": "/home/hous/dev/tt-metal",
+      "TT_METAL_PROFILER_CPP_POST_PROCESS": "1",
+      "TT_METAL_PROFILER_DIR": "generated/profiler/qwen3_opt_before",
+      "TT_METAL_PROFILER_TRACE_TRACKING": "1"
+    },
+    "exact_command": "QWEN3_PERF=1 python -m tracy -r -p -v --check-exit-code -o generated/profiler/qwen3_functional -m pytest -q -s 'models/autoports/qwen_qwen3_8b/tests/test_optimized_decoder.py::test_fused_baseline_perf_profile[blackhole-batch1-device_params0-mesh_device0]'",
+    "functional_decoder_path": "/home/hous/dev/tt-metal-wt-qwen3/models/autoports/qwen_qwen3_8b/tt/functional_decoder.py",
+    "functional_decoder_sha256": "2e371d8b990cc4e66967cd4133e384a40d985061bb4670c9e106d694935c8ede",
+    "functional_test_sha256": "c3ae0fa4fd92a3c37f4dea51fbe8bab0abfb329aacebcd9ff93d29f139475188",
+    "fused_decoder_path": "/home/hous/dev/tt-metal-wt-qwen3/models/autoports/qwen_qwen3_8b/tt/fused_decoder.py",
+    "fused_decoder_sha256": "d70d6c829495e876c917c092aa24a37abd4f3d95e1110d2b5efcf566f6ebe66e",
+    "hardware": {
+      "arch": "Arch.BLACKHOLE",
+      "device_ids": [
+        0
+      ],
+      "mesh": "1x1",
+      "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.39"
+    },
+    "layer_kind": "full_attention",
+    "model_id": "Qwen/Qwen3-8B",
+    "optimized_decoder_path": "/home/hous/dev/tt-metal-wt-qwen3/models/autoports/qwen_qwen3_8b/tt/optimized_decoder.py",
+    "optimized_decoder_sha256": "15e3caaedebe09f8c093994642ae2e00e395552e079b3129a514f703eb32f92c",
+    "recorded_utc": "2026-10-28T18:56:54Z",
+    "test_sha256": "641d9d256f7b337e59fd0998b48915f8cd5d692ed84ca4dce0a5b6d0bfee0942",
+    "ttnn_extension_sha256": "9ed597207a04b543ef59e408158cd6bbde1eeb1779fe74ec1e2949c184eef898",
+    "visible_devices": "0",
+    "weight_origin": "real"
+  },
+  "sequence_length": 1024,
+  "signposts": {
+    "decode": [
+      "PERF_DECODE_layer0_full_attention_seq1024_batch1",
+      "PERF_DECODE_layer0_full_attention_seq1024_batch1_END"
+    ],
+    "prefill": [
+      "PERF_PREFILL_layer0_full_attention_seq1024_batch1",
+      "PERF_PREFILL_layer0_full_attention_seq1024_batch1_END"
+    ],
+    "prefill_continuation": [
+      "PERF_PREFILL_CONT_layer0_full_attention_seq1024_batch1",
+      "PERF_PREFILL_CONT_layer0_full_attention_seq1024_batch1_END"
+    ]
+  }
+}

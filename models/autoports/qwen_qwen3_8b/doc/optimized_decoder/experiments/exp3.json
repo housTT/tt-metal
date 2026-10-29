@@ -1,0 +1,69 @@
+[
+ {
+  "op": "pad_front_rowmajor_int32",
+  "result": [
+   [
+    -1,
+    -1,
+    -1,
+    37,
+    -1,
+    -1
+   ]
+  ],
+  "reshaped": [
+   6
+  ],
+  "same_buffer": true
+ },
+ {
+  "op": "repeat_rowmajor_int32",
+  "shape": [
+   5,
+   6
+  ],
+  "row3": [
+   0,
+   1,
+   2,
+   3,
+   4,
+   5
+  ]
+ },
+ {
+  "op": "arange_int32",
+  "shape": [
+   27
+  ],
+  "layout": "Layout.ROW_MAJOR",
+  "first": [
+   37,
+   38,
+   39
+  ]
+ },
+ {
+  "op": "fused_update_skip_users",
+  "n": 27,
+  "wall_ms": 7101.291989907622,
+  "key_equal": true,
+  "untouched_rows_zero": true
+ },
+ {
+  "op": "gate_up_silu",
+  "variant": "mul_silu",
+  "pcc": 0.9971270322809731,
+  "us": 216.40348131768405
+ },
+ {
+  "op": "gate_up_silu",
+  "variant": "fused_silu_matmul",
+  "pcc": 0.9971270322809731,
+  "us": 248.24426509439945
+ },
+ {
+  "op": "concat_heads_subgrid",
+  "grid": "{[0-0 - 7-3]}"
+ }
+]

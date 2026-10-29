@@ -1,0 +1,67 @@
+Detected CSV format: v2.1 (with device arch and worker core count)
+Using user-specified architecture: p150 (CSV detected blackhole)
+Architecture: blackhole, Worker cores: 110
+Sorting CSV by 'HOST START TS' column...
+Using operations after 'PERF_DECODE_layer0_full_attention_seq1024_batch32'.
+Using operations until 'PERF_DECODE_layer0_full_attention_seq1024_batch32_END'.
+Detected data from 1 devices. Merging device data...
+Warning: Unclassified operation 'RotaryEmbeddingHfDeviceOperation' found. Please add to OPERATION_CATEGORIES for proper classification.
+Warning: Unclassified operation 'PagedFusedUpdateCacheDeviceOperation' found. Please add to OPERATION_CATEGORIES for proper classification.
+
+🚀 Performance Report 🚀
+========================
+
+ID     Total %  Bound  OP Code                                  Device   Device Time  Op-to-Op Gap  Cores  DRAM      DRAM %  FLOPs        FLOPs %  Math Fidelity
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+  986    4.6 %         LayerNormDeviceOperation                       0        85 μs                    1                                                 BF16, BF16 => BF16
+  987    6.8 %   DRAM  MatmulDeviceOperation 32 x 4096 x 6144         0       125 μs          0 μs     96  407 GB/s  79.5 %  12.9 TFLOPs    9.7 %  HiFi4 BF16 x BF16 => BF16
+  988    1.9 %         NLPCreateQKVHeadsDecodeDeviceOperation         0        34 μs          0 μs     32                                                       BF16 => BF16
+  989    0.1 %         ShardedToInterleavedDeviceOperation            0         2 μs          0 μs     32                                                       BF16 => BF16
+  990    0.3 %         LayerNormDeviceOperation                       0         5 μs          0 μs     32                                                 BF16, BF16 => BF16
+  991    0.1 %         ShardedToInterleavedDeviceOperation            0         2 μs          0 μs     32                                                       BF16 => BF16
+  992    0.3 %         LayerNormDeviceOperation                       0         5 μs          0 μs     32                                                 BF16, BF16 => BF16
+  993    0.1 %         TypecastDeviceOperation                        0         1 μs          1 μs      1                                                    INT32 => UINT32
+  994    0.1 %         EmbeddingsDeviceOperation                      0         2 μs          0 μs     32                                               UINT32, BF16 => BF16
+  995    0.4 %         TilizeWithValPaddingDeviceOperation            0         7 μs          1 μs     32                                                       BF16 => BF16
+  996    0.1 %         InterleavedToShardedDeviceOperation            0         2 μs          0 μs     32                                                       BF16 => BF16
+  997    0.1 %         EmbeddingsDeviceOperation                      0         2 μs          1 μs     32                                               UINT32, BF16 => BF16
+  998    0.4 %         TilizeWithValPaddingDeviceOperation            0         7 μs          1 μs     32                                                       BF16 => BF16
+  999    0.1 %         InterleavedToShardedDeviceOperation            0         2 μs          0 μs     32                                                       BF16 => BF16
+ 1000    0.2 %         RotaryEmbeddingHfDeviceOperation               0         3 μs          0 μs     32                                                 BF16, BF16 => BF16
+ 1001    0.2 %         RotaryEmbeddingHfDeviceOperation               0         3 μs          0 μs     32                                                 BF16, BF16 => BF16
+ 1002    0.1 %         ReshardDeviceOperation                         0         1 μs          0 μs     32                                                       BF16 => BF16
+ 1003    1.4 %         PagedFusedUpdateCacheDeviceOperation           0        24 μs          1 μs     64                                                 BF16, BF16 => BF16
+ 1004   31.2 %         SdpaDecodeDeviceOperation                      0       566 μs          5 μs     64                                                 BF16, BF16 => BF16
+ 1005    0.1 %         InterleavedToShardedDeviceOperation            0         2 μs          0 μs     32                                                       BF16 => BF16
+ 1006    0.3 %         NLPConcatHeadsDecodeDeviceOperation            0         6 μs          1 μs     32                                                       BF16 => BF16
+ 1007    0.1 %         ShardedToInterleavedDeviceOperation            0         1 μs          1 μs     32                                                       BF16 => BF16
+ 1008    4.5 %   DRAM  MatmulDeviceOperation 32 x 4096 x 4096         0        81 μs          1 μs     64  420 GB/s  82.0 %  13.2 TFLOPs   14.9 %  HiFi4 BF16 x BF16 => BF16
+ 1009    0.2 %         BinaryNgDeviceOperation                        0         4 μs          0 μs    110                                                 BF16, BF16 => BF16
+ 1010    4.6 %         LayerNormDeviceOperation                       0        84 μs          1 μs      1                                                 BF16, BF16 => BF16
+ 1011   13.9 %   DRAM  MatmulDeviceOperation 32 x 4096 x 12288        0       255 μs          0 μs     96  400 GB/s  78.1 %  12.7 TFLOPs    9.5 %  HiFi4 BF16 x BF16 => BF16
+ 1012   13.8 %   DRAM  MatmulDeviceOperation 32 x 4096 x 12288        0       253 μs          0 μs     96  401 GB/s  78.4 %  12.7 TFLOPs    9.6 %  HiFi4 BF16 x BF16 => BF16
+ 1013    0.7 %         BinaryNgDeviceOperation                        0        12 μs          0 μs    110                                                 BF16, BF16 => BF16
+ 1014   13.0 %   DRAM  MatmulDeviceOperation 32 x 12288 x 4096        0       238 μs          0 μs     64  427 GB/s  83.3 %  13.5 TFLOPs   15.3 %  HiFi4 BF16 x BF16 => BF16
+ 1015    0.2 %         BinaryNgDeviceOperation                        0         4 μs          0 μs    110                                                 BF16, BF16 => BF16
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+       100.0 %         30 device ops, 0 host ops, 0 signposts               1,818 μs         15 μs         215 GB/s  41.9 %
+
+💡 Advice 💡
+============
+
+Matmul Optimization
+-------------------
+  987    6.8 %   DRAM  MatmulDeviceOperation 32 x 4096 x 6144         0       125 μs          0 μs     96  407 GB/s  79.5 %  12.9 TFLOPs    9.7 %  HiFi4 BF16 x BF16 => BF16
+- Try a DRAM-sharded program config (MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig) to improve throughput further
+
+ 1008    4.5 %   DRAM  MatmulDeviceOperation 32 x 4096 x 4096         0        81 μs          1 μs     64  420 GB/s  82.0 %  13.2 TFLOPs   14.9 %  HiFi4 BF16 x BF16 => BF16
+- Try a DRAM-sharded program config (MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig) to improve throughput further
+
+ 1011   13.9 %   DRAM  MatmulDeviceOperation 32 x 4096 x 12288        0       255 μs          0 μs     96  400 GB/s  78.1 %  12.7 TFLOPs    9.5 %  HiFi4 BF16 x BF16 => BF16
+- Try a DRAM-sharded program config (MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig) to improve throughput further
+
+ 1012   13.8 %   DRAM  MatmulDeviceOperation 32 x 4096 x 12288        0       253 μs          0 μs     96  401 GB/s  78.4 %  12.7 TFLOPs    9.6 %  HiFi4 BF16 x BF16 => BF16
+- Try a DRAM-sharded program config (MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig) to improve throughput further
+
+ 1014   13.0 %   DRAM  MatmulDeviceOperation 32 x 12288 x 4096        0       238 μs          0 μs     64  427 GB/s  83.3 %  13.5 TFLOPs   15.3 %  HiFi4 BF16 x BF16 => BF16
+- Try a DRAM-sharded program config (MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfig) to improve throughput further
