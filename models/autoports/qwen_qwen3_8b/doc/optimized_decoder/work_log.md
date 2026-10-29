@@ -402,8 +402,9 @@ fused decoder's BF16 weights and BF16 cache.
 - Push state: this stage ran no `git push`. `git reflog show
   origin/hous/qwen3-8b-autoport` records "update by push" entries to
   `64f03408f1`, `8a88d4f3a6` and `4f954d78ec`, each minutes after a stage's
-  final commit; the actor is not recorded by git. The operator owns that
-  answer (stage-review finding, "operator decision").
+  final commit. Settled by the coordinator on 2026 Oct 29 at 09:25 ET: the
+  supervisor pushes the branch to `housTT/tt-metal` after each stage per the
+  run plan; the stage agent never pushes. Review item closed.
 - 09:10 to 09:30 ET stage review (fresh xhigh subagent, reviewer mode,
   read-only): `more-work-needed`. Required work, as returned:
   (P1) the sharded layer-stack residual contract defines no safe encoding
@@ -445,3 +446,135 @@ switch was being prepared) during which no device job of this stage ran
 documentation, commit and review took 08:30 to the end. Stalls that were
 device work: none; the three host stalls of 2026 Oct 28 (section 4) were a
 tt-metal host write bug reproduced in isolation.
+
+## 8. Remediation (2026 Oct 29, 09:25 to 13:25 ET cap)
+
+Required work from the review, in the coordinator's order. Byte budget for
+the interleaved prefill copy (allocatable DRAM 34,178,731,008 bytes from
+`doc/context_contract.json`): sharded weights 36 x 179.8 MB = 6.47 GB; one
+interleaved copy another 6.47 GB; BFP8 KV cache at the advertised 40960
+context 89.1 MB per user per layer = 3.21 GB per user over 36 layers. With
+the copy: 34.18 - 12.94 = 21.2 GB left before embeddings and LM head (about
+2.4 GB in BF16), that is 18.8 GB, or 5 users at full context (batch 32 at
+up to about 7,300 tokens per user). Without the copy: 25.3 GB, 7 users at
+full context (batch 32 at about 9,800 tokens). Batch 32 at the full 40960
+context (102.7 GB of cache) does not fit either way on one chip; the full-
+model stage sizes the cache against its own buffers and may set
+`prefill_interleaved_copy_max_rows=0` to drop the copy.
+
+Filled in below as each item completes.
+
+### 8.3 Item 3: `MinimalMatmulConfig` sweep at 1024 rows (chip 0, 09:35 to 09:50 ET; `experiments/exp9.json`)
+
+Final policy weights (DRAM-sharded; BFP8 LoFi for QKV, O, gate, down; BFP4
+LoFi for up), real normed activations, fp32 accumulation, 54 explicit
+configs per role (M block 2/4/8 x K block 2/4/8 x N block 2/4/8 x grids
+11x10 and 8x8) against the op default:
+
+| Role | default | best explicit config | next |
+| --- | --- | --- | --- |
+| QKV 1024x4096x6144 | 283 us | m4 k8 n8 11x10: 300 us | m4 k8 n8 8x8: 318 us |
+| O 1024x4096x4096 | 193 us | m8 k8 n8 8x8: 211 us | m4 k8 n8 11x10: 214 us |
+| gate 1024x4096x12288 | 494 us | m4 k8 n8 11x10: 503 us | m8 k8 n8 11x10: 531 us |
+| up (BFP4) | 463 us | m4 k8 n8 11x10: 513 us | m8 k8 n8 11x10: 531 us |
+| down 1024x12288x4096 | 500 us | m4 k8 n8 11x10: 564 us | m8 k8 n4 11x10: 570 us |
+
+No explicit config beats the default for any role (PCC identical); the
+default stays, and the tt-perf-report "No program_config specified" advice is
+answered with this sweep. Item closed.
+
+### 8.1 Item 1: padded users on the sharded layer-stack contract
+
+`decode_forward` now clamps the RoPE index on device for the sharded
+branch (`rope_pos = ttnn.relu(current_pos)`, one row-major int32 op inside
+the traced path), so a padded user at position -1 gathers row 0 instead of
+reading out of bounds; the cache update and SDPA keep -1 as the skip value;
+the docstring defines the encoding (position -1, any page-table row,
+unspecified result rows). `test_sharded_residual_contract` gained batch 13
+run as the physical batch 16 with -1 positions and zero page-table rows:
+bit-equal to the DRAM contract (`sharded_residual_full_attention.json`,
+cases 1, 8, 13, 32 all PCC 1.0). The watcher run of the final battery
+includes this test.
+
+### 8.2 Item 2: short-chunk prefill
+
+Prefill chunks up to 256 rows now run `ttnn.linear` on an interleaved copy
+of each projection weight (`OptimizedPolicy.prefill_interleaved_copy_max_rows`,
+0 disables the copy); longer chunks keep `minimal_matmul` on the DRAM-sharded
+copy. Before/after warmed first-prefill device time from position 0
+(`perf/short_prompts/`, same harness, `QWEN3_PERF_SEQ_LEN`):
+
+| Prompt | fused (stage 2) | optimized before this item (DRAM-sharded `minimal_matmul`) | optimized final (interleaved `ttnn.linear`) |
+| --- | --- | --- | --- |
+| 64 tokens | 1,359 us | not profiled (exp6: gate 384 us, down 392 us per row) | 1,065 us |
+| 128 tokens (the continuation chunk) | 1,587 us; continuation matmul rows 132 + 123 + 270 + 268 + 353 = 1,146 us | 191 + 118 + 377 + 331 + 381 = 1,398 us | 1,311 us; rows 118 + 102 + 182 + 180 + 288 = 870 us |
+| 256 tokens | 2,082 us | not profiled | 2,110 us |
+| 1024 tokens | 4,814 us | 2,990 us | 2,988 us |
+
+The continuation window (100 tokens at start 37) is 1,753 us device
+(stage 2: 2,864 us; first optimized profile: 2,282 us). At 256 rows the
+interleaved `ttnn.linear` ties the stage-2 `minimal_matmul` (2,110 versus
+2,082 us); the crossover stays at 256 because `minimal_matmul` on the
+sharded weight is slower there (exp6: 384 versus 227 us for gate). The byte
+budget is in the section head: the copy costs 6.47 GB over 36 layers and
+leaves 18.8 GB for cache and the full-model buffers on this chip.
+
+### 8.4 Item 4: batch-32 per-user bar
+
+`test_optimized_matches_fused_on_device` now computes the per-user PCC
+against HF for the same batch-32 inputs for both decoders. With the BFP8
+cache the optimized user 20 (32-token prefix) is 0.9942 against HF
+(fused: 0.99996); `experiments/exp10.json` attributes it: BF16 cache with
+the default policy 0.9993 (min over users 0.9992), all-BFP8 weights with the
+BFP8 cache 0.9947, all-BFP8 with BF16 cache 0.9997. The BFP8 KV cache is
+therefore rejected on real-weight evidence (short prefixes) and the tests
+default to the BF16 cache again; the per-user bars are 0.995 against HF and
+0.995 against the fused decoder. `doc/context_contract.json` records the
+BF16 cache and the rejection.
+
+### 8.5 Item 5: block-64 continuation with 63 lead rows
+
+`test_block64_long_lead_rows` (prefix 1, continuation 200, two pseudo-user
+groups of 32 and 31): continuation PCC 0.999202 (delta 0.999144), decode
+after 0.999367 (delta 0.999283), `block64_long_lead_full_attention.json`.
+Under the watcher the test tripped a NoC error in `ttnn.moreh_full`'s
+writer (`writer_full.cpp`: a 64-byte unicast write for a 4-byte `[1, 1]`
+int32 page "overflows a circular buffer"); the same op is the stage-1
+per-token position scalar. exp11 (below) measures replacements under the
+watcher.
+
+### 8.6 exp11: one-hot position vector under the watcher (chip 0, 10:05 ET; `experiments/exp11_onehot_watcher.py`, `experiments/logs/exp11_*.log`)
+
+| Construction | watcher | values |
+| --- | --- | --- |
+| `moreh_full((1, 1))` scalar + `pad` (the stage-1 scalar op) | tripped: `writer_full.cpp` unicast write of 64 bytes for a 4-byte page overflows a circular buffer | correct |
+| `ttnn.arange` row, `slice` one element, `pad` with -1 | clean | correct (27 vectors) |
+| `ttnn.arange` row alone | clean | correct |
+
+The lead-row loop now slices one `ttnn.arange` row per group (still 3 ops
+per token: slice, pad, fused update). The `moreh_full` scalar writer
+overflow is a tt-metal item (`ttnn/cpp/ttnn/operations/full/device/kernels/writer_full.cpp`,
+row-major `[1, 1]` int32).
+
+### 8.7 Final battery on the committed code (commit `18aac30c2f`; 10:08 to 10:30 ET)
+
+Code first (pre-commit hooks), then the evidence; every JSON records
+`optimized_decoder_sha256 e4021be7d381…` and `test_sha256 b509901be226…`
+with `kv_cache_dtype bf16`. The Tracy profiles ran on chip 0 while the
+battery ran on chip 1.
+
+| Step (ET) | Command | Result |
+| --- | --- | --- |
+| 10:27 Tracy, chip 0: batch 1, batch 32, prompts 64/128/256 | `perf/README.md` | 1 passed each; `perf/full_attention/` (decode 543 us / 33 ops at batch 1, 1,096 us at batch 32, prefill 2,996 us, continuation 1,766 us / 122 ops), `perf/short_prompts/` (1,062 / 1,310 / 2,105 us) |
+| 10:09 default suite, chip 1 | `-k 'not host and not audit and not perf_profile'` | 14 passed, 3 skipped (178.9 s); batch-32 per-user PCC >= 0.999202 against HF, >= 0.999232 against the fused decoder (bars 0.995) |
+| 10:12 context tests, chip 1 | `QWEN3_CONTEXT_TESTS=1 -k advertised_context` | 3 passed (41.5 s) |
+| 10:13 tracker, chip 1 | `TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0` on traced decode, stress, sharded contract | 6 passed (93.7 s); positive control of 08:52 ET unchanged (same build) |
+| 10:15 watcher, chip 1 | `TT_METAL_WATCHER=10` on traced decode, stress, PCC, sharded contract, block-64 long lead | 9 passed (113.0 s); 3 dumps, 0 fatal-pattern matches |
+| 10:08 host tests | `-k 'host or audit'` | 3 passed |
+| 10:00 context contract | `check_context_contract.py … --stage optimized-decoder --require-contract --strict-caps` | `Context contract OK … supported=40960` |
+
+Items closed: 1 (padded users: clamp, test, watcher), 2 (short chunks:
+interleaved copy, before/after rows, byte budget), 3 (1024-row config
+sweep), 4 (per-user bar 0.995 restored with the same-input HF control; the
+cause, the BFP8 cache, removed), 5 (63-lead-row test). Push state closed
+(section 6).

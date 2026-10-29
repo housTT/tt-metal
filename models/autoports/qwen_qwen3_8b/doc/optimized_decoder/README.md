@@ -32,9 +32,9 @@ the module for the accuracy stages).
 | MLP down projection | BFP8 | LoFi, 1 reader | LoFi, fp32 | row `32 x 12288 x 4096`, `LoFi BF16 x BFP8_B` |
 | activations, residual stream | BF16 | | | |
 | RMSNorm (input, post-attention, Q, K), RoPE, cache update, SDPA | BF16 | HiFi4, fp32 accumulation | HiFi4, fp32 | `LayerNormDeviceOperation`, `SdpaDecodeDeviceOperation` rows |
-| KV cache | BFP8 (tests default; BF16 remains supported) | | | `trace_full_attention_batch*.json` provenance `kv_cache_dtype` |
+| KV cache | BF16 (BFP8 measured and rejected: one 32-token-prefix user at PCC 0.9942 against HF, work log 8.4) | | | `trace_full_attention_batch*.json` provenance `kv_cache_dtype` |
 
-Weight bytes per decoded token: 180 MB (fused decoder: 386 MB BF16).
+Weight bytes per decoded token: 180 MB (fused decoder: 386 MB BF16); resident weight bytes 360 MB per layer with the interleaved prefill copy (work log section 8 has the DRAM budget).
 
 ### Decode layout (batch 1 to 32 users; the activation is one 32-row tile)
 
@@ -59,23 +59,32 @@ Weight bytes per decoded token: 180 MB (fused decoder: 386 MB BF16).
   functional contract: one `interleaved_to_sharded` at entry, one
   `sharded_to_interleaved` plus a row slice at exit) or a residual already in
   `decode_residual_memory_config` (`[1, 1, 32, 4096]`, users in the first
-  physical-batch rows), which it returns in the same layout. The second form
-  is the layer-stack contract for the full-model stage;
-  `test_sharded_residual_contract` proves it equals the DRAM contract at
-  batches 1, 8 and 32 (`sharded_residual_full_attention.json`).
+  physical-batch rows, padded users at position -1 with any page-table row;
+  their RoPE index is clamped to 0 on device), which it returns in the same
+  layout. The second form is the layer-stack contract for the full-model
+  stage; `test_sharded_residual_contract` proves it equals the DRAM contract
+  at batches 1, 8, 13 (run as 16 with padded users) and 32
+  (`sharded_residual_full_attention.json`), also under the watcher.
 * Head split, Q/K norm, RoPE, the fused K/V cache update and SDPA (8x8 grid,
   q chunk 32, k chunk from the page-table extent, HiFi4) are the stage-2 ops.
 
 ### Prefill
 
-The stage-2 `minimal_matmul` kernels read the DRAM-sharded BFP8/BFP4 weights
-directly (within 3 percent of interleaved weights at 1024 rows, same PCC) at
-LoFi with fp32 accumulation. The residual projections use `minimal_matmul`
+Chunks up to 256 rows run `ttnn.linear` on an interleaved copy of each
+projection weight (`OptimizedPolicy.prefill_interleaved_copy_max_rows`; 0
+drops the copy): the DRAM-sharded read is 1.3x to 2x slower than the stage-2
+kernels at those sizes (work log 3.10, 8.2). Longer chunks run the stage-2
+`minimal_matmul` kernels on the DRAM-sharded BFP8/BFP4 weights (within 3
+percent of interleaved weights at 1024 rows, same PCC; a 54-config
+`MinimalMatmulConfig` sweep at 1024 rows does not beat the default, work log
+8.3) at LoFi with fp32 accumulation. The residual projections use the matmul
 plus `ttnn.add` because the stage-2 addcmul-fused kernel needs equal weight
 and residual tile sizes. A tile-unaligned continuation writes its leading
 cache rows with one fused K/V update per token over a prepared pseudo-user
-tensor (3 ops per token instead of 13; a single batched call is a data race
-because the update kernel rewrites whole cache tiles).
+tensor, in groups of up to 32 rows (3 ops per token instead of 13; the
+one-hot position vector is a slice of one `ttnn.arange` row because
+`moreh_full` of a scalar trips the watcher; a single batched call is a data
+race because the update kernel rewrites whole cache tiles).
 
 ## Operation-topology audit of the measured decode path
 
@@ -114,22 +123,22 @@ Every table lives in `work_log.md` with its script and log under
 
 Acceptance bars: output PCC >= 0.995 and layer-contribution ("delta") PCC
 >= 0.99 against the float32 HF layer. Every row below was produced by the
-committed optimized decoder (`provenance.decoder == "optimized"`,
-`optimized_decoder_sha256` in each JSON).
+committed optimized decoder (commit `18aac30c2f`; `provenance.decoder == "optimized"`,
+`optimized_decoder_sha256 e4021be7d381…` and `test_sha256 b509901be226…` in each JSON).
 
 | Gate | Result | Artifact |
 | --- | --- | --- |
-| layer 0 prefill 1024 / decode x2 | PCC 0.999186 (delta 0.999127) / 0.999571, 0.999071 (delta 0.999547, 0.999015); repeat bit-equal | `pcc_layer0_full_attention.json` |
-| layer 17 prefill 1000 / decode x2 (real captured activations) | PCC 0.999979 (delta 0.996280) / 0.999621, 0.999646 (delta 0.996109, 0.996703) | `pcc_layer17_full_attention.json` |
-| 19 boundary lengths (1 .. 8225, 33 after 8225) | worst prefill PCC 0.998907 (delta 0.998840), worst decode-after PCC 0.998347 (delta 0.998284) | `prefill_boundaries_full_attention.json` |
+| layer 0 prefill 1024 / decode x2 | PCC 0.999632 (delta 0.999615) / 0.999740, 0.999544 (delta 0.999724, 0.999519); repeat bit-equal | `pcc_layer0_full_attention.json` |
+| layer 17 prefill 1000 / decode x2 (real captured activations) | PCC 0.999979 (delta 0.996277) / 0.999623, 0.999642 (delta 0.996188, 0.996680) | `pcc_layer17_full_attention.json` |
+| 19 boundary lengths (1 .. 8225, 33 after 8225) | worst prefill PCC 0.999570 (delta 0.999552), worst decode-after PCC 0.998814 (delta 0.998773) | `prefill_boundaries_full_attention.json` |
 | continuation at starts 32, 37, 1000, 4096, 4101, 4499 | passed at every start (window row-delta bar 0.98, no-history and fresh-suffix controls below the bar) | `prefill_continuation_full_attention.json` |
 | multi-row prefill (5, 200, 4097, 33@70) | every row at the HF bar, zero padding verified | `prefill_multi_row_full_attention.json` |
-| block size 64 | continuation and decode-after at the HF bar with 64-row blocks | `block64_full_attention.json` |
-| traced decode batches 1, 13, 31, 32 | eager PCC >= 0.997884, replay == eager (1.0), repeat bit-equal, refreshed-input steps PCC >= 0.996113 and differ | `trace_full_attention_batch{1,13,31,32}.json` |
-| advertised context 40960 and 40959 prefill, batch-32 decode at 40959 | passed; window PCC >= 0.998947 (delta >= 0.998875) at 40960 and 40959; batch-32 decode at 40959 with the BFP8 cache, replay == eager | `prefill_capacity_full_attention_{40960,40959}.json`, `advertised_context_decode_full_attention.json` |
-| optimized versus fused on device (prefill 1024, 300, 37, 4500@37, 200@4101; decode; batch 32) | prefill PCC >= 0.998998 (delta >= 0.998945), K/V caches >= 0.999912, decode PCC >= 0.99755 (delta >= 0.99733); batch-32 per-user decode PCC >= 0.994569 (delta >= 0.994287) against the fused BF16 decoder (bar 0.99 for this diagnostic; the HF bars above are the acceptance gates) | `optimized_vs_fused_full_attention.json` |
-| sharded residual contract, batches 1, 8, 32 | bit-equal to the DRAM contract (PCC 1.0) at batches 1, 8, 32 | `sharded_residual_full_attention.json` |
-| stress: 10 repeated prefills, 50 same-input replays, 48 refreshed decode steps (batch 8) | prefill bit-equal, replays bit-equal, worst step PCC 0.997209, all finite | `stress_full_attention.json` |
+| block size 64, start 37 (27 lead rows) and start 1 (63 lead rows, two pseudo-user groups) | at the HF bar; 63-row case: continuation PCC 0.999650 (delta 0.999632), decode after 0.999701 (delta 0.999671) | `block64_full_attention.json`, `block64_long_lead_full_attention.json` |
+| traced decode batches 1, 13, 31, 32 | eager PCC >= 0.999072, replay == eager (1.0), repeat bit-equal, refreshed-input steps PCC >= 0.998851 and differ | `trace_full_attention_batch{1,13,31,32}.json` |
+| advertised context 40960 and 40959 prefill, batch-32 decode at 40959 | passed; window PCC >= 0.999570 at 40960 and 40959; batch-32 decode at 40959, replay == eager | `prefill_capacity_full_attention_{40960,40959}.json`, `advertised_context_decode_full_attention.json` |
+| optimized versus fused on device (prefill 1024, 300, 37, 4500@37, 200@4101; decode; batch 32) | prefill PCC >= 0.999576 (delta >= 0.999558), K/V caches >= 0.999950, decode PCC >= 0.999071 (delta >= 0.999040); batch-32 per user: >= 0.999232 against the fused decoder, >= 0.999202 against HF on the same inputs (fused: >= 0.999932); bars 0.995 | `optimized_vs_fused_full_attention.json` |
+| sharded residual contract, batches 1, 8, 13 (as 16 with padded users), 32 | bit-equal to the DRAM contract (PCC 1.0) in every case, also under the tracker and the watcher | `sharded_residual_full_attention.json` |
+| stress: 10 repeated prefills, 50 same-input replays, 48 refreshed decode steps (batch 8) | prefill bit-equal, replays bit-equal, worst step PCC 0.999100, all finite | `stress_full_attention.json` |
 
 ## Performance evidence (same chip, same build, separate processes)
 
@@ -137,36 +146,38 @@ Layer 0, real weights, Tracy device time summed over the signposted window
 (`perf/README.md` has the commands); host wall times from
 `layer0_full_attention_seq1024_batch{1,32}_host_timings*.json`.
 
-| Window | Before (fused, `perf/before/`) | After (optimized, `perf/full_attention/`) | Ratio |
+| Window | Before (fused, `perf/before/`) | After (optimized, `perf/full_attention/`, `perf/short_prompts/`) | Ratio |
 | --- | ---: | ---: | ---: |
-| warmed prefill, 1024 tokens | 19 ops, 4,814 us device, 5.19 ms host | 23 ops, 2,990 us, 3.23 ms | 1.61x device |
-| warmed continuation prefill, 100 tokens at start 37 | 381 ops, 2,864 us, 5.64 ms | 124 ops, 2,282 us, 3.85 ms | 1.26x device, 1.47x host |
-| warmed traced decode, batch 1, position 1024 | 29 ops, 1,257 us, 1.321 ms | 33 ops, 538 us, 0.646 ms | 2.34x device, 2.04x host |
-| warmed traced decode, batch 32, positions 1024 | 30 ops, 1,818 us, 1.886 ms | 32 ops, 1,059 us, 1.126 ms | 1.72x device |
+| warmed prefill, 1024 tokens | 19 ops, 4,814 us device, 5.19 ms host | 21 ops, 2,996 us, 3.25 ms | 1.61x device |
+| warmed first prefill, 64 / 128 / 256 tokens | 1,359 / 1,587 / 2,082 us | 1,062 / 1,310 / 2,105 us | 1.28x / 1.21x / 0.99x |
+| warmed continuation prefill, 100 tokens at start 37 | 381 ops, 2,864 us, 5.64 ms | 122 ops, 1,766 us | 1.62x device |
+| warmed traced decode, batch 1, position 1024 | 29 ops, 1,257 us, 1.321 ms | 33 ops, 543 us, 0.637 ms | 2.31x device, 2.07x host |
+| warmed traced decode, batch 32, positions 1024 | 30 ops, 1,818 us, 1.886 ms | 32 ops, 1,096 us, 1.166 ms | 1.66x device |
 
 Dominant decode rows at batch 1 (`perf/full_attention/decode_batch1.txt`):
 
-| Row | dtype, fidelity | cores (readers) | time | bandwidth |
+| Row | dtype, fidelity | DRAM readers per bank (compute cores) | time | bandwidth |
 | --- | --- | --- | ---: | ---: |
-| QKV `32 x 4096 x 6144` | BF16 x BFP8, LoFi | 8 (1 per bank) | 58 us | 432 GB/s (84 percent) |
-| O `32 x 4096 x 4096` | BF16 x BFP8, LoFi | 8 | 42 us | 404 GB/s (79 percent) |
-| gate `32 x 4096 x 12288` | BF16 x BFP8, LoFi | 8 | 113 us | 445 GB/s (87 percent) |
-| up `32 x 4096 x 12288` | BF16 x BFP4, LoFi | 24 (3 per bank) | 68 us | 368 GB/s (72 percent) |
-| down `32 x 12288 x 4096` | BF16 x BFP8, LoFi | 8 | 110 us | 458 GB/s (89 percent) |
+| QKV `32 x 4096 x 6144` | BF16 x BFP8, LoFi | 1 (8) | 58 us | 432 GB/s (84 percent) |
+| O `32 x 4096 x 4096` | BF16 x BFP8, LoFi | 1 (8) | 41 us | 404 GB/s (79 percent) |
+| gate `32 x 4096 x 12288` | BF16 x BFP8, LoFi | 1 (8) | 113 us | 445 GB/s (87 percent) |
+| up `32 x 4096 x 12288` | BF16 x BFP4, LoFi | 3 (24; the report column shows the 8 bank readers) | 68 us | 368 GB/s (72 percent) |
+| down `32 x 12288 x 4096` | BF16 x BFP8, LoFi | 1 (8) | 113 us | 458 GB/s (89 percent) |
 | SDPA decode | BF16, HiFi4 | 64 | 44 us | |
 | RMSNorm x2 (sharded) | BF16, HiFi4 | 33 | 7 + 8 us | |
 | head split (L1 interleaved input) | BF16 | 1 | 17 us | |
-| SiLU-gated multiply | BF16 | 32 | 21 us | |
+| SiLU-gated multiply | BF16 | 32 | 23 us | |
 
 Performance accounting (decode, batch 1, same run): roofline 180 MB of
-weights plus 0.5 MB of KV reads at 512 GB/s = 352 us; device time 538 us
-(65 percent of roofline; the five matmuls alone are 391 us, 90 percent of
-their own roofline); end-to-end traced replay 646 us on the host (108 us of
-replay launch and readback on top of the device window, measured with a
-blocking `ttnn.execute_trace`). The remaining device gap is the 147 us of
-non-matmul ops (SDPA 44, head split 17, SiLU 21, norms 15, RoPE gather and
-layout 18, cache update 8, adds and conversions 24); the sharded-input head
-split would save 13 us but trips the watcher (tt-metal kernel item).
+weights plus 0.5 MB of KV reads at 512 GB/s = 352 us; device time 543 us
+(65 percent of roofline; the five matmuls alone are 393 us, 90 percent of
+their own roofline); end-to-end traced replay 637 us on the host (one
+blocking `ttnn.execute_trace` under Tracy; 94 us of replay launch and
+readback on top of the device window). The remaining device gap is the 150
+us of non-matmul ops (SDPA 44, SiLU-mul 23, head split 17, norms 15, RoPE
+gather and layout 18, cache update 8, adds and conversions 25); the
+sharded-input head split would save 13 us but trips the watcher (tt-metal
+kernel item).
 
 ## Checklist (optimize skill)
 
@@ -192,12 +203,12 @@ split would save 13 us but trips the watcher (tt-metal kernel item).
 | MoE, LM head, sampling, batched prefill, perf_summary.json | not applicable to a dense decoder layer stage |
 | Reduced precision experiments with real weights | done (3.8, 3.9, 3.11) |
 | Performance accounting reconciled | done (performance evidence above) |
-| Batch capability preserved | done: batches 1, 13, 31, 32 traced; batch-32 full context; batch-32 profile |
-| Stress and watcher-clean run | done: `stress_full_attention.json`, `watcher/summary.json` |
+| Batch capability preserved | done: batches 1, 13, 31, 32 traced; batch-32 full context; batch-32 profile; padded batch 13 on the sharded contract |
+| Stress and watcher-clean run | done: `stress_full_attention.json`; `watcher/summary.json` (9 tests including the padded-user sharded contract and the 63-lead-row continuation, 0 fatal patterns) |
 
 ## Rejected candidates (with evidence)
 
-Kept after measurement: BFP8 KV cache (2 to 3 percent faster at batch 32, half the cache bytes, PCC above the bars; work log 3.11), LoFi for every BFP8/BFP4 matmul in decode and prefill (3.8, 3.9), one DRAM reader for BFP8 rows and three for the BFP4 up row (3.4), the fused K/V cache update (3.6).
+Kept after measurement: LoFi for every BFP8/BFP4 matmul in decode and prefill (3.8, 3.9), one DRAM reader for BFP8 rows and three for the BFP4 up row (3.4), the fused K/V cache update (3.6), the interleaved prefill weight copy for chunks up to 256 rows (8.2).
 
 | Candidate | Result | Evidence |
 | --- | --- | --- |
@@ -213,7 +224,8 @@ Kept after measurement: BFP8 KV cache (2 to 3 percent faster at batch 32, half t
 | 8-core / 64-core activation grids | 8 cores: L1 blockers at the larger blocks and no gain; 64 cores: 2-tile shards, slower | 3.1, 3.4 |
 | SDPA 11x10 grid, k chunk 256/512, exp approx, HiFi2 | slower, or wrong at batch 32 (11x10, PCC 0.855), or 2 us for a precision drop | 3.2 |
 | SiLU fused into the gate matmul; `ttnn.silu` then `mul` | 32 us slower; equal | 3.5, 3.10 |
-| second interleaved weight copy for short prefill chunks | 2x faster matmuls at 64 to 256 rows but 6.5 GB more DRAM over 36 layers | 3.10 |
+| BFP8 KV cache | 2 to 3 percent faster at batch 32, half the cache bytes, but one user with a 32-token prefix falls to PCC 0.9942 against HF (0.9993 with BF16; same drop with all-BFP8 weights) | 3.11, 8.4, `experiments/exp10.json` |
+| `MinimalMatmulConfig` sweep at 1024 rows (54 configs per role) | none beats the op default (QKV 283, O 193, gate 494, up 463, down 500 us) | 8.3, `experiments/exp9.json` |
 | explicit `MinimalMatmulConfig` for short chunks | 15 to 35 percent slower than the default | 3.10 |
 | `dit_minimal_matmul_addcmul_fused` with BFP8/BFP4 weights | op contract: residual tile size must equal the weight tile size | 3.5 |
 | `ttnn.linear` on DRAM-sharded weights for prefill | TT_FATAL (auto config) or circular-buffer errors (1D configs) | 3.10 |
@@ -226,19 +238,19 @@ Kept after measurement: BFP8 KV cache (2 to 3 percent faster at batch 32, half t
 
 - `test_optimized_hot_path_fallback_audit`: no torch, `from_torch`, `to_torch`, host `ttnn.full`, `.cpu()`, `to_device` or synchronization in any hot method. Tracy: every op in the six windows is a device op.
 - No tilize/untilize beyond the row-major RoPE table gather (one tilize per table, stage 1), no reshard beyond the fused V move, one DRAM conversion at entry and at exit of the DRAM contract (absent from the layer-stack contract).
-- Trace allocation tracking (`trace_alloc_tracking/console.log`): traced decode batches 1, 13, 31, 32, the stress test and the sharded-residual test pass under `TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0` (`*.tracked.json`); `trace_alloc_tracking/positive_control.log` shows the tracker raising on a deliberately live buffer in the same environment. No corruptible-buffer acknowledgment or allocation scope is used.
-- Watcher (`watcher/summary.json`): traced decode batches 1, 13, 31, 32, the stress test and both PCC tests pass with `TT_METAL_WATCHER=10` (`*.watcher.json`); `watcher/generated/watcher/watcher.log` holds the last device session (3 dumps, 0 fatal-pattern matches). The sharded-input head-split reader that trips the watcher is not on the shipped path.
+- Trace allocation tracking (`trace_alloc_tracking/console.log`): traced decode batches 1, 13, 31, 32, the stress test and the sharded-residual test (batches 1, 8, 13 as 16, 32) pass under `TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0` (`*.tracked.json`); `trace_alloc_tracking/positive_control.log` shows the tracker raising on a deliberately live buffer in the same environment. No corruptible-buffer acknowledgment or allocation scope is used.
+- Watcher (`watcher/summary.json`): traced decode batches 1, 13, 31, 32, the stress test, both PCC tests, the sharded residual contract (padded users) and the 63-lead-row continuation pass with `TT_METAL_WATCHER=10` (`*.watcher.json`); `watcher/generated/watcher/watcher.log` holds the last device session (3 dumps, 0 fatal-pattern matches). Two ops that trip the watcher are off the shipped path: the sharded-input head-split readers and `moreh_full` of a scalar (work log 3.14, 8.6).
 - Determinism: repeated prefill bit-equal, repeated replay bit-equal, sharded contract bit-equal to the DRAM contract.
 - Host-work counters for the traced decode loop (`test_traced_decode`): one capture per batch size, three measured replays, token and current_pos refreshed by `ttnn.copy_host_to_device_tensor` only when the test changes them, page table never refreshed after setup, no synchronization inside the replayed region; positions advance on the host in this layer-level harness (the generator stage owns on-device advancement).
 
 ## Limitations
 
-- The continuation window at a tile-unaligned start still spends 3 ops per lead row (27 rows at start 37) and 1.3 ms of host op-to-op gap in eager prefill; one batched call is unsafe (3.5).
-- Prefill chunks of 64 to 256 rows run the `minimal_matmul` kernels on the DRAM-sharded weights at 30 percent below their interleaved-weight speed; the single-copy weight policy is a deliberate capacity tradeoff (3.10).
+- The continuation window at a tile-unaligned start still spends 3 ops per lead row (27 rows at start 37) and more than 1 ms of host op-to-op gap in eager prefill; one batched call is unsafe (3.5), and a 2-op variant (one-hot rows built once per group) is the next lever.
+- Prefill chunks up to 256 rows need the interleaved weight copy (another 180 MB per layer, 6.47 GB over 36 layers; budget in work log section 8); with `prefill_interleaved_copy_max_rows=0` they fall back to `minimal_matmul` on the DRAM-sharded weights, 15 to 20 percent slower than stage 2 at 64 to 128 rows (3.10, 8.2).
 - `nlp_create_qkv_heads_decode` reads its input from L1 interleaved (17 us) instead of the 7-us sharded read because both sharded-input readers trip the watcher (3.14).
 - The SiLU-gated multiply costs 21 us on 32 cores (SFPU bound); fusing it into the matmul is slower (3.10).
-- The per-user decode PCC against the fused BF16 decoder reaches 0.9946 for one of 32 users with 32-token prefixes (HF PCC 0.9961 for the same batch); the diagnostic bar is 0.99.
-- SDPA decode at batch 32 is 54 percent of the batch-32 window at 1024-token contexts and 4 ms at 8192-token contexts, with the BFP8 cache saving only 3 percent there: a tt-metal SDPA-decode kernel item, not a layout item (3.11).
+- Short prefixes are the precision-sensitive case: with a BFP8 cache one 32-token-prefix user fell to PCC 0.9942 against HF; with the BF16 cache the batch-32 minimum is 0.9992 (`optimized_vs_fused_full_attention.json`, per-user HF control).
+- SDPA decode at batch 32 is 52 percent of the batch-32 window at 1024-token contexts and 4.9 ms at 8192-token contexts; a BFP8 cache saved only 3 percent there (3.11): a tt-metal SDPA-decode kernel item, not a layout item.
 - Rows of the 32-row residual tile past the physical batch hold whatever the producer left there; every decode op is row-independent and `test_sharded_residual_contract` and the padded-batch traced tests cover it, but a future op that reduces across rows would need the zero fill restored.
 
 ## Reproduction
@@ -246,15 +258,15 @@ Kept after measurement: BFP8 KV cache (2 to 3 percent faster at batch 32, half t
 From the checkout root with the stage environment (`TT_METAL_HOME`,
 `PYTHONPATH`, `TT_MESH_GRAPH_DESC_PATH` for the p150 profile,
 `TTNN_CONFIG_OVERRIDES='{"throw_exception_on_fallback":true}'`,
-`TT_VISIBLE_DEVICES=<chip>`; `QWEN3_KV_CACHE_DTYPE=bf16` selects the BF16
-cache):
+`TT_VISIBLE_DEVICES=<chip>`; `QWEN3_KV_CACHE_DTYPE=bfp8` selects the rejected BFP8
+cache for experiments):
 
 ```bash
 python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_optimized_decoder.py -k 'not host and not audit and not perf_profile' -p no:cacheprovider
 python -m pytest -q models/autoports/qwen_qwen3_8b/tests/test_optimized_decoder.py -k 'host or audit' -p no:cacheprovider
 QWEN3_CONTEXT_TESTS=1 python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_optimized_decoder.py -k advertised_context -p no:cacheprovider
 TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0 QWEN3_EVIDENCE_SUFFIX=tracked python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_optimized_decoder.py -k 'test_traced_decode or test_repeated_runs_stress or test_sharded_residual_contract' -p no:cacheprovider
-TT_METAL_WATCHER=10 TT_METAL_LOGS_PATH=models/autoports/qwen_qwen3_8b/doc/optimized_decoder/watcher QWEN3_EVIDENCE_SUFFIX=watcher python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_optimized_decoder.py -k 'test_traced_decode or test_repeated_runs_stress or test_real_weights_prefill_decode_pcc' -p no:cacheprovider
+TT_METAL_WATCHER=10 TT_METAL_LOGS_PATH=models/autoports/qwen_qwen3_8b/doc/optimized_decoder/watcher QWEN3_EVIDENCE_SUFFIX=watcher python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_optimized_decoder.py -k 'test_traced_decode or test_repeated_runs_stress or test_real_weights_prefill_decode_pcc or test_sharded_residual_contract or test_block64_long_lead_rows' -p no:cacheprovider
 ```
 
 Profiler commands are in `perf/README.md`; every command run, with times and
@@ -262,10 +274,11 @@ logs, is in `work_log.md`.
 
 ## Artifact index
 
-- `*.json`: default-suite evidence (optimized decoder, BFP8 cache), each with provenance (functional, fused and optimized decoder hashes, test hash, git SHA, device, policy, cache dtype, exact command, environment). `*.tracked.json` and `*.watcher.json` are the tracker and watcher runs of the same tests; `*.fused_before.json` are the fused-baseline host timings.
+- `*.json`: default-suite evidence (optimized decoder, BF16 cache), each with provenance (functional, fused and optimized decoder hashes, test hash, git SHA, device, policy, cache dtype, exact command, environment). `*.tracked.json` and `*.watcher.json` are the tracker and watcher runs of the same tests; `*.fused_before.json` are the fused-baseline host timings.
 - `optimized_vs_fused_full_attention.json`, `sharded_residual_full_attention.json`, `stress_full_attention.json`: optimized-specific gates.
 - `perf/before/`, `perf/full_attention/`: tt-perf-report tables (advice enabled) and CSV before and after, batch 1 and 32; `perf/README.md`: commands and conclusions.
 - `trace_alloc_tracking/`, `watcher/`: debug-gate runs; `logs/`: filtered console logs of the final battery and profiles.
-- `experiments/`: the scripts, JSON results and filtered logs behind every kept and rejected candidate (exp1 decode matmuls, exp2 small ops, exp3 prefill and contracts, exp4 SDPA A/B with its tt-perf-report tables, exp5 whole-layer policies, exp6 layout and short chunks, exp7 KV-cache dtype, exp8 head-split input under the watcher).
+- `experiments/`: the scripts, JSON results and filtered logs behind every kept and rejected candidate (exp1 decode matmuls, exp2 small ops, exp3 prefill and contracts, exp4 SDPA A/B with its tt-perf-report tables, exp5 whole-layer policies, exp6 layout and short chunks, exp7 KV-cache dtype, exp8 head-split input under the watcher, exp9 1024-row `MinimalMatmulConfig` sweep, exp10 short-prefix cache attribution, exp11 one-hot position construction under the watcher).
+- `perf/short_prompts/`: first-prefill tables at 64, 128 and 256 tokens, before and after.
 - `triage/repro_cached_tensor_to_device_hang.py`: minimal repro of the tt-metal host stall on a cached-tensor device write (work log section 4).
 - `../context_contract.json`: `optimized_decoder` section (weight and cache dtypes, bytes, residual layout).
