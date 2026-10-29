@@ -27,7 +27,7 @@ from __future__ import annotations
 import math
 import os
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, List, Optional, Sequence
@@ -41,14 +41,17 @@ from models.autoports.qwen_qwen3_8b.tt.model import (
     DECODE_BUCKETS,
     PREFILL_BUCKETS,
     PREFILL_CHUNK,
+    PREFILL_CHUNK_STARTS,
     Qwen3Model,
     decode_bucket,
 )
+from models.autoports.qwen_qwen3_8b.tt.optimized_decoder import DEFAULT_POLICY
 from models.common.sampling import SamplingGenerator, SamplingParams, format_sampling_params
 
 SLOT_WIDTH = 32
 MAX_TOP_K = 32
-DEFAULT_WARMUP_PREFILL_LENGTHS = PREFILL_BUCKETS + tuple(range(2 * PREFILL_CHUNK, 40960 + 1, PREFILL_CHUNK))
+DEFAULT_WARMUP_PREFILL_LENGTHS = PREFILL_BUCKETS
+DEFAULT_WARMUP_CHUNK_STARTS = PREFILL_CHUNK_STARTS[1:]
 COUNTER_NAMES = (
     "decode_trace_replays",
     "sampling_trace_replays",
@@ -100,6 +103,7 @@ class Qwen3Generator(Generator):
         kv_cache_dtype: ttnn.DataType = ttnn.bfloat16,
         decode_buckets: Sequence[int] = DECODE_BUCKETS,
         warmup_prefill_lengths: Sequence[int] = DEFAULT_WARMUP_PREFILL_LENGTHS,
+        warmup_chunk_starts: Sequence[int] = DEFAULT_WARMUP_CHUNK_STARTS,
         allow_force_argmax: bool = False,
         prepare: bool = True,
         log: Callable[[str], None] = print,
@@ -126,6 +130,7 @@ class Qwen3Generator(Generator):
         self.allow_force_argmax = allow_force_argmax
         self.decode_buckets = tuple(sorted({decode_bucket(b, model.grid.x, model.grid.y) for b in decode_buckets}))
         self.warmup_prefill_lengths = tuple(warmup_prefill_lengths)
+        self.warmup_chunk_starts = tuple(warmup_chunk_starts)
         self._bound_cache_id = None
         self._sampling_signature = None
         self.sampling = SamplingGenerator(args=self._sampling_args(), mesh_device=mesh_device, tt_ccl=None)
@@ -161,7 +166,7 @@ class Qwen3Generator(Generator):
 
     def _sampling_args(self) -> SimpleNamespace:
         return SimpleNamespace(
-            vocab_size=self.model.vocab_size,
+            vocab_size=self.model.padded_vocab_size,
             padded_vocab_size=self.model.padded_vocab_size,
             cluster_shape=list(self.mesh_device.shape),
             max_batch_size=SLOT_WIDTH,
@@ -204,6 +209,28 @@ class Qwen3Generator(Generator):
             self.log(f"warmup prefill {length}")
             self.reset()
             self.generate_prefill_only(list(range(1, length + 1)))
+        self.reset()
+        chunk_lengths = [b for b in self.warmup_prefill_lengths if b <= PREFILL_CHUNK]
+        if self.warmup_chunk_starts:
+            scratch_table = ttnn.from_torch(
+                torch.full((1, self.page_table_width), self.scratch_block, dtype=torch.int32),
+                dtype=ttnn.int32,
+                layout=ttnn.ROW_MAJOR_LAYOUT,
+                device=self.mesh_device,
+            )
+            for start in self.warmup_chunk_starts:
+                self.log(f"warmup chunk pieces at start {start}: {chunk_lengths}")
+                for length in chunk_lengths:
+                    hidden = self.model.prefill_hidden(
+                        list(range(1, length + 1)),
+                        start_pos=start,
+                        user_slot=0,
+                        page_table=scratch_table,
+                        kv_cache=self.kv_cache,
+                        compute_len=length,
+                    )
+                    hidden.deallocate(True)
+            scratch_table.deallocate(True)
         rows = SLOT_WIDTH
         self.log(f"warmup multi-row prefill {rows} rows")
         self.reset()
@@ -550,10 +577,11 @@ class Qwen3Generator(Generator):
             ids = tokens[i, starts[i] : ends[i]].tolist()
             tt_table = row_table(i)
             hidden = self.model.prefill_hidden(
-                ids, start_pos=starts[i], user_slot=0, page_table=tt_table, kv_cache=kv_cache
+                ids, start_pos=starts[i], user_slot=0, page_table=tt_table, kv_cache=kv_cache, keep_all_rows=False
             )
             tt_table.deallocate(True)
-            pieces.append(self.model.gather_rows(hidden, [len(ids) - 1]))
+            offset = self.model.prefill_row_offset(len(ids), starts[i])
+            pieces.append(self.model.gather_rows(hidden, [len(ids) - 1 - offset]))
             hidden.deallocate(True)
         tile = self.model.rows_to_tile(pieces)
         for piece in pieces:
@@ -853,6 +881,15 @@ def build_generator(model_dir: str | Path, mesh_device, **kwargs) -> Qwen3Genera
         for key in ("num_layers", "policy", "terminal_policy", "tensor_cache_path")
         if key in kwargs
     }
+    if "policy" not in model_kwargs:
+        policy_overrides = {}
+        if "QWEN3_PREFILL_KERNEL_TABLE" in os.environ:
+            policy_overrides["prefill_kernel_table"] = os.environ["QWEN3_PREFILL_KERNEL_TABLE"]
+        if "QWEN3_PREFILL_SHARDED_NORM_MAX_ROWS" in os.environ:
+            policy_overrides["prefill_sharded_norm_max_rows"] = int(os.environ["QWEN3_PREFILL_SHARDED_NORM_MAX_ROWS"])
+        if policy_overrides:
+            model_kwargs["policy"] = replace(DEFAULT_POLICY, **policy_overrides)
+            log(f"decoder policy overrides from the environment: {policy_overrides}")
     if "terminal_policy" not in model_kwargs:
         overrides = {
             name: os.environ[env]

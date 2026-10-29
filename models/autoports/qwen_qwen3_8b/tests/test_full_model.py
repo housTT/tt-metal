@@ -152,7 +152,12 @@ def test_split_sampling_trace(generator):
         consumed_pos = int(_tensor(gen, "current_pos")[0])
         out = gen._replay(state, "device", gen.kv_cache)
         sampled = int(gen._read_tokens(state, 1)[0])
-        logits = ttnn.to_torch(out)[0, 0, 0, : gen.model.vocab_size].float()
+        full_row = ttnn.to_torch(out)[0, 0, 0].float()
+        logits = full_row[: gen.model.vocab_size]
+        if gen.model.padded_vocab_size > gen.model.vocab_size:
+            tail = full_row[gen.model.vocab_size :]
+            assert float(tail.max()) < -1e38, "padded vocab columns of the sampler-ready logits are not masked"
+            assert sampled < gen.model.vocab_size
         after_pos = int(_tensor(gen, "current_pos")[0])
         record["steps"].append(
             {
@@ -296,6 +301,8 @@ def test_multi_row_prefill_equals_solo(generator):
 @pytest.mark.parametrize("batch", [8, 16, 24, 32])
 def test_batch_decode(generator, batch):
     gen = generator
+    if batch not in gen.decode_buckets:
+        pytest.skip(f"decode bucket {batch} is not allocated in this probe (buckets {gen.decode_buckets})")
     tok = gen.tokenizer
     steps = 32
     lengths = [[5, 33, 127, 129, 31, 64, 200, 17][i % 8] for i in range(batch)]
@@ -492,10 +499,11 @@ def test_tracked_replay_workload(generator):
         )
         log.append({"kind": f"prefill_{rows_n}_rows_after_capture", "tokens": out.tolist()})
     if FULL:
-        gen.reset()
-        long_prompt = _book_ids(tok, 8192, offset=3000)
-        out = gen.generate(long_prompt, 4, next_input=None, enable_trace=True, stop_on_eos=False)
-        log.append({"kind": "generate_8192_after_capture", "tokens": out})
+        for long_len in (8192, 5000, 12345):
+            gen.reset()
+            long_prompt = _book_ids(tok, long_len, offset=3000)
+            out = gen.generate(long_prompt, 4, next_input=None, enable_trace=True, stop_on_eos=False)
+            log.append({"kind": f"generate_{long_len}_after_capture", "tokens": out})
     entries_after = gen.mesh_device.num_program_cache_entries()
     log.append({"kind": "program_cache_entries", "before": entries_before, "after": entries_after})
     assert entries_after == entries_before, (entries_before, entries_after)

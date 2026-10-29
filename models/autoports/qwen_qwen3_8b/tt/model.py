@@ -50,8 +50,9 @@ from models.autoports.qwen_qwen3_8b.tt.optimized_decoder import (
     width_sharded_memory_config,
 )
 
-PREFILL_BUCKETS = (32, 64, 128, 256, 512, 1024, 2048, 4096)
+PREFILL_BUCKETS = (32, 64, 128, 256, 512, 1024, 1536, 2048, 3072, 4096)
 PREFILL_CHUNK = 4096
+PREFILL_CHUNK_STARTS = tuple(range(0, 40960, PREFILL_CHUNK))
 LM_HEAD_SPLIT = 16384
 VOCAB_ALIGNMENT = 1024
 DECODE_BUCKETS = (1, 8, 16, 24, 32)
@@ -61,14 +62,28 @@ LOGITS_DTYPES = {"bf16": ttnn.bfloat16, "fp32": ttnn.float32}
 def prefill_compute_len(seq_len: int) -> int:
     """Physical row count a fresh prompt of ``seq_len`` tokens is computed at.
 
-    Lengths up to one physical chunk round up to the next bucket; longer prompts round up to whole
-    4096-token chunks so every chunk uses a program that the 40960-token warmup already compiled.
+    Lengths up to one physical chunk round up to the next bucket; longer prompts are whole 4096-token
+    chunks plus a tail chunk rounded up to a bucket, every piece being a (chunk start, bucket) program set
+    that ``prepare()`` compiles.
     """
     if seq_len < 1:
         raise ValueError("prefill needs at least one token")
     if seq_len <= PREFILL_CHUNK:
         return next(b for b in PREFILL_BUCKETS if b >= seq_len)
-    return round_up(seq_len, PREFILL_CHUNK)
+    full = (seq_len // PREFILL_CHUNK) * PREFILL_CHUNK
+    tail = seq_len - full
+    return full + (prefill_compute_len(tail) if tail else 0)
+
+
+def prefill_pieces(seq_len: int) -> list[tuple[int, int, int]]:
+    """``(start, length, compute_len)`` pieces of a fresh prompt: whole chunks, then the bucketed tail."""
+    pieces = []
+    start = 0
+    while start < seq_len:
+        length = min(PREFILL_CHUNK, seq_len - start)
+        pieces.append((start, length, prefill_compute_len(length)))
+        start += length
+    return pieces
 
 
 def padded_vocab(vocab_size: int) -> int:
@@ -90,7 +105,7 @@ class TerminalPolicy:
     final_norm_dtype: str = "bf16"
     final_norm_fidelity: str = "hifi4"
     lm_head_dtype: str = "bfp8"
-    lm_head_decode_fidelity: str = "hifi2"
+    lm_head_decode_fidelity: str = "lofi"
     lm_head_prefill_fidelity: str = "hifi2"
     lm_head_prefill_fp32_acc: bool = True
     prefill_logits_dtype: str = "fp32"
@@ -221,6 +236,15 @@ class Qwen3Model:
         self.lm_head_output_memory_configs = [
             width_sharded_memory_config(width, policy.residual_cores, self.grid) for width in self.lm_head_widths
         ]
+        self.lm_head_tail_mask = None
+        if self.padded_vocab_size > self.vocab_size:
+            last_width = self.lm_head_widths[-1]
+            mask = torch.zeros(1, 1, TILE_SIZE, last_width, dtype=torch.bfloat16)
+            mask[..., last_width - (self.padded_vocab_size - self.vocab_size) :] = torch.finfo(torch.bfloat16).min
+            self.lm_head_tail_mask = ttnn.to_memory_config(
+                ttnn.from_torch(mask, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=mesh_device),
+                self.lm_head_output_memory_configs[-1],
+            )
         self.eps = g.rms_norm_eps
 
     # ------------------------------------------------------------------ sizes
@@ -290,17 +314,72 @@ class Qwen3Model:
         page_table: ttnn.Tensor,
         kv_cache: list[tuple],
         compute_len: int | None = None,
+        keep_all_rows: bool = True,
     ) -> ttnn.Tensor:
         """Run one row through every layer; returns the final hidden state ``[1, 1, compute_len, H]``.
 
         Rows ``[0, len(token_ids))`` are the prompt; rows past it are padding whose cache writes stay in
-        the row's last block or the scratch block the page table names past the allocation.
+        the row's last block or the scratch block the page table names past the allocation. A fresh row
+        longer than one chunk runs chunk by chunk through the whole stack (each chunk attends to the cache
+        the earlier chunks wrote, which is the order-independent causal result); with ``keep_all_rows``
+        the chunk outputs are concatenated, otherwise only the last piece is returned and
+        ``prefill_row_offset`` gives the absolute index of its first row.
         """
         seq_len = len(token_ids)
         if compute_len is None:
             compute_len = prefill_compute_len(seq_len) if start_pos == 0 else seq_len
         if compute_len < seq_len:
             raise ValueError(f"compute_len {compute_len} < prompt length {seq_len}")
+        if start_pos == 0 and seq_len > PREFILL_CHUNK:
+            outputs = []
+            for piece_start, length, piece_len in prefill_pieces(seq_len):
+                hidden = self._prefill_piece(
+                    token_ids[piece_start : piece_start + length],
+                    start_pos=piece_start,
+                    user_slot=user_slot,
+                    page_table=page_table,
+                    kv_cache=kv_cache,
+                    compute_len=piece_len,
+                )
+                if keep_all_rows:
+                    outputs.append(hidden)
+                else:
+                    if outputs:
+                        outputs[0].deallocate(True)
+                    outputs = [hidden]
+            if len(outputs) == 1:
+                return outputs[0]
+            joined = ttnn.concat(outputs, dim=2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            for piece in outputs:
+                piece.deallocate(True)
+            return joined
+        return self._prefill_piece(
+            token_ids,
+            start_pos=start_pos,
+            user_slot=user_slot,
+            page_table=page_table,
+            kv_cache=kv_cache,
+            compute_len=compute_len,
+        )
+
+    @staticmethod
+    def prefill_row_offset(seq_len: int, start_pos: int = 0, keep_all_rows: bool = False) -> int:
+        """Absolute index of row 0 of the tensor ``prefill_hidden`` returns for this prompt."""
+        if keep_all_rows or start_pos != 0 or seq_len <= PREFILL_CHUNK:
+            return 0
+        return prefill_pieces(seq_len)[-1][0]
+
+    def _prefill_piece(
+        self,
+        token_ids: Sequence[int],
+        *,
+        start_pos: int,
+        user_slot: int,
+        page_table: ttnn.Tensor,
+        kv_cache: list[tuple],
+        compute_len: int,
+    ) -> ttnn.Tensor:
+        """One piece of up to one chunk at absolute ``start_pos`` through every layer."""
         x = self.embed_ids(token_ids, compute_len)
         for layer_idx, layer in enumerate(self.layers):
             y = layer.prefill_forward(
@@ -381,10 +460,15 @@ class Qwen3Model:
         )
 
     def lm_head_decode(self, x: ttnn.Tensor) -> ttnn.Tensor:
-        """Width-sharded ``[1, 1, 32, H]`` residual-layout input to ``[1, 1, 32, padded_vocab]`` DRAM logits."""
+        """Width-sharded ``[1, 1, 32, H]`` residual-layout input to ``[1, 1, 32, padded_vocab]`` DRAM logits.
+
+        The padded vocab columns (ids at or past ``vocab_size``) carry the lowest finite bf16 value, so the
+        returned tile is sampler-ready without a sampler-side mask.
+        """
         pieces = []
-        for weight, program_config, memory_config in zip(
-            self.lm_head_weights, self.lm_head_program_configs, self.lm_head_output_memory_configs
+        last = len(self.lm_head_weights) - 1
+        for index, (weight, program_config, memory_config) in enumerate(
+            zip(self.lm_head_weights, self.lm_head_program_configs, self.lm_head_output_memory_configs)
         ):
             out = ttnn.linear(
                 x,
@@ -394,6 +478,10 @@ class Qwen3Model:
                 dtype=ttnn.bfloat16,
                 memory_config=memory_config,
             )
+            if index == last and self.lm_head_tail_mask is not None:
+                masked = ttnn.add(out, self.lm_head_tail_mask, memory_config=memory_config)
+                out.deallocate(True)
+                out = masked
             piece = ttnn.sharded_to_interleaved(out, ttnn.DRAM_MEMORY_CONFIG)
             out.deallocate(True)
             pieces.append(piece)
