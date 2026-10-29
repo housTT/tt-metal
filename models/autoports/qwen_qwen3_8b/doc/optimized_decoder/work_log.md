@@ -395,10 +395,42 @@ fused decoder's BF16 weights and BF16 cache.
 
 ## 6. Commits and review
 
-Filled in as each step completes.
-
-- `20df38fd5e` (2026 Oct 29, 08:36 ET): `tt/optimized_decoder.py`,
+- `20df38fd5e` (2026 Oct 29, 08:40 ET): `tt/optimized_decoder.py`,
   `tests/test_optimized_decoder.py`, `doc/context_contract.json`.
+- `4f954d78ec` (09:08 ET): `doc/optimized_decoder/` (164 files: evidence
+  JSON, perf tables and CSV, experiments, logs, README, this log).
+- Push state: this stage ran no `git push`. `git reflog show
+  origin/hous/qwen3-8b-autoport` records "update by push" entries to
+  `64f03408f1`, `8a88d4f3a6` and `4f954d78ec`, each minutes after a stage's
+  final commit; the actor is not recorded by git. The operator owns that
+  answer (stage-review finding, "operator decision").
+- 09:10 to 09:30 ET stage review (fresh xhigh subagent, reviewer mode,
+  read-only): `more-work-needed`. Required work, as returned:
+  (P1) the sharded layer-stack residual contract defines no safe encoding
+  for padded users (RoPE gather with -1 positions is an unguarded
+  out-of-bounds read; 0 positions with zero page-table rows would write
+  padded users' K/V into block 0); the contract is tested at physical
+  batches 1, 8, 32 only. (P1) short-chunk prefill matmuls (64 to 256 rows)
+  are 15 to 20 percent slower than the stage-2 `ttnn.linear` rows on the
+  DRAM-sharded weights (128-row chunk: 1,398 us versus 1,146 us); no
+  short-prompt before/after row; the interleaved-copy candidate was rejected
+  without a byte budget. (P2) the 1024-row `minimal_matmul` rows are `SLOW`
+  with "No program_config specified" and no `MinimalMatmulConfig` sweep at
+  that shape under the final dtype/fidelity. (P2) the batch-32 per-user
+  comparison bar (0.99) was lowered with an HF control from a different
+  input set. (P2) the multi-group lead-row write (more than 32 lead rows,
+  block size 64) is untested on device. (P2) push state and SHA bookkeeping
+  (above). Other concerns: continuation host gap (2 ops per lead token
+  possible), decode RoPE gather and head-norm small ops not swept, batch-32
+  SDPA k-chunk not swept at batch 32, `allocate_kv_cache` default BF16 while
+  the contract records BFP8, `tensor_cache_path` exposes the host-hang path,
+  candidate-versus-final metric mix, SDPA share wording (51 not 54 percent),
+  BFP4 up row core count wording, no issue reference for the kernel items,
+  host-timing provenance string, watcher log keeps the last session only,
+  concurrent chips during the final battery.
+- The 10-hour budget had expired before the review (section 7), so the
+  findings are recorded here as the next work items instead of being fixed;
+  the stage is not complete.
 
 ## 7. Budget note
 
