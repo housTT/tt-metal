@@ -283,5 +283,86 @@
   },
   "notes": [
     "full-model stage: the HF-advertised 40960-token context is retained for every request; the number of simultaneous full-context users is bounded by device DRAM (see full_model.max_users_at_full_context)."
-  ]
+  ],
+  "optimized_full_model": {
+    "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2, 1x1 mesh, p150 mesh graph descriptor); stages 4 and 5 skipped by the operator",
+    "commits": [
+      "4c9a98d810",
+      "411ff9e9d8"
+    ],
+    "current_supported_context": 40960,
+    "capability_reduction": null,
+    "weights": {
+      "decoder_layer_resident_bytes": 359661568,
+      "decoder_stack_resident_bytes": 12947816448,
+      "decoder_weight_bytes_per_token": 6473908224,
+      "embedding_bytes_bf16": 1244659712,
+      "lm_head_bytes_bfp8_padded_152576": 664010752,
+      "rope_tables_shared_bytes": 41943040,
+      "norm_weight_bytes": 616448,
+      "total_resident_bytes_computed": 14899046400,
+      "total_resident_bytes_measured": 14928363520,
+      "total_resident_bytes_measured_source": "ttnn.get_memory_view after Qwen3Model load: 8 banks x 1866045440 total_bytes_allocated_per_bank (logs/capacity_probe.log)",
+      "note": "unchanged from full_model plus one persistent [1, 1, 32, 5120] bf16 additive mask on the LM head's last split (padded vocab columns at bf16 min)",
+      "lm_head_tail_mask_bytes": 327680
+    },
+    "kv_cache": {
+      "dtype": "bf16",
+      "bytes_per_token_all_layers": 147456,
+      "bytes_per_user_at_full_context": 6039797760,
+      "block_size": 32,
+      "page_table_width_blocks": 1280,
+      "scratch_block": "one extra block per cache; page-table columns past a request's allocation name it"
+    },
+    "runtime_reserve_bytes": 2147483648,
+    "max_tokens_all_users": 112320,
+    "max_users_at_full_context": 2,
+    "decode_policy": "stage-3 DEFAULT_POLICY unchanged (BFP8 QKV/O/gate/down, BFP4 up, LoFi, BF16 activations and KV cache, 32-core L1 width-sharded residual)",
+    "terminal_policy": {
+      "embedding": "bf16",
+      "final_norm": "bf16 hifi4",
+      "lm_head": "bfp8, DRAM-width-sharded, decode fidelity lofi (stage 6: hifi2), prefill fidelity hifi2 fp32 acc",
+      "prefill_logits": "fp32 (readiness paths)",
+      "sampler": "models/common/sampling SamplingGenerator, built with vocab_size = padded_vocab_size (tail masked in the LM head), max_top_k 32"
+    },
+    "prefill": {
+      "compute_buckets": [
+        32,
+        64,
+        128,
+        256,
+        512,
+        1024,
+        1536,
+        2048,
+        3072,
+        4096
+      ],
+      "long_prompts": "whole 4096-token chunks plus a bucketed tail, each piece a (chunk start, bucket) program set warmed in prepare() for starts 0 to 36864",
+      "kernel_table": "PREFILL_KERNEL_TABLES['stage7'] (per role and chunk size); prefill norms interleaved (block-sharded variant rejected, work_log 4.2)",
+      "largest_checked_prefill": 16384,
+      "largest_checked_prefill_artifact": "readiness/prefill_resume_check.json (lengths 1500, 2560, 5000, 16384)",
+      "largest_checked_non_aligned_prefill": 12345,
+      "largest_checked_non_aligned_prefill_artifact": "full_model/tracked_replay_workload.json (generate_12345_after_capture, generate_5000_after_capture; outputs not HF-checked), readiness/prefill_resume_check.json (5000 HF-independent TT cross-check)"
+    },
+    "decode": {
+      "physical_batches": [
+        1,
+        8,
+        16,
+        24,
+        32
+      ],
+      "largest_checked_decode_position": 314,
+      "largest_executed_decode_position": 40958
+    },
+    "performance": {
+      "token_out_decode_ms_per_token": 21.011,
+      "ttft_ms_128_tokens": 50.68,
+      "artifact": "full_model/perf_batch1_128_128.json, optimized_full_model/ttft_sweep_after.json, optimized_full_model/perf_summary.json"
+    },
+    "notes": [
+      "No capability changed in this stage: context, batch buckets, cache layout and dtype policy are those of full_model; the only new persistent allocation is the 320 KB LM-head tail mask."
+    ]
+  }
 }
