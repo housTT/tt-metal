@@ -16,14 +16,14 @@ batch).
   `QWEN3_EVIDENCE_SUFFIX=fused_before`) on 2026 Oct 28 15:56 ET; CSVs
   `generated/profiler/qwen3_opt_before/reports/2026_10_28_18_56_58/` (batch
   1) and `2026_10_28_18_57_13/` (batch 32).
-- `full_attention/`: the committed optimized decoder (commit `18aac30c2f`,
-  BFP8/BFP4 weights, BF16 KV cache, interleaved prefill copy for chunks up to
-  256 rows), `test_optimized_decoder_perf_profile`, run on 2026 Oct 29 10:27
-  ET; CSVs `generated/profiler/qwen3_opt_after/reports/2026_10_29_14_27_15/`
-  (batch 1) and `2026_10_29_14_27_31/` (batch 32).
+- `full_attention/`: the committed optimized decoder (commit `0b00bbdf25`,
+  BFP8/BFP4 weights, BF16 KV cache, interleaved prefill copy with
+  `ttnn.linear` up to 256 rows and explicit 2D configs for QKV, O and down
+  up to 1024 rows), `test_optimized_decoder_perf_profile`, run on 2026 Oct
+  29 11:05 ET; the CSV paths are in `ops_perf_results.source.txt`.
 - `short_prompts/`: first prefill of 64, 128 and 256 tokens from position 0
   (`QWEN3_PERF_SEQ_LEN`), fused baseline (`before_*`, 09:55 ET) and
-  optimized (`after_*`, 10:28 ET), batch 1; the source CSV paths are in its
+  optimized (`after_*`, 11:07 ET), batch 1; the source CSV paths are in its
   `ops_perf_results.source.txt`.
 
 Workload command (optimized, batch 1; batch 32 replaces `batch1`; the
@@ -63,18 +63,18 @@ come from `../layer0_full_attention_seq1024_batch{1,32}_host_timings*.json`.
 
 | Window | Before: ops, device, host | After: ops, device, host |
 | --- | --- | --- |
-| warmed prefill, 1024 tokens | 19, 4,814 us, 5.19 ms | 21, 2,996 us, 3.25 ms |
-| warmed first prefill, 64 / 128 / 256 tokens | 21, 1,359 us / 21, 1,587 us / 19, 2,082 us | 21, 1,062 us / 21, 1,310 us / 21, 2,105 us |
-| warmed continuation prefill, 100 tokens at 37 (128-row chunk, 27 lead rows) | 381, 2,864 us, 5.64 ms | 122, 1,766 us, 3.47 to 6.46 ms (see note) |
-| warmed traced decode, batch 1, position 1024 | 29, 1,257 us, 1.321 ms | 33, 543 us, 0.637 ms |
-| warmed traced decode, batch 32, positions 1024 | 30, 1,818 us, 1.886 ms | 32, 1,096 us, 1.166 ms |
+| warmed prefill, 1024 tokens | 19, 4,814 us, 5.19 ms | 21, 2,841 us, 3.18 ms |
+| warmed first prefill, 64 / 128 / 256 tokens | 21, 1,359 us / 21, 1,587 us / 19, 2,082 us | 21, 1,061 us / 21, 1,311 us / 21, 2,106 us |
+| warmed continuation prefill, 100 tokens at 37 (128-row chunk, 27 lead rows) | 381, 2,864 us, 5.64 ms | 122, 1,771 us, 3.60 to 6.02 ms (see note) |
+| warmed traced decode, batch 1, position 1024 | 29, 1,257 us, 1.321 ms | 33, 543 us, 0.622 ms |
+| warmed traced decode, batch 32, positions 1024 | 30, 1,818 us, 1.886 ms | 32, 1,101 us, 1.258 ms |
 
 Note on host times: the final optimized profiles ran on chip 0 while the
 test battery ran on chip 1 of the same P300 card; the single-sample host
 wall values of the eager prefill windows carry that contention (the
-batch-1 continuation sample is 6.46 ms with a 4.2 ms op-to-op gap, the
-batch-32 process measured the same window at 3.47 ms). Device times are
-unaffected. Decode replay host times are consistent across runs (0.60 to
+batch-32 process continuation sample is 6.02 ms with a 3.9 ms op-to-op gap,
+the batch-1 process measured the same window at 3.60 ms). Device times are
+unaffected. Decode replay host times are consistent across runs (0.59 to
 0.64 ms at batch 1).
 
 Conclusions from the tables: decode batch 1 is 2.31x faster on device
@@ -82,12 +82,19 @@ Conclusions from the tables: decode batch 1 is 2.31x faster on device
 89 percent of the 512 GB/s peak; the BFP4 up row is 368 GB/s and marked
 `BOTH`), the two sharded RMSNorms 15 us (169 us before), the head split 17 us
 from L1 interleaved (33 us before), SDPA 44 us (46 before), the SiLU-mul 23
-us, and every other row is 8 us or less. Batch 32 is 1.66x faster; SDPA
-(1,024-token contexts for 32 users) is 568 us, 52 percent of that window.
-Prefill at 1024 tokens is 1.61x faster: the four `minimal_matmul` rows run at
-LoFi on the reduced-precision weights, and the two residual adds returned
-(57 us each) because the addcmul-fused kernel needs equal tile sizes. Short
+us, and every other row is 8 us or less. Batch 32 is 1.65x faster; SDPA
+(1,024-token contexts for 32 users) is about 570 us, 52 percent of that window.
+The harness page table has 33 blocks (extent 1,056), so the decode SDPA
+runs with k chunk 32 in every profile (before and after alike;
+`decode_sdpa_k_chunk_size` picks the largest chunk that divides the extent);
+with a 128-aligned extent the same batch-32 SDPA measured 493 us (work log
+3.2), so the batch-32 window would be about 1,020 us.
+Prefill at 1024 tokens is 1.69x faster: QKV, O and down run `ttnn.linear`
+with the explicit 2D config on the interleaved copy (230, 151 and 407 us),
+gate and up run `minimal_matmul` on the interleaved copy (446 and 436 us), all
+at LoFi on the reduced-precision weights; the two residual adds returned (57
+us each) because the addcmul-fused kernel needs equal tile sizes. Short
 prompts of 64 and 128 tokens are 1.28x and 1.21x faster on the interleaved
 weight copy (`ttnn.linear`); 256 tokens ties the stage-2 kernel (2,105
 versus 2,082 us). The continuation window has 122 ops instead of 381 (3 ops
-per lead row instead of 13) and 1,766 us of device time instead of 2,864.
+per lead row instead of 13) and 1,771 us of device time instead of 2,864.

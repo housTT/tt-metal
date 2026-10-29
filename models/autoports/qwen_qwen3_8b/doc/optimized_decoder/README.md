@@ -70,14 +70,18 @@ Weight bytes per decoded token: 180 MB (fused decoder: 386 MB BF16); resident we
 
 ### Prefill
 
-Chunks up to 256 rows run `ttnn.linear` on an interleaved copy of each
-projection weight (`OptimizedPolicy.prefill_interleaved_copy_max_rows`; 0
-drops the copy): the DRAM-sharded read is 1.3x to 2x slower than the stage-2
-kernels at those sizes (work log 3.10, 8.2). Longer chunks run the stage-2
-`minimal_matmul` kernels on the DRAM-sharded BFP8/BFP4 weights (within 3
-percent of interleaved weights at 1024 rows, same PCC; a 54-config
-`MinimalMatmulConfig` sweep at 1024 rows does not beat the default, work log
-8.3) at LoFi with fp32 accumulation. The residual projections use the matmul
+Prefill reads an interleaved copy of each projection weight
+(`OptimizedPolicy.prefill_interleaved_copy_max_rows`; 0 drops the copy and
+every chunk falls back to `minimal_matmul` on the DRAM-sharded weight):
+chunks up to 256 rows run `ttnn.linear` with the auto config (the
+DRAM-sharded read is 1.3x to 2x slower at those sizes, work log 3.10, 8.2);
+chunks of 257 to 1024 rows run `ttnn.linear` with an explicit 2D program
+config (11x10 grid, `in0_block_w` 16) for QKV, O and down, which beats
+`minimal_matmul` by 10 to 20 percent there (work log 8.8), while gate and up
+keep `minimal_matmul` (their 2D configs hit L1 limits); the 4096-row
+production chunk runs `minimal_matmul` for every role (every 2D config fails
+on L1 at `per_core_M` 13; a 54-config `MinimalMatmulConfig` sweep does not
+beat the default, work log 8.3). All at LoFi with fp32 accumulation. The residual projections use the matmul
 plus `ttnn.add` because the stage-2 addcmul-fused kernel needs equal weight
 and residual tile sizes. A tile-unaligned continuation writes its leading
 cache rows with one fused K/V update per token over a prepared pseudo-user
@@ -123,8 +127,8 @@ Every table lives in `work_log.md` with its script and log under
 
 Acceptance bars: output PCC >= 0.995 and layer-contribution ("delta") PCC
 >= 0.99 against the float32 HF layer. Every row below was produced by the
-committed optimized decoder (commit `18aac30c2f`; `provenance.decoder == "optimized"`,
-`optimized_decoder_sha256 e4021be7d381…` and `test_sha256 b509901be226…` in each JSON).
+committed optimized decoder (commit `0b00bbdf25`; `provenance.decoder == "optimized"`,
+`optimized_decoder_sha256 063e7582b25e…` and `test_sha256 b509901be226…` in each JSON).
 
 | Gate | Result | Artifact |
 | --- | --- | --- |
@@ -137,7 +141,7 @@ committed optimized decoder (commit `18aac30c2f`; `provenance.decoder == "optimi
 | traced decode batches 1, 13, 31, 32 | eager PCC >= 0.999072, replay == eager (1.0), repeat bit-equal, refreshed-input steps PCC >= 0.998851 and differ | `trace_full_attention_batch{1,13,31,32}.json` |
 | advertised context 40960 and 40959 prefill, batch-32 decode at 40959 | passed; window PCC >= 0.999570 at 40960 and 40959; batch-32 decode at 40959, replay == eager | `prefill_capacity_full_attention_{40960,40959}.json`, `advertised_context_decode_full_attention.json` |
 | optimized versus fused on device (prefill 1024, 300, 37, 4500@37, 200@4101; decode; batch 32) | prefill PCC >= 0.999576 (delta >= 0.999558), K/V caches >= 0.999950, decode PCC >= 0.999071 (delta >= 0.999040); batch-32 per user: >= 0.999232 against the fused decoder, >= 0.999202 against HF on the same inputs (fused: >= 0.999932); bars 0.995 | `optimized_vs_fused_full_attention.json` |
-| sharded residual contract, batches 1, 8, 13 (as 16 with padded users), 32 | bit-equal to the DRAM contract (PCC 1.0) in every case, also under the tracker and the watcher | `sharded_residual_full_attention.json` |
+| sharded residual contract, batches 1, 8, 13 (as 16 with padded users), 32 | bit-equal to the DRAM contract (PCC 1.0) in every case, also under the watcher; the test runs eagerly (its `.tracked.json` twin only proves the tracker environment did not object), the traced sharded contract is for the full-model stage | `sharded_residual_full_attention.json` |
 | stress: 10 repeated prefills, 50 same-input replays, 48 refreshed decode steps (batch 8) | prefill bit-equal, replays bit-equal, worst step PCC 0.999100, all finite | `stress_full_attention.json` |
 
 ## Performance evidence (same chip, same build, separate processes)
@@ -148,11 +152,11 @@ Layer 0, real weights, Tracy device time summed over the signposted window
 
 | Window | Before (fused, `perf/before/`) | After (optimized, `perf/full_attention/`, `perf/short_prompts/`) | Ratio |
 | --- | ---: | ---: | ---: |
-| warmed prefill, 1024 tokens | 19 ops, 4,814 us device, 5.19 ms host | 21 ops, 2,996 us, 3.25 ms | 1.61x device |
-| warmed first prefill, 64 / 128 / 256 tokens | 1,359 / 1,587 / 2,082 us | 1,062 / 1,310 / 2,105 us | 1.28x / 1.21x / 0.99x |
-| warmed continuation prefill, 100 tokens at start 37 | 381 ops, 2,864 us, 5.64 ms | 122 ops, 1,766 us | 1.62x device |
-| warmed traced decode, batch 1, position 1024 | 29 ops, 1,257 us, 1.321 ms | 33 ops, 543 us, 0.637 ms | 2.31x device, 2.07x host |
-| warmed traced decode, batch 32, positions 1024 | 30 ops, 1,818 us, 1.886 ms | 32 ops, 1,096 us, 1.166 ms | 1.66x device |
+| warmed prefill, 1024 tokens | 19 ops, 4,814 us device, 5.19 ms host | 21 ops, 2,841 us, 3.18 ms | 1.69x device |
+| warmed first prefill, 64 / 128 / 256 tokens | 1,359 / 1,587 / 2,082 us | 1,061 / 1,311 / 2,106 us | 1.28x / 1.21x / 0.99x |
+| warmed continuation prefill, 100 tokens at start 37 | 381 ops, 2,864 us, 5.64 ms | 122 ops, 1,771 us | 1.62x device |
+| warmed traced decode, batch 1, position 1024 | 29 ops, 1,257 us, 1.321 ms | 33 ops, 543 us, 0.622 ms | 2.31x device, 2.12x host |
+| warmed traced decode, batch 32, positions 1024 | 30 ops, 1,818 us, 1.886 ms | 32 ops, 1,101 us, 1.258 ms | 1.65x device |
 
 Dominant decode rows at batch 1 (`perf/full_attention/decode_batch1.txt`):
 
@@ -171,8 +175,8 @@ Dominant decode rows at batch 1 (`perf/full_attention/decode_batch1.txt`):
 Performance accounting (decode, batch 1, same run): roofline 180 MB of
 weights plus 0.5 MB of KV reads at 512 GB/s = 352 us; device time 543 us
 (65 percent of roofline; the five matmuls alone are 393 us, 90 percent of
-their own roofline); end-to-end traced replay 637 us on the host (one
-blocking `ttnn.execute_trace` under Tracy; 94 us of replay launch and
+their own roofline); end-to-end traced replay 622 us on the host (one
+blocking `ttnn.execute_trace` under Tracy; 79 us of replay launch and
 readback on top of the device window). The remaining device gap is the 150
 us of non-matmul ops (SDPA 44, SiLU-mul 23, head split 17, norms 15, RoPE
 gather and layout 18, cache update 8, adds and conversions 25); the
@@ -185,7 +189,7 @@ kernel item).
 | --- | --- |
 | Decoder path fully traced with no host fallbacks | done: `test_optimized_hot_path_fallback_audit`; Tracy windows show 0 host ops; `trace_full_attention_batch*.json` |
 | Decode activations width-sharded in L1 across norm, attention, residual, MLP and output projection | done: `perf/full_attention/decode_batch1.txt` (no reshard rows; one conversion at entry and exit of the DRAM contract only) |
-| Prefill activations DRAM interleaved, large matmul program configs | done: stage-2 `minimal_matmul` kernels on the sharded weights (work log 3.3, 3.10) |
+| Prefill activations DRAM interleaved, large matmul program configs | done: explicit 2D `ttnn.linear` configs for QKV, O and down at 257 to 1024 rows, `minimal_matmul` elsewhere, both measured against the alternatives under the final policy (work log 3.3, 3.10, 8.3, 8.8) |
 | Operation-topology audit | done: work log section 2 and the audit table above |
 | Multi-device families, lower-movement residual, fused CCL, persistent CCL buffers | not applicable (one chip, no collectives) |
 | Best-candidate comparison | done: work log 3.8, 3.9 (eight whole-layer policies on layers 0 and 17); the shipped default is the fastest policy that passes the delta bar on layer 17 |
@@ -226,6 +230,7 @@ Kept after measurement: LoFi for every BFP8/BFP4 matmul in decode and prefill (3
 | SiLU fused into the gate matmul; `ttnn.silu` then `mul` | 32 us slower; equal | 3.5, 3.10 |
 | BFP8 KV cache | 2 to 3 percent faster at batch 32, half the cache bytes, but one user with a 32-token prefix falls to PCC 0.9942 against HF (0.9993 with BF16; same drop with all-BFP8 weights) | 3.11, 8.4, `experiments/exp10.json` |
 | `MinimalMatmulConfig` sweep at 1024 rows (54 configs per role) | none beats the op default (QKV 283, O 193, gate 494, up 463, down 500 us) | 8.3, `experiments/exp9.json` |
+| 2D `ttnn.linear` configs for gate/up at 1024 rows and for every role at 4096 rows; activation in L1 for `minimal_matmul` | L1 circular-buffer failures (gate/up `in0_block_w` 8 to 32; all 4096-row configs); in0-in-L1 gains 1 to 4 percent for 8 to 32 MB of L1 | 8.8, `experiments/exp12.json` |
 | explicit `MinimalMatmulConfig` for short chunks | 15 to 35 percent slower than the default | 3.10 |
 | `dit_minimal_matmul_addcmul_fused` with BFP8/BFP4 weights | op contract: residual tile size must equal the weight tile size | 3.5 |
 | `ttnn.linear` on DRAM-sharded weights for prefill | TT_FATAL (auto config) or circular-buffer errors (1D configs) | 3.10 |
@@ -238,7 +243,7 @@ Kept after measurement: LoFi for every BFP8/BFP4 matmul in decode and prefill (3
 
 - `test_optimized_hot_path_fallback_audit`: no torch, `from_torch`, `to_torch`, host `ttnn.full`, `.cpu()`, `to_device` or synchronization in any hot method. Tracy: every op in the six windows is a device op.
 - No tilize/untilize beyond the row-major RoPE table gather (one tilize per table, stage 1), no reshard beyond the fused V move, one DRAM conversion at entry and at exit of the DRAM contract (absent from the layer-stack contract).
-- Trace allocation tracking (`trace_alloc_tracking/console.log`): traced decode batches 1, 13, 31, 32, the stress test and the sharded-residual test (batches 1, 8, 13 as 16, 32) pass under `TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0` (`*.tracked.json`); `trace_alloc_tracking/positive_control.log` shows the tracker raising on a deliberately live buffer in the same environment. No corruptible-buffer acknowledgment or allocation scope is used.
+- Trace allocation tracking (`trace_alloc_tracking/console.log`): traced decode batches 1, 13, 31, 32 and the stress test (the traced tests) plus the eager sharded-residual test pass under `TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0` (`*.tracked.json`); `trace_alloc_tracking/positive_control.log` shows the tracker raising on a deliberately live buffer in the same environment. No corruptible-buffer acknowledgment or allocation scope is used.
 - Watcher (`watcher/summary.json`): traced decode batches 1, 13, 31, 32, the stress test, both PCC tests, the sharded residual contract (padded users) and the 63-lead-row continuation pass with `TT_METAL_WATCHER=10` (`*.watcher.json`); `watcher/generated/watcher/watcher.log` holds the last device session (3 dumps, 0 fatal-pattern matches). Two ops that trip the watcher are off the shipped path: the sharded-input head-split readers and `moreh_full` of a scalar (work log 3.14, 8.6).
 - Determinism: repeated prefill bit-equal, repeated replay bit-equal, sharded contract bit-equal to the DRAM contract.
 - Host-work counters for the traced decode loop (`test_traced_decode`): one capture per batch size, three measured replays, token and current_pos refreshed by `ttnn.copy_host_to_device_tensor` only when the test changes them, page table never refreshed after setup, no synchronization inside the replayed region; positions advance on the host in this layer-level harness (the generator stage owns on-device advancement).
@@ -251,6 +256,9 @@ Kept after measurement: LoFi for every BFP8/BFP4 matmul in decode and prefill (3
 - The SiLU-gated multiply costs 21 us on 32 cores (SFPU bound); fusing it into the matmul is slower (3.10).
 - Short prefixes are the precision-sensitive case: with a BFP8 cache one 32-token-prefix user fell to PCC 0.9942 against HF; with the BF16 cache the batch-32 minimum is 0.9992 (`optimized_vs_fused_full_attention.json`, per-user HF control).
 - SDPA decode at batch 32 is 52 percent of the batch-32 window at 1024-token contexts and 4.9 ms at 8192-token contexts; a BFP8 cache saved only 3 percent there (3.11): a tt-metal SDPA-decode kernel item, not a layout item.
+- `DEVICE_PARAMS` keeps `trace_region_size=0`, which on this checkout means dynamically allocated trace buffers (`tt_metal/distributed/mesh_trace.cpp`), not "no trace"; the Tracy decode windows (0 to 2 us op-to-op gaps) are real replays.
+- `prefill_minimal_matmul_min_rows` (inherited from the fused decoder) is not consulted by `OptimizedDecoder`; `prefill_interleaved_copy_max_rows` is the chunk-size threshold.
+- The layer-stack (sharded) residual contract has eager evidence only; its first trace capture and the 1 to 2 us `ttnn.relu` row belong to the full-model stage.
 - Rows of the 32-row residual tile past the physical batch hold whatever the producer left there; every decode op is row-independent and `test_sharded_residual_contract` and the padded-batch traced tests cover it, but a future op that reduces across rows would need the zero fill restored.
 
 ## Reproduction

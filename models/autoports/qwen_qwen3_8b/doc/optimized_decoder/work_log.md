@@ -432,6 +432,28 @@ fused decoder's BF16 weights and BF16 cache.
 - The 10-hour budget had expired before the review (section 7), so the
   findings are recorded here as the next work items instead of being fixed;
   the stage is not complete.
+- Remediation (section 8) commits: `5f174f5d7f` (padded-user RoPE clamp,
+  interleaved prefill copy, review tests), `18aac30c2f` (BF16 cache after the
+  short-prefix finding, watcher-clean lead-row positions, 0.995 per-user
+  bars), `d15496004f` (remediation evidence, short-prompt profiles).
+- 10:45 to 11:05 ET stage review 2 (fresh xhigh subagent, reviewer mode,
+  read-only): `more-work-needed`. All six first-review required items were
+  found closed on evidence. One required item: (P2) the 1024- and 4096-row
+  prefill projections were never compared against explicit 2D `ttnn.linear`
+  program configs (and an in0-in-L1 variant) under the final BFP8/BFP4 LoFi
+  policy on the now-resident interleaved copy; the `SLOW` `minimal_matmul`
+  rows (60 percent of the 1024-token window) carry that advice. Other
+  concerns: decode profiles run SDPA at k chunk 32 (harness extent 1,056),
+  byte budget computed with the rejected BFP8 cache, continuation still 3
+  ops per lead row, prefill non-matmul ops without a candidate table,
+  host-wall contention during the "after" profiles, candidate-versus-final
+  metric mix, `tensor_cache_path` still reachable, decode RoPE/head-norm
+  small ops, no issue references for the two kernel items, dead
+  `prefill_minimal_matmul_min_rows` knob, four bookkeeping slips (8.2, 8.5,
+  8.7 numbers and times, uncommitted harness for the short-prompt
+  baselines). Hard-check gaps: the sharded-contract test captures no trace;
+  the sharded contract is unprofiled; `trace_region_size=0` wording.
+  Section 8.8 records the response.
 
 ## 7. Budget note
 
@@ -451,16 +473,17 @@ tt-metal host write bug reproduced in isolation.
 
 Required work from the review, in the coordinator's order. Byte budget for
 the interleaved prefill copy (allocatable DRAM 34,178,731,008 bytes from
-`doc/context_contract.json`): sharded weights 36 x 179.8 MB = 6.47 GB; one
-interleaved copy another 6.47 GB; BFP8 KV cache at the advertised 40960
-context 89.1 MB per user per layer = 3.21 GB per user over 36 layers. With
-the copy: 34.18 - 12.94 = 21.2 GB left before embeddings and LM head (about
-2.4 GB in BF16), that is 18.8 GB, or 5 users at full context (batch 32 at
-up to about 7,300 tokens per user). Without the copy: 25.3 GB, 7 users at
-full context (batch 32 at about 9,800 tokens). Batch 32 at the full 40960
-context (102.7 GB of cache) does not fit either way on one chip; the full-
-model stage sizes the cache against its own buffers and may set
-`prefill_interleaved_copy_max_rows=0` to drop the copy.
+`doc/context_contract.json`, BF16 KV cache as shipped): sharded weights 36
+x 179.8 MB = 6.47 GB; one interleaved copy another 6.47 GB; BF16 KV cache
+at the advertised 40960 context 167.8 MB per user per layer = 6.04 GB per
+user over 36 layers; embeddings and LM head about 2.5 GB in BF16. With the
+copy: 34.18 - 12.95 - 2.5 = 18.7 GB, 3 users at full context or batch 32 at
+about 3,970 tokens per user. Without the copy: 25.2 GB, 4 users at full
+context or batch 32 at about 5,340 tokens. Batch 32 at the full 40960
+context (193 GB of BF16 cache) does not fit either way on one chip; the
+full-model stage sizes the cache against its own buffers and may set
+`prefill_interleaved_copy_max_rows=0` to drop the copy (the copy costs about
+25 percent of batch-32 context on one chip).
 
 Filled in below as each item completes.
 
@@ -506,14 +529,14 @@ copy. Before/after warmed first-prefill device time from position 0
 
 | Prompt | fused (stage 2) | optimized before this item (DRAM-sharded `minimal_matmul`) | optimized final (interleaved `ttnn.linear`) |
 | --- | --- | --- | --- |
-| 64 tokens | 1,359 us | not profiled (exp6: gate 384 us, down 392 us per row) | 1,065 us |
-| 128 tokens (the continuation chunk) | 1,587 us; continuation matmul rows 132 + 123 + 270 + 268 + 353 = 1,146 us | 191 + 118 + 377 + 331 + 381 = 1,398 us | 1,311 us; rows 118 + 102 + 182 + 180 + 288 = 870 us |
-| 256 tokens | 2,082 us | not profiled | 2,110 us |
-| 1024 tokens | 4,814 us | 2,990 us | 2,988 us |
+| 64 tokens | 1,359 us | not profiled (exp6: gate 384 us, down 392 us per row) | 1,062 us |
+| 128 tokens (the continuation chunk) | 1,587 us; continuation matmul rows 132 + 123 + 270 + 268 + 353 = 1,146 us | 191 + 118 + 377 + 331 + 381 = 1,398 us | 1,310 us; rows 118 + 102 + 182 + 180 + 288 = 870 us |
+| 256 tokens | 2,082 us | not profiled | 2,105 us |
+| 1024 tokens | 4,814 us | 2,990 us | 2,996 us |
 
 The continuation window (100 tokens at start 37) is 1,753 us device
 (stage 2: 2,864 us; first optimized profile: 2,282 us). At 256 rows the
-interleaved `ttnn.linear` ties the stage-2 `minimal_matmul` (2,110 versus
+interleaved `ttnn.linear` ties the stage-2 `minimal_matmul` (2,105 versus
 2,082 us); the crossover stays at 256 because `minimal_matmul` on the
 sharded weight is slower there (exp6: 384 versus 227 us for gate). The byte
 budget is in the section head: the copy costs 6.47 GB over 36 layers and
@@ -535,8 +558,10 @@ BF16 cache and the rejection.
 ### 8.5 Item 5: block-64 continuation with 63 lead rows
 
 `test_block64_long_lead_rows` (prefix 1, continuation 200, two pseudo-user
-groups of 32 and 31): continuation PCC 0.999202 (delta 0.999144), decode
-after 0.999367 (delta 0.999283), `block64_long_lead_full_attention.json`.
+groups of 32 and 31): first run (BFP8 cache, 09:33 ET, `logs/remediation_check.log`)
+continuation PCC 0.999202 (delta 0.999144), decode after 0.999367 (delta
+0.999283); committed BF16-cache run 0.999650 (delta 0.999632), decode after
+0.999701 (delta 0.999671), `block64_long_lead_full_attention.json`.
 Under the watcher the test tripped a NoC error in `ttnn.moreh_full`'s
 writer (`writer_full.cpp`: a 64-byte unicast write for a 4-byte `[1, 1]`
 int32 page "overflows a circular buffer"); the same op is the stage-1
@@ -556,7 +581,7 @@ per token: slice, pad, fused update). The `moreh_full` scalar writer
 overflow is a tt-metal item (`ttnn/cpp/ttnn/operations/full/device/kernels/writer_full.cpp`,
 row-major `[1, 1]` int32).
 
-### 8.7 Final battery on the committed code (commit `18aac30c2f`; 10:08 to 10:30 ET)
+### 8.7 Final battery on the committed code (commit `18aac30c2f`; 10:08 to 10:35 ET)
 
 Code first (pre-commit hooks), then the evidence; every JSON records
 `optimized_decoder_sha256 e4021be7d381…` and `test_sha256 b509901be226…`
@@ -566,10 +591,10 @@ battery ran on chip 1.
 | Step (ET) | Command | Result |
 | --- | --- | --- |
 | 10:27 Tracy, chip 0: batch 1, batch 32, prompts 64/128/256 | `perf/README.md` | 1 passed each; `perf/full_attention/` (decode 543 us / 33 ops at batch 1, 1,096 us at batch 32, prefill 2,996 us, continuation 1,766 us / 122 ops), `perf/short_prompts/` (1,062 / 1,310 / 2,105 us) |
-| 10:09 default suite, chip 1 | `-k 'not host and not audit and not perf_profile'` | 14 passed, 3 skipped (178.9 s); batch-32 per-user PCC >= 0.999202 against HF, >= 0.999232 against the fused decoder (bars 0.995) |
-| 10:12 context tests, chip 1 | `QWEN3_CONTEXT_TESTS=1 -k advertised_context` | 3 passed (41.5 s) |
-| 10:13 tracker, chip 1 | `TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0` on traced decode, stress, sharded contract | 6 passed (93.7 s); positive control of 08:52 ET unchanged (same build) |
-| 10:15 watcher, chip 1 | `TT_METAL_WATCHER=10` on traced decode, stress, PCC, sharded contract, block-64 long lead | 9 passed (113.0 s); 3 dumps, 0 fatal-pattern matches |
+| 10:27 default suite, chip 1 | `-k 'not host and not audit and not perf_profile'` | 14 passed, 3 skipped (178.9 s); batch-32 per-user PCC >= 0.999202 against HF, >= 0.999232 against the fused decoder (bars 0.995) |
+| 10:30 context tests, chip 1 | `QWEN3_CONTEXT_TESTS=1 -k advertised_context` | 3 passed (41.5 s) |
+| 10:31 tracker, chip 1 | `TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0` on traced decode, stress, sharded contract | 6 passed (93.7 s); positive control of 08:52 ET unchanged (same build) |
+| 10:33 watcher, chip 1 | `TT_METAL_WATCHER=10` on traced decode, stress, PCC, sharded contract, block-64 long lead | 9 passed (113.0 s); 3 dumps, 0 fatal-pattern matches |
 | 10:08 host tests | `-k 'host or audit'` | 3 passed |
 | 10:00 context contract | `check_context_contract.py … --stage optimized-decoder --require-contract --strict-caps` | `Context contract OK … supported=40960` |
 
@@ -578,3 +603,44 @@ interleaved copy, before/after rows, byte budget), 3 (1024-row config
 sweep), 4 (per-user bar 0.995 restored with the same-input HF control; the
 cause, the BFP8 cache, removed), 5 (63-lead-row test). Push state closed
 (section 6).
+
+### 8.8 Review-2 item: 2D `ttnn.linear` program configs at 1024 and 4096 rows (chip 0, 10:38 to 10:54 ET; `experiments/exp12.json`)
+
+Final policy weights (BFP8 LoFi; BFP4 LoFi for up), real layer-0 normed
+activations, fp32 accumulation. Candidates per role and row count:
+`minimal_matmul` on the DRAM-sharded weight (shipped before this item), on
+the interleaved copy, and with the activation in L1 interleaved;
+`ttnn.linear` auto config on the interleaved copy; `ttnn.linear` with
+`MatmulMultiCoreReuseMultiCastProgramConfig` on grids 11x10, 10x8 and 8x8,
+`in0_block_w` 4/8/16/32 (legal divisors of the K tiles), the largest
+subblock of at most 4 tiles dividing `per_core_M/N`. Time in us:
+
+| Rows | Role | `minimal_matmul`, sharded weight | `minimal_matmul`, interleaved copy | best `ttnn.linear` 2D config | `ttnn.linear` auto |
+| --- | --- | --- | --- | --- | --- |
+| 1024 | QKV | 283 | 268 | 11x10, b16, subblock 2x2: 241 | 364 (exp6 shape class) |
+| 1024 | O | 205 | 189 | 11x10, b16, subblock 1x4: 163 | |
+| 1024 | gate | 499 | 480 | b4: 897 (b8, b16, b32 fail: L1 circular-buffer allocation, `program.cpp`) | |
+| 1024 | up (BFP4) | 472 | 457 | b8: 599 (b16, b32 fail) | |
+| 1024 | down | 514 | 454 | 11x10, b16, subblock 1x4: 427 | |
+| 4096 | QKV | 997 | 966 | every 2D config fails (per-core M 13 tiles, L1) | 4,584 |
+| 4096 | O | 682 | 674 | all fail | 2,830 |
+| 4096 | gate | 1,826 | 1,805 | all fail | 12,641 |
+| 4096 | up | 1,754 | 1,734 | all fail | 12,417 |
+| 4096 | down | script artifact: the 100 MB L1 copy of the 4096x12288 activation left no L1 for any kernel (every candidate failed); covered by the 4096-row chunk in the context and boundary tests | | | 9,154 |
+
+The in0-in-L1 variants are 1 to 4 percent faster than DRAM in0 for
+`minimal_matmul` (QKV 276 versus 283 us) but a 1024x4096 bf16 activation in
+L1 interleaved occupies 8 MB of L1 across the grid and the 4096-row chunk
+32 MB; not adopted (the advice "place input 0 in L1" is answered: 1 to 4
+percent at the cost of L1 that the residual-stream and SDPA kernels need).
+
+Adopted (commit `0b00bbdf25`): with the interleaved copy present, chunks of
+257 to 1024 rows run `ttnn.linear` with the 2D config (11x10, `in0_block_w`
+16, subblocks from the per-chunk `per_core_M/N`) for QKV, O and down; gate
+and up keep `minimal_matmul`; every `minimal_matmul` prefill chunk now reads
+the interleaved copy (2 to 12 percent faster than the sharded read); the
+DRAM-sharded copy serves decode only. Validation on chip 1 (11:00 ET,
+`logs/remediation2_check.log`): PCC layers 0 and 17, boundary lengths
+(chunks of 32 to 4096 rows, including 288, 416 and 1024-row 2D cases),
+continuation and multi-row prefill: 5 passed. The final battery and
+profiles on this commit are in 8.9.
