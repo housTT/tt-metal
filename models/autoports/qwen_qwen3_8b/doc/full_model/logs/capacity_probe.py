@@ -44,8 +44,8 @@ import bz2
 
 text = bz2.open("models/tt_transformers/tests/tale-of-two-cities.txt.bz2", "rt", encoding="utf-8").read()
 ids = tok.encode(text, add_special_tokens=False)
-lengths = [40959, 40960, 200]
-prompts = [ids[:40959], ids[1000 : 1000 + 40960], ids[5000:5200]]
+lengths = [40955, 40960, 200]
+prompts = [ids[:40955], ids[1000 : 1000 + 40960], ids[5000:5200]]
 for i, n in enumerate(lengths):
     assert len(prompts[i]) == n
 gen.reset()
@@ -81,9 +81,11 @@ pos = positions.clone()
 for step in range(4):
     rows = torch.tensor([[int(cur[i])] if i in live else [0] for i in range(3)])
     p = torch.tensor([int(pos[i]) if i in live else -1 for i in range(3)], dtype=torch.int32)
+    print(f"decode step {step} positions {p.tolist()}", flush=True)
     out = gen.decode_forward(
         rows, p, page_table=table, kv_cache=gen.kv_cache, sampling_params=greedy_sampling_params(3)
     )
+    print(f"decode step {step} tokens {out.tolist()}", flush=True)
     steps.append(out.tolist())
     for i in live:
         cur[i] = out[i]

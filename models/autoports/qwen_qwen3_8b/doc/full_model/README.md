@@ -260,6 +260,11 @@ rows; `work_log.md` section 6 has the force-argmax comparison.
   in any run.
 - Device penalties and async decode are declared unsupported in
   `serving_contract.json`; both are stage 9/10 work.
+- Request seeds: a seeded standalone `generate` draws device seeds from
+  counters 1, 2, ... while a seeded served request aligns its counters to
+  the decode position (the canonical serving contract); both are
+  reproducible, but a seeded `generate` transcript does not match a seeded
+  served transcript token for token.
 - Logits are BF16 on the sampler path; the readiness all-rows path returns
   float32 so near-tie comparisons are not quantized to 0.125.
 - Open device items (chips 0 and 1 were left with a wedged dispatch path

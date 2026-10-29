@@ -51,7 +51,7 @@ stage("rows_to_tile")
 logits = model.logits_from_tile(tile)
 stage("logits_from_tile")
 bucket = gen.buckets[8]
-gen._apply_sampling_params(greedy_sampling_params(3), 3)
+gen._apply_sampling_params(greedy_sampling_params(3), 3, admit=True)
 gen._sample_eager(logits, bucket)
 stage("sample_eager")
 first = gen._read_tokens(bucket, 3)

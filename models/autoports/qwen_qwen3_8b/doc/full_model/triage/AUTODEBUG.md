@@ -208,3 +208,10 @@ on purpose.
 Unverified without hardware: which replay (2, 3 or 4) the device stopped in, and which out-of-range
 transaction or corrupted buffer produced the non-completing read. Both require the watcher or Inspector
 on a live run.
+
+## Erratum (stage owner, after review 3)
+
+Section 3 states that `test_batch_decode`'s solo arm ran the -1-row configuration at buckets 8 and 32 and that
+`doc/full_model/batch_decode_{8,32}.json` record it. The recorded artifacts came from the earlier bucket-1 solo arm
+(`gen.generate`); the same-bucket arm with -1 rows is the review-2 change and has not run on a device. The
+contrast in section 3 therefore does not exist yet; hypothesis (b) stays excluded by the kernel reading only.

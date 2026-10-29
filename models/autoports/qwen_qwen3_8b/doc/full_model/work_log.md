@@ -391,7 +391,7 @@ recorded as an open item.
 
 ### 8.2 Fixes after review 2 (14:20 to 14:45 ET; no device available)
 
-- `decode_forward` raises when any position is outside `[0, 40960)`; `capacity_probe.py` and `capacity_bisect.py` hold row 0 at 40955 tokens (four steps end at 40958), keep the inactive row at -1 and print before and after every step.
+- `decode_forward` raises when any position is at or above 40960 (-1 stays the inactive marker); `capacity_probe.py` and `capacity_bisect.py` hold row 0 at 40955 tokens (four steps end at 40958), keep the inactive row at -1 and print before and after every step.
 - Seed admission mirrors `models/tt_transformers/tt/generator.py` `sample_decode_on_device`: prefill registers the prefill rows' seeds with a fresh salt and touches nothing else; decode derives the live slots from positions at or above 0, applies `slot_remap` through `apply_slot_remap`, deactivates slots that are no longer live, re-registers every live slot on `admit` (`reset_batch`, first decode after prefill, mode change) and only changed slots otherwise, aligns the (re)registered counters to the positions, then advances; `salt_duplicate_seeds=False` (the vLLM reproducibility contract).
 - `DEFAULT_WARMUP_PREFILL_LENGTHS` now includes every multiple of 4096 up to 40960 (prompt lengths 4097 to 36864 compile per rounded length in the embedding, untilize and chunk slices).
 - `_write_page_table` pads inactive rows with the resolved scratch block.
@@ -440,3 +440,24 @@ device run); guard and corrected probes committed; the corrected probe,
 `test_batch_decode -k 8`, and the bucket-1 and bucket-8 arms at positions
 40955 to 40958 are the first runs after the operator reset, with
 `TT_METAL_WATCHER=10` on the first of them.
+
+### 8.4 Review 3 and the last host-side fixes (14:35 to 15:05 ET)
+
+Review 3 (`logs/stage_review_3.md`): `more-work-needed`. Host-side finding
+P1-A: the review-2 edit of `capacity_probe.py` had not landed (its anchor
+had been reformatted) and `capacity_bisect.py` called
+`_apply_sampling_params` without the new `admit` keyword; both are fixed
+in this commit (row 0 at 40955 tokens, inactive row -1, a flushed print
+before and after every decode step, `admit=True` on the prefill-path call).
+Notes adopted: the prefill-path seed registration uses row-order slots and
+is rebuilt on the plugin's first decode (`reset_batch`, `slot_remap`, counter
+aligned to position + 1), so it self-heals under serving; a seeded
+standalone `generate` (counters 1, 2, ...) and a seeded served request
+(counters aligned to the position) draw different device-seed streams, both
+reproducible; the `prepare()` time with the 17-length warmup is unmeasured;
+`triage/AUTODEBUG.md` section 3 wrongly states that the recorded
+`batch_decode_*.json` came from a -1-row solo arm (erratum appended to the
+file). Everything else in review 3 is the device-bound rerun list of
+section 8.2 and is blocked on the operator reset of chips 0 and 1; the
+goal's two rereviews are used, so the stage ends here with the review
+verdict `more-work-needed` and the hardware dependency recorded.
