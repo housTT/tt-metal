@@ -131,8 +131,9 @@ device. Sampler choice and the rejected alternative: `work_log.md` section
 rejected for lacking trace, seed and penalty ownership). Greedy decode is the
 split top-k path with semantically greedy parameters (k=1, p=0, temp=1): one
 sampling trace per bucket serves greedy and sampled requests, so greedy ->
-sampled -> greedy reuses the first trace (`split_sampling_trace.json`
-`mode_alternation`: zero new captures). Force-argmax
+sampled -> greedy reuses the first trace (`split_sampling_trace.tracked.json`
+`mode_alternation`: zero new captures; the traced-replay assertion of that
+sequence is in the test and reruns after the device reset). Force-argmax
 (`allow_force_argmax=True`) is a benchmark alternative only: the common
 sampler releases every sampling trace when that state flips (see
 `perf_batch1_128_128_force_argmax.json` and `work_log.md` section 6).
@@ -291,7 +292,7 @@ MODEL_DIR=models/autoports/qwen_qwen3_8b bash /home/hous/dev/skills/plugins/tt-m
 
 - `serving_contract.json`: pinned plugin (`f96662a7d239c077e1435b658c0e7d316f9c4799`), 37 rows.
 - `perf_batch1_128_128.json`, `perf_batch1_128_128_force_argmax.json`: batch-1 TTFT and decode.
-- `split_sampling_trace.json`, `host_work_counters.json`, `tracked_replay_workload.json`, `*.tracked.json`: trace evidence.
+- `split_sampling_trace.tracked.json` (default sampler), `split_sampling_trace_force_argmax.json`, `host_work_counters.json`, `tracked_replay_workload.json`, `*.tracked.json`: trace evidence (sampler-side claims superseded until the rerun, `work_log.md` 8.1).
 - `multi_row_prefill.json`, `batch_decode_{8,32}.json` (the capacity probe produced no JSON; its logs and triage are under `logs/capacity_probe*.log` and `triage/`).
 - `resume_margin_probe_*.json`, `degenerate_output_autoregressive.json`, `qualitative/`.
 - `profile/`: tt-perf-report of the reduced variant.
