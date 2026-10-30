@@ -61,6 +61,7 @@ SLOT_WIDTH = 32
 MAX_TOP_K = 32
 DEFAULT_WARMUP_PREFILL_LENGTHS = PREFILL_BUCKETS
 DEFAULT_WARMUP_CHUNK_STARTS = PREFILL_CHUNK_STARTS[1:]
+DEFAULT_WARMUP_CONTINUATION_STARTS = (32, 64, 128, 256, 33)
 COUNTER_NAMES = (
     "decode_trace_replays",
     "sampling_trace_replays",
@@ -100,6 +101,23 @@ class DecodeBucket:
     last_mode: str | None = None
 
 
+@dataclass
+class DecodeOutput:
+    """Device-resident result of ``decode_forward(read_from_device=False)``.
+
+    ``device`` is the persistent decode token tensor (``mode == "device"``) or the decode trace's logits
+    output (``mode == "host"``); ``host`` is filled by ``read_decode_output`` and formatted by
+    ``process_decode_output_host``. ``eager`` marks a transient eager output that the host step frees.
+    """
+
+    state: DecodeBucket
+    mode: str
+    batch: int
+    device: ttnn.Tensor
+    host: ttnn.Tensor | None = None
+    eager: bool = False
+
+
 class Qwen3Generator(Generator):
     def __init__(
         self,
@@ -113,6 +131,7 @@ class Qwen3Generator(Generator):
         decode_buckets: Sequence[int] = DECODE_BUCKETS,
         warmup_prefill_lengths: Sequence[int] = DEFAULT_WARMUP_PREFILL_LENGTHS,
         warmup_chunk_starts: Sequence[int] = DEFAULT_WARMUP_CHUNK_STARTS,
+        warmup_continuation_starts: Sequence[int] = DEFAULT_WARMUP_CONTINUATION_STARTS,
         warmup_multi_row: bool = True,
         allow_force_argmax: bool = False,
         prepare: bool = True,
@@ -131,6 +150,8 @@ class Qwen3Generator(Generator):
         self.num_blocks = int(num_blocks if num_blocks is not None else self.page_table_width)
         self.scratch_block = self.num_blocks
         self.kv_cache_dtype = kv_cache_dtype
+        self.owns_cache = True
+        self._preparing = False
         self.kv_cache = model.allocate_kv_cache(self.num_blocks, dtype=kv_cache_dtype)
         self.free_blocks: list[int] = list(range(self.num_blocks))
         self.slot_blocks: dict[int, list[int]] = {slot: [] for slot in range(max_batch_size)}
@@ -141,6 +162,7 @@ class Qwen3Generator(Generator):
         self.decode_buckets = tuple(sorted({decode_bucket(b, model.grid.x, model.grid.y) for b in decode_buckets}))
         self.warmup_prefill_lengths = tuple(warmup_prefill_lengths)
         self.warmup_chunk_starts = tuple(warmup_chunk_starts)
+        self.warmup_continuation_starts = tuple(warmup_continuation_starts)
         self.warmup_multi_row = warmup_multi_row
         self._bound_cache_id = None
         self._sampling_signature = None
@@ -213,8 +235,11 @@ class Qwen3Generator(Generator):
 
     def prepare(self) -> None:
         """Phase 1 of the trace contract: compile every supported variant before any capture."""
-        if self.prepared:
+        if self.prepared or self._preparing:
             return
+        if self.kv_cache is None:
+            raise RuntimeError("prepare() needs a cache: the owned pool or one adopted with adopt_cache()")
+        self._preparing = True
         started = time.perf_counter()
         for length in self.warmup_prefill_lengths:
             self.log(f"warmup prefill {length}")
@@ -229,6 +254,7 @@ class Qwen3Generator(Generator):
                 layout=ttnn.ROW_MAJOR_LAYOUT,
                 device=self.mesh_device,
             )
+            host_scratch = torch.full((1, self.page_table_width), self.scratch_block, dtype=torch.int32)
             for start in self.warmup_chunk_starts:
                 self.log(f"warmup chunk pieces at start {start}: {chunk_lengths}")
                 for length in chunk_lengths:
@@ -239,6 +265,20 @@ class Qwen3Generator(Generator):
                         page_table=scratch_table,
                         kv_cache=self.kv_cache,
                         compute_len=length,
+                        host_page_table=host_scratch,
+                    )
+                    hidden.deallocate(True)
+            for start in self.warmup_continuation_starts:
+                lead = start % SLOT_WIDTH
+                self.log(f"warmup continuation at start {start} (lead {lead}): {chunk_lengths}")
+                for length in chunk_lengths:
+                    hidden = self.model.prefill_hidden(
+                        list(range(1, length - lead + 1)),
+                        start_pos=start,
+                        user_slot=0,
+                        page_table=scratch_table,
+                        kv_cache=self.kv_cache,
+                        host_page_table=host_scratch,
                     )
                     hidden.deallocate(True)
             scratch_table.deallocate(True)
@@ -288,7 +328,13 @@ class Qwen3Generator(Generator):
             ttnn.synchronize_device(self.mesh_device)
         self.reset()
         self.prepared = True
+        self._preparing = False
         self.log(f"prepare done in {time.perf_counter() - started:.1f} s")
+
+    def _require_prepared(self) -> None:
+        """Generator-owned warmup enforcement: no forward pass runs before phase 1 completed."""
+        if not self.prepared and not self._preparing:
+            self.prepare()
 
     def release_owned_cache(self) -> None:
         """Free the generator-owned KV cache after ``prepare()`` when an external caller owns the cache.
@@ -298,14 +344,30 @@ class Qwen3Generator(Generator):
         """
         if self.kv_cache is None:
             return
-        for key_cache, value_cache in self.kv_cache:
-            key_cache.deallocate(True)
-            value_cache.deallocate(True)
+        if self.owns_cache:
+            for key_cache, value_cache in self.kv_cache:
+                key_cache.deallocate(True)
+                value_cache.deallocate(True)
         self.kv_cache = None
         self.free_blocks = []
         for slot in self.slot_blocks:
             self.slot_blocks[slot] = []
             self.slot_len[slot] = 0
+
+    def adopt_cache(self, kv_cache: list[tuple], *, scratch_block: int) -> None:
+        """Map the generator's block pool onto a caller-owned cache so ``prepare()`` and the deferred captures
+        run over the tensors that serve requests (paged-attention program keys include the cache shape).
+
+        The pool covers the first ``page_table_width`` blocks; ``scratch_block`` is the caller's extra block.
+        ``release_owned_cache`` detaches the pool again without freeing the caller's tensors.
+        """
+        self.release_owned_cache()
+        self.kv_cache = kv_cache
+        self.owns_cache = False
+        self.scratch_block = int(scratch_block)
+        self.num_blocks = int(scratch_block)
+        self.free_blocks = list(range(min(self.num_blocks, self.page_table_width)))
+        self._bound_cache_id = None
 
     def teardown(self) -> None:
         self.log(f"runtime counters at teardown: {json.dumps(self.counter_snapshot(), sort_keys=True)}")
@@ -375,9 +437,11 @@ class Qwen3Generator(Generator):
         scratch = self.scratch_block if scratch_block is None else int(scratch_block)
         table = torch.full((rows, self.page_table_width), scratch, dtype=torch.int32)
         width = min(page_table.shape[1], self.page_table_width)
-        for row in range(rows):
-            valid = min(width, math.ceil(valid_tokens[row] / self.block_size))
-            table[row, :valid] = page_table[row, :valid].to(torch.int32)
+        valid = torch.tensor(
+            [min(width, math.ceil(int(v) / self.block_size)) for v in valid_tokens], dtype=torch.int64
+        ).unsqueeze(1)
+        keep = torch.arange(width, dtype=torch.int64).unsqueeze(0) < valid
+        table[:, :width] = torch.where(keep, page_table[:, :width].to(torch.int32), table[:, :width])
         return table
 
     # ------------------------------------------------------- persistent I/O
@@ -556,6 +620,7 @@ class Qwen3Generator(Generator):
         per-layer list of ``(K, V)`` pairs. Returns ``[B, 1, vocab]`` last-token logits, ``[B, T, vocab]``
         with ``return_all_logits`` (single row only), or ``[B]`` sampled tokens with ``sampling_params``.
         """
+        self._require_prepared()
         rows = tokens.shape[0]
         starts = [0] * rows if start_pos is None else [int(s) for s in torch.as_tensor(start_pos).reshape(-1)]
         ends = [int(e) for e in prompt_lens]
@@ -579,9 +644,15 @@ class Qwen3Generator(Generator):
             ids = tokens[0, starts[0] : ends[0]].tolist()
             tt_table = row_table(0)
             hidden = self.model.prefill_hidden(
-                ids, start_pos=starts[0], user_slot=0, page_table=tt_table, kv_cache=kv_cache
+                ids,
+                start_pos=starts[0],
+                user_slot=0,
+                page_table=tt_table,
+                kv_cache=kv_cache,
+                host_page_table=table[0:1],
             )
-            logits = self.model.logits_all_rows(hidden)[: len(ids)]
+            lead = self.model.lead_rows(starts[0])
+            logits = self.model.logits_all_rows(hidden)[lead : lead + len(ids)]
             hidden.deallocate(True)
             tt_table.deallocate(True)
             return logits.unsqueeze(0)
@@ -590,11 +661,16 @@ class Qwen3Generator(Generator):
             ids = tokens[i, starts[i] : ends[i]].tolist()
             tt_table = row_table(i)
             hidden = self.model.prefill_hidden(
-                ids, start_pos=starts[i], user_slot=0, page_table=tt_table, kv_cache=kv_cache, keep_all_rows=False
+                ids,
+                start_pos=starts[i],
+                user_slot=0,
+                page_table=tt_table,
+                kv_cache=kv_cache,
+                keep_all_rows=False,
+                host_page_table=table[i : i + 1],
             )
             tt_table.deallocate(True)
-            offset = self.model.prefill_row_offset(len(ids), starts[i])
-            pieces.append(self.model.gather_rows(hidden, [len(ids) - 1 - offset]))
+            pieces.append(self.model.gather_rows(hidden, [self.model.last_row_index(len(ids), starts[i])]))
             hidden.deallocate(True)
         tile = self.model.rows_to_tile(pieces)
         for piece in pieces:
@@ -622,14 +698,15 @@ class Qwen3Generator(Generator):
         table = self._host_page_table([slot])
         tt_table = ttnn.from_torch(table, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device)
         hidden = self.model.prefill_hidden(
-            ids, start_pos=start, user_slot=0, page_table=tt_table, kv_cache=self.kv_cache
+            ids, start_pos=start, user_slot=0, page_table=tt_table, kv_cache=self.kv_cache, host_page_table=table
         )
         tt_table.deallocate(True)
-        local = [p - start for p in positions]
-        if any(not 0 <= p < len(ids) for p in local):
+        lead = self.model.lead_rows(start)
+        if any(not 0 <= p - start < len(ids) for p in positions):
             raise ValueError("positions must lie inside the continuation window")
+        local = [lead + p - start for p in positions]
         if len(local) == len(ids):
-            logits = self.model.logits_all_rows(hidden)
+            logits = self.model.logits_all_rows(hidden)[lead : lead + len(ids)]
             hidden.deallocate(True)
             self.slot_len[slot] = start + len(ids)
             return logits.unsqueeze(0)
@@ -667,6 +744,7 @@ class Qwen3Generator(Generator):
         ``sampling_params`` the step returns ``[B, vocab]`` logits and reloads tokens and positions
         from the host every step (host-sampling compatibility mode).
         """
+        self._require_prepared()
         batch = tokens.shape[0]
         mode = "device" if sampling_params is not None else "host"
         bucket = decode_bucket(batch, self.model.grid.x, self.model.grid.y)
@@ -708,6 +786,8 @@ class Qwen3Generator(Generator):
                 self._sample_eager(out, state)
         state.last_mode = mode
         state.device_state_valid = mode == "device" and enable_trace
+        if not read_from_device:
+            return DecodeOutput(state, mode, batch, state.tokens if mode == "device" else out, eager=not enable_trace)
         if mode == "device":
             result = self._read_tokens(state, batch)
             if not enable_trace:
@@ -718,6 +798,70 @@ class Qwen3Generator(Generator):
         if not enable_trace:
             out.deallocate(True)
         return host
+
+    def read_decode_output(self, out: DecodeOutput, async_read: bool = False):
+        """Start the host read of a deferred decode output.
+
+        With ``async_read`` the read is enqueued without blocking and the call returns
+        ``(out, [event])``; the caller synchronizes the event before ``process_decode_output_host``.
+        The read is enqueued on the same command queue as the replay, so a later replay that overwrites
+        the persistent token tensor is ordered after it.
+        """
+        if not async_read:
+            out.host = out.device.cpu(blocking=True)
+            return out
+        out.host = out.device.cpu(blocking=False)
+        return out, [ttnn.record_event(self.mesh_device, 0)]
+
+    def process_decode_output_host(self, out: DecodeOutput, is_tokens: bool = False) -> torch.Tensor:
+        """Host formatting of a read decode output: ``[B]`` token ids or ``[B, vocab]`` float32 logits."""
+        host = out.host if out.host is not None else out.device.cpu(blocking=True)
+        if out.mode == "device":
+            self.counters["token_readbacks"] += 1
+            result = ttnn.to_torch(host).reshape(-1)[: out.batch].to(torch.int64)
+        else:
+            self.counters["logits_readbacks"] += 1
+            result = ttnn.to_torch(host)[0, 0, : out.batch].to(torch.float32)
+        if out.eager:
+            out.device.deallocate(True)
+        out.host = None
+        return result
+
+    def capture_decode_traces(
+        self, kv_cache: Any, *, modes: Sequence[str] = ("device",), scratch_block: int | None = None
+    ) -> dict:
+        """Phase 2 of the trace contract: capture the prepared decode (and sampling) traces on ``kv_cache``.
+
+        Every bucket replays once over the scratch block at position 0 so the capture is executed before
+        a request uses it; the bucket state is then marked invalid so the first real step reloads it.
+        Returns ``{(bucket, mode): trace_id}`` for the traces captured by this call.
+        """
+        if not self.prepared:
+            raise RuntimeError("prepare() must run before any trace capture")
+        scratch = self._scratch_for(kv_cache, scratch_block)
+        captured = {}
+        for bucket in self.decode_buckets:
+            state = self.buckets[bucket]
+            for mode in modes:
+                if mode in state.traces:
+                    continue
+                self._write_tokens(state, torch.zeros(bucket, dtype=torch.int32))
+                self._write_positions(state, torch.zeros(bucket, dtype=torch.int32))
+                self._write_page_table(
+                    state, torch.full((bucket, self.page_table_width), scratch, dtype=torch.int32), scratch
+                )
+                if mode == "device":
+                    self._apply_sampling_params(
+                        greedy_sampling_params(bucket), bucket, admit=True, positions=[0] * bucket
+                    )
+                self._replay(state, mode, kv_cache)
+                captured[(bucket, mode)] = state.traces[mode]
+            self._write_positions(state, torch.full((bucket,), -1, dtype=torch.int32))
+            state.device_state_valid = False
+            state.last_mode = None
+        ttnn.synchronize_device(self.mesh_device)
+        self.sampling.seed_manager.deactivate_slots_except([])
+        return captured
 
     # ------------------------------------------------------ high-level API
 

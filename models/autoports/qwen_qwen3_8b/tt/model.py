@@ -327,31 +327,42 @@ class Qwen3Model:
         kv_cache: list[tuple],
         compute_len: int | None = None,
         keep_all_rows: bool = True,
+        host_page_table: torch.Tensor | None = None,
     ) -> ttnn.Tensor:
         """Run one row through every layer; returns the final hidden state ``[1, 1, compute_len, H]``.
 
-        Rows ``[0, len(token_ids))`` are the prompt; rows past it are padding whose cache writes stay in
-        the row's last block or the scratch block the page table names past the allocation. A fresh row
-        longer than one chunk runs chunk by chunk through the whole stack (each chunk attends to the cache
-        the earlier chunks wrote, which is the order-independent causal result); with ``keep_all_rows``
-        the chunk outputs are concatenated, otherwise only the last piece is returned and
-        ``prefill_row_offset`` gives the absolute index of its first row.
+        The physical window starts at the tile boundary at or below ``start_pos``: ``lead = start_pos % 32``
+        rows of a pad token precede the prompt (their K/V are never written; the cache already holds those
+        live rows), rows ``[lead, lead + len(token_ids))`` are the prompt, and rows past it are padding
+        whose cache writes stay in the row's last block or the scratch block the page table names past the
+        allocation. The window length rounds up to a prefill bucket for every start, so program keys do not
+        depend on the start offset or the exact length. A window longer than one chunk runs chunk by chunk
+        through the whole stack (each chunk attends to the cache the earlier chunks wrote, which is the
+        order-independent causal result); with ``keep_all_rows`` the chunk outputs are concatenated,
+        otherwise only the last piece is returned and ``last_row_index`` gives the row of the last token.
         """
         seq_len = len(token_ids)
+        lead = start_pos % TILE_SIZE
+        phys_base = start_pos - lead
+        window = lead + seq_len
+        ids = [0] * lead + list(token_ids)
         if compute_len is None:
-            compute_len = prefill_compute_len(seq_len) if start_pos == 0 else seq_len
-        if compute_len < seq_len:
-            raise ValueError(f"compute_len {compute_len} < prompt length {seq_len}")
-        if start_pos == 0 and seq_len > PREFILL_CHUNK:
+            compute_len = prefill_compute_len(window)
+        if compute_len < window:
+            raise ValueError(f"compute_len {compute_len} < window length {window}")
+        if window > PREFILL_CHUNK:
             outputs = []
-            for piece_start, length, piece_len in prefill_pieces(seq_len):
+            for piece_start, length, piece_len in prefill_pieces(window):
                 hidden = self._prefill_piece(
-                    token_ids[piece_start : piece_start + length],
-                    start_pos=piece_start,
+                    ids[piece_start : piece_start + length],
+                    start_pos=phys_base + piece_start,
                     user_slot=user_slot,
                     page_table=page_table,
                     kv_cache=kv_cache,
                     compute_len=piece_len,
+                    valid_start=start_pos,
+                    valid_end=start_pos + seq_len,
+                    host_page_table=host_page_table,
                 )
                 if keep_all_rows:
                     outputs.append(hidden)
@@ -366,20 +377,33 @@ class Qwen3Model:
                 piece.deallocate(True)
             return joined
         return self._prefill_piece(
-            token_ids,
-            start_pos=start_pos,
+            ids,
+            start_pos=phys_base,
             user_slot=user_slot,
             page_table=page_table,
             kv_cache=kv_cache,
             compute_len=compute_len,
+            valid_start=start_pos,
+            valid_end=start_pos + seq_len,
+            host_page_table=host_page_table,
         )
 
     @staticmethod
     def prefill_row_offset(seq_len: int, start_pos: int = 0, keep_all_rows: bool = False) -> int:
-        """Absolute index of row 0 of the tensor ``prefill_hidden`` returns for this prompt."""
-        if keep_all_rows or start_pos != 0 or seq_len <= PREFILL_CHUNK:
+        """Window-row index of row 0 of the tensor ``prefill_hidden`` returns for this prompt."""
+        window = start_pos % TILE_SIZE + seq_len
+        if keep_all_rows or window <= PREFILL_CHUNK:
             return 0
-        return prefill_pieces(seq_len)[-1][0]
+        return prefill_pieces(window)[-1][0]
+
+    @classmethod
+    def last_row_index(cls, seq_len: int, start_pos: int = 0, keep_all_rows: bool = False) -> int:
+        """Row of the prompt's last token in the tensor ``prefill_hidden`` returns."""
+        return start_pos % TILE_SIZE + seq_len - 1 - cls.prefill_row_offset(seq_len, start_pos, keep_all_rows)
+
+    @staticmethod
+    def lead_rows(start_pos: int) -> int:
+        return start_pos % TILE_SIZE
 
     def _prefill_piece(
         self,
@@ -390,8 +414,11 @@ class Qwen3Model:
         page_table: ttnn.Tensor,
         kv_cache: list[tuple],
         compute_len: int,
+        valid_start: int | None = None,
+        valid_end: int | None = None,
+        host_page_table: torch.Tensor | None = None,
     ) -> ttnn.Tensor:
-        """One piece of up to one chunk at absolute ``start_pos`` through every layer."""
+        """One piece of up to one chunk at tile-aligned absolute ``start_pos`` through every layer."""
         x = self.embed_ids(token_ids, compute_len)
         for layer_idx, layer in enumerate(self.layers):
             y = layer.prefill_forward(
@@ -401,6 +428,9 @@ class Qwen3Model:
                 user_id=user_slot,
                 start_pos=start_pos,
                 seq_lens=[compute_len],
+                valid_starts=None if valid_start is None else [valid_start],
+                valid_ends=None if valid_end is None else [valid_end],
+                host_page_table=host_page_table,
             )
             x.deallocate(True)
             x = y

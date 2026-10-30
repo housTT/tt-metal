@@ -61,6 +61,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
+import torch
+
 import ttnn
 from models.common.lightweightmodule import LightweightModule
 
@@ -185,18 +187,30 @@ def plan_prefill_window(start_pos: int, seq_len: int) -> tuple[int, int, int]:
     return phys_base, lead, phys_total
 
 
-def plan_prefill_chunks(start_pos: int, seq_len: int, chunk_size: int) -> list[PrefillChunk]:
-    """Split one row's physical window into bounded tile-aligned chunks."""
+def plan_prefill_chunks(
+    start_pos: int,
+    seq_len: int,
+    chunk_size: int,
+    valid_start: int | None = None,
+    valid_end: int | None = None,
+) -> list[PrefillChunk]:
+    """Split one row's physical window into bounded tile-aligned chunks.
+
+    ``valid_start`` and ``valid_end`` narrow the absolute range whose K/V rows are written; rows of the
+    window before ``valid_start`` are live cache rows that the caller padded in front of the prompt.
+    """
     if chunk_size < TILE_SIZE or chunk_size % TILE_SIZE != 0:
         raise ValueError("chunk_size must be a positive multiple of 32")
     phys_base, _, phys_total = plan_prefill_window(start_pos, seq_len)
+    lo_valid = start_pos if valid_start is None else max(int(valid_start), start_pos)
+    hi_valid = start_pos + seq_len if valid_end is None else min(int(valid_end), start_pos + seq_len)
     chunks: list[PrefillChunk] = []
     offset = 0
     while offset < phys_total:
         phys_len = min(chunk_size, phys_total - offset)
         phys_start = phys_base + offset
-        abs_lo = max(phys_start, start_pos)
-        abs_hi = min(phys_start + phys_len, start_pos + seq_len)
+        abs_lo = max(phys_start, lo_valid)
+        abs_hi = min(phys_start + phys_len, hi_valid)
         chunks.append(
             PrefillChunk(
                 phys_start=phys_start,
@@ -500,6 +514,9 @@ class FunctionalDecoder(LightweightModule):
         user_id: int | Sequence[int] = 0,
         start_pos: int | Sequence[int] = 0,
         seq_lens: Sequence[int] | None = None,
+        valid_starts: Sequence[int] | None = None,
+        valid_ends: Sequence[int] | None = None,
+        host_page_table: torch.Tensor | None = None,
     ) -> ttnn.Tensor:
         batch = hidden_states.shape[0]
         s_max = hidden_states.shape[-2]
@@ -508,6 +525,8 @@ class FunctionalDecoder(LightweightModule):
         user_ids = [int(user_id)] * batch if isinstance(user_id, int) else [int(u) for u in user_id]
         starts = [int(start_pos)] * batch if isinstance(start_pos, int) else [int(s) for s in start_pos]
         lens = [int(s_max)] * batch if seq_lens is None else [int(n) for n in seq_lens]
+        v_starts = [None] * batch if valid_starts is None else [int(v) for v in valid_starts]
+        v_ends = [None] * batch if valid_ends is None else [int(v) for v in valid_ends]
         if not (len(user_ids) == len(starts) == len(lens) == batch):
             raise ValueError("user_id, start_pos and seq_lens must have one entry per batch row")
         for row in range(batch):
@@ -521,7 +540,17 @@ class FunctionalDecoder(LightweightModule):
             if not 0 <= user_ids[row] < page_table.shape[0]:
                 raise ValueError(f"row {row}: user_id {user_ids[row]} outside page table rows {page_table.shape[0]}")
         if batch == 1:
-            out = self._prefill_row(hidden_states, page_table, kv_cache, user_ids[0], starts[0], lens[0])
+            out = self._prefill_row(
+                hidden_states,
+                page_table,
+                kv_cache,
+                user_ids[0],
+                starts[0],
+                lens[0],
+                valid_start=v_starts[0],
+                valid_end=v_ends[0],
+                host_page_table=host_page_table,
+            )
             return self._pad_rows(out, s_max)
         outputs = []
         for row in range(batch):
@@ -531,7 +560,17 @@ class FunctionalDecoder(LightweightModule):
                 [row + 1, 1, s_max, self.geometry.hidden_size],
                 memory_config=ttnn.DRAM_MEMORY_CONFIG,
             )
-            out = self._prefill_row(hidden_row, page_table, kv_cache, user_ids[row], starts[row], lens[row])
+            out = self._prefill_row(
+                hidden_row,
+                page_table,
+                kv_cache,
+                user_ids[row],
+                starts[row],
+                lens[row],
+                valid_start=v_starts[row],
+                valid_end=v_ends[row],
+                host_page_table=None if host_page_table is None else host_page_table[row : row + 1],
+            )
             hidden_row.deallocate(True)
             outputs.append(self._pad_rows(out, s_max))
         result = ttnn.concat(outputs, dim=0, memory_config=ttnn.DRAM_MEMORY_CONFIG)
@@ -555,6 +594,9 @@ class FunctionalDecoder(LightweightModule):
         user_id: int,
         start_pos: int,
         seq_len: int,
+        valid_start: int | None = None,
+        valid_end: int | None = None,
+        host_page_table: torch.Tensor | None = None,
     ) -> ttnn.Tensor:
         hidden_size = self.geometry.hidden_size
         phys_base, lead, phys_total = plan_prefill_window(start_pos, seq_len)
@@ -574,7 +616,7 @@ class FunctionalDecoder(LightweightModule):
         if page_table.shape[0] > 1:
             user_page_table = ttnn.slice(page_table, [user_id, 0], [user_id + 1, page_table.shape[1]])
             owns_table = True
-        chunks = plan_prefill_chunks(start_pos, seq_len, self.prefill_chunk_size)
+        chunks = plan_prefill_chunks(start_pos, seq_len, self.prefill_chunk_size, valid_start, valid_end)
         outputs = []
         for chunk in chunks:
             if len(chunks) == 1:
@@ -586,7 +628,7 @@ class FunctionalDecoder(LightweightModule):
                     [1, 1, chunk.input_offset + chunk.phys_len, hidden_size],
                     memory_config=ttnn.DRAM_MEMORY_CONFIG,
                 )
-            outputs.append(self._prefill_chunk(x_chunk, chunk, user_page_table, kv_cache))
+            outputs.append(self._prefill_chunk(x_chunk, chunk, user_page_table, kv_cache, host_page_table))
             if x_chunk is not x:
                 x_chunk.deallocate(True)
         if not _same_buffer(x, hidden_row):
@@ -640,10 +682,11 @@ class FunctionalDecoder(LightweightModule):
         chunk: PrefillChunk,
         user_page_table: ttnn.Tensor,
         kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
+        host_page_table: torch.Tensor | None = None,
     ) -> ttnn.Tensor:
         residual = x
         attn_in = self._rms_norm(x, self.weights.input_ln)
-        attn_out = self._attention_prefill(attn_in, chunk, user_page_table, kv_cache)
+        attn_out = self._attention_prefill(attn_in, chunk, user_page_table, kv_cache, host_page_table)
         attn_in.deallocate(True)
         h = ttnn.add(residual, attn_out, memory_config=ttnn.DRAM_MEMORY_CONFIG)
         attn_out.deallocate(True)
@@ -695,6 +738,7 @@ class FunctionalDecoder(LightweightModule):
         chunk: PrefillChunk,
         user_page_table: ttnn.Tensor,
         kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
+        host_page_table: torch.Tensor | None = None,
     ) -> ttnn.Tensor:
         g = self.geometry
         xqkv = self._linear(x, self.weights.qkv)
@@ -710,18 +754,7 @@ class FunctionalDecoder(LightweightModule):
         q_heads.deallocate(True)
         k_normed = self._rms_norm(k_heads, self.weights.k_norm)
         k_heads.deallocate(True)
-        cos = ttnn.slice(
-            self.weights.rope_cos,
-            [0, 0, chunk.phys_start, 0],
-            [1, 1, chunk.phys_start + chunk.phys_len, g.head_dim],
-            memory_config=ttnn.DRAM_MEMORY_CONFIG,
-        )
-        sin = ttnn.slice(
-            self.weights.rope_sin,
-            [0, 0, chunk.phys_start, 0],
-            [1, 1, chunk.phys_start + chunk.phys_len, g.head_dim],
-            memory_config=ttnn.DRAM_MEMORY_CONFIG,
-        )
+        cos, sin = self._rope_rows(chunk.phys_start, chunk.phys_len)
         q_rot = ttnn.experimental.rotary_embedding_hf(
             q_normed, cos, sin, is_decode_mode=False, compute_kernel_config=self.compute_config
         )
@@ -734,7 +767,7 @@ class FunctionalDecoder(LightweightModule):
         sin.deallocate(True)
 
         key_cache, value_cache = kv_cache
-        self._write_prefill_cache(key_cache, value_cache, k_rot, v_heads, chunk, user_page_table)
+        self._write_prefill_cache(key_cache, value_cache, k_rot, v_heads, chunk, user_page_table, host_page_table)
         k_rot.deallocate(True)
         v_heads.deallocate(True)
 
@@ -746,23 +779,46 @@ class FunctionalDecoder(LightweightModule):
             k_chunk_size=chunk_size,
             exp_approx_mode=False,
         )
+        chunk_start = ttnn.from_torch(
+            torch.tensor([chunk.phys_start], dtype=torch.int32),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            device=self.mesh_device,
+        )
         attn = ttnn.transformer.chunked_scaled_dot_product_attention(
             q_rot,
             key_cache,
             value_cache,
             user_page_table,
-            chunk_start_idx=chunk.phys_start,
+            chunk_start_idx_tensor=chunk_start,
             scale=g.scale,
             program_config=program_config,
             compute_kernel_config=self.compute_config,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
+        chunk_start.deallocate(True)
         q_rot.deallocate(True)
         concat = ttnn.experimental.nlp_concat_heads(attn, memory_config=ttnn.DRAM_MEMORY_CONFIG)
         attn.deallocate(True)
         out = self._linear(concat, self.weights.o_proj)
         concat.deallocate(True)
         return out
+
+    def _rope_rows(self, phys_start: int, phys_len: int) -> tuple[ttnn.Tensor, ttnn.Tensor]:
+        """RoPE cos/sin rows ``[phys_start, phys_start + phys_len)`` as ``[1, 1, phys_len, head_dim]`` by a
+        runtime gather over the row-major tables, so the program keys on ``phys_len`` only."""
+        idx = ttnn.from_torch(
+            torch.arange(phys_start, phys_start + phys_len, dtype=torch.int32).reshape(1, -1),
+            dtype=ttnn.uint32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            device=self.mesh_device,
+        )
+        rows = []
+        for table in (self.weights.rope_cos_table, self.weights.rope_sin_table):
+            gathered = ttnn.embedding(idx, table, layout=ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            rows.append(ttnn.unsqueeze_to_4D(gathered))
+        idx.deallocate(True)
+        return rows[0], rows[1]
 
     def _write_prefill_cache(
         self,
@@ -772,6 +828,7 @@ class FunctionalDecoder(LightweightModule):
         v_heads: ttnn.Tensor,
         chunk: PrefillChunk,
         user_page_table: ttnn.Tensor,
+        host_page_table: torch.Tensor | None = None,
     ) -> None:
         """Write the chunk's valid K/V rows at their absolute positions.
 

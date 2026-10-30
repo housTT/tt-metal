@@ -37,6 +37,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import torch
+
 import ttnn
 from models.autoports.qwen_qwen3_8b.tt.functional_decoder import (
     TILE_SIZE,
@@ -156,9 +158,10 @@ class FusedDecoder(FunctionalDecoder):
         chunk: PrefillChunk,
         user_page_table: ttnn.Tensor,
         kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
+        host_page_table: torch.Tensor | None = None,
     ) -> ttnn.Tensor:
         attn_in = self._rms_norm(x, self.weights.input_ln)
-        h = self._attention_prefill(attn_in, chunk, user_page_table, kv_cache, residual=x)
+        h = self._attention_prefill(attn_in, chunk, user_page_table, kv_cache, host_page_table, residual=x)
         attn_in.deallocate(True)
         mlp_in = self._rms_norm(h, self.weights.post_attn_ln)
         out = self._mlp_prefill(mlp_in, residual=h)
@@ -188,6 +191,7 @@ class FusedDecoder(FunctionalDecoder):
         chunk: PrefillChunk,
         user_page_table: ttnn.Tensor,
         kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
+        host_page_table: torch.Tensor | None = None,
         residual: ttnn.Tensor | None = None,
     ) -> ttnn.Tensor:
         g = self.geometry
@@ -204,18 +208,7 @@ class FusedDecoder(FunctionalDecoder):
         q_heads.deallocate(True)
         k_normed = self._rms_norm(k_heads, self.weights.k_norm)
         k_heads.deallocate(True)
-        cos = ttnn.slice(
-            self.weights.rope_cos,
-            [0, 0, chunk.phys_start, 0],
-            [1, 1, chunk.phys_start + chunk.phys_len, g.head_dim],
-            memory_config=ttnn.DRAM_MEMORY_CONFIG,
-        )
-        sin = ttnn.slice(
-            self.weights.rope_sin,
-            [0, 0, chunk.phys_start, 0],
-            [1, 1, chunk.phys_start + chunk.phys_len, g.head_dim],
-            memory_config=ttnn.DRAM_MEMORY_CONFIG,
-        )
+        cos, sin = self._rope_rows(chunk.phys_start, chunk.phys_len)
         q_rot = ttnn.experimental.rotary_embedding_hf(
             q_normed, cos, sin, is_decode_mode=False, compute_kernel_config=self.compute_config
         )
@@ -228,7 +221,7 @@ class FusedDecoder(FunctionalDecoder):
         sin.deallocate(True)
 
         key_cache, value_cache = kv_cache
-        self._write_prefill_cache(key_cache, value_cache, k_rot, v_heads, chunk, user_page_table)
+        self._write_prefill_cache(key_cache, value_cache, k_rot, v_heads, chunk, user_page_table, host_page_table)
         k_rot.deallocate(True)
         v_heads.deallocate(True)
 
@@ -240,17 +233,24 @@ class FusedDecoder(FunctionalDecoder):
             k_chunk_size=chunk_size,
             exp_approx_mode=False,
         )
+        chunk_start = ttnn.from_torch(
+            torch.tensor([chunk.phys_start], dtype=torch.int32),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            device=self.mesh_device,
+        )
         attn = ttnn.transformer.chunked_scaled_dot_product_attention(
             q_rot,
             key_cache,
             value_cache,
             user_page_table,
-            chunk_start_idx=chunk.phys_start,
+            chunk_start_idx_tensor=chunk_start,
             scale=g.scale,
             program_config=program_config,
             compute_kernel_config=self.compute_config,
             memory_config=ttnn.DRAM_MEMORY_CONFIG,
         )
+        chunk_start.deallocate(True)
         q_rot.deallocate(True)
         concat = ttnn.experimental.nlp_concat_heads(attn, memory_config=ttnn.DRAM_MEMORY_CONFIG)
         attn.deallocate(True)

@@ -39,6 +39,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+import torch
+
 import ttnn
 from models.autoports.qwen_qwen3_8b.tt.functional_decoder import (
     TILE_SIZE,
@@ -496,12 +498,12 @@ class OptimizedDecoder(FusedDecoder):
                 k_norm=as_tt(
                     "k_norm", local["self_attn.k_norm.weight"].to(torch.float32).reshape(head_norm_shape), ttnn.bfloat16
                 ),
-                rope_cos=rope_tables[0]
-                if rope_tables
-                else as_tt("rope_cos", cos.unsqueeze(0).unsqueeze(0), ttnn.bfloat16),
-                rope_sin=rope_tables[1]
-                if rope_tables
-                else as_tt("rope_sin", sin.unsqueeze(0).unsqueeze(0), ttnn.bfloat16),
+                rope_cos=(
+                    rope_tables[0] if rope_tables else as_tt("rope_cos", cos.unsqueeze(0).unsqueeze(0), ttnn.bfloat16)
+                ),
+                rope_sin=(
+                    rope_tables[1] if rope_tables else as_tt("rope_sin", sin.unsqueeze(0).unsqueeze(0), ttnn.bfloat16)
+                ),
                 rope_cos_table=(
                     rope_tables[2]
                     if rope_tables
@@ -757,12 +759,13 @@ class OptimizedDecoder(FusedDecoder):
         v_heads: ttnn.Tensor,
         chunk: PrefillChunk,
         user_page_table: ttnn.Tensor,
+        host_page_table: torch.Tensor | None = None,
     ) -> None:
-        """Lead rows: one fused K/V update per token over a prepared pseudo-user tensor; then the tile fill.
+        """Lead rows: one fused K/V update per token over a fixed 32-user tensor; then the tile fill.
 
-        The per-token one-hot position vector is a slice of one ``ttnn.arange`` row padded with -1;
-        ``moreh_full`` of a ``[1, 1]`` int32 scalar trips the watcher (its writer sends a 64-byte NoC
-        write for a 4-byte page).
+        The lead rows are gathered from the chunk's K/V by a runtime index (``ttnn.embedding`` over the
+        row-major ``[heads * phys_len, head_dim]`` view), and each token's one-hot position vector is
+        written from the host, so no program keys on the chunk's start offset or lead-row count.
         """
         g = self.geometry
         block_size = key_cache.shape[2]
@@ -771,42 +774,61 @@ class OptimizedDecoder(FusedDecoder):
             positions = token_positions[group_start : group_start + MAX_LEAD_GROUP]
             count = len(positions)
             row0 = positions[0] - chunk.phys_start
-            k_lead = ttnn.slice(k_rot, [0, 0, row0, 0], [1, g.num_kv_heads, row0 + count, g.head_dim])
-            v_lead = ttnn.slice(v_heads, [0, 0, row0, 0], [1, g.num_kv_heads, row0 + count, g.head_dim])
-            k_users = ttnn.transpose(k_lead, 1, 2)
-            v_users = ttnn.transpose(v_lead, 1, 2)
-            k_lead.deallocate(True)
-            v_lead.deallocate(True)
-            k_cores, v_cores = lead_update_core_sets(count, self.grid)
+            k_users = self._lead_users(k_rot, row0, chunk.phys_len)
+            v_users = self._lead_users(v_heads, row0, chunk.phys_len)
+            k_cores, v_cores = lead_update_core_sets(MAX_LEAD_GROUP, self.grid)
             k_sh = ttnn.to_memory_config(k_users, _height_sharded_config(k_cores, g.head_dim))
             v_sh = ttnn.to_memory_config(v_users, _height_sharded_config(v_cores, g.head_dim))
             k_users.deallocate(True)
             v_users.deallocate(True)
-            table = ttnn.repeat(user_page_table, ttnn.Shape([count, 1])) if count > 1 else user_page_table
-            position_row = ttnn.reshape(
-                ttnn.arange(positions[0], positions[0] + count, 1, device=self.mesh_device, dtype=ttnn.int32),
-                (1, count),
-            )
+            table = ttnn.repeat(user_page_table, ttnn.Shape([MAX_LEAD_GROUP, 1]))
             for index in range(count):
-                one = ttnn.slice(position_row, [0, index], [1, index + 1])
-                padded = ttnn.pad(one, [(0, 0), (index, count - 1 - index)], -1) if count > 1 else one
-                update_idxs = ttnn.reshape(padded, (count,))
+                one_hot = torch.full((MAX_LEAD_GROUP,), -1, dtype=torch.int32)
+                one_hot[index] = positions[index]
+                update_idxs = ttnn.from_torch(
+                    one_hot, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device
+                )
                 ttnn.experimental.paged_fused_update_cache(
                     key_cache, k_sh, value_cache, v_sh, update_idxs_tensor=update_idxs, page_table=table
                 )
-                if not _same_buffer(padded, one):
-                    padded.deallocate(True)
-                one.deallocate(True)
-            position_row.deallocate(True)
-            if table is not user_page_table:
-                table.deallocate(True)
+                update_idxs.deallocate(True)
+            table.deallocate(True)
             k_sh.deallocate(True)
             v_sh.deallocate(True)
         if fill_start is None:
             return
-        self._fill_prefill_cache(key_cache, value_cache, k_rot, v_heads, chunk, user_page_table, fill_start)
+        self._fill_prefill_cache(
+            key_cache, value_cache, k_rot, v_heads, chunk, user_page_table, fill_start, host_page_table
+        )
 
-    def _fill_prefill_cache(self, key_cache, value_cache, k_rot, v_heads, chunk, user_page_table, fill_start) -> None:
+    def _lead_users(self, heads: ttnn.Tensor, row0: int, phys_len: int) -> ttnn.Tensor:
+        """``[1, 32, kv_heads, head_dim]`` pseudo-user tensor holding rows ``row0 ..`` of ``heads``
+        (``[1, kv_heads, phys_len, head_dim]``), gathered by a runtime index; rows past the chunk repeat
+        its last row and are never written (their update index is -1)."""
+        g = self.geometry
+        rows = torch.arange(MAX_LEAD_GROUP, dtype=torch.int64) + row0
+        rows = rows.clamp(max=phys_len - 1)
+        index = (torch.arange(g.num_kv_heads, dtype=torch.int64).unsqueeze(0) * phys_len + rows.unsqueeze(1)).reshape(
+            1, -1
+        )
+        idx = ttnn.from_torch(
+            index.to(torch.int32), dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device
+        )
+        flat = ttnn.to_layout(heads, ttnn.ROW_MAJOR_LAYOUT)
+        flat = ttnn.reshape(flat, (g.num_kv_heads * phys_len, g.head_dim))
+        gathered = ttnn.embedding(idx, flat, layout=ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        flat.deallocate(True)
+        idx.deallocate(True)
+        users = ttnn.reshape(gathered, (1, MAX_LEAD_GROUP, g.num_kv_heads, g.head_dim))
+        tiled = ttnn.to_layout(users, ttnn.TILE_LAYOUT)
+        if not _same_buffer(users, gathered):
+            users.deallocate(True)
+        gathered.deallocate(True)
+        return tiled
+
+    def _fill_prefill_cache(
+        self, key_cache, value_cache, k_rot, v_heads, chunk, user_page_table, fill_start, host_page_table=None
+    ) -> None:
         g = self.geometry
         block_size = key_cache.shape[2]
         cache_dtype = key_cache.dtype
@@ -825,7 +847,15 @@ class OptimizedDecoder(FusedDecoder):
             k_fill, v_fill, owns_fill = k_cast, v_cast, True
         first_block = fill_start // block_size
         fill_table, owns_table = user_page_table, False
-        if first_block != 0:
+        if first_block != 0 and host_page_table is not None:
+            rolled = torch.cat(
+                [host_page_table[:, first_block:], host_page_table[:, -1:].expand(-1, first_block)], dim=1
+            ).to(torch.int32)
+            fill_table = ttnn.from_torch(
+                rolled, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device
+            )
+            owns_table = True
+        elif first_block != 0:
             fill_table = ttnn.slice(user_page_table, [0, first_block], [1, user_page_table.shape[1]])
             owns_table = True
         ttnn.experimental.paged_fill_cache(key_cache, k_fill, fill_table, batch_idx=0)
