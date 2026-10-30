@@ -157,7 +157,12 @@ PREFILL_KERNEL_TABLES = {
     },
     "stage10": {
         "qkv": {64: ("1d", (110, 4, 2, 2)), 128: ("1d", (110, 4, 2, 2)), 256: ("1d", (110, 8, 2, 2)), 512: ("2d", 16)},
-        "o_proj": {64: ("1d", (110, 4, 2, 2)), 128: ("1d", (96, 8, 2, 2)), 256: ("1d", (64, 16, 2, 2)), 512: ("2d", 16)},
+        "o_proj": {
+            64: ("1d", (110, 4, 2, 2)),
+            128: ("1d", (96, 8, 2, 2)),
+            256: ("1d", (64, 16, 2, 2)),
+            512: ("2d", 16),
+        },
         "gate_proj": {
             64: ("1d", (64, 16, 2, 2)),
             128: ("1d", (64, 4, 2, 2)),
@@ -165,7 +170,12 @@ PREFILL_KERNEL_TABLES = {
             512: ("1d", (110, 8, 1, 4)),
         },
         "up_proj": {64: ("auto", 0), 128: ("1d", (64, 8, 2, 2)), 256: ("1d", (110, 8, 1, 4)), 512: ("2d", 16)},
-        "down_proj": {64: ("1d", (96, 4, 2, 2)), 128: ("1d", (64, 8, 2, 2)), 256: ("1d", (110, 16, 2, 2)), 512: ("2d", 16)},
+        "down_proj": {
+            64: ("1d", (96, 4, 2, 2)),
+            128: ("1d", (64, 8, 2, 2)),
+            256: ("1d", (110, 16, 2, 2)),
+            512: ("2d", 16),
+        },
     },
 }
 
@@ -725,7 +735,9 @@ class OptimizedDecoder(FusedDecoder):
             out = flat
         return out
 
-    def _prefill_matmul_residual_batched(self, x: ttnn.Tensor, weight: ttnn.Tensor, residual: ttnn.Tensor) -> ttnn.Tensor:
+    def _prefill_matmul_residual_batched(
+        self, x: ttnn.Tensor, weight: ttnn.Tensor, residual: ttnn.Tensor
+    ) -> ttnn.Tensor:
         y = self._linear_batched(x, weight)
         out = ttnn.add(residual, y, memory_config=ttnn.DRAM_MEMORY_CONFIG)
         y.deallocate(True)

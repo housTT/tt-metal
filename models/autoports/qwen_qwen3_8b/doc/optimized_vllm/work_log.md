@@ -271,7 +271,23 @@ kernel table): default thresholds to
 `readiness/prefill_resume_check_stage10_default_thresholds.json`
 (`--output-on-pass-only`), then the lowered run (`--pcc-min-min 0.90
 --top1-min 0.93`, as stages 6 to 9) to the canonical
-`readiness/prefill_resume_check.json`. Results in section 8.
+`readiness/prefill_resume_check.json`.
+
+Results (chip 2, 17:28 to 17:40 ET, `logs/resume_check_{default,lowered}_chip2.log`):
+identical to stage 9 at every start, to the digit. Default thresholds: all
+16 PCC gates pass (PCC mean >= 0.9996, min 0.9886 at the tile-unaligned
+start 68 of both lengths), both controls fail at every window of at least
+64 positions, top-1 0.988 to 1.000 everywhere except the 32-position
+prefix-cache-hit window at 16352 of the 16384-token prompt (31 of 32 =
+0.969, the stage-7 near tie with its margin probe
+`doc/optimized_full_model/resume_margin_probe_L16384_s16352_fp32.json`),
+which makes `status=fail` (exit 1,
+`readiness/prefill_resume_check_stage10_default_thresholds.failed.json`).
+Lowered (`--pcc-min-min 0.90 --top1-min 0.93`): `status=pass` at all 8
+starts (exit 0, the canonical `readiness/prefill_resume_check.json`). The
+`stage10` kernel table (1D O and down rows) therefore left the continuation
+numerics unchanged; the gate reports the lowered run as advisory as in
+stage 9.
 
 Tracked full-model run launched 17:29 ET on chip 0
 (`TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0`,
@@ -285,3 +301,77 @@ default) and the stage-10 chain `logs/evidence_chain_stage10.sh` (sampling
 smoke and full, qualitative, benchmark, prefix cache, prefill burst twice
 against the stage-9 serial reference, mixed-shape trace reuse, degenerate
 check). Results in section 8.
+
+## 8. Served chain on the final code (chip 1, 17:29 to 17:38 ET)
+
+Server `doc/vllm_integration/logs/serve.sh 1 8000 21600` (healthy after
+140 s: weights on device, `prepare()` 59.5 s including the 22 batched
+shapes and the penalties-on sampler variants, five decode traces plus ten
+sampling traces captured, `max_tokens_all_users` and the 3584-block vLLM
+cache as in stage 9; program cache 651 after capture). Chain
+`logs/evidence_chain_stage10.sh` (`logs/evidence_chain_chip1.status`,
+17:32:06 to 17:38:46 ET; the first attempt aborted on the smoke result
+because the script treated it as fatal, `logs/evidence_chain_chip1.attempt1.status`):
+
+| Stage | Result |
+| --- | --- |
+| sampling smoke (4 targets) | 2 passed, 1 skipped, `test_mixed_params_batch` failed (section 8.1) |
+| sampling full (`--tt-max-num-seqs 32`, 73 tests) | 71 passed, 1 failed (`test_mixed_params_batch`), 1 skipped in 126 s; all six penalty tests pass on the device sampler (189 penalised device-sampled decode steps in the log, 0 out-of-vocabulary ids) |
+| qualitative | `qualitative_verdict.json`: served greedy identical to the stage-9 served greedy text for all 256 tokens on all six prompts, identical to the stage-9 generator control (128 tokens), HF first divergence 86, 37, 32, 39, 33, 22; degenerate check none |
+| benchmark 128/128/1 | TTFT p50 44.59 ms, TPOT mean 20.71 ms, ITL p50 20.68 ms, 48.29 t/s/u, 47.86 tok/s (stage 9: 49.3, 20.71, 20.67, 48.28, 47.75) |
+| benchmark CI 100/100/32 | TTFT p50 477.5 ms, TPOT mean 24.82 ms, 1094.4 tok/s, 40.3 t/s/u, 32 of 32 (stage 9: 1217.9, 25.06, 873.2, 39.9) |
+| prefix_cache | pass, warm/cold TTFT ratio 0.180, long resume and shared-prefix bench pass |
+| prefill_burst (stage-9 serial reference) | 32 of 32; TTFT p50 480.3, p99 481.1, mean 467.0 ms; ratios p99 0.3905, mean 0.3910, `config_matches` true (first run 0.393 / 0.394, `logs/stage_prefill_burst.log`; the JSON holds the repeat) |
+| mixed-shape trace reuse | 47 of 47, 32 prefill calls, 928 decode steps (905 device, 23 host), 0 captures, 0 releases, program cache 651 flat, DRAM 31752 MB flat, greedy repeats identical, same seed identical; TTFT p50 83 ms, p99 1331 ms (the concurrent burst's 4097-token row and the long single-row prefills) |
+| degenerate | none |
+
+Burst mechanics in the server log: the plugin admits the first request
+alone (`rows=1`, 36 to 41 ms) and the other 31 in one call
+(`prefill call=207 rows=31 mode=device-sampled ms=421.7 ...
+batched_prefill_groups=1 batched_prefill_rows=31`), so TTFT p50 and p99
+sit at 480 ms (422 ms batched call plus the lone row and the plugin's
+sampling and admission), against 1194 ms mean with the per-row loop.
+
+`perf_summary.json` written by `logs/write_perf_summary.py` (before and
+after rows, burst ratios, device-time fields null with the no-profiler
+reason). Serving contract rows updated by
+`logs/update_serving_contract_stage10.py` (6 rows; checker OK, 37 rows).
+`readiness_vllm/` archived in `served_final/` (server log gzipped);
+stage 9's final JSON kept in `served_stage9_final/` as the before numbers.
+
+### 8.1 `test_mixed_params_batch`
+
+Fails in the smoke run and in the full run on the final server (request
+1, `temp=0.01 seed=42`: `'100'` against `'198'`). The server log for the
+two runs of the test: run 1 admitted the seeded request alone
+(`prefill call=1 rows=1 mode=device-sampled`) and the remaining nine
+together with host sampling (`call=2 rows=9 mode=logits`, the batch holds
+a `top_k 100` request above the 32-candidate device ceiling, so
+`check_perform_device_sampling` routes every later step to the host);
+run 2 admitted it alone but host-sampled (`call=9 rows=1 mode=logits`).
+The seeded request's first token therefore comes from the device stream in
+run 1 and from its host generator in run 2, and its later host draws are
+offset by one, which flips the second token at a near tie. The low-
+temperature probe (section 9) shows the device sampler itself returns the
+host argmax at temperature 0.01, so the difference is the stream offset,
+not the sampler. Device penalties removed the penalty-routing cause of
+stage 9 (`test_presence_penalty_mixed_batch` passes); the `top_k 100`
+cause needs a wider device top-k or a plugin routing rule and stays
+reproducibility-only (correctness, logprobs, crash-free serving and the
+qualitative suite pass on the same server).
+
+## 9. Carried item (c): the device sampler at temperature 0.01 (chip 2, 17:32 to 17:36 ET)
+
+`logs/low_temperature_probe.py` (36 layers,
+`logs/low_temperature_probe_chip2.json`): for `Letter: `, `Random: ` and
+`The three laws of thermodynamics are`, the fp32 first-token logits, the
+host distribution at temperature 0.01 and 0.7 (top-k 20, top-p 0.95) and
+48 device draws with explicit seeds 0 to 47 at the same parameters. At
+0.01 the host distribution is one-hot (top-2 logit gaps 0.14, 0.59 and
+0.22; the bf16 view of the scaled logits keeps the same leader) and the
+device sampler returns that token in 48 of 48 draws on every prompt. At
+0.7 the device draws follow the host distribution's rank order (`Letter:`
+host 1 0.31, 2 0.25, 3 0.12, 5 0.10; device counts 1: 14, 5: 10, 2: 8, 3:
+3 of 48). So the device and host samplers agree on the token at 0.01; the
+stage-9 `'198'` against `'100'` pair differs in the second token through
+the seeded-stream offset of section 8.1.

@@ -759,7 +759,9 @@ class Qwen3Generator(Generator):
             rows_bucket = batched_row_bucket(len(members))
             group_table = torch.full((rows_bucket, self.page_table_width), scratch, dtype=torch.int32)
             group_table[: len(members)] = table[members]
-            tt_table = ttnn.from_torch(group_table, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device)
+            tt_table = ttnn.from_torch(
+                group_table, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device
+            )
             hidden = self.model.prefill_hidden_batched(
                 [tokens[i, : ends[i]].tolist() for i in members],
                 rows=rows_bucket,
@@ -1031,7 +1033,9 @@ class Qwen3Generator(Generator):
                         penalty_sampling_params(bucket), bucket, admit=True, positions=[0] * bucket
                     )
                     self.sampling.set_trace_bucket(bucket)
-                    self.sampling.capture_trace(logits=state.outputs[mode], tt_out_tok=state.tokens, skip_precompile=True)
+                    self.sampling.capture_trace(
+                        logits=state.outputs[mode], tt_out_tok=state.tokens, skip_precompile=True
+                    )
                     self.sampling.sample(state.outputs[mode], enable_trace=True, tt_out_tok=state.tokens)
                     self.sampling.set_trace_bucket(None)
                     self.counters["sampling_trace_captures"] += 1

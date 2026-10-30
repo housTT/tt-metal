@@ -49,7 +49,13 @@ def main():
         qkv_equal = {}
         candidates = {"table": None}
         role = "qkv"
-        for name, choice in (("1d_110_4", ("1d", (110, 4, 2, 2))), ("1d_110_8", ("1d", (110, 8, 2, 2))), ("2d_16", ("2d", 16)), ("2d_4", ("2d", 4)), ("minimal", ("minimal", 0))):
+        for name, choice in (
+            ("1d_110_4", ("1d", (110, 4, 2, 2))),
+            ("1d_110_8", ("1d", (110, 8, 2, 2))),
+            ("2d_16", ("2d", 16)),
+            ("2d_4", ("2d", 4)),
+            ("minimal", ("minimal", 0)),
+        ):
             candidates[name] = choice
         copy = layer._interleaved_copy[id(layer.weights.qkv)]
         weight = layer.weights.qkv
@@ -61,10 +67,30 @@ def main():
             kernel, cfg = choice
             try:
                 if kernel == "1d":
-                    return ttnn.linear(x, copy, program_config=layer._prefill_1d_program_config(r, weight.shape[-1], *cfg), dtype=layer.activation_dtype, compute_kernel_config=layer._prefill_compute_config(copy), memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                    return ttnn.linear(
+                        x,
+                        copy,
+                        program_config=layer._prefill_1d_program_config(r, weight.shape[-1], *cfg),
+                        dtype=layer.activation_dtype,
+                        compute_kernel_config=layer._prefill_compute_config(copy),
+                        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    )
                 if kernel == "2d":
-                    return ttnn.linear(x, copy, program_config=layer._prefill_2d_program_config(r, weight.shape[-2], weight.shape[-1], cfg), dtype=layer.activation_dtype, compute_kernel_config=layer._prefill_compute_config(copy), memory_config=ttnn.DRAM_MEMORY_CONFIG)
-                return ttnn.experimental.minimal_matmul(x, copy, dtype=layer.activation_dtype, compute_kernel_config=layer._prefill_compute_config(copy), memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                    return ttnn.linear(
+                        x,
+                        copy,
+                        program_config=layer._prefill_2d_program_config(r, weight.shape[-2], weight.shape[-1], cfg),
+                        dtype=layer.activation_dtype,
+                        compute_kernel_config=layer._prefill_compute_config(copy),
+                        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    )
+                return ttnn.experimental.minimal_matmul(
+                    x,
+                    copy,
+                    dtype=layer.activation_dtype,
+                    compute_kernel_config=layer._prefill_compute_config(copy),
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                )
             except Exception as e:
                 return str(e).splitlines()[0][:200]
 
@@ -99,10 +125,23 @@ def main():
             qkv_equal[name] = sum(torch.equal(h[i * seq : (i + 1) * seq], solo_qkv[i]) for i in range(rows))
         norm_all.deallocate(True)
         x_all.deallocate(True)
-        rec = {"rows": rows, "seq": seq, "solo_kernel": layer.policy.prefill_kernel("qkv", seq, layer.weight_dtypes["qkv"]), "dense_kernel": layer.policy.prefill_kernel("qkv", rows * seq, layer.weight_dtypes["qkv"]), "norm_rows_bit_equal": f"{norm_rows_equal}/{rows}", "qkv_rows_bit_equal_by_candidate": qkv_equal, "candidate_ms": timing}
+        rec = {
+            "rows": rows,
+            "seq": seq,
+            "solo_kernel": layer.policy.prefill_kernel("qkv", seq, layer.weight_dtypes["qkv"]),
+            "dense_kernel": layer.policy.prefill_kernel("qkv", rows * seq, layer.weight_dtypes["qkv"]),
+            "norm_rows_bit_equal": f"{norm_rows_equal}/{rows}",
+            "qkv_rows_bit_equal_by_candidate": qkv_equal,
+            "candidate_ms": timing,
+        }
         print(json.dumps(rec), flush=True)
         results.append(rec)
-    Path(args.output).write_text(json.dumps({"results": results, "layers": args.layers, "visible_devices": os.getenv("TT_VISIBLE_DEVICES")}, indent=2) + "\n")
+    Path(args.output).write_text(
+        json.dumps(
+            {"results": results, "layers": args.layers, "visible_devices": os.getenv("TT_VISIBLE_DEVICES")}, indent=2
+        )
+        + "\n"
+    )
     ttnn.close_mesh_device(mesh)
 
 

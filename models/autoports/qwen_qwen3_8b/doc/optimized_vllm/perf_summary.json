@@ -1,0 +1,162 @@
+{
+  "workload": {
+    "profile": "single_user_decode",
+    "prompt_len": 128,
+    "gen_len": 128,
+    "batch": 1,
+    "max_num_seqs": 32,
+    "max_model_len": 40960,
+    "sampling": "greedy (temperature 0.0, explicit)",
+    "mesh": "N150 label, one Blackhole P300 chip"
+  },
+  "ttft_ms": 44.592160964384675,
+  "decode_ms_per_token_e2e": 20.70650832331556,
+  "decode_ms_per_token_device": null,
+  "roofline_ms_per_token_estimate": 13.99,
+  "device_time_note": "vllm_serving_profiler_disabled_to_protect_hardware; device decode time 20.73 ms/token from the stage-7 reduced-variant profile (doc/optimized_full_model/perf_summary.json), roofline from doc/context_contract.json byte accounting",
+  "before_stage9": {
+    "single_user": {
+      "ttft_p50_ms": 49.29895303212106,
+      "ttft_p99_ms": 49.29895303212106,
+      "ttft_mean_ms": 49.29895303212106,
+      "tpot_mean_ms": 20.714382865598175,
+      "tpot_p99_ms": 20.714382865598175,
+      "itl_p50_ms": 20.673759980127215,
+      "itl_p99_ms": 21.46887332201004,
+      "output_throughput_tok_per_s": 47.754137320868494,
+      "decode_tps_per_user_from_mean_tpot": 48.27563565317555,
+      "completed_requests": 1,
+      "config": {
+        "prompt_len": 128,
+        "output_len": 128,
+        "num_requests": 1,
+        "concurrency": 1,
+        "temperature": 0.0,
+        "generation_config_mode": "explicit",
+        "dataset_name": "random",
+        "ignore_eos": true
+      }
+    },
+    "ci_burst": {
+      "ttft_p50_ms": 1217.8965024650097,
+      "ttft_p99_ms": 1218.7043489539064,
+      "ttft_mean_ms": 1181.372528684733,
+      "tpot_mean_ms": 25.059732095983097,
+      "tpot_p99_ms": 32.86718688664179,
+      "itl_p50_ms": 25.077529484406114,
+      "itl_p99_ms": 25.904921047622338,
+      "output_throughput_tok_per_s": 873.2352728841386,
+      "decode_tps_per_user_from_mean_tpot": 39.90465644923208,
+      "completed_requests": 32,
+      "config": {
+        "prompt_len": 100,
+        "output_len": 100,
+        "num_requests": 32,
+        "concurrency": null,
+        "temperature": 0.0,
+        "generation_config_mode": "explicit",
+        "dataset_name": "random",
+        "ignore_eos": true
+      }
+    }
+  },
+  "after_stage10": {
+    "single_user": {
+      "ttft_p50_ms": 44.592160964384675,
+      "ttft_p99_ms": 44.592160964384675,
+      "ttft_mean_ms": 44.592160964384675,
+      "tpot_mean_ms": 20.70650832331556,
+      "tpot_p99_ms": 20.70650832331556,
+      "itl_p50_ms": 20.676885964348912,
+      "itl_p99_ms": 21.52670885436237,
+      "output_throughput_tok_per_s": 47.85583759271376,
+      "decode_tps_per_user_from_mean_tpot": 48.29399454441087,
+      "completed_requests": 1,
+      "config": {
+        "prompt_len": 128,
+        "output_len": 128,
+        "num_requests": 1,
+        "concurrency": 1,
+        "temperature": 0.0,
+        "generation_config_mode": "explicit",
+        "dataset_name": "random",
+        "ignore_eos": true
+      }
+    },
+    "ci_burst": {
+      "ttft_p50_ms": 477.523862500675,
+      "ttft_p99_ms": 478.314875557553,
+      "ttft_mean_ms": 464.2236240033526,
+      "tpot_mean_ms": 24.824788876492565,
+      "tpot_p99_ms": 27.676052684905105,
+      "itl_p50_ms": 25.138194032479078,
+      "itl_p99_ms": 25.91102875652723,
+      "output_throughput_tok_per_s": 1094.3740204728515,
+      "decode_tps_per_user_from_mean_tpot": 40.282316396532735,
+      "completed_requests": 32,
+      "config": {
+        "prompt_len": 100,
+        "output_len": 100,
+        "num_requests": 32,
+        "concurrency": null,
+        "temperature": 0.0,
+        "generation_config_mode": "explicit",
+        "dataset_name": "random",
+        "ignore_eos": true
+      }
+    }
+  },
+  "single_user_change_pct": {
+    "ttft_p50": -9.547448329520602,
+    "tpot_mean": -0.03801485341710098
+  },
+  "prefill_burst": {
+    "workload": {
+      "prompt_len": 128,
+      "output_len": 32,
+      "num_requests": 32,
+      "concurrency": 32,
+      "temperature": 0.0,
+      "generation_config_mode": "explicit",
+      "dataset_name": "random",
+      "ignore_eos": true
+    },
+    "ttft_ms": {
+      "p50": 480.25651898933575,
+      "p99": 481.0507521627005,
+      "mean": 467.00453288212884
+    },
+    "serial_reference": {
+      "path": "/home/hous/dev/tt-metal-wt-qwen3/models/autoports/qwen_qwen3_8b/doc/optimized_vllm/vllm_prefill_burst_serial_benchmark.stage9.json",
+      "serial_config": {
+        "prompt_len": 128,
+        "output_len": 32,
+        "num_requests": 32,
+        "concurrency": 32
+      },
+      "config_matches": true,
+      "serial_ttft_ms": {
+        "p50": 1231.1126445420086,
+        "p99": 1231.8747022014577,
+        "mean": 1194.5372804693761
+      },
+      "ttft_ratio_p99": 0.3905029880904484,
+      "ttft_ratio_mean": 0.3909501532665654,
+      "ttft_ratio_p50": 0.39009957465589834
+    },
+    "serial_reference_ttft_ms": {
+      "p50": 1231.1126445420086,
+      "p99": 1231.8747022014577,
+      "mean": 1194.5372804693761
+    },
+    "p99_ratio": 0.3905029880904484,
+    "mean_ratio": 0.3909501532665654,
+    "gate": "p99 ratio <= 0.6 and mean ratio <= 0.5"
+  },
+  "named_limitations": [
+    "decode is device bound: 36 decoder layers carry the stage-3/8 precision policy; the next decode lever is precision, not orchestration",
+    "batched prefill dense ops run on the 2D/1D multicast family for bit equality with the solo rows, about 0.8 ms per layer slower than minimal_matmul at 4096 rows",
+    "gate and up projections (N 12288) run as 512-row pieces because one 2D block does not fit L1 above 512 rows",
+    "prefill is eager (no prefill trace); the first sampler step after prefill runs eagerly"
+  ]
+}

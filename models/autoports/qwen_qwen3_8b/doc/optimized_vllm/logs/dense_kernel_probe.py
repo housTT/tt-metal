@@ -43,25 +43,68 @@ def main():
         for total in (int(v) for v in args.rows.split(",")):
             g = torch.Generator().manual_seed(total + k)
             host = (torch.randn(1, 1, total, k, generator=g) * 0.7).to(torch.bfloat16)
-            x_all = ttnn.from_torch(host, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=mesh, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            x_all = ttnn.from_torch(
+                host, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=mesh, memory_config=ttnn.DRAM_MEMORY_CONFIG
+            )
             solo_choice = layer.policy.prefill_kernel(role, args.seq, dtype)
             solo_rows = []
             for i in range(total // args.seq):
-                x_i = ttnn.from_torch(host[:, :, i * args.seq : (i + 1) * args.seq], dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=mesh, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                x_i = ttnn.from_torch(
+                    host[:, :, i * args.seq : (i + 1) * args.seq],
+                    dtype=ttnn.bfloat16,
+                    layout=ttnn.TILE_LAYOUT,
+                    device=mesh,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                )
                 kernel, cfg = solo_choice
                 if kernel == "1d":
-                    o = ttnn.linear(x_i, copy, program_config=layer._prefill_1d_program_config(args.seq, n, *cfg), dtype=layer.activation_dtype, compute_kernel_config=ckc, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                    o = ttnn.linear(
+                        x_i,
+                        copy,
+                        program_config=layer._prefill_1d_program_config(args.seq, n, *cfg),
+                        dtype=layer.activation_dtype,
+                        compute_kernel_config=ckc,
+                        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    )
                 elif kernel == "2d":
-                    o = ttnn.linear(x_i, copy, program_config=layer._prefill_2d_program_config(args.seq, k, n, cfg), dtype=layer.activation_dtype, compute_kernel_config=ckc, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                    o = ttnn.linear(
+                        x_i,
+                        copy,
+                        program_config=layer._prefill_2d_program_config(args.seq, k, n, cfg),
+                        dtype=layer.activation_dtype,
+                        compute_kernel_config=ckc,
+                        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    )
                 elif kernel == "auto":
-                    o = ttnn.linear(x_i, copy, dtype=layer.activation_dtype, compute_kernel_config=ckc, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                    o = ttnn.linear(
+                        x_i,
+                        copy,
+                        dtype=layer.activation_dtype,
+                        compute_kernel_config=ckc,
+                        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    )
                 else:
-                    o = ttnn.experimental.minimal_matmul(x_i, copy, dtype=layer.activation_dtype, compute_kernel_config=ckc, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                    o = ttnn.experimental.minimal_matmul(
+                        x_i,
+                        copy,
+                        dtype=layer.activation_dtype,
+                        compute_kernel_config=ckc,
+                        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                    )
                 solo_rows.append(ttnn.to_torch(o)[0, 0].clone())
                 o.deallocate(True)
                 x_i.deallocate(True)
             solo_cat = torch.cat(solo_rows, dim=0)
-            rec = {"role": role, "k": k, "n": n, "dtype": dtype, "total_rows": total, "solo_seq": args.seq, "solo_kernel": solo_choice, "candidates": {}}
+            rec = {
+                "role": role,
+                "k": k,
+                "n": n,
+                "dtype": dtype,
+                "total_rows": total,
+                "solo_seq": args.seq,
+                "solo_kernel": solo_choice,
+                "candidates": {},
+            }
 
             def measure(name, fn):
                 try:
@@ -78,25 +121,49 @@ def main():
                     o2.deallocate(True)
                 ttnn.synchronize_device(mesh)
                 ms = (time.perf_counter() - t0) / 3 * 1000
-                rec["candidates"][name] = {"ms": round(ms, 4), "bit_equal_solo": bool(torch.equal(h, solo_cat)), "max_abs_diff": float((h.float() - solo_cat.float()).abs().max())}
+                rec["candidates"][name] = {
+                    "ms": round(ms, 4),
+                    "bit_equal_solo": bool(torch.equal(h, solo_cat)),
+                    "max_abs_diff": float((h.float() - solo_cat.float()).abs().max()),
+                }
 
-            measure("minimal", lambda: ttnn.experimental.minimal_matmul(x_all, copy, dtype=layer.activation_dtype, compute_kernel_config=ckc, memory_config=ttnn.DRAM_MEMORY_CONFIG))
+            measure(
+                "minimal",
+                lambda: ttnn.experimental.minimal_matmul(
+                    x_all,
+                    copy,
+                    dtype=layer.activation_dtype,
+                    compute_kernel_config=ckc,
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                ),
+            )
             for piece in (total, 2048, 1024, 512):
                 if piece > total:
                     continue
                 pieces = total // piece
                 for bw in (16, 8, 4):
+
                     def fn(piece=piece, pieces=pieces, bw=bw):
                         x = ttnn.reshape(x_all, (pieces, 1, piece, k)) if pieces > 1 else x_all
-                        out = ttnn.linear(x, copy, program_config=layer._prefill_2d_program_config(piece, k, n, bw), dtype=layer.activation_dtype, compute_kernel_config=ckc, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                        out = ttnn.linear(
+                            x,
+                            copy,
+                            program_config=layer._prefill_2d_program_config(piece, k, n, bw),
+                            dtype=layer.activation_dtype,
+                            compute_kernel_config=ckc,
+                            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                        )
                         if pieces > 1:
                             out = ttnn.reshape(out, (1, 1, total, n))
                         return out
+
                     measure(f"2d_bw{bw}_pieces{pieces}x{piece}", fn)
             x_all.deallocate(True)
             print(json.dumps(rec), flush=True)
             results.append(rec)
-    Path(args.output).write_text(json.dumps({"results": results, "visible_devices": os.getenv("TT_VISIBLE_DEVICES")}, indent=2) + "\n")
+    Path(args.output).write_text(
+        json.dumps({"results": results, "visible_devices": os.getenv("TT_VISIBLE_DEVICES")}, indent=2) + "\n"
+    )
     ttnn.close_mesh_device(mesh)
 
 

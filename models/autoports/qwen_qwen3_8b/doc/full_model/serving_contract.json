@@ -57,15 +57,15 @@
       "item": "prefill_forward(tokens, page_table, kv_cache, enable_trace, prompt_lens, start_pos, sampling_params, empty_slots)",
       "kind": "call",
       "status": "supported",
-      "evidence": "readiness_vllm/sampling_tests.log",
-      "notes": "served: readiness_vllm/sampling_tests.log, readiness_vllm/prefix_cache_check.json (start_pos at the cached length), readiness_vllm/mixed_shape_trace_reuse.json (multi-row calls, nonzero starts, program cache 444 before and after); generator level: doc/full_model/multi_row_prefill.stage9_tracked.json, readiness/prefill_resume_check.json, doc/vllm_integration/logs/continuation_probe_L2_chip2_final.json and context_end_probe_L36_chip2_v4.json; model_runner.py:2770-2840. Continuation rows at any start offset and length run through programs prepare() compiled (bucketed windows, runtime-index RoPE and lead rows, host-rolled fill table, chunk_start_idx_tensor); near the context end the window start moves down so the bucket fits"
+      "evidence": "readiness_vllm/vllm_prefill_burst_benchmark.json",
+      "notes": "served: readiness_vllm/sampling_tests.log, readiness_vllm/prefix_cache_check.json (start_pos at the cached length), readiness_vllm/mixed_shape_trace_reuse.json (multi-row calls, nonzero starts), readiness_vllm/vllm_prefill_burst_benchmark.json (32 x 128 in one batched call); generator level: doc/full_model/batched_prefill_equals_solo_*.stage10.json, readiness/prefill_resume_check.json; fresh rows that share a prefill bucket run as one batched pass (tt/generator.py _batched_prefill_groups), every other row on the single-row path of the same call; model_runner.py submit_prefill"
     },
     {
       "item": "prefill_forward: several rows per call with per-row start_pos and prompt_lens ends",
       "kind": "call",
       "status": "supported",
-      "evidence": "doc/full_model/multi_row_prefill.json",
-      "notes": "doc/full_model/multi_row_prefill.json; tt/generator.py prefill_forward (row loop, absolute positions)"
+      "evidence": "doc/full_model/batched_prefill_equals_solo_mixed_lengths.stage10_tracked.json",
+      "notes": "rows 5, 31, 32, 33, 127, 128, 129, 257, 640, 1000, 1024 in both orders: batched groups (32 x 3 rows, 128 x 2 rows) beside single-row rows in one call, every row bit equal in logits and K/V pages (layers 0 and 35) to its solo result, output in call order; doc/full_model/multi_row_prefill.stage10.json (stage-6 contract through the batched path)"
     },
     {
       "item": "prefill_forward: return_all_logits=True",
@@ -121,10 +121,11 @@
     {
       "item": "decode_forward: prompt_tokens / output_tokens (device penalties state)",
       "kind": "call",
-      "status": "not_supported",
+      "status": "supported",
       "declaration": "model_capabilities['supports_device_penalties'] = False (platform.py:745 reads it; default True)",
       "reason": "the penalties variant of the sampler trace is not prepared in this stage; requests with penalties take the plugin's host sampling over the logits that decode_forward returns without sampling_params",
-      "notes": ""
+      "notes": "tt/generator.py _apply_sampling_params: prompt mask rebuilt at prefill from the call's tokens and reloaded from prompt_tokens on a reload decode step, output counts reloaded from output_tokens on a reload step, counted on device inside the penalties-on sampling trace on steady steps; doc/optimized_vllm/logs/penalty_probe_L2_chip1.json (plugin call pattern at the generator level); model_runner.py prompt_tokens/output_tokens population",
+      "evidence": "readiness_vllm/sampling_tests.log"
     },
     {
       "item": "read_decode_output(tt_out, async_read=True) / process_decode_output_host",
@@ -171,10 +172,11 @@
     {
       "item": "supports_device_penalties",
       "kind": "capability",
-      "status": "not_supported",
+      "status": "supported",
       "declaration": "model_capabilities['supports_device_penalties'] = False",
       "reason": "see decode_forward prompt_tokens/output_tokens; host (compat) sampling serves penalties; the plugin suite tests/tt/test_tt_penalties.py runs through that path",
-      "notes": ""
+      "notes": "model_capabilities['supports_device_penalties'] = True; the common SamplingGenerator's TTPenalties path (presence, frequency, repetition) with a penalties-on sampling trace per decode bucket captured in warmup_model_decode (readiness_vllm/server.log 'device+penalties'); test_tt_penalties.py through the device sampler; doc/optimized_vllm/logs/penalty_probe_L2_chip1.json",
+      "evidence": "readiness_vllm/sampling_tests.log"
     },
     {
       "item": "supports_async_decode",
@@ -209,8 +211,8 @@
       "item": "batched_prefill",
       "kind": "call",
       "status": "supported",
-      "evidence": "doc/full_model/multi_row_prefill.json",
-      "notes": "doc/full_model/multi_row_prefill.json: one prefill_forward call with rows of different lengths equals the single-row results (per-row loop over the full decoder; packed-row compute is stage 10 per prefill-features.md)"
+      "evidence": "readiness_vllm/vllm_prefill_burst_benchmark.json",
+      "notes": "equal-padded-length design: fresh rows grouped by prefill bucket (32, 64, 128, 256, 512), row buckets 2/4/8/16/32 with dummy rows, dense work once over rows x bucket (<= 4096, a prepared single-row bucket) on the 2D/1D multicast kernel table (tt/optimized_decoder.py BATCHED_PREFILL_KERNEL_TABLE), attention and cache fill per row inside one op each (batched causal SDPA, paged_fill_cache batch_idx_tensor); batched equals solo bit for bit (doc/full_model/batched_prefill_equals_solo_*.stage10*.json, doc/optimized_vllm/logs/batched_prefill_probe_L36_chip2_v2.json, 22 shapes); 32 x 128 burst TTFT against the stage-9 serial reference in readiness_vllm/vllm_prefill_burst_benchmark.json serial_reference; every (rows, bucket) shape warmed in prepare() before the first capture, program cache flat on the served workload (readiness_vllm/mixed_shape_trace_reuse.json); override QWEN3_BATCHED_PREFILL=0"
     },
     {
       "item": "chunked prefill / continuation at any start position",
@@ -253,7 +255,7 @@
       "kind": "request_feature",
       "status": "supported",
       "evidence": "readiness_vllm/sampling_tests.log",
-      "notes": "host sampling via supports_device_penalties=False (platform.py:745, worker.py:384 can_sample_device); a seeded request whose steps are split between the device sampler and the host sampler (a penalty request present in some steps only) draws from two streams, which makes test_presence_penalty_mixed_batch and test_mixed_params_batch reproducibility-only failures (doc/vllm_integration/work_log.md 9.1); device penalties are the stage-10 item"
+      "notes": "applied on device (supports_device_penalties True); test_tt_penalties.py results in readiness_vllm/sampling_tests.log; generator-level doc/optimized_vllm/logs/penalty_probe_L2_chip1.json"
     },
     {
       "item": "min_p, bad_words, structured_outputs, logit_bias, allowed_token_ids, min_tokens",
@@ -294,7 +296,13 @@
   "vllm_integration": {
     "registration": "EXTRA_MODELS_DIR bundle models/autoports/qwen_qwen3_8b/vllm/qwen3_8b/vllm_metadata.json -> TTQwen3ForCausalLM = models.autoports.qwen_qwen3_8b.tt.generator_vllm:Qwen3ForCausalLM (read before the plugin's built-in map)",
     "serving_stack_deviation": "deprecated fork lineage used unchanged on the operator's instruction; see doc/vllm_integration/work_log.md section 2",
-    "server_command": "doc/vllm_integration/logs/serve.sh (in-tree runner, --enable-prefix-caching --async-scheduling, VLLM_SERVER_DEV_MODE=1)"
+    "server_command": "doc/vllm_integration/logs/serve.sh (in-tree runner, --enable-prefix-caching --async-scheduling, VLLM_SERVER_DEV_MODE=1)",
+    "optimized_vllm": {
+      "stage": 10,
+      "batched_prefill": "on by default (QWEN3_BATCHED_PREFILL=0 disables)",
+      "prefill_kernel_table": "stage10 (QWEN3_PREFILL_KERNEL_TABLE=stage7 restores)",
+      "documents": "doc/optimized_vllm/README.md, doc/optimized_vllm/work_log.md"
+    }
   },
   "evidence_convention": "evidence: one artifact path under the model directory (the stage gate checks it exists); notes: the full description and the other artifacts"
 }

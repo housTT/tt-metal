@@ -37,7 +37,9 @@ def run_case(gen, prompts, params, steps):
     table = gen._host_page_table(list(range(rows)))
     before = gen.counter_snapshot()
     pc0 = gen.mesh_device.num_program_cache_entries()
-    first = gen.prefill_forward(tokens, page_table=table, kv_cache=gen.kv_cache, prompt_lens=lengths, sampling_params=params)
+    first = gen.prefill_forward(
+        tokens, page_table=table, kv_cache=gen.kv_cache, prompt_lens=lengths, sampling_params=params
+    )
     generated = [[int(first[i])] for i in range(rows)]
     positions = torch.tensor(lengths, dtype=torch.int32)
     width = max(lengths)
@@ -50,15 +52,26 @@ def run_case(gen, prompts, params, steps):
         for i in range(rows):
             output_tokens[i] = torch.tensor(generated[i], dtype=torch.int32)
         out = gen.decode_forward(
-            next_tokens, positions, page_table=table, kv_cache=gen.kv_cache, sampling_params=params,
-            reset_batch=step == 1, prompt_tokens=prompt_tokens, output_tokens=output_tokens,
+            next_tokens,
+            positions,
+            page_table=table,
+            kv_cache=gen.kv_cache,
+            sampling_params=params,
+            reset_batch=step == 1,
+            prompt_tokens=prompt_tokens,
+            output_tokens=output_tokens,
         )
         for i in range(rows):
             generated[i].append(int(out[i]))
         positions = positions + 1
     pc1 = gen.mesh_device.num_program_cache_entries()
     delta = {k: gen.counter_snapshot()[k] - before[k] for k in before}
-    return {"generated": generated, "text": [gen.tokenizer.decode(g) for g in generated], "counters_delta": delta, "program_cache": [pc0, pc1]}
+    return {
+        "generated": generated,
+        "text": [gen.tokenizer.decode(g) for g in generated],
+        "counters_delta": delta,
+        "program_cache": [pc0, pc1],
+    }
 
 
 def main():
@@ -79,9 +92,15 @@ def main():
     steps = args.steps
     cases = {
         "greedy": run_case(gen, [prompt], greedy_sampling_params(1), steps),
-        "greedy_repetition_2": run_case(gen, [prompt], SamplingParams(temperature=[0.0], top_k=[1], top_p=[1.0], repetition_penalty=[2.0]), steps),
-        "greedy_presence_2": run_case(gen, [prompt], SamplingParams(temperature=[0.0], top_k=[1], top_p=[1.0], presence_penalty=[2.0]), steps),
-        "greedy_frequency_2": run_case(gen, [prompt_b], SamplingParams(temperature=[0.0], top_k=[1], top_p=[1.0], frequency_penalty=[2.0]), steps),
+        "greedy_repetition_2": run_case(
+            gen, [prompt], SamplingParams(temperature=[0.0], top_k=[1], top_p=[1.0], repetition_penalty=[2.0]), steps
+        ),
+        "greedy_presence_2": run_case(
+            gen, [prompt], SamplingParams(temperature=[0.0], top_k=[1], top_p=[1.0], presence_penalty=[2.0]), steps
+        ),
+        "greedy_frequency_2": run_case(
+            gen, [prompt_b], SamplingParams(temperature=[0.0], top_k=[1], top_p=[1.0], frequency_penalty=[2.0]), steps
+        ),
         "greedy_again": run_case(gen, [prompt], greedy_sampling_params(1), steps),
         "mixed_8": run_case(
             gen,
@@ -92,7 +111,9 @@ def main():
         "seeded_mixed_8": run_case(
             gen,
             [prompt, prompt] * 4,
-            SamplingParams(temperature=[0.7] * 8, top_k=[20] * 8, top_p=[0.95] * 8, presence_penalty=[0.0, 2.0] * 4, seed=[42] * 8),
+            SamplingParams(
+                temperature=[0.7] * 8, top_k=[20] * 8, top_p=[0.95] * 8, presence_penalty=[0.0, 2.0] * 4, seed=[42] * 8
+            ),
             steps,
         ),
     }
@@ -100,15 +121,34 @@ def main():
         "greedy_equals_greedy_again": cases["greedy"]["generated"] == cases["greedy_again"]["generated"],
         "repetition_changes_output": cases["greedy"]["generated"] != cases["greedy_repetition_2"]["generated"],
         "presence_changes_output": cases["greedy"]["generated"] != cases["greedy_presence_2"]["generated"],
-        "mixed_no_penalty_rows_equal_greedy": all(cases["mixed_8"]["generated"][i] == cases["greedy"]["generated"][0] for i in (0, 2, 4, 6)),
-        "mixed_penalty_rows_equal_solo_penalty": all(cases["mixed_8"]["generated"][i] == cases["greedy_repetition_2"]["generated"][0] for i in (1, 3, 5, 7)),
-        "seeded_mixed_groups_deterministic": len({tuple(cases["seeded_mixed_8"]["generated"][i]) for i in (0, 2, 4, 6)}) == 1 and len({tuple(cases["seeded_mixed_8"]["generated"][i]) for i in (1, 3, 5, 7)}) == 1,
+        "mixed_no_penalty_rows_equal_greedy": all(
+            cases["mixed_8"]["generated"][i] == cases["greedy"]["generated"][0] for i in (0, 2, 4, 6)
+        ),
+        "mixed_penalty_rows_equal_solo_penalty": all(
+            cases["mixed_8"]["generated"][i] == cases["greedy_repetition_2"]["generated"][0] for i in (1, 3, 5, 7)
+        ),
+        "seeded_mixed_groups_deterministic": len({tuple(cases["seeded_mixed_8"]["generated"][i]) for i in (0, 2, 4, 6)})
+        == 1
+        and len({tuple(cases["seeded_mixed_8"]["generated"][i]) for i in (1, 3, 5, 7)}) == 1,
         "program_cache_flat_across_cases": len({tuple(c["program_cache"]) for c in cases.values()}) == 1,
     }
-    payload = {"layers": args.layers, "steps": steps, "captured": {str(k): str(v) for k, v in captured.items()}, "cases": cases, "summary": summary, "visible_devices": os.getenv("TT_VISIBLE_DEVICES")}
+    payload = {
+        "layers": args.layers,
+        "steps": steps,
+        "captured": {str(k): str(v) for k, v in captured.items()},
+        "cases": cases,
+        "summary": summary,
+        "visible_devices": os.getenv("TT_VISIBLE_DEVICES"),
+    }
     print(json.dumps(summary, indent=1), flush=True)
     for name, c in cases.items():
-        print(name, c["program_cache"], {k: v for k, v in c["counters_delta"].items() if v}, repr(c["text"][0][:80]), flush=True)
+        print(
+            name,
+            c["program_cache"],
+            {k: v for k, v in c["counters_delta"].items() if v},
+            repr(c["text"][0][:80]),
+            flush=True,
+        )
     Path(args.output).write_text(json.dumps(payload, indent=2) + "\n")
     gen.teardown()
     ttnn.close_mesh_device(mesh)

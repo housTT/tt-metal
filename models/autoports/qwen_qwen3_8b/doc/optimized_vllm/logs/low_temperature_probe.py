@@ -60,7 +60,9 @@ def main():
         rec = {"prompt": text, "ids": ids, "top8": []}
         top = torch.topk(logits, 8)
         for v, i in zip(top.values.tolist(), top.indices.tolist()):
-            rec["top8"].append({"id": i, "token": tok.decode([i]), "logit": v, "bf16_logit": float(torch.tensor(v).to(torch.bfloat16))})
+            rec["top8"].append(
+                {"id": i, "token": tok.decode([i]), "logit": v, "bf16_logit": float(torch.tensor(v).to(torch.bfloat16))}
+            )
         for temperature in (0.01, 0.7):
             probs = host_distribution(logits, temperature, 20, 0.95)
             host_top = torch.topk(probs, 5)
@@ -71,16 +73,41 @@ def main():
                 gen._ensure_blocks(0, len(ids))
                 table = gen._host_page_table([0])
                 params = SamplingParams(temperature=[temperature], top_k=[20], top_p=[0.95], seed=[seed])
-                token = gen.prefill_forward(torch.tensor([ids]), page_table=table, kv_cache=gen.kv_cache, prompt_lens=[len(ids)], sampling_params=params)
+                token = gen.prefill_forward(
+                    torch.tensor([ids]),
+                    page_table=table,
+                    kv_cache=gen.kv_cache,
+                    prompt_lens=[len(ids)],
+                    sampling_params=params,
+                )
                 device_counts[int(token[0])] += 1
             rec[f"temperature_{temperature}"] = {
-                "host_top5": [{"id": int(i), "token": tok.decode([int(i)]), "p": float(p)} for p, i in zip(host_top.values, host_top.indices)],
+                "host_top5": [
+                    {"id": int(i), "token": tok.decode([int(i)]), "p": float(p)}
+                    for p, i in zip(host_top.values, host_top.indices)
+                ],
                 "device_first_token_counts": {f"{tok.decode([i])!r} ({i})": c for i, c in device_counts.most_common()},
                 "device_draws": args.draws,
             }
         records[name] = rec
-        print(name, json.dumps({k: v for k, v in rec.items() if k.startswith("temperature")}, ensure_ascii=False), flush=True)
-    Path(args.output).write_text(json.dumps({"records": records, "layers": args.layers, "visible_devices": os.getenv("TT_VISIBLE_DEVICES"), "note": "host distribution = temperature, top-k 20, top-p 0.95 on fp32 prefill logits; device = SamplingGenerator eager prefill sampling with explicit per-draw seeds"}, indent=2, ensure_ascii=False) + "\n")
+        print(
+            name,
+            json.dumps({k: v for k, v in rec.items() if k.startswith("temperature")}, ensure_ascii=False),
+            flush=True,
+        )
+    Path(args.output).write_text(
+        json.dumps(
+            {
+                "records": records,
+                "layers": args.layers,
+                "visible_devices": os.getenv("TT_VISIBLE_DEVICES"),
+                "note": "host distribution = temperature, top-k 20, top-p 0.95 on fp32 prefill logits; device = SamplingGenerator eager prefill sampling with explicit per-draw seeds",
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n"
+    )
     gen.teardown()
     ttnn.close_mesh_device(mesh)
 

@@ -80,7 +80,9 @@ def main() -> None:
     parser.add_argument("--kv-layers", default="0,-1")
     args = parser.parse_args()
     pairs = (
-        [tuple(int(v) for v in p.split("x")) for p in args.pairs.split(",")] if args.pairs else list(batched_prefill_pairs())
+        [tuple(int(v) for v in p.split("x")) for p in args.pairs.split(",")]
+        if args.pairs
+        else list(batched_prefill_pairs())
     )
     kv_layers = [int(v) for v in args.kv_layers.split(",")]
     mesh = ttnn.open_mesh_device(ttnn.MeshShape(1, 1), trace_region_size=512 * 1024 * 1024)
@@ -99,7 +101,9 @@ def main() -> None:
             gen.reset()
             gen._ensure_blocks(0, len(ids))
             table = gen._host_page_table([0])
-            call = lambda: gen.prefill_forward(torch.tensor([ids]), page_table=table, kv_cache=gen.kv_cache, prompt_lens=[len(ids)])
+            call = lambda: gen.prefill_forward(
+                torch.tensor([ids]), page_table=table, kv_cache=gen.kv_cache, prompt_lens=[len(ids)]
+            )
             out = call()
             solo_logits.append(out[0, 0].clone())
             solo_kv.append({l: cache_rows(gen, l, 0, len(ids)) for l in layers})
@@ -172,7 +176,10 @@ def main() -> None:
             "batched_wins": batched_ms < serial_ms,
             "program_cache_before": pc_before,
             "program_cache_after": pc_after,
-            "counters_delta": {k: after[k] - before[k] for k in ("batched_prefill_groups", "batched_prefill_rows", "single_row_prefill_rows")},
+            "counters_delta": {
+                k: after[k] - before[k]
+                for k in ("batched_prefill_groups", "batched_prefill_rows", "single_row_prefill_rows")
+            },
             "rows_detail": per_row,
             "all_logits_bit_equal": all(r["logits_bit_equal"] for r in per_row),
             "all_top1_equal": all(r["top1_equal"] for r in per_row),

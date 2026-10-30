@@ -373,7 +373,10 @@ class Qwen3Model:
             ids[0, i * seq_len : i * seq_len + len(row)] = torch.tensor(row, dtype=torch.int32)
         x = self._embed(ids)
         batch_idx = ttnn.from_torch(
-            torch.arange(rows, dtype=torch.int32), dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device
+            torch.arange(rows, dtype=torch.int32),
+            dtype=ttnn.int32,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            device=self.mesh_device,
         )
         for layer_idx, layer in enumerate(self.layers):
             y = layer.prefill_forward_batched(
