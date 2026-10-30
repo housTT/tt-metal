@@ -354,6 +354,13 @@ python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen3-8B --block_size 
   after it) and the mixed-shape workload (47 of 47, 0 captures, program
   cache 651 flat) ran with no tracker error; positive control raised in the
   same environment (`logs/positive_control_chip1.log`).
+- Watcher (`TT_METAL_WATCHER=10`, reduced two-layer model, no server;
+  `watcher/summary.json`, work log 12.1): the batched-equals-solo cases,
+  batch decode after batched prefill and split sampling on chip 1 (10
+  passed, 2 skipped buckets, 28 dumps) and the penalty probe on chip 2 (12
+  dumps): 0 fatal-pattern matches in both watcher logs; the batched dense
+  kernels, the batched attention and fill ops, the `stage10` 1D O and down
+  kernels and the penalties-on sampler ran under the watcher.
 - Tracked generator-level gate (`logs/pytest_full_model_36_stage10_tracked_chip0.log`,
   `doc/full_model/*.stage10_tracked.json`, work log 10.1): split sampling,
   multi-row prefill, the seven batched-equals-solo cases, the four batch
