@@ -74,7 +74,7 @@ for cfg_file in sorted((D / "configs").glob("c*.json")):
             tf = {
                 **tf,
                 **serial_tf,
-                "round2_concurrent_row": {
+                "earlier_row": {
                     k: tf.get(k)
                     for k in (
                         "top1",
@@ -170,7 +170,7 @@ for cfg_file in sorted((D / "configs").glob("c*.json")):
                 "exit": tf.get("exit"),
                 "log": tf_source,
                 "timing_regime": tf.get("timing_regime"),
-                "round2_concurrent_row": tf.get("round2_concurrent_row"),
+                "earlier_row": tf.get("earlier_row"),
                 "runtime_counters": counters,
                 "traced": traced,
             },
@@ -203,7 +203,7 @@ result = {
         "top5_min": args.bar_top5,
         "top100_min": args.bar_top100,
         "requires_traced_decode": True,
-        "rule": "pass requires the bar on the main AIME24 reference (prefill check and teacher forcing) and on every robustness reference the candidate was evaluated on (second AIME24 prompt, 32-token short-prefix book prompt, 1468 natural-text positions of prefill logits against HF fp32 logits); every candidate faster than the selected one was run on every robustness reference",
+        "rule": "pass requires the bar on the main AIME24 reference (prefill check and teacher forcing) and on every robustness reference the candidate was evaluated on (second AIME24 prompt, 32-token short-prefix book prompt, 1468 natural-text positions of prefill logits against HF fp32 logits); every candidate faster than the selected one has at least one recorded failing reference, and every faster candidate that passed its main reference and the short prefix was also run on natural text",
     },
     "ranking_metric": "trace-verified teacher-forcing decode t/s/u (batch 1)",
     "selected_config_id": args.selected,
@@ -247,6 +247,12 @@ with (D / "sweep_results.csv").open("w", newline="") as fh:
             "eager_decode_steps",
             "commit",
             "sidecar",
+            "chip",
+            "timing_regime",
+            "measurement_regime",
+            "command",
+            "hardware",
+            "mesh",
         ]
     )
     for r in rows:
@@ -288,6 +294,12 @@ with (D / "sweep_results.csv").open("w", newline="") as fh:
                 tf["runtime_counters"].get("eager_decode_steps"),
                 r["checkout_git_sha"],
                 r["sidecar"],
+                r["chip"],
+                tf.get("timing_regime"),
+                r["measurement_regime"],
+                r["command"],
+                r["hardware"],
+                r["mesh"],
             ]
         )
 

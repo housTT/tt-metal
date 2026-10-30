@@ -428,8 +428,10 @@ to 10 points of top-1 against HF on real text and falls below the bar;
 the single-BFP4-projection policies (baseline up only; `c9` adds the
 BFP4 LM head) stay above it. The first script revision also wrote two
 "book token" fields that compared position i with token i; they were
-removed from the JSON files and the script fixed (the HF agreement fields
-are unaffected).
+removed from the nine JSON files written before the fix (each carries a
+`note`); the script was fixed and the two files written after it (c8, c10)
+carry the corrected `*_equals_next_book_token` fields (the HF agreement
+fields are unaffected in all eleven).
 
 ### 7.2 Acceptance rule, final form
 
@@ -565,5 +567,72 @@ unchanged.
 
 Commit `26856835e8`: review-1 fixes (sections 9.1 and 9.2; black reformatted
 `tt/precision.py` and `logs/token_budget_check.py`, no behaviour change).
-Stage review 2 (fresh read-only subagent, same prompt plus the review-1
-record): verdict recorded below when it returns.
+Stage review 2 (13:05 to 13:22 ET, fresh read-only subagent, same prompt
+plus the review-1 record): `clean-pass`, no required work
+(`logs/review/stage_review_2.md`, full text `stage_review_2_full.md`).
+Wording notes acted on afterwards (README section 8); evidence unchanged.
+Carried to stage 9: a tracked-allocation run on the selected policy, the
+`kv_cache_dtype` argument of `max_tokens_all_users` in the plugin hook,
+the remaining `check_propagation` dtype assertions.
+
+## Appendix A. Skill gaps met in this stage
+
+- `datatype-sweep/SKILL.md`, "Baseline" and "Full-Model Evaluation": the
+  acceptance bar (top-1 >= 0.90, top-5 >= 0.98) is defined on the readiness
+  reference only, and the reference is an HF-greedy continuation (large
+  margins). On this model a BFP4 MLP policy scores 0.92 to 0.97 on two such
+  references and 0.82 to 0.85 against HF on natural text (work log 7.1); the
+  skill text would have selected it. The skill should require at least one
+  teacher-forced natural-text reference (real next tokens, several hundred
+  positions) beside the readiness references, and say whether the bar
+  applies per reference or to the worst reference.
+- `datatype-sweep/SKILL.md`, "Default Search": the coarse search names
+  "BFP4 for eligible MLP/expert matmul groups" first; on this model the
+  only BFP4 steps that survive natural text are the single-projection ones
+  (up, LM head). A sentence that the restore order can end at the baseline
+  and that the LM head is a separate BFP4 candidate would have saved one
+  round.
+- `datatype-sweep/SKILL.md`, "Final Selection": "If two configs are within
+  measurement noise, prefer the simpler and safer one" gives no noise
+  figure or method; this stage measured run-to-run noise (0.2 percent) from
+  repeated baseline runs and used it. The skill should ask for a repeated
+  baseline measurement.
+- `datatype-sweep/SKILL.md`: no guidance on the resumed-prefill gate's
+  interaction with precision. A BFP4 policy that passes the readiness bar
+  can fail the TT-versus-TT minimum-PCC gate of `prefill-features.md`
+  (0.98) at hard positions where both TT paths are far from HF (work log
+  6.1); the stage had to write a margin probe to classify it. The skill (or
+  `prefill-features.md`) should say that the resume check must be rerun on
+  the selected policy and that a per-position HF comparison separates
+  precision loss from a resume bug.
+- `datatype-sweep/SKILL.md`, "Compute Fidelity": "BFP8 weights should
+  compare HiFi2 and LoFi" was satisfied; the skill does not say whether a
+  BFP4+HiFi2 candidate is required for every BFP4 group or only for the
+  selected ones (this stage ran it for the MLP rows and the up row, not for
+  the LM head, and says so).
+- `tt-device-usage/SKILL.md`: "Host-wall numbers from concurrent
+  one-process-per-chip runs are not same-regime" is stated, but there is no
+  rule for a mid-stage change of chip allocation (the operator released
+  chips 0 and 1 at 10:47 ET); the stage tagged every sidecar with a
+  `timing_regime` and re-measured the contenders serially. A `timing_regime`
+  field in the readiness sidecar convention would make this routine.
+- `tt-device-usage/SKILL.md`: stopping a chain's bash driver between device
+  jobs (so no further job starts while the running python job finishes and
+  releases the chip) is not covered; the stage did it twice and recorded it.
+- The readiness runners (`readiness_check`) accept no build kwargs on the
+  command line; a precision config can only reach `build_generator` through
+  the environment or a default file. The runners also write no provenance
+  and no runtime counters; this stage added a `teardown()` counter line to
+  the generator and parses it into the sidecars. A `--build-kwarg` option
+  and a provenance JSON from the runners would remove both workarounds.
+- `readiness_check.generate` on transformers 5.12 still needs the stage-6
+  wrapper for chat-template tokenization (`logs/generate_reference_wrapper.py`).
+- `model-bringup/SKILL.md` "Startup": `TT_AUTODEBUG_ROOT` resolution from
+  the plugin inventory is described for Codex; on Claude Code the enabled
+  installation is in `~/.claude/plugins/installed_plugins.json` (used here).
+- Information beyond the skills and the brief: the DRAM-sharded matmul's
+  reader limit (`num_workers_per_dram_bank` in `[1, 3]`,
+  `matmul_utilities.cpp:345`), the L1 limit that makes the BFP4-probed
+  512-row 2D prefill config illegal for BFP8 tiles (work log 4.2), the
+  repository's 500 KB pre-commit limit (the book32 reference is not
+  committed), and the binomial margin arithmetic for 100-token references.

@@ -108,7 +108,7 @@ up 3, down 2).
 | c1_all_bfp8_lofi | up BFP8 (canonical conservative policy) | 1.000/1.000/1.000 | 1.000/1.000/1.000 | 50.21 | 43.62 | pass, slowest BFP8 policy, most accurate (rerun after the kernel-row fix, 3.5) |
 | c2_bfp8_hifi2 | HiFi2 decode on the BFP8 rows | 0.990/1.000/1.000 | 0.970/1.000/1.000 | 48.30 | 35.15 | rejected: 25 percent slower, no accuracy gain |
 | c4_up_bfp4_hifi2 | BFP4 up at HiFi2 | 0.990/1.000/1.000 | 0.980/1.000/1.000 | 48.26 | 46.38 | rejected: slower than LoFi at equal accuracy |
-| c10_mlp_bfp4_inner_hifi2 | c5 with HiFi2 on the BFP4 MLP rows | 0.940/1.000/1.000 | 0.970/1.000/1.000 | 45.62 | 50.28 | fail: natural text 0.830 (identical to c5 at LoFi: the BFP4 weight quantization, not the fidelity, sets the loss); also 2.5 percent slower than c5 |
+| c10_mlp_bfp4_inner_hifi2 | c5 with HiFi2 on the BFP4 MLP rows | 0.940/1.000/1.000 | 0.970/1.000/1.000 | 45.62 | 50.28 | fail: natural text 0.830, bit-identical to c5 because the natural-text reference runs the prefill path where BFP4 rows are LoFi whatever the decode fidelity (a cross-chip determinism control); the decode-path HiFi2 comparison is the teacher-forcing row (0.970 against c5's 0.970) and c10 is 2.5 percent slower |
 | c3_kv_bfp8 | BFP8 KV cache | 0.990/1.000/1.000 | 0.980/1.000/1.000 | 48.42 | 46.84 | rejected (3.4) |
 
 ### 3.2 Rounds 2 to 4 (combinations, robustness references, reader variants)
@@ -135,7 +135,7 @@ up 3, down 2).
 | --- | --- | --- | ---: | --- | --- |
 | QKV, O (BFP8) | BFP8 | LoFi (c0) / HiFi2 (c2) | 46.70 / 35.15 | 0.980 / 0.970 | LoFi kept: HiFi2 25 percent slower, no gain |
 | QKV, O (BFP4, inner) | BFP4 | LoFi (c8) | 48.82 | 0.950; natural 0.897 | rejected on natural text (0.897 < 0.90) and every combination fails the short-prefix reference; BFP4+HiFi2 not run because the group is out |
-| gate, up, down (BFP4) | BFP4 | LoFi (c5) / HiFi2 (c10) | 51.58 / 50.28 | 0.970 / 0.970; natural 0.830 / 0.830 | rejected on natural text at both fidelities; between the two, LoFi (faster at equal accuracy) |
+| gate, up, down (BFP4) | BFP4 | LoFi (c5) / HiFi2 (c10) | 51.58 / 50.28 | 0.970 / 0.970 (decode teacher forcing); natural 0.830 (prefill path, LoFi for both) | rejected on natural text; decode HiFi2 gives no accuracy at 2.5 percent cost, so LoFi between the two; the BFP4 weight quantization sets the loss (c1 against c0: 5 natural-text points for one BFP4 projection at equal LoFi fidelity) |
 | gate (BFP4) alone, down (BFP4) alone | BFP4 | LoFi (c7, c11) | 49.96 / 48.09 | natural 0.847 / 0.891 | rejected on natural text |
 | up alone (BFP4, baseline) | BFP4 | LoFi (c0) / HiFi2 (c4) | 46.70 / 46.38 | 0.980 / 0.980 | LoFi kept (selected) |
 | LM head | BFP8 LoFi (c0) / BFP4 LoFi (c9) | LoFi | 46.70 / 47.24 | 0.980 / 0.970; natural 0.919 / 0.909 | BFP4 LoFi selected; BFP8 HiFi2 was rejected in stage 7 (2.26 against 1.50 ms); BFP4 HiFi2 not run (3.4) |
@@ -331,8 +331,9 @@ and the hit windows.
 - `c13`, `c16` and `c17` have no second-AIME-prompt row and `c2`, `c4`,
   `c12`, `c13`, `c16`, `c17` no natural-text row (already rejected on another
   reference, or slower than the baseline). Every candidate faster than the
-  selected one that passed its main reference (c5, c6, c7, c8, c10, c11,
-  c14, c15) has a natural-text row, and every one fails it.
+  selected one has a recorded failing reference: c12 on the main reference,
+  c13, c16 and c17 on the short prefix, and c5, c6, c7, c8, c10, c11, c14
+  and c15 on natural text (each of those has a natural-text row).
 
 ## 8. Stage review
 
@@ -351,7 +352,20 @@ fields, chart single-point frontier, stale natural-text fields, extended
 `check_propagation` (fp32 accumulation, `packer_l1_acc`, `in0_block_w`,
 prefill fidelity, norm/SDPA fidelity; rerun on the 36-layer build), comment
 lines removed from the helper scripts, c3 capacity note (section 7).
-Review 2: see work log section 9.
+Review 2 (`logs/review/stage_review_2.md`, full text `stage_review_2_full.md`,
+13:05 to 13:22 ET): `clean-pass`, no required work. Notes acted on after
+the verdict (wording only, no evidence change): the acceptance-rule
+sentence and this section's coverage sentence (section 7), the c10 = c5
+inference (3.1, 3.3), `sweep_results.csv` gained the `chip`,
+`timing_regime`, `measurement_regime`, `command`, `hardware` and `mesh`
+columns, and the JSON key for the chain-1 row of a re-measured candidate
+is `earlier_row`. Carried to stage 9 as notes: a
+`TT_METAL_TRACE_ALLOC_TRACKING=1` run on the selected policy (stage 8
+changes no capture code; stage 7's tracked run and the flat program cache
+cover it), passing the generator's `kv_cache_dtype` to
+`max_tokens_all_users` in the plugin hook, and asserting the embedding,
+final-norm, activation and logits dtypes in `check_propagation` (reported
+by `describe_runtime`, matching by inspection).
 
 ## 9. Reproduction
 
