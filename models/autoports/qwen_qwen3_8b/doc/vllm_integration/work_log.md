@@ -419,3 +419,87 @@ Server logs larger than the repository's 500 KB pre-commit limit
 `prefix_code_served/server.log`, `logs/reduced/server_attempt2.log`,
 `logs/tracked_served/server.log`) are committed as `.log.gz`; the plain
 files stay in the working tree, untracked.
+| `0ea5639d50` | served evidence (`readiness_vllm/`, `served_final/`, `prefix_code_served/`, tracked serving), resume checks, serving contract rows, README, work log, scripts |
+| `0abf55e1e1` | stage `.log` files under 400 KB (the repository ignores `*.log`; force-added as evidence) |
+
+### 7.1 Chip-0 tracked full-model tests on the fixed code (14:14 to 14:37 ET)
+
+`logs/pytest_full_model_36_stage9_tracked_chip0.log`: 8 passed in 1379 s
+(split sampling, multi-row prefill equals solo for rows 5, 31, 33, 127,
+129, 257, 640 and 1000 with top-1 equal in every case and the rerun and
+reordered arms identical, host-work counters, the representative tracked
+workload, the four batch buckets), program cache 460 before and after the
+post-capture workload, 6 decode and 5 sampling captures, 0 eager decode
+steps, no tracker error (`doc/full_model/*.stage9_tracked.json`, sidecar
+`readiness/readiness_stage9_chip0.json`). The pre-fix run on chip 2
+(section 5.5) is kept in `logs/prefix_code_tracked/`.
+
+## Appendix A. Skill gaps met in this stage
+
+- `vllm-integration/references/serving-stack.md`, "Register the new adapter":
+  names `TT_MODEL_CLASS_OVERRIDES=...` as a current mechanism. The pinned
+  plugin (`f96662a7d`, the operator's deprecated lineage) has no such
+  variable; only `EXTRA_MODELS_DIR` bundles exist (`platform.py`
+  `_iter_extra_model_bundles`). The reference should say the mechanism is
+  revision-dependent and point at `platform.py` `register_tt_models`.
+- `vllm-integration/SKILL.md`, "vLLM Server Integration Test", "To attach
+  checks to an existing server": the packaged runner's `sampling` stage
+  also calls `_find_plugin_tests_dir()` -> `_reject_legacy_plugin_source`,
+  so attaching to an external server still fails on the nested plugin
+  layout; the skill says only the local launch rejects legacy sources. The
+  sampling pytest had to be run by hand with the runner's exact command.
+- `vllm-integration/SKILL.md`, "vLLM Adapter" and `tt-enable-tracing`,
+  "Program-Cache Warmup": neither says that paged-attention program keys
+  include the KV-cache tensor shape, so a generator that warms over its own
+  pool and captures over the vLLM-owned cache (the two cache-ownership modes
+  the skill describes) hits a program-cache miss inside the first capture
+  (`TT_FATAL !is_capturing_trace`). The warmup must run over the served
+  cache; the adapter now adopts the vLLM cache for `prepare()`.
+- `vllm-integration/references/prefill-features.md`, "Stage split" against
+  "Batched prefill" rules and `tt-enable-tracing` "Trace Allocation Safety
+  Gate": the stage split says stage 9 measures the burst "on whatever
+  prefill path exists" and leaves runtime-indexed prefill to stage 10, but
+  the allocation gate that stage 9 must pass fails on the first
+  prefix-cache hit when continuation programs key on the start offset
+  (section 5.4). The program-key rules belong to the prefix-caching section
+  as a stage-9 requirement.
+- `vllm-integration/SKILL.md`, async decode: `supports_async_decode` gates
+  overlap, but the plugin only overlaps when vLLM's `--async-scheduling`
+  is set (`scheduler_config.async_scheduling`, default `None` on this
+  fork); neither the skill nor the packaged runner's launch passes it. The
+  flag was added through `--additional-server-args`; without it the async
+  split is declared but never exercised.
+- `vllm-integration/SKILL.md`: the plugin's `tt_supported_decode_batch_sizes`
+  attribute (decode padded to the smallest captured bucket, otherwise to
+  `max_num_seqs`) is undocumented in the skills; found in
+  `model_runner.py:1085`. Without it every decode step would run at batch 32.
+- `scripts/check_serving_contract.py` (0.1.21): `missing_evidence` treats
+  the `evidence` string as a path and crashes with `OSError: File name too
+  long` above 255 bytes (exit 1 looks like an advisory); the stage-6
+  contract written to the 0.1.19 convention (prose evidence) hit it. The
+  full-model skill should define the row format (`evidence` path, `notes`
+  prose) or the checker should tolerate prose.
+- `tt-device-usage/SKILL.md`, "Hangs And tt-triage": an engine subprocess
+  orphaned by a crash inside a trace capture never exits (one thread spins
+  in mesh shutdown) and has no timeout of its own; the rules (no SIGTERM
+  with outstanding device work, no reset) give no step for it. This stage
+  waited 22 minutes, killed it with SIGKILL and verified the chip with a
+  trivial op, which worked; the skill should say so and give a bound.
+- `vllm-integration/SKILL.md`, "Mixed-shape trace reuse check": the runner
+  gives no counters, so the adapter had to log per-call and per-step lines
+  and a client script parses them; the packaged runner's attached stages
+  record `server_command: None` in `vllm_run_summary.json`, so the launch
+  line is recorded by hand.
+- `qualitative-check/SKILL.md`: the packaged qualitative stage generates
+  256 tokens (greedy and sampled T 0.7 / p 0.9); the stage-7 HF control is
+  128 greedy tokens on the same prompts, so the divergence comparison
+  covers the first 128 tokens only. The skill could name the control
+  length the vLLM stage needs.
+- Information beyond the skills and the brief: the ttnn SDPA
+  `chunk_start_idx_tensor` calling convention (op docstring), `ttnn.embedding`
+  as a runtime gather for RoPE and K/V rows, `ttnn.Tensor.cpu(blocking=False)`
+  plus `ttnn.record_event` for the async read (from `tt_transformers`), the
+  repository's `*.log` ignore rule (evidence logs need `git add -f`) and
+  its 500 KB file limit (server logs committed gzipped), and the in-tree
+  runner's lack of `--enable-prefix-caching` (passed through
+  `--additional-server-args`).

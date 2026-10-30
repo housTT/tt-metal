@@ -1,0 +1,29 @@
+{
+  "checkout_git_sha": "0abf55e1e1f083dc73a79642b03b600ce940e597",
+  "visible_devices": "0",
+  "mesh": "one Blackhole P300 chip, 1x1 mesh, p150 mesh graph descriptor (runner argument --mesh-device N150)",
+  "runs": {
+    "pytest_full_model_36_tracked_fixed": {
+      "checkout_git_sha": "0abf55e1e1f083dc73a79642b03b600ce940e597",
+      "dirty_autoport_files_at_record_time": [
+        "M models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_32.stage9_tracked.json",
+        " M models/autoports/qwen_qwen3_8b/doc/full_model/host_work_counters.stage9_tracked.json",
+        " M models/autoports/qwen_qwen3_8b/doc/full_model/tracked_replay_workload.stage9_tracked.json",
+        " M models/autoports/qwen_qwen3_8b/doc/vllm_integration/logs/pytest_full_model_36_stage9_tracked_chip0.log",
+        " M models/autoports/qwen_qwen3_8b/doc/vllm_integration/logs/tracked_generator_chip0.status",
+        " M models/autoports/qwen_qwen3_8b/doc/vllm_integration/work_log.md"
+      ],
+      "chip": "0",
+      "command": "stage_env.sh 0 env QWEN3_FULL_MODEL_LAYERS=36 QWEN3_EVIDENCE_SUFFIX=stage9_tracked TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0 python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k 'test_split_sampling_trace or test_multi_row_prefill_equals_solo or test_host_work_counters or test_tracked_replay_workload or test_batch_decode' --timeout 1800 -p no:cacheprovider",
+      "log": "models/autoports/qwen_qwen3_8b/doc/vllm_integration/logs/pytest_full_model_36_stage9_tracked_chip0.log",
+      "artifacts": [
+        "models/autoports/qwen_qwen3_8b/doc/full_model/*.stage9_tracked.json"
+      ],
+      "exit_code": 0,
+      "started_utc": "18:14:35",
+      "ended_utc": "18:37:40",
+      "recorded_utc": "2026-10-30T18:37:58Z",
+      "note": "fixed continuation prefill (commit 6f4d004043 tree); 8 passed in 1379 s, program cache 460 before and after the post-capture workload, 6 decode and 5 sampling captures, no tracker error"
+    }
+  }
+}
