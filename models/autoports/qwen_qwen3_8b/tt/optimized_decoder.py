@@ -43,6 +43,7 @@ import torch
 
 import ttnn
 from models.autoports.qwen_qwen3_8b.tt.functional_decoder import (
+    PREFILL_SDPA_MAX_CHUNK,
     TILE_SIZE,
     DecoderGeometry,
     DecoderWeights,
@@ -102,7 +103,7 @@ class OptimizedPolicy:
     prefill_interleaved_copy_max_rows: int = 256
     prefill_2d_max_rows: int = 1024
     prefill_2d_in0_block_w: int = 16
-    prefill_kernel_table: str = "stage7"
+    prefill_kernel_table: str = "stage10"
     prefill_sharded_norm_max_rows: int = 1920
 
     def describe(self) -> dict:
@@ -154,6 +155,26 @@ PREFILL_KERNEL_TABLES = {
         "up_proj": {64: ("auto", 0), 128: ("1d", (64, 8, 2, 2)), 256: ("1d", (110, 8, 1, 4)), 512: ("2d", 16)},
         "down_proj": {64: ("2d", 8), 128: ("2d", 8), 256: ("2d", 16), 512: ("2d", 16)},
     },
+    "stage10": {
+        "qkv": {64: ("1d", (110, 4, 2, 2)), 128: ("1d", (110, 4, 2, 2)), 256: ("1d", (110, 8, 2, 2)), 512: ("2d", 16)},
+        "o_proj": {64: ("1d", (110, 4, 2, 2)), 128: ("1d", (96, 8, 2, 2)), 256: ("1d", (64, 16, 2, 2)), 512: ("2d", 16)},
+        "gate_proj": {
+            64: ("1d", (64, 16, 2, 2)),
+            128: ("1d", (64, 4, 2, 2)),
+            256: ("1d", (110, 16, 1, 4)),
+            512: ("1d", (110, 8, 1, 4)),
+        },
+        "up_proj": {64: ("auto", 0), 128: ("1d", (64, 8, 2, 2)), 256: ("1d", (110, 8, 1, 4)), 512: ("2d", 16)},
+        "down_proj": {64: ("1d", (96, 4, 2, 2)), 128: ("1d", (64, 8, 2, 2)), 256: ("1d", (110, 16, 2, 2)), 512: ("2d", 16)},
+    },
+}
+
+BATCHED_PREFILL_KERNEL_TABLE = {
+    "qkv": {1024: ("2d", 16, 1), 2048: ("2d", 16, 2), 4096: ("2d", 16, 4)},
+    "o_proj": {1024: ("2d", 16, 1), 2048: ("2d", 16, 1), 4096: ("2d", 16, 2)},
+    "gate_proj": {1024: ("1d", (110, 8, 1, 4), 2), 2048: ("1d", (110, 8, 1, 4), 4), 4096: ("1d", (110, 8, 1, 4), 8)},
+    "up_proj": {1024: ("2d", 16, 2), 2048: ("2d", 16, 4), 4096: ("2d", 16, 8)},
+    "down_proj": {1024: ("2d", 16, 1), 2048: ("2d", 16, 1), 4096: ("2d", 16, 2)},
 }
 
 DEFAULT_POLICY = OptimizedPolicy(
@@ -655,6 +676,77 @@ class OptimizedDecoder(FusedDecoder):
     def _prefill_matmul(self, x: ttnn.Tensor, weight: ttnn.Tensor) -> ttnn.Tensor:
         return self._linear(x, weight)
 
+    def _linear_batched(self, x: ttnn.Tensor, weight: ttnn.Tensor) -> ttnn.Tensor:
+        """Projection of a batched-prefill activation ``[1, 1, rows, K]`` with kernels of the 2D/1D multicast
+        family only, so every output row equals the single-row kernel's row bit for bit (``minimal_matmul``
+        orders its K accumulation differently and flips rare elements). Wide outputs that do not fit one
+        2D block run as ``pieces`` row pieces through the batch dimension of one matmul (``fuse_batch``
+        off), which keeps one program per shape and reads the weight once per piece.
+        """
+        copy = self._interleaved_copy.get(id(weight))
+        rows = x.shape[-2]
+        role = self._prefill_role.get(id(weight))
+        choice = BATCHED_PREFILL_KERNEL_TABLE.get(role, {}).get(rows) if copy is not None else None
+        if choice is None:
+            return self._linear(x, weight)
+        kernel, cfg, pieces = choice
+        k, n = weight.shape[-2], weight.shape[-1]
+        piece = rows // pieces
+        if kernel == "2d":
+            program_config = self._prefill_2d_program_config(piece, k, n, cfg)
+        else:
+            cores, in0_block_w, sub_h, sub_w = cfg
+            program_config = ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
+                compute_with_storage_grid_size=(self.grid.x, self.grid.y),
+                in0_block_w=in0_block_w,
+                out_subblock_h=sub_h,
+                out_subblock_w=sub_w,
+                per_core_M=piece // TILE_SIZE,
+                per_core_N=-(-(n // TILE_SIZE) // cores),
+                fuse_batch=pieces == 1,
+                fused_activation=None,
+                mcast_in0=True,
+            )
+        x_in = ttnn.reshape(x, (pieces, 1, piece, k)) if pieces > 1 else x
+        out = ttnn.linear(
+            x_in,
+            copy,
+            program_config=program_config,
+            dtype=self.activation_dtype,
+            compute_kernel_config=self._prefill_compute_config(copy),
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        if pieces > 1:
+            if not _same_buffer(x_in, x):
+                x_in.deallocate(True)
+            flat = ttnn.reshape(out, (1, 1, rows, n))
+            if not _same_buffer(flat, out):
+                out.deallocate(True)
+            out = flat
+        return out
+
+    def _prefill_matmul_residual_batched(self, x: ttnn.Tensor, weight: ttnn.Tensor, residual: ttnn.Tensor) -> ttnn.Tensor:
+        y = self._linear_batched(x, weight)
+        out = ttnn.add(residual, y, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        y.deallocate(True)
+        return out
+
+    def _mlp_prefill_batched(self, x: ttnn.Tensor, residual: ttnn.Tensor) -> ttnn.Tensor:
+        gate = self._linear_batched(x, self.weights.gate_proj)
+        up = self._linear_batched(x, self.weights.up_proj)
+        act = ttnn.mul(
+            gate,
+            up,
+            input_tensor_a_activations=[ttnn.UnaryOpType.SILU],
+            dtype=self.activation_dtype,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        gate.deallocate(True)
+        up.deallocate(True)
+        out = self._prefill_matmul_residual_batched(act, self.weights.down_proj, residual)
+        act.deallocate(True)
+        return out
+
     def _prefill_norm_config(self, rows: int) -> tuple[ttnn.MemoryConfig, Any] | None:
         """Block-sharded layout and program config for an RMSNorm over ``[1, 1, rows, hidden]`` prefill rows.
 
@@ -873,6 +965,121 @@ class OptimizedDecoder(FusedDecoder):
             v_fill.deallocate(True)
         if owns_table:
             fill_table.deallocate(True)
+
+    # ---------------------------------------------------------- batched prefill
+
+    def prefill_forward_batched(
+        self,
+        hidden_states: ttnn.Tensor,
+        *,
+        rows: int,
+        seq_len: int,
+        page_table: ttnn.Tensor,
+        batch_idx: ttnn.Tensor,
+        kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
+    ) -> ttnn.Tensor:
+        """``rows`` fresh prompts (``start_pos`` 0) of ``seq_len`` padded tokens each, packed along the sequence
+        axis as ``[1, 1, rows * seq_len, H]``; returns the residual in the same layout.
+
+        The dense work (both norms, every projection, the MLP) runs once over every row, with the programs of
+        a single ``rows * seq_len``-row prefill. Attention and the cache fill stay per row inside one op each:
+        ``nlp_create_qkv_heads`` on the ``[rows, 1, seq_len, W]`` view, RoPE with one ``[1, 1, seq_len, D]``
+        table (every row starts at position 0), ``paged_fill_cache`` with ``batch_idx`` naming the page-table
+        row of each input row, and causal SDPA over ``[rows, heads, seq_len, D]``. Row ``i`` occupies rows
+        ``[i * seq_len, (i + 1) * seq_len)``; its padded tail sits after its real tokens, so causal attention
+        never reads it, and its cache writes land in the row's own pages or the scratch block the page table
+        names past the request.
+        """
+        attn_in = self._rms_norm(hidden_states, self.weights.input_ln)
+        h = self._attention_prefill_batched(
+            attn_in, rows, seq_len, page_table, batch_idx, kv_cache, residual=hidden_states
+        )
+        attn_in.deallocate(True)
+        mlp_in = self._rms_norm(h, self.weights.post_attn_ln)
+        out = self._mlp_prefill_batched(mlp_in, residual=h)
+        mlp_in.deallocate(True)
+        h.deallocate(True)
+        return out
+
+    def _attention_prefill_batched(
+        self,
+        x: ttnn.Tensor,
+        rows: int,
+        seq_len: int,
+        page_table: ttnn.Tensor,
+        batch_idx: ttnn.Tensor,
+        kv_cache: tuple[ttnn.Tensor, ttnn.Tensor],
+        residual: ttnn.Tensor,
+    ) -> ttnn.Tensor:
+        g = self.geometry
+        xqkv = self._linear_batched(x, self.weights.qkv)
+        xqkv_rows = ttnn.reshape(xqkv, (rows, 1, seq_len, g.qkv_width))
+        q_heads, k_heads, v_heads = ttnn.experimental.nlp_create_qkv_heads(
+            xqkv_rows,
+            num_heads=g.num_heads,
+            num_kv_heads=g.num_kv_heads,
+            transpose_k_heads=False,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        if not _same_buffer(xqkv_rows, xqkv):
+            xqkv_rows.deallocate(True)
+        xqkv.deallocate(True)
+        q_normed = self._rms_norm(q_heads, self.weights.q_norm)
+        q_heads.deallocate(True)
+        k_normed = self._rms_norm(k_heads, self.weights.k_norm)
+        k_heads.deallocate(True)
+        cos, sin = self._rope_rows(0, seq_len)
+        q_rot = ttnn.experimental.rotary_embedding_hf(
+            q_normed, cos, sin, is_decode_mode=False, compute_kernel_config=self.compute_config
+        )
+        q_normed.deallocate(True)
+        k_rot = ttnn.experimental.rotary_embedding_hf(
+            k_normed, cos, sin, is_decode_mode=False, compute_kernel_config=self.compute_config
+        )
+        k_normed.deallocate(True)
+        cos.deallocate(True)
+        sin.deallocate(True)
+
+        key_cache, value_cache = kv_cache
+        k_fill, v_fill, owns_fill = k_rot, v_heads, False
+        if k_rot.dtype != key_cache.dtype:
+            k_fill = ttnn.typecast(k_rot, key_cache.dtype)
+            v_fill = ttnn.typecast(v_heads, key_cache.dtype)
+            owns_fill = True
+        ttnn.experimental.paged_fill_cache(key_cache, k_fill, page_table, batch_idx_tensor=batch_idx)
+        ttnn.experimental.paged_fill_cache(value_cache, v_fill, page_table, batch_idx_tensor=batch_idx)
+        if owns_fill:
+            k_fill.deallocate(True)
+            v_fill.deallocate(True)
+
+        chunk_size = min(seq_len, PREFILL_SDPA_MAX_CHUNK)
+        program_config = ttnn.SDPAProgramConfig(
+            compute_with_storage_grid_size=self.prefill_sdpa_grid,
+            q_chunk_size=chunk_size,
+            k_chunk_size=chunk_size,
+            exp_approx_mode=False,
+        )
+        attn = ttnn.transformer.scaled_dot_product_attention(
+            q_rot,
+            k_rot,
+            v_heads,
+            is_causal=True,
+            scale=g.scale,
+            program_config=program_config,
+            compute_kernel_config=self.compute_config,
+            memory_config=ttnn.DRAM_MEMORY_CONFIG,
+        )
+        q_rot.deallocate(True)
+        k_rot.deallocate(True)
+        v_heads.deallocate(True)
+        concat = ttnn.experimental.nlp_concat_heads(attn, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        attn.deallocate(True)
+        flat = ttnn.reshape(concat, (1, 1, rows * seq_len, g.num_heads * g.head_dim))
+        out = self._prefill_matmul_residual_batched(flat, self.weights.o_proj, residual)
+        if not _same_buffer(flat, concat):
+            flat.deallocate(True)
+        concat.deallocate(True)
+        return out
 
     # ------------------------------------------------------------------ decode
 

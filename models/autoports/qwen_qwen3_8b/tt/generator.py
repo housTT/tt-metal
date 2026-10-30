@@ -44,7 +44,10 @@ from models.autoports.qwen_qwen3_8b.tt.model import (
     PREFILL_CHUNK,
     PREFILL_CHUNK_STARTS,
     Qwen3Model,
+    batched_prefill_pairs,
+    batched_row_bucket,
     decode_bucket,
+    prefill_compute_len,
 )
 from models.autoports.qwen_qwen3_8b.tt.optimized_decoder import WEIGHT_BYTES_PER_ELEMENT
 from models.autoports.qwen_qwen3_8b.tt.precision import (
@@ -76,13 +79,43 @@ COUNTER_NAMES = (
     "eager_decode_steps",
     "eager_sampling_steps",
     "seeded_eager_sampling_steps",
+    "penalized_sampling_steps",
     "prefill_calls",
+    "batched_prefill_groups",
+    "batched_prefill_rows",
+    "single_row_prefill_rows",
     "program_cache_entries_after_capture",
 )
+BATCHED_PREFILL_ENV = "QWEN3_BATCHED_PREFILL"
 
 
 def greedy_sampling_params(batch: int = 1) -> SamplingParams:
     return SamplingParams(temperature=[0.0] * batch, top_k=[1] * batch, top_p=[1.0] * batch)
+
+
+def penalty_sampling_params(batch: int = 1) -> SamplingParams:
+    """Sampled parameters with every penalty kind active: the warmup and capture shape of the penalties-on
+    sampler variant (the sampler keys its trace on penalties on or off, not on the values)."""
+    return SamplingParams(
+        temperature=[1.0] * batch,
+        top_k=[20] * batch,
+        top_p=[0.9] * batch,
+        presence_penalty=[0.5] * batch,
+        frequency_penalty=[0.5] * batch,
+        repetition_penalty=[1.2] * batch,
+    )
+
+
+def _penalties_requested(params: SamplingParams) -> bool:
+    def active(value, default):
+        values = value if isinstance(value, (list, tuple)) else [value]
+        return any(float(v) != default for v in values)
+
+    return (
+        active(params.presence_penalty, 0.0)
+        or active(params.frequency_penalty, 0.0)
+        or active(params.repetition_penalty, 1.0)
+    )
 
 
 @dataclass
@@ -133,12 +166,26 @@ class Qwen3Generator(Generator):
         warmup_chunk_starts: Sequence[int] = DEFAULT_WARMUP_CHUNK_STARTS,
         warmup_continuation_starts: Sequence[int] = DEFAULT_WARMUP_CONTINUATION_STARTS,
         warmup_multi_row: bool = True,
+        batched_prefill: bool = True,
+        batched_prefill_shapes: Sequence[tuple[int, int]] | None = None,
         allow_force_argmax: bool = False,
         prepare: bool = True,
         log: Callable[[str], None] = print,
     ) -> None:
         if not 1 <= max_batch_size <= SLOT_WIDTH:
             raise ValueError(f"max_batch_size must be in [1, {SLOT_WIDTH}]")
+        self.batched_prefill = bool(batched_prefill)
+        self.batched_prefill_shapes = tuple(
+            tuple(int(v) for v in shape)
+            for shape in (
+                batched_prefill_shapes
+                if batched_prefill_shapes is not None
+                else batched_prefill_pairs(warmup_prefill_lengths)
+            )
+        )
+        for rows, seq in self.batched_prefill_shapes:
+            if rows * seq not in set(int(n) for n in warmup_prefill_lengths):
+                raise ValueError(f"batched prefill shape {rows} x {seq} has no prepared dense bucket {rows * seq}")
         self.mesh_device = mesh_device
         self.model = model
         self.tokenizer = tokenizer
@@ -301,6 +348,19 @@ class Qwen3Generator(Generator):
                 sampling_params=greedy_sampling_params(rows),
             )
             self.reset()
+        if self.batched_prefill:
+            for rows_bucket, seq in self.batched_prefill_shapes:
+                self.log(f"warmup batched prefill {rows_bucket} x {seq}")
+                self.reset()
+                real = max(2, rows_bucket - 1)
+                lengths = [seq if i % 2 == 0 else max(1, seq - 1) for i in range(real)]
+                tokens = torch.zeros(real, seq, dtype=torch.int64)
+                for i, n in enumerate(lengths):
+                    tokens[i, :n] = torch.arange(1, n + 1)
+                    self._ensure_blocks(i, n)
+                table = self._host_page_table(list(range(real)))
+                self.prefill_forward(tokens, page_table=table, kv_cache=self.kv_cache, prompt_lens=lengths)
+            self.reset()
         for bucket in self.decode_buckets:
             state = self.buckets[bucket]
             table = torch.full((bucket, self.page_table_width), self.scratch_block, dtype=torch.int32)
@@ -318,7 +378,17 @@ class Qwen3Generator(Generator):
                 )
                 if mode == "device":
                     self.sampling.set_trace_bucket(bucket)
+                    self._set_sampling_params(greedy_sampling_params(bucket))
                     self.sampling.precompile(logits=out, tt_out_tok=state.tokens)
+                    self._set_sampling_params(penalty_sampling_params(bucket))
+                    self.sampling.reset_prompt_tokens(
+                        torch.full((SLOT_WIDTH, SLOT_WIDTH), -1, dtype=torch.int32), slots=list(range(bucket))
+                    )
+                    self.sampling.reset_output_state(torch.full((SLOT_WIDTH, 1), -1, dtype=torch.int32))
+                    self.sampling.reset_output_state()
+                    self.sampling._run_sampling(out, penalties_on=True, tt_out_tok=state.tokens, count_tokens=True)
+                    self.sampling.reset_penalty_counts()
+                    self._set_sampling_params(greedy_sampling_params(bucket))
                     self.sampling.set_trace_bucket(None)
                 out.deallocate(True)
                 state.prepared.add(mode)
@@ -492,8 +562,14 @@ class Qwen3Generator(Generator):
         admit: bool,
         positions: Sequence[int] | None = None,
         slot_remap: Any = None,
+        prompt_tokens: torch.Tensor | None = None,
+        output_tokens: torch.Tensor | None = None,
     ) -> None:
         """Refresh k/p/temp on change and keep the common sampler's seed manager in step with the batch.
+
+        Penalties run on device (``supports_device_penalties``): ``prompt_tokens`` (``[B, T]``, -1 padded)
+        rebuilds the sampler's prompt mask for the admitted rows and ``output_tokens`` reloads its output
+        counts on a reload step; steady steps count the sampled token inside the sampling trace.
 
         Prefill (``positions`` is None): the rows are freshly admitted requests, their seeds are registered
         with a fresh salt and nothing else is touched. Decode: the live slots are the rows at a position
@@ -504,6 +580,42 @@ class Qwen3Generator(Generator):
         slots (a no-op for unseeded steady state). Mirrors ``models/tt_transformers/tt/generator.py``
         ``sample_decode_on_device``.
         """
+        formatted = self._set_sampling_params(sampling_params)
+        if _penalties_requested(formatted):
+            self.counters["penalized_sampling_steps"] += 1
+        manager = self.sampling.seed_manager
+        if positions is None:
+            slots = list(range(batch))
+            manager.reset_seed(formatted.seed, slots)
+            manager.get_new_values(slots)
+            if prompt_tokens is not None:
+                self.sampling.reset_prompt_tokens(prompt_tokens, slots=slots)
+            self.sampling.reset_output_state()
+            return
+        position_list = [int(p) for p in positions]
+        live = [slot for slot, p in enumerate(position_list[:SLOT_WIDTH]) if p >= 0]
+        if slot_remap is not None:
+            remap = torch.as_tensor(slot_remap).reshape(-1).to(torch.int64)
+            full = torch.arange(SLOT_WIDTH, dtype=torch.int64)
+            full[: min(SLOT_WIDTH, remap.numel())] = remap[:SLOT_WIDTH]
+            manager.apply_slot_remap(full)
+        manager.deactivate_slots_except(live)
+        if live:
+            if admit:
+                manager.reset_seed_from_slots(formatted.seed, live)
+                align = list(live)
+            else:
+                align = manager.reset_seed_from_slots_if_needed(formatted.seed, live)
+            if align:
+                manager.align_seed_counters_to_positions(formatted.seed, align, position_list)
+        if admit:
+            if prompt_tokens is not None:
+                self.sampling.reset_prompt_tokens(prompt_tokens)
+            self.sampling.reset_output_state(output_tokens)
+        manager.get_new_values(live)
+
+    def _set_sampling_params(self, sampling_params: SamplingParams) -> SamplingParams:
+        """Format the parameters for the 32-slot sampler and push them on change; returns the formatted set."""
         formatted = format_sampling_params(sampling_params, SLOT_WIDTH, MAX_TOP_K)
         signature = (
             tuple(formatted.temperature),
@@ -522,29 +634,7 @@ class Qwen3Generator(Generator):
             self.sampling.reset_sampling_params(formatted)
             self._sampling_signature = signature
             self.counters["sampling_param_refreshes"] += 1
-        manager = self.sampling.seed_manager
-        if positions is None:
-            slots = list(range(batch))
-            manager.reset_seed(formatted.seed, slots)
-            manager.get_new_values(slots)
-            return
-        position_list = [int(p) for p in positions]
-        live = [slot for slot, p in enumerate(position_list[:SLOT_WIDTH]) if p >= 0]
-        if slot_remap is not None:
-            remap = torch.as_tensor(slot_remap).reshape(-1).to(torch.int64)
-            full = torch.arange(SLOT_WIDTH, dtype=torch.int64)
-            full[: min(SLOT_WIDTH, remap.numel())] = remap[:SLOT_WIDTH]
-            manager.apply_slot_remap(full)
-        manager.deactivate_slots_except(live)
-        if live:
-            if admit:
-                manager.reset_seed_from_slots(formatted.seed, live)
-                align = list(live)
-            else:
-                align = manager.reset_seed_from_slots_if_needed(formatted.seed, live)
-            if align:
-                manager.align_seed_counters_to_positions(formatted.seed, align, position_list)
-        manager.get_new_values(live)
+        return formatted
 
     def _sampler_is_traced(self) -> bool:
         """Mirror of ``SamplingGenerator.sample``: explicit request seeds run the sampler eagerly."""
@@ -661,30 +751,66 @@ class Qwen3Generator(Generator):
             hidden.deallocate(True)
             tt_table.deallocate(True)
             return logits.unsqueeze(0)
-        pieces = []
-        for i in range(rows):
-            ids = tokens[i, starts[i] : ends[i]].tolist()
-            tt_table = row_table(i)
-            hidden = self.model.prefill_hidden(
-                ids,
-                start_pos=starts[i],
-                user_slot=0,
+        groups = self._batched_prefill_groups(starts, ends)
+        single_group = len(groups) == 1 and len(next(iter(groups.values()))) == rows
+        pieces: list[ttnn.Tensor | None] = [None] * rows
+        tile = None
+        for seq, members in groups.items():
+            rows_bucket = batched_row_bucket(len(members))
+            group_table = torch.full((rows_bucket, self.page_table_width), scratch, dtype=torch.int32)
+            group_table[: len(members)] = table[members]
+            tt_table = ttnn.from_torch(group_table, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device)
+            hidden = self.model.prefill_hidden_batched(
+                [tokens[i, : ends[i]].tolist() for i in members],
+                rows=rows_bucket,
+                seq_len=seq,
                 page_table=tt_table,
                 kv_cache=kv_cache,
-                keep_all_rows=False,
-                host_page_table=host_row(i),
             )
             tt_table.deallocate(True)
-            pieces.append(self.model.gather_rows(hidden, [self.model.last_row_index(len(ids), starts[i])]))
+            last = [j * seq + ends[i] - 1 for j, i in enumerate(members)]
+            flat = self.model.untilize_rows(hidden)
             hidden.deallocate(True)
-        tile = self.model.rows_to_tile(pieces)
-        for piece in pieces:
-            piece.deallocate(True)
+            if single_group:
+                picked = self.model.gather_from_rows(flat, last + [last[-1]] * (SLOT_WIDTH - len(last)))
+                tile = self.model.stack_rows_tile([picked])
+                picked.deallocate(True)
+            else:
+                for j, i in enumerate(members):
+                    pieces[i] = self.model.gather_from_rows(flat, [last[j]])
+            flat.deallocate(True)
+            self.counters["batched_prefill_groups"] += 1
+            self.counters["batched_prefill_rows"] += len(members)
+        if tile is None:
+            for i in range(rows):
+                if pieces[i] is not None:
+                    continue
+                ids = tokens[i, starts[i] : ends[i]].tolist()
+                tt_table = row_table(i)
+                hidden = self.model.prefill_hidden(
+                    ids,
+                    start_pos=starts[i],
+                    user_slot=0,
+                    page_table=tt_table,
+                    kv_cache=kv_cache,
+                    keep_all_rows=False,
+                    host_page_table=host_row(i),
+                )
+                tt_table.deallocate(True)
+                pieces[i] = self.model.gather_rows(hidden, [self.model.last_row_index(len(ids), starts[i])])
+                hidden.deallocate(True)
+                self.counters["single_row_prefill_rows"] += 1
+            tile = self.model.rows_to_tile(pieces)
+            for piece in pieces:
+                piece.deallocate(True)
         logits = self.model.logits_from_tile(tile)
         tile.deallocate(True)
         if sampling_params is not None:
             bucket = self.buckets[decode_bucket(rows, self.model.grid.x, self.model.grid.y)]
-            self._apply_sampling_params(sampling_params, rows, admit=True)
+            prompt = torch.full((rows, max(ends)), -1, dtype=torch.int32)
+            for i in range(rows):
+                prompt[i, : ends[i]] = torch.as_tensor(tokens[i, : ends[i]]).to(torch.int32)
+            self._apply_sampling_params(sampling_params, rows, admit=True, prompt_tokens=prompt)
             self._sample_eager(logits, bucket)
             bucket.device_state_valid = False
             logits.deallocate(True)
@@ -693,6 +819,30 @@ class Qwen3Generator(Generator):
         host = ttnn.to_torch(logits)[0, 0, :rows, : self.model.vocab_size].to(torch.float32)
         logits.deallocate(True)
         return host.unsqueeze(1)
+
+    def _batched_prefill_groups(self, starts: Sequence[int], ends: Sequence[int]) -> dict[int, list[int]]:
+        """Rows of one call that run as batched prefill, keyed by their padded length: fresh rows
+        (``start_pos`` 0) whose bucket is a batched sequence bucket, grouped by bucket, kept only when at
+        least two rows share it and the row bucket of the group is a prepared batched shape. Every other row
+        runs on the single-row path of the same call; the output keeps the call's row order."""
+        if not self.batched_prefill:
+            return {}
+        shapes = set(self.batched_prefill_shapes)
+        seq_buckets = sorted({seq for _, seq in shapes})
+        if not seq_buckets:
+            return {}
+        groups: dict[int, list[int]] = {}
+        for i, (start, end) in enumerate(zip(starts, ends)):
+            if start != 0 or end > seq_buckets[-1]:
+                continue
+            seq = prefill_compute_len(end)
+            if seq in seq_buckets:
+                groups.setdefault(seq, []).append(i)
+        return {
+            seq: members
+            for seq, members in groups.items()
+            if len(members) >= 2 and (batched_row_bucket(len(members)), seq) in shapes
+        }
 
     def prefill_logits_rows(
         self, token_ids: Sequence[int], start: int, positions: Sequence[int], slot: int = 0
@@ -790,6 +940,8 @@ class Qwen3Generator(Generator):
                 admit=reload,
                 positions=positions.tolist(),
                 slot_remap=kwargs.get("slot_remap"),
+                prompt_tokens=kwargs.get("prompt_tokens"),
+                output_tokens=kwargs.get("output_tokens"),
             )
         if enable_trace:
             out = self._replay(state, mode, kv_cache)
@@ -874,6 +1026,19 @@ class Qwen3Generator(Generator):
                     )
                 self._replay(state, mode, kv_cache)
                 captured[(bucket, mode)] = state.traces[mode]
+                if mode == "device":
+                    self._apply_sampling_params(
+                        penalty_sampling_params(bucket), bucket, admit=True, positions=[0] * bucket
+                    )
+                    self.sampling.set_trace_bucket(bucket)
+                    self.sampling.capture_trace(logits=state.outputs[mode], tt_out_tok=state.tokens, skip_precompile=True)
+                    self.sampling.sample(state.outputs[mode], enable_trace=True, tt_out_tok=state.tokens)
+                    self.sampling.set_trace_bucket(None)
+                    self.counters["sampling_trace_captures"] += 1
+                    captured[(bucket, "device+penalties")] = "sampling"
+                    self._apply_sampling_params(
+                        greedy_sampling_params(bucket), bucket, admit=True, positions=[0] * bucket
+                    )
             self._write_positions(state, torch.full((bucket,), -1, dtype=torch.int32))
             state.device_state_valid = False
             state.last_mode = None
@@ -1111,6 +1276,9 @@ def build_generator(model_dir: str | Path, mesh_device, **kwargs) -> Qwen3Genera
             log(f"terminal policy overrides from the environment: {overrides}")
     if "kv_cache_dtype" not in kwargs:
         kwargs["kv_cache_dtype"] = kv_cache_dtype(precision_config)
+    if "batched_prefill" not in kwargs and BATCHED_PREFILL_ENV in os.environ:
+        kwargs["batched_prefill"] = os.environ[BATCHED_PREFILL_ENV] not in ("0", "", "off", "false")
+        log(f"batched prefill from the environment: {BATCHED_PREFILL_ENV}={os.environ[BATCHED_PREFILL_ENV]}")
     started = time.perf_counter()
     model = Qwen3Model(mesh_device, hf_config=hf_config, reader=reader, log=log, **model_kwargs)
     log(f"model weights on device in {time.perf_counter() - started:.1f} s")

@@ -57,7 +57,7 @@ class Qwen3ForCausalLM:
         "supports_async_decode": True,
         "supports_sample_on_device": True,
         "max_device_top_k": MAX_TOP_K,
-        "supports_device_penalties": False,
+        "supports_device_penalties": True,
         "supports_device_seeded_sampling": True,
     }
 
@@ -289,7 +289,15 @@ class Qwen3ForCausalLM:
             self.generator.mesh_device.num_program_cache_entries(),
             self._dram_allocated_mb(),
             _counter_delta(
-                before, self.generator.counter_snapshot(), ("decode_trace_captures", "sampling_trace_captures")
+                before,
+                self.generator.counter_snapshot(),
+                (
+                    "batched_prefill_groups",
+                    "batched_prefill_rows",
+                    "single_row_prefill_rows",
+                    "decode_trace_captures",
+                    "sampling_trace_captures",
+                ),
             ),
         )
         return out
@@ -319,6 +327,8 @@ class Qwen3ForCausalLM:
             reset_batch=reset_batch,
             slot_remap=slot_remap,
             scratch_block=self.scratch_block,
+            prompt_tokens=kwargs.get("prompt_tokens"),
+            output_tokens=kwargs.get("output_tokens"),
         )
         self.decode_steps += 1
         device_mode = sampling_params is not None
@@ -350,6 +360,7 @@ class Qwen3ForCausalLM:
                     "page_table_refreshes",
                     "eager_decode_steps",
                     "seeded_eager_sampling_steps",
+                    "penalized_sampling_steps",
                 ),
             ),
             self.generator.mesh_device.num_program_cache_entries(),

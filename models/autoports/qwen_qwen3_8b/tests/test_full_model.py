@@ -301,6 +301,141 @@ def test_multi_row_prefill_equals_solo(generator):
         assert record["reordered_row_bit_equal"], record
 
 
+def _kv_rows(gen, layer: int, slot: int, length: int) -> tuple[torch.Tensor, torch.Tensor]:
+    key_cache, value_cache = gen.kv_cache[layer]
+    blocks = gen.slot_blocks[slot][: -(-length // gen.block_size)]
+    k = ttnn.to_torch(key_cache)
+    v = ttnn.to_torch(value_cache)
+    return (
+        torch.cat([k[b] for b in blocks], dim=1)[:, :length].clone(),
+        torch.cat([v[b] for b in blocks], dim=1)[:, :length].clone(),
+    )
+
+
+def _random_ids(vocab: int, length: int, seed: int) -> list[int]:
+    g = torch.Generator().manual_seed(seed)
+    return torch.randint(0, vocab, (length,), generator=g).tolist()
+
+
+BATCHED_CASES = {
+    "mixed_lengths": ("random", [5, 31, 32, 33, 127, 128, 129, 257, 640, 1000, 1024]),
+    "mixed_lengths_reversed": ("random", [1024, 1000, 640, 257, 129, 128, 127, 33, 32, 31, 5]),
+    "uniform_2": ("random", [128, 100]),
+    "uniform_4": ("random", [128, 127, 97, 65]),
+    "uniform_8": ("random", [128, 120, 100, 90, 80, 70, 66, 65]),
+    "uniform_32": ("random", [128 - (i % 7) for i in range(32)]),
+    "chat_8": ("chat", None),
+}
+CHAT_PROMPTS = [
+    "Write one sentence about the sea.",
+    "What is the capital of France?",
+    "Explain photosynthesis in two sentences.",
+    "Name three prime numbers.",
+    "Give a haiku about autumn leaves falling on a quiet mountain road.",
+    "Why is the sky blue? Answer briefly.",
+    "List two uses of copper.",
+    "Translate 'good morning' into Spanish.",
+]
+
+
+@pytest.mark.parametrize("case", sorted(BATCHED_CASES))
+def test_batched_prefill_equals_solo(generator, case):
+    """Batched (equal-padded-length) prefill equals the single-row result per row: last-token logits, K/V
+    pages of the first and last layer at the real positions (zero tolerance), top-1, and row order."""
+    gen = generator
+    if not gen.batched_prefill:
+        pytest.skip("batched prefill is disabled")
+    source, lengths = BATCHED_CASES[case]
+    if source == "chat":
+        prompts = [_chat_ids(gen.tokenizer, text) for text in CHAT_PROMPTS]
+    else:
+        prompts = [_random_ids(gen.model.vocab_size, n, seed=7919 * (k + 1)) for k, n in enumerate(lengths)]
+    lengths = [len(p) for p in prompts]
+    layers = sorted({0, gen.model.num_layers - 1})
+    solo_logits, solo_kv = [], []
+    for ids in prompts:
+        gen.reset()
+        gen._ensure_blocks(0, len(ids))
+        table = gen._host_page_table([0])
+        out = gen.prefill_forward(torch.tensor([ids]), page_table=table, kv_cache=gen.kv_cache, prompt_lens=[len(ids)])
+        solo_logits.append(out[0, 0].clone())
+        solo_kv.append({l: _kv_rows(gen, l, 0, len(ids)) for l in layers})
+
+    def multi(order):
+        gen.reset()
+        rows = len(order)
+        ordered = [lengths[i] for i in order]
+        tokens = torch.zeros(rows, max(ordered), dtype=torch.int64)
+        for j, i in enumerate(order):
+            tokens[j, : lengths[i]] = torch.tensor(prompts[i])
+            gen._ensure_blocks(j, lengths[i])
+        table = gen._host_page_table(list(range(rows)))
+        before = gen.counter_snapshot()
+        pc_before = gen.mesh_device.num_program_cache_entries()
+        out = gen.prefill_forward(tokens, page_table=table, kv_cache=gen.kv_cache, prompt_lens=ordered)
+        pc_after = gen.mesh_device.num_program_cache_entries()
+        delta = {k: gen.counter_snapshot()[k] - before[k] for k in before}
+        kv = [{l: _kv_rows(gen, l, j, lengths[i]) for l in layers} for j, i in enumerate(order)]
+        return out, kv, delta, (pc_before, pc_after)
+
+    rows = len(prompts)
+    order = list(range(rows))
+    batched, batched_kv, delta, cache = multi(order)
+    rerun, _, _, cache_rerun = multi(order)
+    reversed_order = list(reversed(order))
+    reordered, _, _, _ = multi(reversed_order)
+    expected_groups = gen._batched_prefill_groups([0] * rows, lengths)
+    records = []
+    for i in range(rows):
+        s, b = solo_logits[i], batched[i, 0]
+        records.append(
+            {
+                "length": lengths[i],
+                "batched_group": next((seq for seq, members in expected_groups.items() if i in members), None),
+                "logits_bit_equal": bool(torch.equal(s, b)),
+                "pcc_batched_vs_solo": _pcc(s, b),
+                "max_abs_diff": float((s - b).abs().max()),
+                "top1_equal": int(s.argmax()) == int(b.argmax()),
+                "rerun_bit_equal": bool(torch.equal(b, rerun[i, 0])),
+                "reordered_row_bit_equal": bool(torch.equal(b, reordered[reversed_order.index(i), 0])),
+                "kv_bit_equal": {
+                    str(l): bool(torch.equal(solo_kv[i][l][0], batched_kv[i][l][0]))
+                    and bool(torch.equal(solo_kv[i][l][1], batched_kv[i][l][1]))
+                    for l in layers
+                },
+            }
+        )
+    payload = {
+        "case": case,
+        "source": source,
+        "rows": rows,
+        "lengths": lengths,
+        "kv_layers_checked": layers,
+        "batched_groups": {str(seq): members for seq, members in expected_groups.items()},
+        "batched_prefill_shapes": list(gen.batched_prefill_shapes),
+        "counters_delta_first_call": {
+            k: delta[k] for k in ("batched_prefill_groups", "batched_prefill_rows", "single_row_prefill_rows")
+        },
+        "program_cache_entries_first_call": cache,
+        "program_cache_entries_rerun": cache_rerun,
+        "cases": records,
+        "provenance": _provenance(
+            gen,
+            f"python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k 'test_batched_prefill_equals_solo and {case}'",
+        ),
+    }
+    _write_json(f"batched_prefill_equals_solo_{case}.json", payload)
+    assert delta["batched_prefill_rows"] == sum(len(m) for m in expected_groups.values())
+    assert delta["single_row_prefill_rows"] == rows - delta["batched_prefill_rows"]
+    assert cache_rerun[0] == cache_rerun[1], cache_rerun
+    for record in records:
+        assert record["pcc_batched_vs_solo"] >= PCC_BAR, record
+        assert record["top1_equal"], record
+        assert record["rerun_bit_equal"], record
+        assert record["reordered_row_bit_equal"], record
+        assert all(record["kv_bit_equal"].values()), record
+
+
 @pytest.mark.parametrize("batch", [8, 16, 24, 32])
 def test_batch_decode(generator, batch):
     gen = generator

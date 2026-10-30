@@ -57,6 +57,27 @@ LM_HEAD_SPLIT = 16384
 VOCAB_ALIGNMENT = 1024
 DECODE_BUCKETS = (1, 8, 16, 24, 32)
 LOGITS_DTYPES = {"bf16": ttnn.bfloat16, "fp32": ttnn.float32}
+BATCHED_PREFILL_SEQ_BUCKETS = (32, 64, 128, 256, 512)
+BATCHED_PREFILL_ROW_BUCKETS = (2, 4, 8, 16, 32)
+
+
+def batched_prefill_pairs(dense_lengths: Sequence[int] = PREFILL_BUCKETS) -> tuple[tuple[int, int], ...]:
+    """``(rows, seq_len)`` batched-prefill shapes whose dense row count ``rows * seq_len`` is one of
+    ``dense_lengths`` (a prepared single-row bucket), so the batched pass reuses that bucket's dense programs."""
+    allowed = set(int(n) for n in dense_lengths)
+    return tuple(
+        (rows, seq)
+        for seq in BATCHED_PREFILL_SEQ_BUCKETS
+        for rows in BATCHED_PREFILL_ROW_BUCKETS
+        if rows * seq in allowed
+    )
+
+
+def batched_row_bucket(rows: int) -> int:
+    """Smallest batched-prefill row bucket that holds ``rows`` real rows."""
+    if not 1 <= rows <= BATCHED_PREFILL_ROW_BUCKETS[-1]:
+        raise ValueError(f"batched prefill rows {rows} outside [1, {BATCHED_PREFILL_ROW_BUCKETS[-1]}]")
+    return next(b for b in BATCHED_PREFILL_ROW_BUCKETS if b >= rows)
 
 
 def prefill_compute_len(seq_len: int) -> int:
@@ -312,10 +333,61 @@ class Qwen3Model:
         """Embed one row padded to ``compute_len`` tokens; returns ``[1, 1, compute_len, H]`` TILE DRAM."""
         ids = torch.zeros(1, compute_len, dtype=torch.int32)
         ids[0, : len(token_ids)] = torch.tensor(list(token_ids), dtype=torch.int32)
+        return self._embed(ids)
+
+    def _embed(self, ids: torch.Tensor) -> ttnn.Tensor:
         tt_ids = ttnn.from_torch(ids, dtype=ttnn.uint32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device)
         emb = ttnn.embedding(tt_ids, self.embedding, layout=ttnn.TILE_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG)
         tt_ids.deallocate(True)
         return ttnn.unsqueeze_to_4D(emb)
+
+    def prefill_hidden_batched(
+        self,
+        token_rows: Sequence[Sequence[int]],
+        *,
+        rows: int,
+        seq_len: int,
+        page_table: ttnn.Tensor,
+        kv_cache: list[tuple],
+    ) -> ttnn.Tensor:
+        """Run up to ``rows`` fresh prompts of at most ``seq_len`` tokens each through every layer in one
+        batched pass; returns the final hidden state ``[1, 1, rows * seq_len, H]`` with row ``i`` at rows
+        ``[i * seq_len, (i + 1) * seq_len)``.
+
+        ``page_table`` is ``[rows, blocks]`` (row ``i`` is the request's block list, every column past its
+        allocation naming the scratch block). Rows past ``len(token_rows)`` are dummy rows that repeat the
+        last real prompt; the caller gives them an all-scratch page-table row. ``rows * seq_len`` must be a
+        prepared single-row bucket so the dense programs are already compiled.
+        """
+        if not 1 <= len(token_rows) <= rows:
+            raise ValueError(f"{len(token_rows)} prompts do not fit {rows} batched rows")
+        if rows * seq_len > PREFILL_CHUNK:
+            raise ValueError(f"batched prefill {rows} x {seq_len} exceeds the {PREFILL_CHUNK}-row chunk")
+        if page_table.shape[0] != rows:
+            raise ValueError(f"page table has {page_table.shape[0]} rows for {rows} batched rows")
+        ids = torch.zeros(1, rows * seq_len, dtype=torch.int32)
+        for i in range(rows):
+            row = list(token_rows[min(i, len(token_rows) - 1)])
+            if not 1 <= len(row) <= seq_len:
+                raise ValueError(f"batched row {i} has {len(row)} tokens for a {seq_len}-token bucket")
+            ids[0, i * seq_len : i * seq_len + len(row)] = torch.tensor(row, dtype=torch.int32)
+        x = self._embed(ids)
+        batch_idx = ttnn.from_torch(
+            torch.arange(rows, dtype=torch.int32), dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device
+        )
+        for layer_idx, layer in enumerate(self.layers):
+            y = layer.prefill_forward_batched(
+                x,
+                rows=rows,
+                seq_len=seq_len,
+                page_table=page_table,
+                batch_idx=batch_idx,
+                kv_cache=kv_cache[layer_idx],
+            )
+            x.deallocate(True)
+            x = y
+        batch_idx.deallocate(True)
+        return x
 
     def prefill_hidden(
         self,
@@ -457,8 +529,19 @@ class Qwen3Model:
 
     def gather_rows(self, hidden: ttnn.Tensor, indices: Sequence[int]) -> ttnn.Tensor:
         """Pick rows of ``hidden`` ``[1, 1, L, H]`` by runtime index; returns ``[1, n, H]`` ROW_MAJOR DRAM."""
+        table = self.untilize_rows(hidden)
+        picked = self.gather_from_rows(table, indices)
+        table.deallocate(True)
+        return picked
+
+    def untilize_rows(self, hidden: ttnn.Tensor) -> ttnn.Tensor:
+        """``[1, 1, L, H]`` TILE to the ``[L, H]`` ROW_MAJOR DRAM table ``gather_from_rows`` indexes."""
         rows = ttnn.untilize(hidden, use_multicore=True, memory_config=ttnn.DRAM_MEMORY_CONFIG)
-        table = ttnn.reshape(rows, (hidden.shape[-2], hidden.shape[-1]))
+        return ttnn.reshape(rows, (hidden.shape[-2], hidden.shape[-1]))
+
+    def gather_from_rows(self, table: ttnn.Tensor, indices: Sequence[int]) -> ttnn.Tensor:
+        """Runtime-index gather of rows of a ``[L, H]`` ROW_MAJOR table; returns ``[1, n, H]`` ROW_MAJOR DRAM.
+        The program keys on ``L`` and ``n`` only."""
         idx = ttnn.from_torch(
             torch.tensor([list(indices)], dtype=torch.int32),
             dtype=ttnn.uint32,
@@ -467,7 +550,6 @@ class Qwen3Model:
         )
         picked = ttnn.embedding(idx, table, layout=ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.DRAM_MEMORY_CONFIG)
         idx.deallocate(True)
-        rows.deallocate(True)
         return picked
 
     def rows_to_tile(self, rows: list[ttnn.Tensor]) -> ttnn.Tensor:

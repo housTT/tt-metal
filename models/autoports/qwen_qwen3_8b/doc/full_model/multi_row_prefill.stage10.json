@@ -1,0 +1,185 @@
+{
+  "cases": [
+    {
+      "length": 5,
+      "pcc_batched_vs_solo": 0.9999984048579095,
+      "reordered_row_bit_equal": true,
+      "rerun_bit_equal": true,
+      "top1_equal": true
+    },
+    {
+      "length": 31,
+      "pcc_batched_vs_solo": 0.9999903342752232,
+      "reordered_row_bit_equal": true,
+      "rerun_bit_equal": true,
+      "top1_equal": true
+    },
+    {
+      "length": 33,
+      "pcc_batched_vs_solo": 0.9999998075789273,
+      "reordered_row_bit_equal": true,
+      "rerun_bit_equal": true,
+      "top1_equal": true
+    },
+    {
+      "length": 127,
+      "pcc_batched_vs_solo": 1.0000094795085035,
+      "reordered_row_bit_equal": true,
+      "rerun_bit_equal": true,
+      "top1_equal": true
+    },
+    {
+      "length": 129,
+      "pcc_batched_vs_solo": 1.0000060718792536,
+      "reordered_row_bit_equal": true,
+      "rerun_bit_equal": true,
+      "top1_equal": true
+    },
+    {
+      "length": 257,
+      "pcc_batched_vs_solo": 0.9999995134617826,
+      "reordered_row_bit_equal": true,
+      "rerun_bit_equal": true,
+      "top1_equal": true
+    },
+    {
+      "length": 640,
+      "pcc_batched_vs_solo": 1.0000039369941454,
+      "reordered_row_bit_equal": true,
+      "rerun_bit_equal": true,
+      "top1_equal": true
+    },
+    {
+      "length": 1000,
+      "pcc_batched_vs_solo": 1.0000008136703122,
+      "reordered_row_bit_equal": true,
+      "rerun_bit_equal": true,
+      "top1_equal": true
+    }
+  ],
+  "lengths": [
+    5,
+    31,
+    33,
+    127,
+    129,
+    257,
+    640,
+    1000
+  ],
+  "provenance": {
+    "allow_force_argmax": false,
+    "checkout_git_sha": "534fb6fda196278b6849f209b681e123b997aa45",
+    "checkpoint_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+    "decode_buckets": [
+      1,
+      8,
+      16,
+      24,
+      32
+    ],
+    "environment": {
+      "QWEN3_EVIDENCE_SUFFIX": "stage10",
+      "QWEN3_FULL_MODEL_LAYERS": "36",
+      "TT_METAL_HOME": "/home/hous/dev/tt-metal"
+    },
+    "exact_command": "python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k test_multi_row_prefill_equals_solo",
+    "generator_sha256": "4809c6e0e76e119bd38c96c7317f05124b3d3e12853aa9f136c900d8357afc95",
+    "kv_cache_dtype": "DataType.BFLOAT16",
+    "layer_policy_exceptions": [],
+    "model_id": "Qwen/Qwen3-8B",
+    "model_sha256": "704c006d0110f0115b8b960c888a5b756f5ea7a1ae010047dab940ef407ba33c",
+    "num_layers": 36,
+    "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.39",
+    "policy": {
+      "down": {
+        "cores": 32,
+        "dtype": "bfp8",
+        "fidelity": "lofi",
+        "fp32_acc": false,
+        "fused_silu": false,
+        "in0_block_w": 6,
+        "readers": 1
+      },
+      "gate_up": {
+        "cores": 32,
+        "dtype": "bfp8",
+        "fidelity": "lofi",
+        "fp32_acc": false,
+        "fused_silu": false,
+        "in0_block_w": 4,
+        "readers": 1
+      },
+      "norm_fidelity": "hifi4",
+      "norm_subblock_w": 2,
+      "o_proj": {
+        "cores": 32,
+        "dtype": "bfp8",
+        "fidelity": "lofi",
+        "fp32_acc": false,
+        "fused_silu": false,
+        "in0_block_w": 4,
+        "readers": 1
+      },
+      "prefill_2d_in0_block_w": 16,
+      "prefill_2d_max_rows": 1024,
+      "prefill_bfp8_fidelity": "lofi",
+      "prefill_fp32_acc": true,
+      "prefill_interleaved_copy_max_rows": 256,
+      "prefill_kernel_table": "stage10",
+      "prefill_sharded_norm_max_rows": 1920,
+      "qkv": {
+        "cores": 32,
+        "dtype": "bfp8",
+        "fidelity": "lofi",
+        "fp32_acc": false,
+        "fused_silu": false,
+        "in0_block_w": 4,
+        "readers": 1
+      },
+      "residual_cores": 32,
+      "sdpa_fidelity": "hifi4",
+      "up": {
+        "cores": 32,
+        "dtype": "bfp4",
+        "fidelity": "lofi",
+        "fp32_acc": false,
+        "fused_silu": false,
+        "in0_block_w": 4,
+        "readers": 3
+      }
+    },
+    "precision_config_id": "c9_lm_head_bfp4",
+    "precision_config_path": "/home/hous/dev/tt-metal-wt-qwen3/models/autoports/qwen_qwen3_8b/doc/datatype_sweep/selected_precision_config.json",
+    "recorded_utc": "2026-10-30T21:09:41Z",
+    "terminal_policy": {
+      "embedding_dtype": "bf16",
+      "final_norm_dtype": "bf16",
+      "final_norm_fidelity": "hifi4",
+      "lm_head_decode_fidelity": "lofi",
+      "lm_head_dtype": "bfp4",
+      "lm_head_in0_block_w": 4,
+      "lm_head_prefill_fidelity": "lofi",
+      "lm_head_prefill_fp32_acc": true,
+      "lm_head_readers": 1,
+      "lm_head_split": 16384,
+      "prefill_logits_dtype": "fp32"
+    },
+    "test_sha256": "3ac195f3a27cbb636a5312fc59495897e72c7ae960119d14890f857bb247a58e",
+    "trace_region_size": 536870912,
+    "visible_devices": "0",
+    "warmup_prefill_lengths": [
+      32,
+      64,
+      128,
+      256,
+      512,
+      1024,
+      1536,
+      2048,
+      3072,
+      4096
+    ]
+  },
+  "rows": 8
+}
