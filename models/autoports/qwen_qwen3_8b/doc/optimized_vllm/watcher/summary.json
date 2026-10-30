@@ -1,0 +1,71 @@
+{
+  "model": "reduced full model: two real decoder layers, real embedding, final norm, block-sharded prefill norms, masked LM head, split sampling, decode and sampling traces, the 22 batched-prefill warmup shapes, penalties-on sampler variants",
+  "paths_covered": [
+    "batched prefill dense ops on the 2D/1D batched kernel table (2 x 32 .. 8 x 512 among the prepared shapes of the reduced fixture: 2x32, 4x32, 8x32, 2x64, 4x64, 2x128) and the single-row path with the stage10 1D O/down kernels at 32 to 256 rows",
+    "batched attention: nlp_create_qkv_heads on [rows, 1, S, W], batched causal SDPA, paged_fill_cache with batch_idx_tensor over scratch-redirected tables, nlp_concat_heads",
+    "mixed batched and single-row rows in one call, reordered rows, batched prefill followed by traced batch decode (buckets 8 and 32), split sampling traces",
+    "penalties-on sampler precompile, capture and replay; prompt-mask and output-count resets; seeded eager penalised sampling"
+  ],
+  "runs": {
+    "pytest_batched_prefill_battery": {
+      "chip": "1",
+      "command": "TT_VISIBLE_DEVICES=1 TT_METAL_WATCHER=10 TT_METAL_LOGS_PATH=doc/optimized_vllm/watcher/pytest QWEN3_FULL_MODEL_LAYERS=2 QWEN3_EVIDENCE_SUFFIX=watcher python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k 'test_batched_prefill_equals_solo or test_batch_decode or test_split_sampling_trace' --timeout 1800 -p no:cacheprovider",
+      "result": "10 passed, 2 skipped, 5 deselected, 2 warnings in 132.92s (0:02:12) ======",
+      "console_log": "logs/pytest_watcher_reduced_chip1.log",
+      "watcher_log": "watcher/pytest/generated/watcher/watcher.log",
+      "watcher_log_bytes": 311060,
+      "dumps_completed": 28,
+      "pattern_counts": {
+        "fatal": 0,
+        "exception": 0,
+        "assert": 0,
+        "overflow": 0,
+        "bad noc": 0,
+        "hung": 0,
+        "error": 0,
+        "stack overflow": 0,
+        "invalid": 0,
+        "corrupt": 0
+      },
+      "fatal_pattern_matches": 0
+    },
+    "penalty_probe": {
+      "chip": "2",
+      "command": "TT_VISIBLE_DEVICES=2 TT_METAL_WATCHER=10 TT_METAL_LOGS_PATH=doc/optimized_vllm/watcher/penalty python doc/optimized_vllm/logs/penalty_probe.py doc/optimized_vllm/logs/penalty_probe_L2_watcher_chip2.json --layers 2",
+      "result": "\"program_cache_flat_across_cases\": true",
+      "console_log": "logs/penalty_probe_watcher_chip2.log",
+      "watcher_log": "watcher/penalty/generated/watcher/watcher.log",
+      "watcher_log_bytes": 131959,
+      "dumps_completed": 12,
+      "pattern_counts": {
+        "fatal": 0,
+        "exception": 0,
+        "assert": 0,
+        "overflow": 0,
+        "bad noc": 0,
+        "hung": 0,
+        "error": 0,
+        "stack overflow": 0,
+        "invalid": 0,
+        "corrupt": 0
+      },
+      "fatal_pattern_matches": 0
+    }
+  },
+  "fatal_pattern_matches_total": 0,
+  "evidence_json": [
+    "batch_decode_32.watcher.json",
+    "batch_decode_8.watcher.json",
+    "batched_prefill_equals_solo_chat_8.watcher.json",
+    "batched_prefill_equals_solo_mixed_lengths.watcher.json",
+    "batched_prefill_equals_solo_mixed_lengths_reversed.watcher.json",
+    "batched_prefill_equals_solo_uniform_2.watcher.json",
+    "batched_prefill_equals_solo_uniform_32.watcher.json",
+    "batched_prefill_equals_solo_uniform_4.watcher.json",
+    "batched_prefill_equals_solo_uniform_8.watcher.json",
+    "host_work_counters.watcher.json",
+    "multi_row_prefill.watcher.json",
+    "split_sampling_trace.watcher.json",
+    "tracked_replay_workload.watcher.json"
+  ]
+}

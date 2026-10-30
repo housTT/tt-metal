@@ -1,0 +1,168 @@
+2026-10-30 22:45:24.156 | DEBUG    | ttnn:<module>:45 - Initial ttnn.CONFIG:
+Config{cache_path=/home/hous/.cache/ttnn,model_cache_path=/home/hous/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=true,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+============================= test session starts ==============================
+platform linux -- Python 3.12.14, pytest-9.0.3, pluggy-1.6.0 -- /home/hous/dev/tt-metal/python_env/bin/python
+benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
+rootdir: /home/hous/dev/tt-metal-wt-qwen3
+configfile: pytest.ini
+plugins: benchmark-5.2.3, dash-2.15.0, anyio-4.15.1, timeout-2.4.0, cov-7.0.0, github-actions-annotate-failures-0.3.0, split-0.11.0, repeat-0.9.4
+timeout: 1800.0s
+timeout method: signal
+timeout func_only: False
+collecting ... collected 17 items / 5 deselected / 12 selected
+
+models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_split_sampling_trace 2026-10-30 22:45:24.900 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:224)
+2026-10-30 22:45:24.900 | info     |             UMD | Cluster constructor started. (cluster.cpp:406)
+2026-10-30 22:45:24.900 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
+2026-10-30 22:45:24.900 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
+2026-10-30 22:45:24.901 | info     |             UMD | Established firmware bundle version: 19.15.0 (topology_discovery.cpp:576)
+2026-10-30 22:45:24.902 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
+2026-10-30 22:45:24.902 | warning  |             UMD | Board 0x4613193409f has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1246)
+2026-10-30 22:45:24.922 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[1] and remote chip ids {} (cluster.cpp:173)
+2026-10-30 22:45:24.922 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
+2026-10-30 22:45:24.922 | info     |             UMD | KMD version: 2.11.0 (cluster.cpp:150)
+2026-10-30 22:45:24.922 | info     |             UMD | Cluster constructor completed. (cluster.cpp:665)
+2026-10-30 22:45:24.922 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:198)
+2026-10-30 22:45:24.923 | info     |             UMD | Starting devices in cluster (cluster.cpp:1205)
+2026-10-30 22:45:24.983 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1213)
+2026-10-30 22:45:25.040 | info     |     Distributed | Using custom mesh graph descriptor: /home/hous/dev/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:418)
+2026-10-30 22:45:25.040 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x2) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-10-30 22:45:25.040 | info     |          Fabric | Loaded physical groupings from: /home/hous/dev/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (fabric_host_utils.cpp:338)
+2026-10-30 22:45:25.041 | info     |          Fabric | Matching MESH mgd groupings to MESH groupings (physical_grouping_descriptor_matching.cpp:943)
+2026-10-30 22:45:25.041 | info     |          Fabric | Grouping valid candidates by node difference (physical_grouping_descriptor_matching.cpp:1001)
+2026-10-30 22:45:25.041 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH) (physical_grouping_descriptor_matching.cpp:1218)
+2026-10-30 22:45:25.041 | info     |          Fabric | Rank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es) (topology_mapper_utils.cpp:1617)
+2026-10-30 22:45:25.041 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3368)
+2026-10-30 22:45:25.041 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3376)
+2026-10-30 22:45:25.042 | warning  |       Inspector | Failed to start Inspector RPC server: ::bind(sockfd, &addr.generic, addrlen): Address already in use; toString() = 127.0.0.1:50051 (data.cpp:80)
+2026-10-30 22:45:25.064 | info     |       LLRuntime | Watcher log file: models/autoports/qwen_qwen3_8b/doc/optimized_vllm/watcher/pytest/generated/watcher/watcher.log (watcher_server.cpp:296)
+2026-10-30 22:45:25.064 | info     |       LLRuntime | Watcher server initialized, disabled features: None (watcher_server.cpp:568)
+2026-10-30 22:45:25.064 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+2026-10-30 22:45:32.279 | info     |           Metal | Pinned source memory start address 0x7e9997802478 must be aligned 64 B (dispatch.cpp:1202)
+2026-10-30 22:45:35.116 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+2026-10-30 22:45:45.131 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+2026-10-30 22:45:55.143 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+2026-10-30 22:46:05.156 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+2026-10-30 22:46:11.892 | warning  |           Metal | Allocating device buffers is potentially unsafe due to the existence of an active trace. These buffers may be corrupted once a trace is executed if they are not released before then. Use the trace allocation tracker to verify. (allocator.cpp:130)
+precision config c9_lm_head_bfp4 from /home/hous/dev/tt-metal-wt-qwen3/models/autoports/qwen_qwen3_8b/doc/datatype_sweep/selected_precision_config.json: weight groups {"down_proj": {"dtype": "bfp8", "fidelity": "lofi", "fp32_acc": false, "in0_block_w": 6, "readers": 1}, "gate_proj": {"dtype": "bfp8", "fidelity": "lofi", "fp32_acc": false, "in0_block_w": 4, "readers": 1}, "o_proj": {"dtype": "bfp8", "fidelity": "lofi", "fp32_acc": false, "in0_block_w": 4, "readers": 1}, "qkv": {"dtype": "bfp8", "fidelity": "lofi", "fp32_acc": false, "in0_block_w": 4, "readers": 1}, "up_proj": {"dtype": "bfp4", "fidelity": "lofi", "fp32_acc": false, "in0_block_w": 4, "readers": 3}}, layer exceptions [], kv cache bf16, lm head {"decode_fidelity": "lofi", "decode_fp32_acc": false, "dtype": "bfp4", "in0_block_w": 4, "prefill_fidelity": "lofi", "prefill_fp32_acc": true, "readers": 1}
+loading layer 0
+loading layer 1
+loading embedding, final norm and LM head
+model weights on device in 7.3 s
+warmup prefill 32
+warmup prefill 64
+warmup prefill 128
+warmup prefill 256
+warmup chunk pieces at start 4096: [32, 64, 128, 256]
+warmup chunk pieces at start 8192: [32, 64, 128, 256]
+warmup chunk pieces at start 12288: [32, 64, 128, 256]
+warmup chunk pieces at start 16384: [32, 64, 128, 256]
+warmup chunk pieces at start 20480: [32, 64, 128, 256]
+warmup chunk pieces at start 24576: [32, 64, 128, 256]
+warmup chunk pieces at start 28672: [32, 64, 128, 256]
+warmup chunk pieces at start 32768: [32, 64, 128, 256]
+warmup chunk pieces at start 36864: [32, 64, 128, 256]
+warmup continuation at start 32 (lead 0): [32, 64, 128, 256]
+warmup continuation at start 64 (lead 0): [32, 64, 128, 256]
+warmup continuation at start 128 (lead 0): [32, 64, 128, 256]
+warmup continuation at start 256 (lead 0): [32, 64, 128, 256]
+warmup continuation at start 33 (lead 1): [32, 64, 128, 256]
+warmup multi-row prefill 32 rows
+warmup batched prefill 2 x 32
+warmup batched prefill 4 x 32
+warmup batched prefill 8 x 32
+warmup batched prefill 2 x 64
+warmup batched prefill 4 x 64
+warmup batched prefill 2 x 128
+warmup decode bucket 1 mode device
+warmup decode bucket 1 mode host
+warmup decode bucket 8 mode device
+warmup decode bucket 8 mode host
+warmup decode bucket 32 mode device
+warmup decode bucket 32 mode host
+prepare done in 35.9 s
+PASSED
+models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[chat_8] 2026-10-30 22:46:15.174 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+PASSED
+models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[mixed_lengths] 2026-10-30 22:46:25.187 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+PASSED
+models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[mixed_lengths_reversed] 2026-10-30 22:46:35.199 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+PASSED
+models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[uniform_2] PASSED
+models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[uniform_32] 2026-10-30 22:46:45.211 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+2026-10-30 22:46:55.224 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+PASSED
+models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[uniform_4] 2026-10-30 22:47:05.236 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+PASSED
+models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[uniform_8] PASSED
+models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batch_decode[8] 2026-10-30 22:47:15.249 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+PASSED
+models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batch_decode[16] SKIPPED
+models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batch_decode[24] SKIPPED
+models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batch_decode[32] 2026-10-30 22:47:25.261 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+2026-10-30 22:47:35.272 | info     |           Metal | Watcher checking device 0 (watcher_device_reader.cpp:410)
+PASSED2026-10-30 22:47:37.723 | DEBUG    | models.common.sampling.generator:reset_trace:166 - Resetting sampling trace (bucket=1, penalties=False, log_probs=False, force_argmax=False, trace_id=MeshTraceId(1))
+2026-10-30 22:47:37.723 | DEBUG    | models.common.sampling.generator:reset_trace:166 - Resetting sampling trace (bucket=8, penalties=False, log_probs=False, force_argmax=False, trace_id=MeshTraceId(3))
+2026-10-30 22:47:37.723 | DEBUG    | models.common.sampling.generator:reset_trace:166 - Resetting sampling trace (bucket=32, penalties=False, log_probs=False, force_argmax=False, trace_id=MeshTraceId(5))
+runtime counters at teardown: {"batched_prefill_groups": 26, "batched_prefill_rows": 84, "decode_trace_captures": 3, "decode_trace_replays": 1310, "eager_decode_steps": 0, "eager_sampling_steps": 48, "logits_readbacks": 104, "page_table_refreshes": 73, "penalized_sampling_steps": 0, "position_refreshes": 53, "prefill_calls": 152, "program_cache_entries_after_capture": 353, "sampling_param_refreshes": 11, "sampling_trace_captures": 3, "sampling_trace_replays": 1310, "seeded_eager_sampling_steps": 0, "single_row_prefill_rows": 388, "token_readbacks": 1358, "token_refreshes": 42}
+
+
+=============================== warnings summary ===============================
+models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_split_sampling_trace
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyPacked has no __module__ attribute
+
+models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_split_sampling_trace
+  <frozen importlib._bootstrap>:488: DeprecationWarning: builtin type SwigPyObject has no __module__ attribute
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+- generated xml file: /home/hous/dev/tt-metal-wt-qwen3/generated/test_reports/most_recent_tests.xml -
+============================= slowest 25 durations =============================
+46.96s setup    models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_split_sampling_trace
+21.26s call     models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[uniform_32]
+19.62s call     models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batch_decode[32]
+16.09s call     models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[mixed_lengths]
+7.42s call     models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[mixed_lengths_reversed]
+5.57s call     models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[uniform_8]
+5.02s call     models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batch_decode[8]
+4.37s call     models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[chat_8]
+2.81s call     models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[uniform_4]
+1.18s call     models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[uniform_2]
+0.22s setup    models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[uniform_4]
+0.22s setup    models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[chat_8]
+0.21s setup    models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batch_decode[16]
+0.21s setup    models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batch_decode[8]
+0.21s setup    models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[mixed_lengths_reversed]
+0.21s setup    models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[mixed_lengths]
+0.21s setup    models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[uniform_8]
+0.21s setup    models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[uniform_32]
+0.21s setup    models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[uniform_2]
+0.21s call     models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_split_sampling_trace
+0.20s setup    models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batch_decode[24]
+0.20s setup    models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batch_decode[32]
+0.03s teardown models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batch_decode[32]
+
+(2 durations < 0.005s hidden.  Use -vv to show these durations.)
+=========================== short test summary info ============================
+PASSED models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_split_sampling_trace
+PASSED models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[chat_8]
+PASSED models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[mixed_lengths]
+PASSED models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[mixed_lengths_reversed]
+PASSED models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[uniform_2]
+PASSED models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[uniform_32]
+PASSED models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[uniform_4]
+PASSED models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batched_prefill_equals_solo[uniform_8]
+PASSED models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batch_decode[8]
+PASSED models/autoports/qwen_qwen3_8b/tests/test_full_model.py::test_batch_decode[32]
+SKIPPED [1] models/autoports/qwen_qwen3_8b/tests/test_full_model.py:443: decode bucket 16 is not allocated in this probe (buckets (1, 8, 32))
+SKIPPED [1] models/autoports/qwen_qwen3_8b/tests/test_full_model.py:443: decode bucket 24 is not allocated in this probe (buckets (1, 8, 32))
+===== 10 passed, 2 skipped, 5 deselected, 2 warnings in 132.92s (0:02:12) ======
+sys:1: DeprecationWarning: builtin type swigvarlink has no __module__ attribute
+2026-10-30 22:47:39.621 | info     |    BuildKernels | JIT cache stats: 603/888 hits (67.9%) [603 cached, 462 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-10-30 22:47:39.621 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-10-30 22:47:39.623 | info     |       LLRuntime | Watcher thread stopped watching... (watcher_server.cpp:616)
+2026-10-30 22:47:39.633 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:550)
+2026-10-30 22:47:39.633 | info     |             UMD | Closing devices in cluster (cluster.cpp:1218)
+2026-10-30 22:47:39.781 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1227)
+2026-10-30 22:47:39.781 | info     |             UMD | Cluster destructor started. (cluster.cpp:933)
+2026-10-30 22:47:39.781 | info     |             UMD | Cluster destructor completed. (cluster.cpp:936)

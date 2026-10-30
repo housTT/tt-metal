@@ -179,6 +179,42 @@
       "recorded_utc": "2026-10-30T21:44:49Z",
       "note": null,
       "regime": "concurrent (chips 0 and 1 busy)"
+    },
+    "watcher_penalty_probe": {
+      "checkout_git_sha": "1ae8602de66a38ba38138f3d32b0f94057e9b33f",
+      "dirty_autoport_files_at_record_time": [
+        "M models/autoports/qwen_qwen3_8b/doc/full_model/split_sampling_trace.watcher.json",
+        " M models/autoports/qwen_qwen3_8b/doc/optimized_vllm/README.md",
+        "A  models/autoports/qwen_qwen3_8b/doc/optimized_vllm/logs/tracked_served2/sampling_smoke.log.status",
+        " M models/autoports/qwen_qwen3_8b/doc/optimized_vllm/work_log.md",
+        " M models/autoports/qwen_qwen3_8b/readiness/readiness_stage10_chip1.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_32.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_8.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batched_prefill_equals_solo_chat_8.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batched_prefill_equals_solo_mixed_lengths.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batched_prefill_equals_solo_mixed_lengths_reversed.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batched_prefill_equals_solo_uniform_2.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batched_prefill_equals_solo_uniform_32.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batched_prefill_equals_solo_uniform_4.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batched_prefill_equals_solo_uniform_8.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/optimized_vllm/logs/penalty_probe_L2_watcher_chip2.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/optimized_vllm/logs/review/stage_review_2.md",
+        "?? models/autoports/qwen_qwen3_8b/doc/optimized_vllm/logs/watcher_summary_stage10.py",
+        "?? models/autoports/qwen_qwen3_8b/doc/optimized_vllm/watcher/"
+      ],
+      "chip": "2",
+      "command": "stage_env.sh 2 env TT_METAL_WATCHER=10 TT_METAL_LOGS_PATH=doc/optimized_vllm/watcher/penalty python doc/optimized_vllm/logs/penalty_probe.py doc/optimized_vllm/logs/penalty_probe_L2_watcher_chip2.json --layers 2",
+      "log": "doc/optimized_vllm/logs/penalty_probe_watcher_chip2.log",
+      "artifacts": [
+        "doc/optimized_vllm/logs/penalty_probe_L2_watcher_chip2.json",
+        "doc/optimized_vllm/watcher/penalty/generated/watcher/watcher.log"
+      ],
+      "exit_code": 0,
+      "started_utc": null,
+      "ended_utc": null,
+      "recorded_utc": "2026-10-30T22:48:26Z",
+      "note": "review-2 P2: watcher over the penalties-on sampler; 0 fatal-pattern matches; regime concurrent (chip 1 watcher pytest)",
+      "regime": "concurrent (chip 1 watcher pytest)"
     }
   },
   "regime_note": "host-wall numbers from one-process-per-chip runs; 'concurrent' names the other chips in use (tt-device-usage)"

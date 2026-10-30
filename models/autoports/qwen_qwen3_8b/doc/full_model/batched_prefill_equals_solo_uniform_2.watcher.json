@@ -1,0 +1,196 @@
+{
+  "batched_groups": {
+    "128": [
+      0,
+      1
+    ]
+  },
+  "batched_prefill_shapes": [
+    [
+      2,
+      32
+    ],
+    [
+      4,
+      32
+    ],
+    [
+      8,
+      32
+    ],
+    [
+      2,
+      64
+    ],
+    [
+      4,
+      64
+    ],
+    [
+      2,
+      128
+    ]
+  ],
+  "case": "uniform_2",
+  "cases": [
+    {
+      "batched_group": 128,
+      "kv_bit_equal": {
+        "0": true,
+        "1": true
+      },
+      "length": 128,
+      "logits_bit_equal": true,
+      "max_abs_diff": 0.0,
+      "pcc_batched_vs_solo": 1.000001545920008,
+      "reordered_row_bit_equal": true,
+      "rerun_bit_equal": true,
+      "top1_equal": true
+    },
+    {
+      "batched_group": 128,
+      "kv_bit_equal": {
+        "0": true,
+        "1": true
+      },
+      "length": 100,
+      "logits_bit_equal": true,
+      "max_abs_diff": 0.0,
+      "pcc_batched_vs_solo": 1.000006508182746,
+      "reordered_row_bit_equal": true,
+      "rerun_bit_equal": true,
+      "top1_equal": true
+    }
+  ],
+  "counters_delta_first_call": {
+    "batched_prefill_groups": 1,
+    "batched_prefill_rows": 2,
+    "single_row_prefill_rows": 0
+  },
+  "kv_layers_checked": [
+    0,
+    1
+  ],
+  "lengths": [
+    128,
+    100
+  ],
+  "program_cache_entries_first_call": [
+    353,
+    353
+  ],
+  "program_cache_entries_rerun": [
+    353,
+    353
+  ],
+  "provenance": {
+    "allow_force_argmax": false,
+    "checkout_git_sha": "1ae8602de66a38ba38138f3d32b0f94057e9b33f",
+    "checkpoint_revision": "b968826d9c46dd6066d109eabc6255188de91218",
+    "decode_buckets": [
+      1,
+      8,
+      32
+    ],
+    "environment": {
+      "QWEN3_EVIDENCE_SUFFIX": "watcher",
+      "QWEN3_FULL_MODEL_LAYERS": "2",
+      "TT_METAL_HOME": "/home/hous/dev/tt-metal",
+      "TT_METAL_LOGS_PATH": "models/autoports/qwen_qwen3_8b/doc/optimized_vllm/watcher/pytest",
+      "TT_METAL_WATCHER": "10"
+    },
+    "exact_command": "python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k 'test_batched_prefill_equals_solo and uniform_2'",
+    "generator_sha256": "67cdb7c9f26f83c095a34e1dfb19abcd602a483b1dc931f51abc15188a56a285",
+    "kv_cache_dtype": "DataType.BFLOAT16",
+    "layer_policy_exceptions": [],
+    "model_id": "Qwen/Qwen3-8B",
+    "model_sha256": "e873013c271c506943cbbeb730f00ed833dbfcd6b093519ac2e29498a383ae0b",
+    "num_layers": 2,
+    "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.39",
+    "policy": {
+      "down": {
+        "cores": 32,
+        "dtype": "bfp8",
+        "fidelity": "lofi",
+        "fp32_acc": false,
+        "fused_silu": false,
+        "in0_block_w": 6,
+        "readers": 1
+      },
+      "gate_up": {
+        "cores": 32,
+        "dtype": "bfp8",
+        "fidelity": "lofi",
+        "fp32_acc": false,
+        "fused_silu": false,
+        "in0_block_w": 4,
+        "readers": 1
+      },
+      "norm_fidelity": "hifi4",
+      "norm_subblock_w": 2,
+      "o_proj": {
+        "cores": 32,
+        "dtype": "bfp8",
+        "fidelity": "lofi",
+        "fp32_acc": false,
+        "fused_silu": false,
+        "in0_block_w": 4,
+        "readers": 1
+      },
+      "prefill_2d_in0_block_w": 16,
+      "prefill_2d_max_rows": 1024,
+      "prefill_bfp8_fidelity": "lofi",
+      "prefill_fp32_acc": true,
+      "prefill_interleaved_copy_max_rows": 256,
+      "prefill_kernel_table": "stage10",
+      "prefill_sharded_norm_max_rows": 1920,
+      "qkv": {
+        "cores": 32,
+        "dtype": "bfp8",
+        "fidelity": "lofi",
+        "fp32_acc": false,
+        "fused_silu": false,
+        "in0_block_w": 4,
+        "readers": 1
+      },
+      "residual_cores": 32,
+      "sdpa_fidelity": "hifi4",
+      "up": {
+        "cores": 32,
+        "dtype": "bfp4",
+        "fidelity": "lofi",
+        "fp32_acc": false,
+        "fused_silu": false,
+        "in0_block_w": 4,
+        "readers": 3
+      }
+    },
+    "precision_config_id": "c9_lm_head_bfp4",
+    "precision_config_path": "/home/hous/dev/tt-metal-wt-qwen3/models/autoports/qwen_qwen3_8b/doc/datatype_sweep/selected_precision_config.json",
+    "recorded_utc": "2026-10-30T22:46:41Z",
+    "terminal_policy": {
+      "embedding_dtype": "bf16",
+      "final_norm_dtype": "bf16",
+      "final_norm_fidelity": "hifi4",
+      "lm_head_decode_fidelity": "lofi",
+      "lm_head_dtype": "bfp4",
+      "lm_head_in0_block_w": 4,
+      "lm_head_prefill_fidelity": "lofi",
+      "lm_head_prefill_fp32_acc": true,
+      "lm_head_readers": 1,
+      "lm_head_split": 16384,
+      "prefill_logits_dtype": "fp32"
+    },
+    "test_sha256": "3ac195f3a27cbb636a5312fc59495897e72c7ae960119d14890f857bb247a58e",
+    "trace_region_size": 536870912,
+    "visible_devices": "1",
+    "warmup_prefill_lengths": [
+      32,
+      64,
+      128,
+      256
+    ]
+  },
+  "rows": 2,
+  "source": "random"
+}

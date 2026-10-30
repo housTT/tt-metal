@@ -224,6 +224,41 @@
       "recorded_utc": "2026-10-30T22:24:16Z",
       "note": "review-1 hard-check gap: the engine process logs the tracker flag True; no tracker error; regime serial (chips 0 and 2 idle)",
       "regime": "serial (chips 0 and 2 idle)"
+    },
+    "watcher_pytest_reduced": {
+      "checkout_git_sha": "1ae8602de66a38ba38138f3d32b0f94057e9b33f",
+      "dirty_autoport_files_at_record_time": [
+        "M models/autoports/qwen_qwen3_8b/doc/full_model/split_sampling_trace.watcher.json",
+        " M models/autoports/qwen_qwen3_8b/doc/optimized_vllm/README.md",
+        "A  models/autoports/qwen_qwen3_8b/doc/optimized_vllm/logs/tracked_served2/sampling_smoke.log.status",
+        " M models/autoports/qwen_qwen3_8b/doc/optimized_vllm/work_log.md",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_32.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_8.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batched_prefill_equals_solo_chat_8.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batched_prefill_equals_solo_mixed_lengths.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batched_prefill_equals_solo_mixed_lengths_reversed.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batched_prefill_equals_solo_uniform_2.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batched_prefill_equals_solo_uniform_32.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batched_prefill_equals_solo_uniform_4.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batched_prefill_equals_solo_uniform_8.watcher.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/optimized_vllm/logs/penalty_probe_L2_watcher_chip2.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/optimized_vllm/logs/review/stage_review_2.md",
+        "?? models/autoports/qwen_qwen3_8b/doc/optimized_vllm/logs/watcher_summary_stage10.py",
+        "?? models/autoports/qwen_qwen3_8b/doc/optimized_vllm/watcher/"
+      ],
+      "chip": "1",
+      "command": "stage_env.sh 1 env QWEN3_FULL_MODEL_LAYERS=2 QWEN3_EVIDENCE_SUFFIX=watcher TT_METAL_WATCHER=10 TT_METAL_LOGS_PATH=doc/optimized_vllm/watcher/pytest python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k 'test_batched_prefill_equals_solo or test_batch_decode or test_split_sampling_trace' --timeout 1800 -p no:cacheprovider",
+      "log": "doc/optimized_vllm/logs/pytest_watcher_reduced_chip1.log",
+      "artifacts": [
+        "doc/optimized_vllm/watcher/summary.json",
+        "doc/optimized_vllm/watcher/pytest/generated/watcher/watcher.log"
+      ],
+      "exit_code": 0,
+      "started_utc": null,
+      "ended_utc": null,
+      "recorded_utc": "2026-10-30T22:48:26Z",
+      "note": "review-2 P2: watcher over the batched prefill paths; 0 fatal-pattern matches; regime concurrent (chip 2 penalty probe under the watcher)",
+      "regime": "concurrent (chip 2 watcher penalty probe)"
     }
   },
   "regime_note": "host-wall numbers from one-process-per-chip runs; 'concurrent' names the other chips in use (tt-device-usage)"

@@ -326,11 +326,14 @@ because the script treated it as fatal, `logs/evidence_chain_chip1.attempt1.stat
 | degenerate | none |
 
 Burst mechanics in the server log: the plugin admits the first request
-alone (`rows=1`, 36 to 41 ms) and the other 31 in one call
-(`prefill call=207 rows=31 mode=device-sampled ms=421.7 ...
-batched_prefill_groups=1 batched_prefill_rows=31`), so TTFT p50 and p99
-sit at 480 ms (422 ms batched call plus the lone row and the plugin's
-sampling and admission), against 1194 ms mean with the per-row loop.
+alone (`call=223 rows=1 ends=[128]`, 37.4 ms) and the other 31 in one call
+(`prefill call=224 rows=31 ends=[128, ...] mode=device-sampled ms=422.0
+... batched_prefill_groups=1 batched_prefill_rows=31`; the repeat: calls
+225 and 226, 37.1 and 421.8 ms), so TTFT p50 and p99 sit at 480 ms (422
+ms batched call plus the lone row and the plugin's sampling and
+admission), against 1194 ms mean with the per-row loop. (Call 207, 421.7
+ms, is the CI burst's 31-row call of 100-token prompts in the same 128
+bucket.)
 
 `perf_summary.json` written by `logs/write_perf_summary.py` (before and
 after rows, burst ratios, device-time fields null with the no-profiler
@@ -504,3 +507,52 @@ after it), mixed-shape 47 of 47 (0 captures, 0 releases, program cache
 651 flat, greedy repeats identical); no `still alive` line, `/health` 200
 at the end, stopped at idle (2 s), chip released. `readiness_vllm/`
 restored from `served_final/` afterwards (md5 identical).
+
+## 12. Stage review 2 and the fixes (18:45 to 19:00 ET)
+
+Review 2 (`logs/review/stage_review_2.md`, fresh read-only subagent at
+HEAD `1ae8602de6`): every review-1 fix verified; `more-work-needed` with
+one P2: no watcher run covered the device paths this stage added (the
+`optimize` skill's watcher item in its vLLM-stage form, a reduced-layer
+generator probe). Other concerns: two server-log citations named the
+wrong calls (call 207 is the CI burst's 31-row call, the prefill burst's
+are 224 and 226 at 422.0 and 421.8 ms; call 5 is a 3-token prompt, the
+served 128-token single rows are calls 205, 223 and 225 at 36.9 to 37.4
+ms, about the stage-7 value), `readiness_vllm/vllm_prefill_burst_benchmark.log`
+is the tracked2 run's log beside the final run's JSON, one status file
+untracked. All fixed: citations corrected in README sections 1 and 3.2
+and work log 8 (the served single-row claim withdrawn; the generator-level
+pair and TTFT remain the serial-reference-age evidence), the log
+mismatch recorded in the README artifact index with the final run's
+runner output (`logs/stage_prefill_burst_repeat.log`), the status file
+committed.
+
+### 12.1 Watcher runs (chips 1 and 2, 18:45 to 18:48 ET)
+
+`TT_METAL_WATCHER=10` on the reduced two-layer model, separate
+`TT_METAL_LOGS_PATH` per run (`doc/optimized_vllm/watcher/{pytest,penalty}`),
+no server, each under `timeout` (`logs/watcher_summary_stage10.py` ->
+`doc/optimized_vllm/watcher/summary.json`):
+
+- chip 1: `QWEN3_FULL_MODEL_LAYERS=2 QWEN3_EVIDENCE_SUFFIX=watcher pytest -k
+  'test_batched_prefill_equals_solo or test_batch_decode or
+  test_split_sampling_trace'` (`logs/pytest_watcher_reduced_chip1.log`):
+  10 passed, 2 skipped (decode buckets 16 and 24 are not allocated in the
+  reduced fixture), 5 deselected in 132.9 s; the seven batched-equals-solo
+  cases (the reduced fixture's prepared shapes 2x32, 4x32, 8x32, 2x64,
+  4x64, 2x128 plus single-row rows on the `stage10` 1D O and down kernels),
+  batch decode 8 and 32 after batched prefill, split sampling; watcher log
+  311 KB, 28 dumps, 0 matches of fatal, assert, bad noc, hung, stack
+  overflow or corrupt (and 0 of exception, overflow, error, invalid);
+  artifacts `doc/full_model/*.watcher.json` (the batched and batch-decode
+  files are this run's; `host_work_counters`, `multi_row_prefill` and
+  `tracked_replay_workload` `.watcher.json` are stage 7's and are listed by
+  the summary because they share the suffix).
+- chip 2: `penalty_probe.py --layers 2` under the watcher
+  (`logs/penalty_probe_watcher_chip2.log`, `logs/penalty_probe_L2_watcher_chip2.json`):
+  every summary check true (greedy repeats equal, penalties change the
+  output, mixed rows equal their solo arms, seeded groups deterministic,
+  program cache flat); watcher log 132 KB, 12 dumps, 0 fatal-pattern
+  matches.
+
+Watcher and tracker ran in separate processes; no profiler was collected.

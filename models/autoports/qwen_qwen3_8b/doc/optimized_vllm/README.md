@@ -89,17 +89,22 @@ request count and concurrency; the reference is
 copy of stage 9's `readiness_vllm/vllm_prefill_burst_serial_benchmark.json`,
 passed as `--prefill-burst-serial-result`, as the operator brief
 directs). That reference was measured with the stage-7 solo kernel table;
-the stage-10 solo table is faster (single-row 128-token prefill 36.5
-against about 37 ms), so an in-stage serial run would give slightly
+the stage-10 solo table is faster at the generator level (token-out TTFT
+42.1 to 37.9 ms, section 3.2), while the served single-row 128-token
+calls of this stage take 36.9 to 37.4 ms (calls 205, 223 and 225), about
+the stage-7 value, so an in-stage serial run would give at most slightly
 smaller denominators. The generator-level pair on the final code
 (`logs/batched_prefill_probe_L36_chip2_v2.json`: 32 x 128 serial call
 1094.9 ms, batched 426.6 ms, ratio 0.39) shows the gate holds against a
 like-for-like serial reference as well. The stage ran twice on the
 same server (first run p99 ratio 0.393, mean 0.394, `logs/stage_prefill_burst.log`;
 the JSON holds the repeat), 32 of 32 completed each time. The 31-row
-batched call takes 422 ms in the server log (`prefill call=207 rows=31
-... ms=421.7 ... batched_prefill_rows=31`), against 1095 ms for the same
-call with batched prefill off at the generator level (section 3).
+batched call of the burst takes 422 ms in the server log (`prefill
+call=224 rows=31 ... ends=[128, ...] ... ms=422.0 ...
+batched_prefill_rows=31`, and call 226 at 421.8 ms in the repeat; call
+207 at 421.7 ms is the CI burst's 31-row call of 100-token prompts padded
+to the same 128 bucket), against 1095 ms for the same call with batched
+prefill off at the generator level (section 3).
 
 ## 2. What was built
 
@@ -212,8 +217,10 @@ call with batched prefill off at the generator level (section 3).
 
 Every one of the 22 shapes wins, so all stay enabled (the full table is in
 the work log and the JSON). Single-row prefill (the serial arm's rows)
-after the stage-10 kernel table: 128 tokens 36.5 ms per row in the server
-log (`prefill call=5 rows=1 ... ms=36.4`), 512 tokens 67 ms.
+after the stage-10 kernel table, served: 128-token rows 36.9, 37.4 and
+37.1 ms (`prefill call=205`, `223`, `225`, `rows=1 ends=[128]`); the
+generator-level solo arm of the 2x128 probe row is 39.0 ms per row
+(`solo_sum_ms` 78.0 for two rows).
 
 ### 3.3 Served workload, program cache and tracker
 
@@ -353,6 +360,13 @@ python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen3-8B --block_size 
   decode buckets, host-work counters and the representative replay
   workload with program-cache allocations included.
 
+- `readiness_vllm/vllm_prefill_burst_benchmark.log` and
+  `vllm_shared_prefix_benchmark.log` were overwritten by the tracked runs'
+  stages (the runner writes to the fixed root and `served_final/` holds
+  JSON only); the final run's runner output is `logs/stage_prefill_burst_repeat.log`
+  (first run `logs/stage_prefill_burst.log`), and the JSON beside the log
+  is the final run's. The other `readiness_vllm/` files are the final
+  run's (restored from `served_final/`, md5 identical).
 - `readiness_vllm/`: the final served evidence (`server.log`,
   `sampling_tests.log`, `vllm_qualitative_outputs.json`,
   `vllm_benchmark.json` + `vllm_result.json`, `vllm_ci_serving_*`,
