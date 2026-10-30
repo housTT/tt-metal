@@ -1,0 +1,49 @@
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/hous/dev/tt-metal-wt-qwen3/models/common/readiness_check/run_vllm_server.py", line 1158, in <module>
+    _main()
+  File "/home/hous/dev/tt-metal-wt-qwen3/models/common/readiness_check/run_vllm_server.py", line 1057, in _main
+    _wait_for_server(
+  File "/home/hous/dev/tt-metal-wt-qwen3/models/common/readiness_check/run_vllm_server.py", line 298, in _wait_for_server
+    raise RuntimeError(f"Fatal marker {fatal!r} found in {log_file}. Server cannot start.")
+RuntimeError: Fatal marker 'EngineCore failed to start' found in /home/hous/dev/tt-metal-wt-qwen3/models/autoports/qwen_qwen3_8b/readiness_vllm/server.log. Server cannot start.
+Launching vLLM server for Qwen/Qwen3-8B on N150
+  cmd: /home/hous/dev/tt-metal/python_env/bin/python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen3-8B --block_size 32 --max_num_seqs 32 --port 8000 --max_model_len 40960 --additional-config '{"tt": {"sample_on_device_mode": "all", "trace_region_size": 536870912}}' --enable-prefix-caching --async-scheduling
+  log: /home/hous/dev/tt-metal-wt-qwen3/models/autoports/qwen_qwen3_8b/readiness_vllm/server.log
+Waiting up to 1200s for server to become ready...
+
+Shutting down server (PID 1296028)...
+  Did not exit after SIGTERM; sending SIGKILL.
+
+=== Server log tail (/home/hous/dev/tt-metal-wt-qwen3/models/autoports/qwen_qwen3_8b/readiness_vllm/server.log, last 30 lines) ===
+(EngineCore_DP0 pid=1296616)  --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail29launch_operation_with_adapterITkNS0_36DeviceOperationWithMeshDeviceAdapterENS0_26MeshDeviceOperationAdapterINS_12experimental4prim36PagedFusedUpdateCacheDeviceOperationEEEEEvRKNT_22operation_attributes_tERKNS8_13tensor_args_tERNS8_21tensor_return_value_tEPN2tt8tt_metal11distributed10MeshDeviceE+0x188) [0x72269dfbc7f8]
+(EngineCore_DP0 pid=1296616)  --- /home/hous/dev/tt-metal/ttnn/ttnn/../../build/lib/_ttnncpp.so(_ZN4ttnn16device_operation6detail6launchITkNS0_22DeviceOperationConceptENS_12experimental4prim36PagedFusedUpdateCacheDeviceOperationEEENT_21tensor_return_value_tERKNS6_22operation_attributes_tERKNS6_13tensor_args_tE+0x428) [0x72269dfb0b38]
+(EngineCore_DP0 pid=1296616)  --- ttnn::prim::paged_fused_update_cache(ttnn::Tensor const&, ttnn::Tensor const&, ttnn::Tensor const&, ttnn::Tensor const&, std::vector<unsigned int, std::allocator<unsigned int> > const&, std::optional<ttnn::Tensor const> const&, std::optional<bool>, std::optional<ttnn::Tensor const> const&, unsigned int, std::optional<ttnn::ComputeKernelConfig const>, std::optional<std::set<tt::tt_metal::distributed::MeshCoordinate, std::less<tt::tt_metal::distributed::MeshCoordinate>, std::allocator<tt::tt_metal::distributed::MeshCoordinate> > const> const&)
+(EngineCore_DP0 pid=1296616)  --- ttnn::experimental::paged_fused_update_cache(ttnn::Tensor const&, ttnn::Tensor const&, ttnn::Tensor const&, ttnn::Tensor const&, std::vector<unsigned int, std::allocator<unsigned int> > const&, std::optional<ttnn::Tensor const> const&, std::optional<bool>, std::optional<ttnn::Tensor const> const&, unsigned int, std::optional<ttnn::ComputeKernelConfig const>, std::optional<std::set<tt::tt_metal::distributed::MeshCoordinate, std::less<tt::tt_metal::distributed::MeshCoordinate>, std::allocator<tt::tt_metal::distributed::MeshCoordinate> > const> const&)
+(EngineCore_DP0 pid=1296616)  --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x468ae3) [0x72269f068ae3]
+(EngineCore_DP0 pid=1296616)  --- /home/hous/dev/tt-metal/ttnn/ttnn/_ttnn.so(+0x37fba4) [0x72269ef7fba4]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore() [0x1ab9bae]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore() [0x18cb66c]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore() [0x1ab9bae]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore() [0x18cb66c]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore(_PyEval_EvalFrameDefault+0x45e2) [0x1818362]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore() [0x18122ac]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore(_PyEval_EvalFrameDefault+0xcb8e) [0x182090e]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore() [0x181230d]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore(_PyEval_EvalFrameDefault+0xcf67) [0x1820ce7]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore() [0x1854f79]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore() [0x18025ad]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore(_PyEval_EvalFrameDefault+0xd04b) [0x1820dcb]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore(PyEval_EvalCode+0xde) [0x18b1d32]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore() [0x18b1891]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore(PyRun_SimpleStringFlags+0xe0) [0x196716e]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore() [0x1ad68d5]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore() [0x19846df]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore() [0x19844ec]
+(EngineCore_DP0 pid=1296616)  --- /lib/x86_64-linux-gnu/libc.so.6(+0x2a1ca) [0x7226f382a1ca]
+(EngineCore_DP0 pid=1296616)  --- /lib/x86_64-linux-gnu/libc.so.6(__libc_start_main+0x8b) [0x7226f382a28b]
+(EngineCore_DP0 pid=1296616)  --- VLLM::EngineCore(_start+0x29) [0x19a66a9]
+(EngineCore_DP0 pid=1296616)
+(EngineCore_DP0 pid=1296616) INFO 10-30 17:41:14 [worker.py:504] TTWorker mesh shutdown starting
