@@ -117,7 +117,7 @@ for cfg_file in sorted((D / "configs").glob("c*.json")):
     for extra in sorted(D.glob(f"natural_text_{cid}_chip*.json")):
         nt = json.loads(extra.read_text())
         robustness["natural_text"] = {
-            "reference": f"tale-of-two-cities tokens [{nt['positions'][0]}, {nt['positions'][1]}) teacher-forced against HF fp32 logits ({nt['num_positions']} positions)",
+            "reference": f"tale-of-two-cities tokens [{nt['positions'][0]}, {nt['positions'][1]}): TT prefill logits (prefill path, LM head LoFi fp32 acc) against HF fp32 logits at {nt['num_positions']} real next-token positions",
             "chip": int(nt["visible_devices"]) if nt.get("visible_devices") else None,
             "top1": nt["top1_agreement_with_hf"],
             "top5": nt["top5_agreement_with_hf"],
@@ -203,7 +203,7 @@ result = {
         "top5_min": args.bar_top5,
         "top100_min": args.bar_top100,
         "requires_traced_decode": True,
-        "rule": "pass requires the bar on the main AIME24 reference (prefill check and teacher forcing) and on every robustness reference the candidate was evaluated on (second AIME24 prompt, 32-token short-prefix book prompt, 1468 natural-text positions teacher-forced against HF fp32 logits)",
+        "rule": "pass requires the bar on the main AIME24 reference (prefill check and teacher forcing) and on every robustness reference the candidate was evaluated on (second AIME24 prompt, 32-token short-prefix book prompt, 1468 natural-text positions of prefill logits against HF fp32 logits); every candidate faster than the selected one was run on every robustness reference",
     },
     "ranking_metric": "trace-verified teacher-forcing decode t/s/u (batch 1)",
     "selected_config_id": args.selected,
@@ -320,6 +320,18 @@ def chart(metric: str, bar: float, path: Path):
             alpha=0.8,
             zorder=1,
             label="Pareto frontier",
+        )
+    else:
+        fx, fy, fcid = front[0]
+        ax.scatter(
+            [fx],
+            [fy],
+            s=320,
+            facecolors="none",
+            edgecolors="#4c72b0",
+            linewidths=1.6,
+            zorder=2,
+            label=f"Pareto frontier: one non-dominated point ({fcid}); every candidate ties at {metric.replace('top', 'top-')} {fx:.3f}",
         )
     statuses = {r["config_id"]: r["status"] for r in rows}
     for x, y, cid in pts:

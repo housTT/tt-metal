@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Natural-text agreement checks, one queue per chip. Usage: natural_queue.sh <chip> <config id> [...]
 cd /home/hous/dev/tt-metal-wt-qwen3 || exit 3
 CHIP=$1; shift
 ST=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/natural_queue.status

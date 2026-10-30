@@ -26,7 +26,7 @@ CCL (collective communication library), PC (readiness prefill check), TF
 | Item | Value |
 | --- | --- |
 | Config | `c9_lm_head_bfp4` (`selected_precision_config.json`; candidate file `configs/c9_lm_head_bfp4.json`) |
-| Change against stage 7 | LM head BFP8 -> BFP4 (decode LoFi bf16 acc, prefill LoFi fp32 acc instead of HiFi2 fp32 acc); everything else unchanged |
+| Change against stage 7 | LM head BFP8 -> BFP4 (decode LoFi bf16 acc, prefill LoFi fp32 acc instead of HiFi2 fp32 acc); everything else unchanged. Config schema: a weight group's `fidelity`, `fp32_acc`, `readers` and `in0_block_w` govern its DRAM-sharded decode matmul; prefill matmuls take their fidelity from the weight dtype (BF16 HiFi4, BFP8 `prefill.bfp8_fidelity`, BFP4 LoFi) with `prefill.fp32_acc` accumulation, so `c10` (HiFi2 on BFP4 MLP rows) reproduces `c5` to the digit on the prefill-path natural-text reference |
 | Weight groups (decode, DRAM-sharded) | QKV BFP8 LoFi 1 reader; O BFP8 LoFi 1 reader; gate BFP8 LoFi 1 reader; up BFP4 LoFi 3 readers; down BFP8 LoFi 1 reader; `in0_block_w` 4 (down 6); bf16 accumulation, `packer_l1_acc` |
 | Layer exceptions | none (all 36 layers share the policy; the config format supports per-layer exceptions and c5 to c17 used them) |
 | Prefill fidelity | LoFi for BFP8 and BFP4 rows, fp32 accumulation; per-role kernel table `stage7`, gate/up row chosen by dtype |
@@ -42,7 +42,7 @@ CCL (collective communication library), PC (readiness prefill check), TF
 | Main reference, prefill check | top-1 0.980, top-5 1.000, top-100 1.000 (`readiness_c9_lm_head_bfp4_chip2.json`) |
 | Second AIME24 prompt (chip 1) | PC 0.990 / 1.000 / 1.000; TF 0.990 / 1.000 / 1.000 (`readiness_c9_lm_head_bfp4_aime_p1_chip1.json`) |
 | 32-token short-prefix book prompt (chip 0) | PC 0.950 / 0.990 / 1.000; TF 0.970 / 1.000 / 1.000 (`readiness_c9_lm_head_bfp4_book32_chip0.json`) |
-| Natural text, 1468 positions against HF fp32 logits (chip 0) | top-1 0.9094, top-5 0.9980, PCC mean 0.9793 (`natural_text_c9_lm_head_bfp4_chip0.json`; baseline 0.9189 / 0.9980 / 0.9866) |
+| Natural text, 1468 positions against HF fp32 logits (chip 0) | top-1 0.9094, top-5 0.9980, PCC mean 0.9793 (`natural_text_c9_lm_head_bfp4_chip0.json`; baseline 0.9189 / 0.9980 / 0.9866). This reference goes through the prefill path (`prefill_logits`: LM head `minimal_matmul`, LoFi, fp32 accumulation); the decode LM-head kernel (DRAM-sharded, LoFi, bf16 accumulation) is covered on natural text by the 100-token book32 teacher forcing (0.970), the batch-32 same-input case and the AIME teacher-forcing rows |
 | Stage-7 baseline, same runners, same day | TF top-1 0.980, top-5 1.000, top-100 1.000, TTFT 48.28 ms, 46.70 t/s/u; PC 0.990 / 1.000 / 1.000 |
 | Gain | +1.2 percent traced teacher-forcing decode, TTFT -0.2 ms; LM-head weight bytes 0.66 -> 0.35 GB per token |
 | Post-selection token-out, default path (section 5) | see the table there (`../full_model/perf_batch1_128_128.stage8.json`) |
@@ -103,12 +103,12 @@ up 3, down 2).
 | c6_mlp_bfp4_all | gate/up/down BFP4 LoFi, all layers | 0.940/1.000/1.000 | 0.920/1.000/1.000 | 45.42 (45.02) | 51.84 (51.89) | fail: natural text 0.834 |
 | c7_gateup_bfp4_inner | gate/up BFP4 inner, down BFP8 | 0.970/1.000/1.000 | 0.950/1.000/1.000 | 46.88 | 49.96 | fail: natural text 0.847 |
 | c11_down_bfp4_inner | down BFP4 inner (up BFP4, gate BFP8) | 0.960/1.000/1.000 | 0.960/1.000/1.000 | 47.00 | 48.09 | fail: natural text 0.891 |
-| c8_attn_bfp4_inner | QKV/O BFP4 LoFi inner | 0.960/1.000/1.000 | 0.950/1.000/1.000 | 47.77 | 48.82 | passes the references it ran on; every combination with it fails (3.2); not selected because slower than nothing that passes everywhere except itself, and its family fails the short-prefix reference |
+| c8_attn_bfp4_inner | QKV/O BFP4 LoFi inner | 0.960/1.000/1.000 | 0.950/1.000/1.000 | 47.77 | 48.82 | fail: natural text 0.897 (aime_p1 0.970 / 0.970, book32 0.950 / 0.950 pass); every combination with it fails the short-prefix reference |
 | c9_lm_head_bfp4 | LM head BFP4 LoFi | 0.980/1.000/1.000 | 0.970/1.000/1.000 | 48.02 (48.05 serial rerun) | 47.24 (47.24) | selected |
 | c1_all_bfp8_lofi | up BFP8 (canonical conservative policy) | 1.000/1.000/1.000 | 1.000/1.000/1.000 | 50.21 | 43.62 | pass, slowest BFP8 policy, most accurate (rerun after the kernel-row fix, 3.5) |
 | c2_bfp8_hifi2 | HiFi2 decode on the BFP8 rows | 0.990/1.000/1.000 | 0.970/1.000/1.000 | 48.30 | 35.15 | rejected: 25 percent slower, no accuracy gain |
 | c4_up_bfp4_hifi2 | BFP4 up at HiFi2 | 0.990/1.000/1.000 | 0.980/1.000/1.000 | 48.26 | 46.38 | rejected: slower than LoFi at equal accuracy |
-| c10_mlp_bfp4_inner_hifi2 | c5 with HiFi2 on the BFP4 MLP rows | 0.940/1.000/1.000 | 0.970/1.000/1.000 | 45.62 | 50.28 | rejected: 2.5 percent slower than c5 at equal top-1 (and the family fails natural text) |
+| c10_mlp_bfp4_inner_hifi2 | c5 with HiFi2 on the BFP4 MLP rows | 0.940/1.000/1.000 | 0.970/1.000/1.000 | 45.62 | 50.28 | fail: natural text 0.830 (identical to c5 at LoFi: the BFP4 weight quantization, not the fidelity, sets the loss); also 2.5 percent slower than c5 |
 | c3_kv_bfp8 | BFP8 KV cache | 0.990/1.000/1.000 | 0.980/1.000/1.000 | 48.42 | 46.84 | rejected (3.4) |
 
 ### 3.2 Rounds 2 to 4 (combinations, robustness references, reader variants)
@@ -134,8 +134,8 @@ up 3, down 2).
 | Group (decode) | dtype | fidelity | traced TF decode t/s/u | accuracy (main TF top-1; natural top-1) | decision |
 | --- | --- | --- | ---: | --- | --- |
 | QKV, O (BFP8) | BFP8 | LoFi (c0) / HiFi2 (c2) | 46.70 / 35.15 | 0.980 / 0.970 | LoFi kept: HiFi2 25 percent slower, no gain |
-| QKV, O (BFP4, inner) | BFP4 | LoFi (c8) | 48.82 | 0.950 | rejected: every combination fails the short-prefix reference; BFP4+HiFi2 not run because the group is out |
-| gate, up, down (BFP4) | BFP4 | LoFi (c5) / HiFi2 (c10) | 51.58 / 50.28 | 0.970 / 0.970; natural 0.830 (LoFi) | rejected on natural text; between the two, LoFi (faster at equal accuracy) |
+| QKV, O (BFP4, inner) | BFP4 | LoFi (c8) | 48.82 | 0.950; natural 0.897 | rejected on natural text (0.897 < 0.90) and every combination fails the short-prefix reference; BFP4+HiFi2 not run because the group is out |
+| gate, up, down (BFP4) | BFP4 | LoFi (c5) / HiFi2 (c10) | 51.58 / 50.28 | 0.970 / 0.970; natural 0.830 / 0.830 | rejected on natural text at both fidelities; between the two, LoFi (faster at equal accuracy) |
 | gate (BFP4) alone, down (BFP4) alone | BFP4 | LoFi (c7, c11) | 49.96 / 48.09 | natural 0.847 / 0.891 | rejected on natural text |
 | up alone (BFP4, baseline) | BFP4 | LoFi (c0) / HiFi2 (c4) | 46.70 / 46.38 | 0.980 / 0.980 | LoFi kept (selected) |
 | LM head | BFP8 LoFi (c0) / BFP4 LoFi (c9) | LoFi | 46.70 / 47.24 | 0.980 / 0.970; natural 0.919 / 0.909 | BFP4 LoFi selected; BFP8 HiFi2 was rejected in stage 7 (2.26 against 1.50 ms); BFP4 HiFi2 not run (3.4) |
@@ -165,10 +165,12 @@ rows (c10) and the up row (c4), both slower at equal accuracy.
   under the `c14` tag: `readiness_c14_default_chip2.json`,
   `../full_model/*.stage8_c14.json`, `qualitative_c14/`, `profile_c14/`,
   `propagation_check_c14_36.json`, `batch32_same_input_c14_default_chip2.json`).
-- Attention BFP4 (c8 and every combination c12, c13, c16, c17): c12 fails
-  the main reference (0.89), the others fail the short-prefix reference
-  (TF top-1 0.86 to 0.89, top-5 down to 0.96). Consistent with the stage-3
-  layer-17 delta PCC of 0.9737.
+- Attention BFP4 (c8 and every combination c12, c13, c16, c17): c8 alone
+  passes both AIME prompts and the short prefix but scores 0.897 on natural
+  text (`natural_text_c8_attn_bfp4_inner_chip2.json`); c12 fails the main
+  reference (0.89), the others fail the short-prefix reference (TF top-1
+  0.86 to 0.89, top-5 down to 0.96). Consistent with the stage-3 layer-17
+  delta PCC of 0.9737.
 - BFP8 KV cache (c3): +0.3 percent at batch 1 (46.84 against 46.70 t/s/u,
   inside the 0.2 percent run-to-run noise), top-5 0.990 on the short-prefix
   reference against the baseline's 1.000, and the stage-3 per-user
@@ -219,7 +221,12 @@ rows (c10) and the up row (c4), both slower at equal accuracy.
   caches; `c9` a BFP4 LM head; `c2` HiFi2 decode compute on QKV/O/gate/down
   and LoFi on up; `problems=[]` for all four.
 - `propagation_check_selected_36.json` (section 5): the full 36-layer
-  selected build through the default path (no environment variable): BFP4
+  selected build (`logs/propagation_check.py` points `QWEN3_PRECISION_CONFIG`
+  at `selected_precision_config.json` itself, the same file the default
+  path resolves; the readiness pair and the pytest module of section 5 ran
+  with no environment variable; rerun after review 1 with the extended
+  check that also compares fp32 accumulation, `packer_l1_acc`,
+  `in0_block_w`, prefill fidelity and norm/SDPA fidelity): BFP4
   LM head with LoFi decode and prefill compute, BFP8 LoFi QKV/O/gate/down,
   BFP4 LoFi up with 3 readers, HiFi4 norms and SDPA, BF16 caches,
   `problems=[]`. `propagation_check_c14_36.json` is the same check on the
@@ -249,7 +256,7 @@ work log section 9).
 | Full-model module (36 layers) | 10 passed in 198 s: split-sampling trace, host work (64 tokens: 63 replays, 0 eager, repeat bit-equal), multi-row prefill rows 5, 31, 33, 127, 129, 257, 640, 1000 (PCC >= 0.99999 against solo, top-1 equal, rerun and reordered bit-equal), batch buckets 8/16/24/32 (every user equal to its solo arm, 31 replays, 0 captures), tracked replay workload (program cache 666 before and after the post-capture 3-row, 32-row, 8192-, 5000- and 12345-token work), seeded sampling | `../full_model/*.stage8.json`, `logs/selected_pytest_full_model_36.log` |
 | 36-layer propagation check | `problems=[]`: one distinct layer policy (BFP8 QKV/O/gate/down, BFP4 up), BFP4 LM head with LoFi decode (bf16 acc, `packer_l1_acc`) and LoFi prefill (fp32 acc), BF16 K and V caches, fp32 prefill logits; 8 greedy tokens through the traced decode | `propagation_check_selected_36.json` |
 | Qualitative suite (six chat prompts, 128 greedy tokens, HF control and stage-7 TT control) | every output a coherent English `<think>` answer on topic, 0.0 adjacent duplication, trigram repeat 0.02 to 0.10, no control tokens; first divergence from HF at 86, 37, 32, 39, 33, 22 (stage 7: 34, 37, 32, 35, 33, 22; equal or later on every prompt); from the stage-7 TT outputs at 34, 74, 92, 35, 79, 77 | `qualitative/{qualitative_prompt_format,rendered_prompts,hf_outputs,tt_outputs,tt_counters,tt_provenance,verdict}.json` |
-| Resumed prefill, default thresholds (lengths 1500, 2560, 5000, 16384, block 32) | every PCC gate passes at all 16 starts (PCC min 0.9970 at start 32, 0.9886 at start 68, 0.9995 to 1.0000 elsewhere, the stage-7 values: the decoder is unchanged), both controls fail at every 257-position window, top-1 0.988 to 1.000 except the two hit windows (1472: 27 of 28, 16352: 31 of 32, one near-tie flip each, the stage-7 class), so `status=fail`; the lowered-threshold run (0.90 / 0.93, as stage 7) passes at all 16 starts | `../../readiness/prefill_resume_check_stage8_c9_lm_head_bfp4_default_thresholds.json` (chip 1), `prefill_resume_check_stage8_default_thresholds.json` (chip 2, default path, same rows), `prefill_resume_check_stage8_c9_lm_head_bfp4_lowered.json` (`status=pass`); the stage-7 canonical `prefill_resume_check.json` is untouched |
+| Resumed prefill, default thresholds (lengths 1500, 2560, 5000, 16384, block 32) | every PCC gate passes at all 16 starts (PCC minima 0.9970 at start 32 and 0.9886 at start 68, 0.9995 to 1.0000 elsewhere: identical to stage 7 because the decoder stack is unchanged); both controls fail at every 257-position window; top-1 agreement in the 257-position windows 0.988 to 0.992 (stage 7: 0.996) and in the hit windows 1472: 27 of 28 (stage 7: 28 of 28) and 16352: 31 of 32 (stage 7: 31 of 32), so `status=fail`; the two flips are probed against HF in `resume_margin_probe_c9_L1500_s1472_fp32.json` and `resume_margin_probe_c9_L16384_s16352_fp32.json` (chip 0, default path, 12:54 to 13:03 ET: 1472 window flips at position 1487, TT fresh-path margin 0.078, continuation margin 0.031, HF margin 0.641 with HF top-1 equal to the fresh path; 16352 window flips at 16369, margins 0.125 / 0.016 / 0.393; both TT paths agree with HF top-1 equally over the windows, 0.82 / 0.79 and 0.84 / 0.81, PCC ref against cand 0.9998 / 0.9995: near ties of the BFP4 LM head, not a cache or position fault); the lowered-threshold run (0.90 / 0.93, as stage 7) passes at all 16 starts | `../../readiness/prefill_resume_check_stage8_c9_lm_head_bfp4_default_thresholds.json` (chip 1), `prefill_resume_check_stage8_default_thresholds.json` (chip 2, default path, same rows), `prefill_resume_check_stage8_c9_lm_head_bfp4_lowered.json` (`status=pass`); the stage-7 canonical `prefill_resume_check.json` is untouched |
 | Batch-32 same input (32-token book prompt, 100 greedy tokens) | 32 of 32 users bit-equal to the solo arm, one distinct output; first divergence from HF greedy at token 27 (the baseline's position too) | `batch32_same_input_selected_chip2.json` |
 | Reduced-variant profile (one real layer, real terminal path, Tracy) | decode rows: QKV `LoFi BF16 x BFP8` 58 us, O 41, gate 114 (BFP8), up 70 (`LoFi BF16 x BFP4`), down 110 (BFP8); LM head 9 x `32 x 4096 x 16384` at 124 us plus `32 x 4096 x 5120` at 46 us, all `LoFi BF16 x BFP4` (stage 7: 150 us per split at BFP8 LoFi); the BFP4 LM-head rows are FLOP-bound (78 percent of peak, DRAM 53 percent), so a lower fidelity does not exist and readers 2 gave nothing (c18) | `profile/decode.txt`, `profile/prefill_128.txt`, `profile/*.csv` |
 
@@ -266,6 +273,14 @@ token; resident weights 14.62 GB computed (decoder stack unchanged at
 instead of 0.66 GB); all-users token budget 114432 (112320 before), two
 full-context users (unchanged); batch 32 at full context still does not
 fit (193 GB of cache against 34 GB of DRAM, the stage-6 hard limit).
+`Qwen3Generator.max_tokens_all_users` gives 114432 for the selected model
+without a mesh (resident bytes computed from the loaded dtype policy plus
+the stage-6 allocator rounding), 112320 with neither model nor mesh (the
+stage-6 constants), and the live free DRAM with a mesh (authoritative);
+measured on chip 2 through the selected build in `token_budget_check.json`
+(`logs/token_budget_check.py`, 12:58 ET): model-only 114432, no-model
+112320, with the mesh 72736 after the generator's own 1280-block pool and
+sampler state were allocated (20.77 GB allocated of 33.64 GB).
 `kv_candidates_evaluated` records the rejected BFP8 cache (78336 bytes per
 token, 211456 tokens, five users), the baseline and the withdrawn c14
 (139008 tokens). Non-aligned prompt lengths: chunking, cache layout and
@@ -278,7 +293,13 @@ and the hit windows.
 ## 7. Limitations and open items
 
 - The gain is small (+1.2 percent decode): the only reduced-precision
-  step that keeps natural-text agreement above the bar. The BFP4 MLP
+  step that keeps natural-text agreement above the bar. `c8` (attention
+  BFP4, 48.82 t/s/u) misses that bar by 6 positions of 1468 (0.8965), less
+  than one binomial standard deviation (about 11 positions), so its
+  rejection is at the bar, not comfortable; a c8+HiFi2 run would not change
+  it (the failing reference is the prefill path, whose BFP4 fidelity is
+  fixed at LoFi) and c8+c9 would lower natural text by about one more point
+  (c9 costs 0.919 -> 0.909). The BFP4 MLP
   family is 10 to 12 percent faster and 7 to 10 top-1 points worse on
   natural text; `configs/c14_mlp_bfp4_all_lm_bfp4.json` is the recorded
   fast fallback with its own default-path evidence.
@@ -302,14 +323,35 @@ and the hit windows.
 - Round-2 rows on chip 2 that overlapped chip-0/1 jobs are marked
   `concurrent` and were re-measured serially where they mattered.
 - Teacher forcing measures batch 1; the batch-32 decode step was not
-  re-timed.
-- `c13`, `c16` and `c17` have no second-AIME-prompt row and `c8`, `c10`,
-  `c2`, `c4`, `c12`, `c13`, `c16`, `c17` no natural-text row (they were
-  already rejected or dominated).
+  re-timed. The BFP8 KV cache (c3) passes every reference it ran on and the
+  operator's two cache cases; it is rejected on the batch-1 metric (no gain
+  inside noise) plus the stage-3 per-user PCC, and its capacity advantage
+  (211456 tokens, five full-context users against two) and batch-32 decode
+  step are left to the vLLM stage to weigh.
+- `c13`, `c16` and `c17` have no second-AIME-prompt row and `c2`, `c4`,
+  `c12`, `c13`, `c16`, `c17` no natural-text row (already rejected on another
+  reference, or slower than the baseline). Every candidate faster than the
+  selected one that passed its main reference (c5, c6, c7, c8, c10, c11,
+  c14, c15) has a natural-text row, and every one fails it.
 
 ## 8. Stage review
 
-Recorded in `work_log.md` section 9 after the review returns.
+Review 1 (`logs/review/stage_review_1.md`, full text `stage_review_1_full.md`):
+`more-work-needed`. P1: the committed results marked c8 and c10 `pass`
+without robustness rows while c9 was selected (rows run during the review,
+now recorded in 3.1, 3.2, 3.4 and work log 9.1). P2: the c9 hit-window
+flips had no margin probe (run, section 5). P2: the context-contract note
+against the runtime's no-mesh fallback, and the gitignored CSV (fixed:
+`max_tokens_all_users` computes resident bytes from the loaded model, the
+contract note says which path gives which number, `sweep_results.csv` and
+`profile/*.csv` are force-added). Other concerns and hard-check gaps fixed:
+natural-text scope note (section 1), fidelity schema note (section 1),
+propagation wording (section 4), resume wording (section 5), resume sidecar
+fields, chart single-point frontier, stale natural-text fields, extended
+`check_propagation` (fp32 accumulation, `packer_l1_acc`, `in0_block_w`,
+prefill fidelity, norm/SDPA fidelity; rerun on the 36-layer build), comment
+lines removed from the helper scripts, c3 capacity note (section 7).
+Review 2: see work log section 9.
 
 ## 9. Reproduction
 
@@ -339,5 +381,5 @@ bash $L/post_selection_chip2.sh                          # default-path evidence
 - `readiness_<id>_chip2.json`: main-reference sidecars; `readiness_<id>_serial_chip2.json`: serialized re-measurements; `readiness_<id>_aime_p1_chip1.json`, `readiness_<id>_book32_chip{0,2}.json`: robustness references; `natural_text_<id>_chip<N>.json`: natural-text agreement; `readiness_selected_default_chip2.json`: the default-path readiness pair of the selected config; `readiness_c14_default_chip2.json`: the withdrawn c14's.
 - `propagation_check_reduced.json`, `propagation_check_selected_36.json`, `propagation_check_c14_36.json`.
 - `batch32_same_input_{c3_kv_bfp8,c0_stage7_baseline}_chip0.json`, `batch32_same_input_selected_chip2.json`, `batch32_same_input_c14_default_chip2.json`.
-- `resume_margin_probe_L*_fp32.json` (c14 attribution), `qualitative/` (selected), `qualitative_c14/`, `profile/` (selected), `profile_c14/`, `logs/` (every command log, chain script and status file).
+- `resume_margin_probe_c14_L*_fp32.json` (c14 attribution), `resume_margin_probe_c9_L*_fp32.json` (selected-config hit windows), `qualitative/` (selected), `qualitative_c14/`, `profile/` (selected), `profile_c14/`, `logs/` (chain scripts, status files and the review record are committed; `logs/*.log` command logs stay in the worktree because the repository ignores `*.log`, as in stage 7; `sweep_results.csv` and `profile/*.csv` are force-added past the `*.csv` ignore).
 - `../context_contract.json` (`datatype_sweep` section), `../full_model/*.stage8.json` (selected) and `*.stage8_c14.json`, `../../readiness/prefill_resume_check_stage8_*.json`, `bringup/references/qwen3_8b_aime24_chat_p1.refpt` (committed), `bringup/references/qwen3_8b_book32.refpt` (1.5 MB, above the repository's 500 KB hook limit, not committed; regenerate with `logs/generate_reference_wrapper.py --hf-model Qwen/Qwen3-8B --prompt-source book --prompt-len 32 --gen-len 100 --top-k 100 --output bringup/references/qwen3_8b_book32.refpt`, see `logs/round2_chip2.sh` and `logs/generate_reference_book32.log`).

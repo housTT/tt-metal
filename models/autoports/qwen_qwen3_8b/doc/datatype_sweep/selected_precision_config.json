@@ -90,7 +90,7 @@
       "top5_min": 0.98,
       "top100_min": 1.0,
       "requires_traced_decode": true,
-      "rule": "pass requires the bar on the main AIME24 reference (prefill check and teacher forcing) and on every robustness reference the candidate was evaluated on (second AIME24 prompt, 32-token short-prefix book prompt, 1468 natural-text positions teacher-forced against HF fp32 logits)"
+      "rule": "pass requires the bar on the main AIME24 reference (prefill check and teacher forcing) and on every robustness reference the candidate was evaluated on (second AIME24 prompt, 32-token short-prefix book prompt, 1468 natural-text positions of prefill logits against HF fp32 logits); every candidate faster than the selected one was run on every robustness reference"
     },
     "ranking_metric": "trace-verified teacher-forcing decode t/s/u (batch 1)",
     "teacher_forcing": {
@@ -141,7 +141,7 @@
         "pass": true
       },
       "natural_text": {
-        "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+        "reference": "tale-of-two-cities tokens [32, 1500): TT prefill logits (prefill path, LM head LoFi fp32 acc) against HF fp32 logits at 1468 real next-token positions",
         "top1": 0.9094005227088928,
         "top5": 0.997956395149231,
         "pcc_mean": 0.9792740941047668,

@@ -264,6 +264,7 @@ class Qwen3Model:
         lm = int(g.hidden_size * self.padded_vocab_size * WEIGHT_BYTES_PER_ELEMENT[self.terminal_policy.lm_head_dtype])
         rope = 4 * g.max_position_embeddings * g.head_dim * 2
         norms = self.num_layers * 2 * (g.hidden_size + g.head_dim) * 2 + g.hidden_size * 2
+        mask = TILE_SIZE * self.lm_head_widths[-1] * 2 if self.lm_head_tail_mask is not None else 0
         return {
             "decoder_layer_weights_per_token": per_layer,
             "decoder_layer_weights_resident": resident,
@@ -271,9 +272,10 @@ class Qwen3Model:
             "decoder_stack_resident": stack_resident,
             "embedding": emb,
             "lm_head": lm,
+            "lm_head_tail_mask": mask,
             "rope_tables_shared": rope,
             "norm_weights": norms,
-            "total_resident": stack_resident + emb + lm + rope + norms,
+            "total_resident": stack_resident + emb + lm + mask + rope + norms,
         }
 
     def kv_bytes_per_token(self, dtype: ttnn.DataType = ttnn.bfloat16) -> int:

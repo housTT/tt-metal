@@ -374,7 +374,7 @@ at 11:38 ET on a free chip 2).
 
 ### 6.1 Resume-check regression attributed (chip 0, 11:52 to 11:56 ET, `logs/resume_margin_probe.py`)
 
-`resume_margin_probe_L1500_s68_fp32.json` and siblings compare both TT
+`resume_margin_probe_c14_L1500_s68_fp32.json` and siblings (renamed with the c14 tag after review 1) compare both TT
 paths (fresh prefill `ref`, continuation `cand`) with HF fp32 logits over
 the window: at the worst position (285) `ref` against `cand` is PCC
 0.8793 while `ref` against HF is 0.6327 and `cand` against HF 0.7139 (top-1
@@ -415,6 +415,8 @@ positions): top-1 and top-5 agreement with HF, PCC. Artifacts
 | c1_all_bfp8_lofi | 0.9680 | 1.0000 | 0.9973 | 0.5666 | | pass |
 | c9_lm_head_bfp4 | 0.9094 | 0.9980 | 0.9793 | 0.8517 | | pass |
 | c11_down_bfp4_inner | 0.8910 | 0.9932 | 0.9734 | 0.5655 | | fail |
+| c8_attn_bfp4_inner (run at 12:38 ET, after the first review started) | 0.8965 | 0.9898 | 0.9711 | 0.5478 | | fail |
+| c10_mlp_bfp4_inner_hifi2 (12:41 ET) | 0.8297 | 0.9789 | 0.9420 | 0.3011 | | fail (equal to c5 at LoFi) |
 | c7_gateup_bfp4_inner | 0.8467 | 0.9871 | 0.9553 | 0.5026 | 34 | fail |
 | c6_mlp_bfp4_all | 0.8345 | 0.9782 | 0.9418 | 0.5108 | 39 | fail |
 | c5_mlp_bfp4_inner | 0.8297 | 0.9789 | 0.9420 | 0.3011 | 41 | fail |
@@ -498,5 +500,65 @@ Local commits on `hous/qwen3-8b-autoport` (never pushed; the supervisor pushes):
 The repository's pre-commit hooks reformatted the stage's helper scripts
 (black); no source behaviour changed.
 
-Stage review 1: prompt `logs/stage_review_prompt.md`, fresh read-only
-subagent; verdict recorded below when it returns.
+Stage review 1 (12:39 to 12:52 ET, prompt `logs/stage_review_prompt.md`,
+fresh read-only subagent): `more-work-needed`
+(`logs/review/stage_review_1.md`, full text `stage_review_1_full.md`).
+Required work: P1 c8 and c10 recorded as pass without robustness rows
+(section 9.1); P2 no margin probe for the c9 hit-window flips (section
+9.2); P2 context-contract note against the no-mesh fallback and the
+gitignored CSV (section 9.2).
+
+### 9.1 Candidate gap closed during the review (12:38 to 12:43 ET, chips 0, 1 and 2)
+
+`c8_attn_bfp4_inner` (48.82 t/s/u, faster than the selected c9) had no
+robustness rows and `c10` no natural-text row. Run while the reviewer
+worked (read-only): c8 aime_p1 PC 0.970 / TF 0.970 (chip 1), book32 PC
+0.950 / TF 0.950 with top-5 0.990 (chip 0), natural text 0.8965 / 0.9898
+(chip 2): fails the natural-text bar. c10 natural text 0.8297 / 0.9789
+(chip 2), identical to c5, so HiFi2 does not recover the BFP4 MLP loss.
+`sweep_results.{json,csv}` regenerated with these rows; the selection is
+unchanged.
+
+### 9.2 Review-1 fixes (12:52 to 13:05 ET)
+
+- P2 resume probe: `logs/resume_margin_probe.py 1500:1472 16384:16352`
+  through the default path on chip 0 (`logs/resume_margin_probe_c9_1472.log`,
+  `resume_margin_probe_c9_L1500_s1472_fp32.json`,
+  `resume_margin_probe_c9_L16384_s16352_fp32.json`): the 1472 window flips
+  at position 1487 (fresh-path margin 0.078, continuation margin 0.031, HF
+  margin 0.641, HF top-1 equal to the fresh path), the 16352 window at
+  16369 (0.125 / 0.016 / 0.393); both TT paths agree with HF equally over
+  the windows and their mutual PCC stays at 0.9998 / 0.9995: near ties of
+  the BFP4 LM head. The c14 probes were renamed `resume_margin_probe_c14_*`.
+  README section 5 now quotes the top-1 rows against stage 7 and keeps
+  "unchanged" for the PCC minima.
+- P2 context contract: `Qwen3Generator.max_tokens_all_users(model)`
+  without a mesh now computes the resident bytes from the loaded model
+  (`Qwen3Model.weight_bytes()`, which now includes the LM-head tail mask)
+  plus the stage-6 allocator rounding (`ALLOCATOR_ROUNDING_BYTES`), giving
+  114432 for the selected build; the stage-6 constants (112320) apply only
+  with neither model nor mesh; the mesh path is authoritative. Measured on
+  chip 2 (`logs/token_budget_check.py`, `token_budget_check.json`):
+  model-only 114432, no-model 112320, with the mesh 72736 (after the
+  generator's own KV pool). The contract note and
+  `logs/update_context_contract.py` say which path gives which number.
+  `sweep_results.csv` and `profile/*.csv` are force-added past the `*.csv`
+  ignore; `logs/*.log` stay in the worktree (README section 10).
+- `tt/precision.py` `check_propagation` now also compares decode
+  `fp32_acc`, `packer_l1_acc`, `in0_block_w`, per-layer prefill fidelity
+  and accumulation, norm and SDPA fidelity, and the LM head's prefill
+  accumulation, readers and `in0_block_w`; rerun on the 36-layer selected
+  build on chip 2 (`logs/selected_propagation_36.log`, 12:54 ET):
+  `PROPAGATION_OK`.
+- Other concerns: README section 1 states that the natural-text reference
+  runs the prefill path and names the decode LM-head coverage; the config
+  schema note (README section 1, `tt/precision.py` docstring) says the
+  per-group fidelity governs decode only; README section 4 says how the
+  propagation script resolves the config; `write_sidecar.py` no longer
+  parses top-k fields from resume-check logs and the two sidecar entries
+  were corrected; the c8 sentence and the natural-text label were
+  rewritten; comment lines were removed from the helper shell scripts; the
+  c3 capacity trade is named in README section 7 for the vLLM stage.
+- Hard-check gaps: the top-5 chart marks its single frontier point and
+  says why; the stale fields were removed from the three remaining
+  natural-text JSON files; README section 8 records the verdict.

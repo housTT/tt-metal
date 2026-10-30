@@ -389,12 +389,12 @@
     },
     "runtime_reserve_bytes": 2147483648,
     "max_tokens_all_users": 114432,
-    "max_tokens_all_users_formula": "((DEVICE_DRAM_BYTES - total_resident_bytes_computed - runtime_reserve) // kv_bytes_per_token) rounded down to 32 (Qwen3Generator.max_tokens_all_users with kv_cache_dtype)",
+    "max_tokens_all_users_formula": "((DEVICE_DRAM_BYTES - total_resident_bytes_computed - runtime_reserve) // kv_bytes_per_token) rounded down to 32, where total_resident_bytes_computed carries the stage-6 measured allocator rounding (29317120 bytes); equals Qwen3Generator.max_tokens_all_users(model) without a mesh (resident bytes from the loaded dtype policy plus that rounding); with neither model nor mesh the generator returns the stage-6 constants (112320); with a mesh it reads the live free DRAM (authoritative)",
     "max_users_at_full_context": 2,
     "batch_32_at_full_context_bytes": 193273528320,
     "batch_32_at_full_context_fits": false,
     "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2, 1x1 mesh, p150 mesh graph descriptor); stages 4 and 5 skipped by the operator",
-    "commit": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+    "commit": "ee31ae063d306357d00263aa2f285b25aae7dbee",
     "kv_candidates_evaluated": {
       "c3_kv_bfp8": {
         "config_id": "c3_kv_bfp8",
@@ -418,7 +418,7 @@
         },
         "runtime_reserve_bytes": 2147483648,
         "max_tokens_all_users": 211456,
-        "max_tokens_all_users_formula": "((DEVICE_DRAM_BYTES - total_resident_bytes_computed - runtime_reserve) // kv_bytes_per_token) rounded down to 32 (Qwen3Generator.max_tokens_all_users with kv_cache_dtype)",
+        "max_tokens_all_users_formula": "((DEVICE_DRAM_BYTES - total_resident_bytes_computed - runtime_reserve) // kv_bytes_per_token) rounded down to 32, where total_resident_bytes_computed carries the stage-6 measured allocator rounding (29317120 bytes); equals Qwen3Generator.max_tokens_all_users(model) without a mesh (resident bytes from the loaded dtype policy plus that rounding); with neither model nor mesh the generator returns the stage-6 constants (112320); with a mesh it reads the live free DRAM (authoritative)",
         "max_users_at_full_context": 5,
         "batch_32_at_full_context_bytes": 102676561920,
         "batch_32_at_full_context_fits": false
@@ -445,7 +445,7 @@
         },
         "runtime_reserve_bytes": 2147483648,
         "max_tokens_all_users": 112320,
-        "max_tokens_all_users_formula": "((DEVICE_DRAM_BYTES - total_resident_bytes_computed - runtime_reserve) // kv_bytes_per_token) rounded down to 32 (Qwen3Generator.max_tokens_all_users with kv_cache_dtype)",
+        "max_tokens_all_users_formula": "((DEVICE_DRAM_BYTES - total_resident_bytes_computed - runtime_reserve) // kv_bytes_per_token) rounded down to 32, where total_resident_bytes_computed carries the stage-6 measured allocator rounding (29317120 bytes); equals Qwen3Generator.max_tokens_all_users(model) without a mesh (resident bytes from the loaded dtype policy plus that rounding); with neither model nor mesh the generator returns the stage-6 constants (112320); with a mesh it reads the live free DRAM (authoritative)",
         "max_users_at_full_context": 2,
         "batch_32_at_full_context_bytes": 193273528320,
         "batch_32_at_full_context_fits": false
@@ -472,7 +472,7 @@
         },
         "runtime_reserve_bytes": 2147483648,
         "max_tokens_all_users": 139008,
-        "max_tokens_all_users_formula": "((DEVICE_DRAM_BYTES - total_resident_bytes_computed - runtime_reserve) // kv_bytes_per_token) rounded down to 32 (Qwen3Generator.max_tokens_all_users with kv_cache_dtype)",
+        "max_tokens_all_users_formula": "((DEVICE_DRAM_BYTES - total_resident_bytes_computed - runtime_reserve) // kv_bytes_per_token) rounded down to 32, where total_resident_bytes_computed carries the stage-6 measured allocator rounding (29317120 bytes); equals Qwen3Generator.max_tokens_all_users(model) without a mesh (resident bytes from the loaded dtype policy plus that rounding); with neither model nor mesh the generator returns the stage-6 constants (112320); with a mesh it reads the live free DRAM (authoritative)",
         "max_users_at_full_context": 3,
         "batch_32_at_full_context_bytes": 193273528320,
         "batch_32_at_full_context_fits": false
@@ -480,7 +480,7 @@
     },
     "notes": [
       "The HF-advertised 40960-token context is retained for every request; the number of simultaneous full-context users is bounded by device DRAM (max_users_at_full_context).",
-      "Selected KV-cache dtype and weight policy per datatype_sweep/selected_precision_config.json; the capacity numbers above are host arithmetic from the stage-6 measured resident bytes and the per-config dtype sizes, matching Qwen3Generator.max_tokens_all_users without a mesh."
+      "Selected KV-cache dtype and weight policy per datatype_sweep/selected_precision_config.json; the capacity numbers above are host arithmetic from the stage-6 measured non-decoder bytes and the per-config dtype sizes, equal to Qwen3Generator.max_tokens_all_users(model) without a mesh; the mesh path (live free DRAM) is authoritative at serve time."
     ]
   }
 }

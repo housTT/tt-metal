@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Round 3 queues: robustness references for the remaining contenders, one queue per chip, each waiting for that chip's current chain.
 cd /home/hous/dev/tt-metal-wt-qwen3 || exit 3
 L=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs
 case "$1" in

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Round 2: HF references (host) for a second AIME24 prompt and a 32-token short-prefix book prompt, then the combination candidates on chip 2.
 cd /home/hous/dev/tt-metal-wt-qwen3 || exit 3
 S=models/autoports/qwen_qwen3_8b/doc/full_model/logs/stage_env.sh
 PY=/home/hous/dev/tt-metal/python_env/bin/python

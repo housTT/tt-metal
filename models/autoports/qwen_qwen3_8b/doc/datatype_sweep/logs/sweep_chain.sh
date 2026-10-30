@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Stage-8 readiness pair on any chip: run_prefill_check then run_teacher_forcing per candidate config against a given reference.
-# Usage: sweep_chain.sh <chip> <reference.refpt> <tag> <config id> [<config id> ...]
-# Logs: logs/<id>_<tag>_{prefill_check,teacher_forcing}.log; sidecar readiness_<id>_<tag>_chip<chip>.json.
 cd /home/hous/dev/tt-metal-wt-qwen3 || exit 3
 CHIP=$1; REF=$2; TAG=$3; shift 3
 S=models/autoports/qwen_qwen3_8b/doc/full_model/logs/stage_env.sh

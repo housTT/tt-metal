@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Post-selection chain on chip 2 through the default construction path (no QWEN3_PRECISION_CONFIG: build_generator reads
-# doc/datatype_sweep/selected_precision_config.json): readiness pair, full-model pytest module (token-out benchmark, batch
-# buckets, multi-row prefill, tracked workload), 36-layer propagation check, qualitative suite, resumed-prefill check,
-# batch-32 same-input case, reduced-variant Tracy profile.
 cd /home/hous/dev/tt-metal-wt-qwen3 || exit 3
 S=models/autoports/qwen_qwen3_8b/doc/full_model/logs/stage_env.sh
 PY=/home/hous/dev/tt-metal/python_env/bin/python

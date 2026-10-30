@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Stage-8 sweep chain on chip 2: for each candidate config, run_prefill_check then run_teacher_forcing under their own timeouts.
-# Usage: sweep_chain_chip2.sh <config id> [<config id> ...]
 cd /home/hous/dev/tt-metal-wt-qwen3 || exit 3
 S=models/autoports/qwen_qwen3_8b/doc/full_model/logs/stage_env.sh
 PY=/home/hous/dev/tt-metal/python_env/bin/python

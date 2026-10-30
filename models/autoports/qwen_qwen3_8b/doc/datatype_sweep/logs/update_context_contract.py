@@ -70,7 +70,7 @@ def section(cid: str) -> dict:
         },
         "runtime_reserve_bytes": Qwen3Generator.RUNTIME_RESERVE_BYTES,
         "max_tokens_all_users": int(max_tokens),
-        "max_tokens_all_users_formula": "((DEVICE_DRAM_BYTES - total_resident_bytes_computed - runtime_reserve) // kv_bytes_per_token) rounded down to 32 (Qwen3Generator.max_tokens_all_users with kv_cache_dtype)",
+        "max_tokens_all_users_formula": "((DEVICE_DRAM_BYTES - total_resident_bytes_computed - runtime_reserve) // kv_bytes_per_token) rounded down to 32, where total_resident_bytes_computed carries the stage-6 measured allocator rounding (29317120 bytes); equals Qwen3Generator.max_tokens_all_users(model) without a mesh (resident bytes from the loaded dtype policy plus that rounding); with neither model nor mesh the generator returns the stage-6 constants (112320); with a mesh it reads the live free DRAM (authoritative)",
         "max_users_at_full_context": int(max_tokens // CONTEXT),
         "batch_32_at_full_context_bytes": kv_per_token * CONTEXT * 32,
         "batch_32_at_full_context_fits": kv_per_token * CONTEXT * 32 <= free - Qwen3Generator.RUNTIME_RESERVE_BYTES,
@@ -88,7 +88,7 @@ entry["commit"] = sha
 entry["kv_candidates_evaluated"] = {cid: section(cid) for cid in others}
 entry["notes"] = [
     "The HF-advertised 40960-token context is retained for every request; the number of simultaneous full-context users is bounded by device DRAM (max_users_at_full_context).",
-    "Selected KV-cache dtype and weight policy per datatype_sweep/selected_precision_config.json; the capacity numbers above are host arithmetic from the stage-6 measured resident bytes and the per-config dtype sizes, matching Qwen3Generator.max_tokens_all_users without a mesh.",
+    "Selected KV-cache dtype and weight policy per datatype_sweep/selected_precision_config.json; the capacity numbers above are host arithmetic from the stage-6 measured non-decoder bytes and the per-config dtype sizes, equal to Qwen3Generator.max_tokens_all_users(model) without a mesh; the mesh path (live free DRAM) is authoritative at serve time.",
 ]
 contract["datatype_sweep"] = entry
 contract["current_supported_context"] = CONTEXT

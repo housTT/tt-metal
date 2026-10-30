@@ -27,6 +27,7 @@ entry = {
 if config_id:
     entry["config_id"] = config_id
     entry["config_path"] = config_path
+resume_run = "resume_check" in name or "prefill_resume" in text[:4000]
 for key, pattern in (
     ("top1", r"top1=([0-9.]+)"),
     ("top5", r"top5=([0-9.]+)"),
@@ -39,6 +40,8 @@ for key, pattern in (
     ("status", r"status=(\w+)"),
 ):
     found = re.findall(pattern, text)
+    if resume_run and key in ("top1", "top5", "top100"):
+        continue
     if found:
         value = found[-1]
         entry[key] = value if key == "status" else float(value)

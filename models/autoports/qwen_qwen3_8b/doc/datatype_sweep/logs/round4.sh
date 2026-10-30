@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Round 4: c9 robustness (book32 on chip 0, resume check on chip 1), then serialized TF of c9 and its LM-head reader variants on chip 2.
 cd /home/hous/dev/tt-metal-wt-qwen3 || exit 3
 ST=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/round4.status
 bash models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/sweep_chain.sh 0 bringup/references/qwen3_8b_book32.refpt book32 c9_lm_head_bfp4 &

@@ -844,6 +844,7 @@ class Qwen3Generator(Generator):
 
     DEVICE_DRAM_BYTES = 33_641_860_096
     WEIGHTS_RESIDENT_BYTES = 14_928_363_520
+    ALLOCATOR_ROUNDING_BYTES = 14_928_363_520 - 14_899_046_400
     RUNTIME_RESERVE_BYTES = 2_147_483_648
     KV_BYTES_PER_TOKEN = 147_456
 
@@ -859,9 +860,10 @@ class Qwen3Generator(Generator):
         """KV-cache token budget on one chip: DRAM minus resident weights minus a runtime reserve, in blocks.
 
         Mirrors the plugin's ``get_max_tokens_all_users`` hook. With ``mesh_device`` the allocated and total
-        bytes are read from ``ttnn.get_memory_view`` after the weights are on device; otherwise the measured
-        constants recorded in ``doc/context_contract.json`` are used. ``kv_cache_dtype`` sizes the per-token
-        cache bytes (BF16 by default; a BFP8 cache halves them).
+        bytes are read from ``ttnn.get_memory_view`` after the weights are on device; with only a model the
+        resident bytes are computed from its dtype policy plus the stage-6 measured allocator rounding; with
+        neither, the stage-6 measured constants recorded in ``doc/context_contract.json`` are used.
+        ``kv_cache_dtype`` sizes the per-token cache bytes (BF16 by default; a BFP8 cache halves them).
         """
         per_token = (
             model.kv_bytes_per_token(kv_cache_dtype)
@@ -871,6 +873,8 @@ class Qwen3Generator(Generator):
         if mesh_device is not None:
             view = ttnn.get_memory_view(mesh_device, ttnn.BufferType.DRAM)
             free = int(view.total_bytes_free_per_bank) * int(view.num_banks)
+        elif model is not None:
+            free = cls.DEVICE_DRAM_BYTES - model.weight_bytes()["total_resident"] - cls.ALLOCATOR_ROUNDING_BYTES
         else:
             free = cls.DEVICE_DRAM_BYTES - cls.WEIGHTS_RESIDENT_BYTES
         tokens = (free - cls.RUNTIME_RESERVE_BYTES) // per_token

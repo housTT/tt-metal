@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# tt-perf-report tables for the stage-8 reduced-variant profile of the selected precision config (PERF_PREFILL_128 and PERF_DECODE windows).
 cd /home/hous/dev/tt-metal-wt-qwen3 || exit 3
 PY=/home/hous/dev/tt-metal/python_env/bin/python
 D=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/profile

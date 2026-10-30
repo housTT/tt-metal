@@ -2,6 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Precision config artifact: one JSON that names every dtype and compute-fidelity choice of the Qwen3-8B runtime.
 
+Schema notes: each ``weight_groups`` entry's ``fidelity``, ``fp32_acc``, ``readers`` and ``in0_block_w`` govern the
+DRAM-sharded decode matmul of that group; prefill matmuls take their fidelity from the weight dtype
+(``OptimizedPolicy.prefill_fidelity``: BF16 HiFi4, BFP8 ``prefill.bfp8_fidelity``, BFP4 LoFi) with
+``prefill.fp32_acc`` accumulation, so a group's ``fidelity`` does not change its prefill kernel.
+
 ``build_generator`` reads ``doc/datatype_sweep/selected_precision_config.json`` by default
 (``QWEN3_PRECISION_CONFIG=<path>`` selects another file) and constructs the decoder policies, the
 terminal policy and the KV-cache dtype from it. ``describe_runtime`` reads the dtypes and fidelities
@@ -226,6 +231,9 @@ def describe_runtime(generator: Any) -> dict:
                     name: layer.decode_program_config[name].num_workers_per_dram_bank
                     for name in layer.decode_program_config
                 },
+                "decode_in0_block_w": {
+                    name: layer.decode_program_config[name].in0_block_w for name in layer.decode_program_config
+                },
                 "prefill_compute": {
                     layer._prefill_role[key]: _compute_fidelity(layer._prefill_compute[key])
                     for key in layer._prefill_role
@@ -253,6 +261,7 @@ def describe_runtime(generator: Any) -> dict:
         "lm_head_decode_compute": _compute_fidelity(model.lm_head_decode_compute),
         "lm_head_prefill_compute": _compute_fidelity(model.lm_head_prefill_compute),
         "lm_head_readers": model.lm_head_program_configs[0].num_workers_per_dram_bank,
+        "lm_head_in0_block_w": model.lm_head_program_configs[0].in0_block_w,
         "prefill_logits_dtype": model.terminal_policy.prefill_logits_dtype,
         "decode_logits_dtype": "bf16",
         "sampling_vocab": generator.sampling.args.vocab_size if hasattr(generator.sampling, "args") else None,
@@ -290,6 +299,30 @@ def expected_runtime(config: dict, num_layers: int) -> dict:
                     "up": policy.up_role.readers,
                     "down": policy.down.readers,
                 },
+                "decode_fp32_acc": {
+                    "qkv": policy.qkv.fp32_acc,
+                    "o_proj": policy.o_proj.fp32_acc,
+                    "gate_up": policy.gate_up.fp32_acc,
+                    "up": policy.up_role.fp32_acc,
+                    "down": policy.down.fp32_acc,
+                },
+                "decode_in0_block_w": {
+                    "qkv": policy.qkv.in0_block_w,
+                    "o_proj": policy.o_proj.in0_block_w,
+                    "gate_up": policy.gate_up.in0_block_w,
+                    "up": policy.up_role.in0_block_w,
+                    "down": policy.down.in0_block_w,
+                },
+                "prefill_fidelity": {
+                    "qkv": policy.prefill_fidelity(policy.qkv.dtype),
+                    "o_proj": policy.prefill_fidelity(policy.o_proj.dtype),
+                    "gate_proj": policy.prefill_fidelity(policy.gate_up.dtype),
+                    "up_proj": policy.prefill_fidelity(policy.up_role.dtype),
+                    "down_proj": policy.prefill_fidelity(policy.down.dtype),
+                },
+                "prefill_fp32_acc": policy.prefill_fp32_acc,
+                "norm_fidelity": policy.norm_fidelity,
+                "sdpa_fidelity": policy.sdpa_fidelity,
             }
         )
     terminal = terminal_policy(config)
@@ -299,6 +332,9 @@ def expected_runtime(config: dict, num_layers: int) -> dict:
         "lm_head_dtype": terminal.lm_head_dtype,
         "lm_head_decode_fidelity": terminal.lm_head_decode_fidelity,
         "lm_head_prefill_fidelity": terminal.lm_head_prefill_fidelity,
+        "lm_head_prefill_fp32_acc": terminal.lm_head_prefill_fp32_acc,
+        "lm_head_readers": terminal.lm_head_readers,
+        "lm_head_in0_block_w": terminal.lm_head_in0_block_w,
         "prefill_logits_dtype": terminal.prefill_logits_dtype,
     }
 
@@ -316,6 +352,27 @@ def check_propagation(generator: Any) -> list[str]:
             problems.append(f"layer {exp['layer_idx']} decode fidelity {got_fid} != {exp['decode_fidelity']}")
         if exp["decode_readers"] != got["decode_readers"]:
             problems.append(f"layer {exp['layer_idx']} readers {got['decode_readers']} != {exp['decode_readers']}")
+        got_acc = {name: got["decode_compute"][name]["fp32_acc"] for name in exp["decode_fp32_acc"]}
+        if exp["decode_fp32_acc"] != got_acc:
+            problems.append(f"layer {exp['layer_idx']} decode fp32_acc {got_acc} != {exp['decode_fp32_acc']}")
+        if any(not got["decode_compute"][name]["packer_l1_acc"] for name in exp["decode_fp32_acc"]):
+            problems.append(f"layer {exp['layer_idx']} decode packer_l1_acc off")
+        if exp["decode_in0_block_w"] != got["decode_in0_block_w"]:
+            problems.append(
+                f"layer {exp['layer_idx']} in0_block_w {got['decode_in0_block_w']} != {exp['decode_in0_block_w']}"
+            )
+        got_prefill = {name: got["prefill_compute"][name]["fidelity"] for name in exp["prefill_fidelity"]}
+        if exp["prefill_fidelity"] != got_prefill:
+            problems.append(f"layer {exp['layer_idx']} prefill fidelity {got_prefill} != {exp['prefill_fidelity']}")
+        if any(got["prefill_compute"][name]["fp32_acc"] != exp["prefill_fp32_acc"] for name in exp["prefill_fidelity"]):
+            problems.append(f"layer {exp['layer_idx']} prefill fp32_acc != {exp['prefill_fp32_acc']}")
+        if (
+            got["norm_compute"]["fidelity"] != exp["norm_fidelity"]
+            or got["sdpa_compute"]["fidelity"] != exp["sdpa_fidelity"]
+        ):
+            problems.append(
+                f"layer {exp['layer_idx']} norm/SDPA fidelity {got['norm_compute']['fidelity']}/{got['sdpa_compute']['fidelity']}"
+            )
     for key in ("kv_cache_dtype", "prefill_logits_dtype"):
         if runtime[key] != expected[key]:
             problems.append(f"{key} {runtime[key]} != {expected[key]}")
@@ -325,6 +382,13 @@ def check_propagation(generator: Any) -> list[str]:
         problems.append("lm_head decode fidelity mismatch")
     if runtime["lm_head_prefill_compute"]["fidelity"] != expected["lm_head_prefill_fidelity"]:
         problems.append("lm_head prefill fidelity mismatch")
+    if runtime["lm_head_prefill_compute"]["fp32_acc"] != expected["lm_head_prefill_fp32_acc"]:
+        problems.append("lm_head prefill fp32_acc mismatch")
+    if (
+        runtime["lm_head_readers"] != expected["lm_head_readers"]
+        or runtime["lm_head_in0_block_w"] != expected["lm_head_in0_block_w"]
+    ):
+        problems.append("lm_head readers/in0_block_w mismatch")
     return problems
 
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Chip 0: short-prefix (32-token book prompt, 100 HF tokens) readiness pair for the KV candidate, the baseline and the MLP contenders, then the batch-32 same-input case.
 cd /home/hous/dev/tt-metal-wt-qwen3 || exit 3
 S=models/autoports/qwen_qwen3_8b/doc/full_model/logs/stage_env.sh
 PY=/home/hous/dev/tt-metal/python_env/bin/python

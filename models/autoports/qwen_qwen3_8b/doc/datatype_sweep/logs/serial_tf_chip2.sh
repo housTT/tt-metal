@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Serialized teacher-forcing re-measurement on chip 2 (no other device job on the host) for the contenders whose round-2 rows were concurrent.
-# Usage: serial_tf_chip2.sh <config id> [...]
 cd /home/hous/dev/tt-metal-wt-qwen3 || exit 3
 S=models/autoports/qwen_qwen3_8b/doc/full_model/logs/stage_env.sh
 PY=/home/hous/dev/tt-metal/python_env/bin/python

@@ -7,7 +7,7 @@
     "top5_min": 0.98,
     "top100_min": 1.0,
     "requires_traced_decode": true,
-    "rule": "pass requires the bar on the main AIME24 reference (prefill check and teacher forcing) and on every robustness reference the candidate was evaluated on (second AIME24 prompt, 32-token short-prefix book prompt, 1468 natural-text positions teacher-forced against HF fp32 logits)"
+    "rule": "pass requires the bar on the main AIME24 reference (prefill check and teacher forcing) and on every robustness reference the candidate was evaluated on (second AIME24 prompt, 32-token short-prefix book prompt, 1468 natural-text positions of prefill logits against HF fp32 logits); every candidate faster than the selected one was run on every robustness reference"
   },
   "ranking_metric": "trace-verified teacher-forcing decode t/s/u (batch 1)",
   "selected_config_id": "c9_lm_head_bfp4",
@@ -452,7 +452,7 @@
           "pass": true
         },
         "natural_text": {
-          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "reference": "tale-of-two-cities tokens [32, 1500): TT prefill logits (prefill path, LM head LoFi fp32 acc) against HF fp32 logits at 1468 real next-token positions",
           "chip": 2,
           "top1": 0.8256130814552307,
           "top5": 0.975476861000061,
@@ -641,7 +641,7 @@
           "pass": true
         },
         "natural_text": {
-          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "reference": "tale-of-two-cities tokens [32, 1500): TT prefill logits (prefill path, LM head LoFi fp32 acc) against HF fp32 logits at 1468 real next-token positions",
           "chip": 0,
           "top1": 0.8194822669029236,
           "top5": 0.975476861000061,
@@ -945,7 +945,7 @@
           "pass": true
         },
         "natural_text": {
-          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "reference": "tale-of-two-cities tokens [32, 1500): TT prefill logits (prefill path, LM head LoFi fp32 acc) against HF fp32 logits at 1468 real next-token positions",
           "chip": 1,
           "top1": 0.8344686627388,
           "top5": 0.9782016277313232,
@@ -1134,7 +1134,7 @@
           "pass": true
         },
         "natural_text": {
-          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "reference": "tale-of-two-cities tokens [32, 1500): TT prefill logits (prefill path, LM head LoFi fp32 acc) against HF fp32 logits at 1468 real next-token positions",
           "chip": 0,
           "top1": 0.8297002911567688,
           "top5": 0.9788828492164612,
@@ -1362,9 +1362,20 @@
       "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
       "checkout_dirty_tt": true,
       "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c10_mlp_bfp4_inner_hifi2_chip2.json",
-      "robustness_references": {},
+      "robustness_references": {
+        "natural_text": {
+          "reference": "tale-of-two-cities tokens [32, 1500): TT prefill logits (prefill path, LM head LoFi fp32 acc) against HF fp32 logits at 1468 real next-token positions",
+          "chip": 2,
+          "top1": 0.8297002911567688,
+          "top5": 0.9788828492164612,
+          "pcc_mean": 0.9419652223587036,
+          "pcc_min": 0.30113574862480164,
+          "artifact": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/natural_text_c10_mlp_bfp4_inner_hifi2_chip2.json",
+          "pass": false
+        }
+      },
       "main_reference_pass": true,
-      "status": "pass",
+      "status": "fail",
       "selected": false
     },
     {
@@ -1457,7 +1468,7 @@
       "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c7_gateup_bfp4_inner_chip2.json",
       "robustness_references": {
         "natural_text": {
-          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "reference": "tale-of-two-cities tokens [32, 1500): TT prefill logits (prefill path, LM head LoFi fp32 acc) against HF fp32 logits at 1468 real next-token positions",
           "chip": 1,
           "top1": 0.8467302322387695,
           "top5": 0.9870572090148926,
@@ -1561,9 +1572,94 @@
       "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
       "checkout_dirty_tt": true,
       "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c8_attn_bfp4_inner_chip2.json",
-      "robustness_references": {},
+      "robustness_references": {
+        "aime_p1": {
+          "reference": "bringup/references/qwen3_8b_aime24_chat_p1.refpt",
+          "chip": 1,
+          "prefill_check": {
+            "top1": 0.97,
+            "top5": 1.0,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c8_attn_bfp4_inner_aime_p1_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.97,
+            "top5": 1.0,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c8_attn_bfp4_inner_aime_p1_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 688,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 3
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": true
+        },
+        "book32": {
+          "reference": "bringup/references/qwen3_8b_book32.refpt",
+          "chip": 0,
+          "prefill_check": {
+            "top1": 0.95,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c8_attn_bfp4_inner_book32_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.95,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c8_attn_bfp4_inner_book32_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 688,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 24
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": true
+        },
+        "natural_text": {
+          "reference": "tale-of-two-cities tokens [32, 1500): TT prefill logits (prefill path, LM head LoFi fp32 acc) against HF fp32 logits at 1468 real next-token positions",
+          "chip": 2,
+          "top1": 0.8964577913284302,
+          "top5": 0.9897820353507996,
+          "pcc_mean": 0.9710925221443176,
+          "pcc_min": 0.5478406548500061,
+          "artifact": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/natural_text_c8_attn_bfp4_inner_chip2.json",
+          "pass": false
+        }
+      },
       "main_reference_pass": true,
-      "status": "pass",
+      "status": "fail",
       "selected": false
     },
     {
@@ -1656,7 +1752,7 @@
       "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c11_down_bfp4_inner_chip2.json",
       "robustness_references": {
         "natural_text": {
-          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "reference": "tale-of-two-cities tokens [32, 1500): TT prefill logits (prefill path, LM head LoFi fp32 acc) against HF fp32 logits at 1468 real next-token positions",
           "chip": 1,
           "top1": 0.891008198261261,
           "top5": 0.9931880235671997,
@@ -1836,7 +1932,7 @@
           "pass": true
         },
         "natural_text": {
-          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "reference": "tale-of-two-cities tokens [32, 1500): TT prefill logits (prefill path, LM head LoFi fp32 acc) against HF fp32 logits at 1468 real next-token positions",
           "chip": 0,
           "top1": 0.9094005227088928,
           "top5": 0.997956395149231,
@@ -2226,7 +2322,7 @@
           "pass": true
         },
         "natural_text": {
-          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "reference": "tale-of-two-cities tokens [32, 1500): TT prefill logits (prefill path, LM head LoFi fp32 acc) against HF fp32 logits at 1468 real next-token positions",
           "chip": 2,
           "top1": 0.9189373254776001,
           "top5": 0.997956395149231,
@@ -2446,7 +2542,7 @@
           "pass": true
         },
         "natural_text": {
-          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "reference": "tale-of-two-cities tokens [32, 1500): TT prefill logits (prefill path, LM head LoFi fp32 acc) against HF fp32 logits at 1468 real next-token positions",
           "chip": 2,
           "top1": 0.9679836630821228,
           "top5": 1.0,
