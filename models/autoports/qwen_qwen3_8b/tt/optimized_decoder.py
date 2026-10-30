@@ -101,7 +101,7 @@ class OptimizedPolicy:
     prefill_2d_max_rows: int = 1024
     prefill_2d_in0_block_w: int = 16
     prefill_kernel_table: str = "stage7"
-    prefill_sharded_norm_max_rows: int = 0
+    prefill_sharded_norm_max_rows: int = 1920
 
     def describe(self) -> dict:
         return asdict(self)
@@ -111,8 +111,9 @@ class OptimizedPolicy:
 
         ``stage3``: ``ttnn.linear`` auto config up to ``prefill_interleaved_copy_max_rows``, the explicit 2D
         config for QKV, O and down up to ``prefill_2d_max_rows``, ``minimal_matmul`` otherwise. ``stage7``:
-        the per-role winners of the stage-7 probe (doc/optimized_full_model/probe_candidates.prefill_mm.json)
-        for 64 to 512 rows, the stage-3 rule above 512.
+        the per-role winners of the stage-7 probes (doc/optimized_full_model/probe_candidates.prefill_mm*.json)
+        for 64 to 512 rows, the stage-3 rule above 512. A ``1d`` entry carries
+        ``(cores, in0_block_w, out_subblock_h, out_subblock_w)`` for the 1D multicast config.
         """
         table = PREFILL_KERNEL_TABLES[self.prefill_kernel_table]
         choice = table.get(role, {}).get(rows)
@@ -135,10 +136,15 @@ class OptimizedPolicy:
 PREFILL_KERNEL_TABLES = {
     "stage3": {},
     "stage7": {
-        "qkv": {64: ("auto", 0), 128: ("2d", 8), 256: ("2d", 16), 512: ("2d", 16)},
+        "qkv": {64: ("1d", (110, 4, 2, 2)), 128: ("1d", (110, 4, 2, 2)), 256: ("1d", (110, 8, 2, 2)), 512: ("2d", 16)},
         "o_proj": {64: ("2d", 16), 128: ("2d", 16), 256: ("2d", 16), 512: ("2d", 16)},
-        "gate_proj": {64: ("auto", 0), 128: ("auto", 0), 256: ("2d", 8), 512: ("minimal", 0)},
-        "up_proj": {64: ("auto", 0), 128: ("auto", 0), 256: ("2d", 16), 512: ("2d", 16)},
+        "gate_proj": {
+            64: ("1d", (64, 16, 2, 2)),
+            128: ("1d", (64, 4, 2, 2)),
+            256: ("1d", (110, 16, 1, 4)),
+            512: ("minimal", 0),
+        },
+        "up_proj": {64: ("auto", 0), 128: ("1d", (64, 8, 2, 2)), 256: ("1d", (110, 8, 1, 4)), 512: ("2d", 16)},
         "down_proj": {64: ("2d", 8), 128: ("2d", 8), 256: ("2d", 16), 512: ("2d", 16)},
     },
 }
@@ -575,6 +581,21 @@ class OptimizedDecoder(FusedDecoder):
             fuse_batch=False,
         )
 
+    def _prefill_1d_program_config(self, rows: int, n: int, cores: int, in0_block_w: int, sub_h: int, sub_w: int):
+        """1D multicast (``mcast_in0``) config on the full grid: ``cores`` sets ``per_core_N = ceil(Nt / cores)``."""
+        grid = self.grid
+        return ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
+            compute_with_storage_grid_size=(grid.x, grid.y),
+            in0_block_w=in0_block_w,
+            out_subblock_h=sub_h,
+            out_subblock_w=sub_w,
+            per_core_M=rows // TILE_SIZE,
+            per_core_N=-(-(n // TILE_SIZE) // cores),
+            fuse_batch=True,
+            fused_activation=None,
+            mcast_in0=True,
+        )
+
     def _linear(self, x: ttnn.Tensor, weight: ttnn.Tensor) -> ttnn.Tensor:
         """Prefill projection kernel by chunk rows (measured in work log 3.10, 8.2 and 8.8).
 
@@ -605,6 +626,15 @@ class OptimizedDecoder(FusedDecoder):
                     compute_kernel_config=self._prefill_compute_config(copy),
                     memory_config=ttnn.DRAM_MEMORY_CONFIG,
                 )
+            if kernel == "1d":
+                return ttnn.linear(
+                    x,
+                    copy,
+                    program_config=self._prefill_1d_program_config(rows, weight.shape[-1], *in0_block_w),
+                    dtype=self.activation_dtype,
+                    compute_kernel_config=self._prefill_compute_config(copy),
+                    memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                )
             weight = copy
         return ttnn.experimental.minimal_matmul(
             x,
@@ -621,49 +651,45 @@ class OptimizedDecoder(FusedDecoder):
         """Block-sharded layout and program config for an RMSNorm over ``[1, 1, rows, hidden]`` prefill rows.
 
         Eight core columns split the 128 hidden tiles (block_w 16, subblock 4: the fp32-accumulation cap);
-        the tile rows go to up to ``grid.y`` core rows. Rows above ``prefill_sharded_norm_max_rows`` keep the
-        interleaved kernel (the 4096-row block overflows L1).
+        the tile rows go to up to ``grid.y`` core rows with ``block_h`` tile rows each (the last core row
+        may be partial). ``block_h`` above 6 overflows L1 (dataflow_buffer.cpp:2613), so rows above
+        ``6 * grid.y * 32`` return None and ``_rms_norm`` normalises them in pieces. The per-row reduction
+        across the eight columns does not depend on ``block_h`` or the core-row count, so every row count
+        normalises a given row identically.
         """
         if rows in self._prefill_norm_configs:
             return self._prefill_norm_configs[rows]
         hidden = self.geometry.hidden_size
-        tile_rows = rows // TILE_SIZE
+        tile_rows = -(-rows // TILE_SIZE)
         cores_c = 8
         kt = hidden // TILE_SIZE
         config = None
-        if rows % TILE_SIZE == 0 and kt % cores_c == 0 and 32 <= rows <= self.policy.prefill_sharded_norm_max_rows:
-            block_h = math.ceil(tile_rows / self.grid.y)
-            cores_r = math.ceil(tile_rows / block_h)
-            if cores_r * block_h == tile_rows and cores_c <= self.grid.x:
-                block_w = kt // cores_c
-                core_grid = ttnn.CoreRangeSet(
-                    [ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(cores_c - 1, cores_r - 1))]
-                )
-                memory_config = ttnn.create_sharded_memory_config(
-                    shape=(block_h * TILE_SIZE, block_w * TILE_SIZE),
-                    core_grid=core_grid,
-                    strategy=ttnn.ShardStrategy.BLOCK,
-                    orientation=ttnn.ShardOrientation.ROW_MAJOR,
-                    use_height_and_width_as_shard_shape=True,
-                )
-                program_config = ttnn.LayerNormShardedMultiCoreProgramConfig(
-                    compute_with_storage_grid_size=(cores_c, cores_r),
-                    subblock_w=max(w for w in (1, 2, 4) if block_w % w == 0),
-                    block_h=block_h,
-                    block_w=block_w,
-                    inplace=False,
-                )
-                config = (memory_config, program_config)
+        block_h = -(-tile_rows // self.grid.y)
+        if kt % cores_c == 0 and 1 <= block_h <= 6 and cores_c <= self.grid.x:
+            cores_r = -(-tile_rows // block_h)
+            block_w = kt // cores_c
+            core_grid = ttnn.CoreRangeSet(
+                [ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(cores_c - 1, cores_r - 1))]
+            )
+            memory_config = ttnn.create_sharded_memory_config(
+                shape=(block_h * TILE_SIZE, block_w * TILE_SIZE),
+                core_grid=core_grid,
+                strategy=ttnn.ShardStrategy.BLOCK,
+                orientation=ttnn.ShardOrientation.ROW_MAJOR,
+                use_height_and_width_as_shard_shape=True,
+            )
+            program_config = ttnn.LayerNormShardedMultiCoreProgramConfig(
+                compute_with_storage_grid_size=(cores_c, cores_r),
+                subblock_w=max(w for w in (1, 2, 4) if block_w % w == 0),
+                block_h=block_h,
+                block_w=block_w,
+                inplace=False,
+            )
+            config = (memory_config, program_config)
         self._prefill_norm_configs[rows] = config
         return config
 
-    def _rms_norm(self, x: ttnn.Tensor, weight: ttnn.Tensor) -> ttnn.Tensor:
-        """Prefill RMSNorm: block-sharded over up to 80 cores for the hidden-width chunks, else the stage-1 kernel."""
-        config = None
-        if x.shape[-1] == self.geometry.hidden_size and x.shape[-2] == x.padded_shape[-2]:
-            config = self._prefill_norm_config(x.shape[-2])
-        if config is None:
-            return super()._rms_norm(x, weight)
+    def _sharded_norm(self, x: ttnn.Tensor, weight: ttnn.Tensor, config) -> ttnn.Tensor:
         memory_config, program_config = config
         sharded = ttnn.to_memory_config(x, memory_config)
         normed = ttnn.rms_norm(
@@ -677,6 +703,36 @@ class OptimizedDecoder(FusedDecoder):
         sharded.deallocate(True)
         out = ttnn.sharded_to_interleaved(normed, ttnn.DRAM_MEMORY_CONFIG)
         normed.deallocate(True)
+        return out
+
+    def _rms_norm(self, x: ttnn.Tensor, weight: ttnn.Tensor) -> ttnn.Tensor:
+        """Prefill RMSNorm: block-sharded over up to 80 cores for hidden-width inputs (in pieces of at most
+        ``prefill_sharded_norm_max_rows`` rows), else the stage-1 interleaved kernel."""
+        limit = self.policy.prefill_sharded_norm_max_rows
+        rows = x.shape[-2]
+        hidden = self.geometry.hidden_size
+        if limit <= 0 or x.shape[-1] != hidden or rows % TILE_SIZE:
+            return super()._rms_norm(x, weight)
+        piece_rows = min(limit, 6 * self.grid.y * TILE_SIZE)
+        if rows <= piece_rows:
+            config = self._prefill_norm_config(rows)
+            if config is None:
+                return super()._rms_norm(x, weight)
+            return self._sharded_norm(x, weight, config)
+        pieces = []
+        for lo in range(0, rows, piece_rows):
+            hi = min(rows, lo + piece_rows)
+            config = self._prefill_norm_config(hi - lo)
+            if config is None:
+                for piece in pieces:
+                    piece.deallocate(True)
+                return super()._rms_norm(x, weight)
+            chunk = ttnn.slice(x, [0, 0, lo, 0], [1, 1, hi, hidden], memory_config=ttnn.DRAM_MEMORY_CONFIG)
+            pieces.append(self._sharded_norm(chunk, weight, config))
+            chunk.deallocate(True)
+        out = ttnn.concat(pieces, dim=2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        for piece in pieces:
+            piece.deallocate(True)
         return out
 
     def _prefill_matmul_residual(self, x: ttnn.Tensor, weight: ttnn.Tensor, residual: ttnn.Tensor) -> ttnn.Tensor:

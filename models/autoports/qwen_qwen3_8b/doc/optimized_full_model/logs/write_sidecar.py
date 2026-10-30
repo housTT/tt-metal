@@ -35,6 +35,10 @@ data = (
         "runs": {},
     }
 )
+data["checkout_git_sha"] = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+data[
+    "mesh"
+] = "one Blackhole P300 chip, TT_VISIBLE_DEVICES=2, 1x1 mesh, p150 mesh graph descriptor (runner argument --mesh-device N150)"
 data["runs"][name] = entry
 path.write_text(json.dumps(data, indent=2) + "\n")
 print(name, json.dumps(entry))

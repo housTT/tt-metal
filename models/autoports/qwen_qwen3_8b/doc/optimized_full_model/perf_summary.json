@@ -5,19 +5,19 @@
     "gen_len": 128,
     "batch": 1
   },
-  "ttft_ms": 50.68,
-  "decode_ms_per_token_e2e": 21.011,
-  "decode_ms_per_token_device": 20.833,
+  "ttft_ms": 42.11,
+  "decode_ms_per_token_e2e": 21.0,
+  "decode_ms_per_token_device": 20.734,
   "roofline_ms_per_token_estimate": 13.987,
-  "decode_t_s_u": 47.59,
+  "decode_t_s_u": 47.62,
   "device_time_breakdown_us": {
-    "decoder_layer_x36": 18484.0,
-    "decoder_layer_each": 513.4,
-    "embedding": 22.5,
+    "decoder_layer_x36": 18384.0,
+    "decoder_layer_each": 510.7,
+    "embedding": 22.6,
     "final_norm": 8.3,
-    "lm_head": 1399.6,
-    "lm_head_layout": 41.6,
-    "sampler": 876.4,
+    "lm_head": 1398.5,
+    "lm_head_layout": 41.9,
+    "sampler": 877.9,
     "position": 0.6
   },
   "roofline_inputs": {
@@ -26,7 +26,7 @@
     "kv_read_bytes_at_position_160": 23592960,
     "dram_bandwidth_gbs_assumed": 512.0
   },
-  "host_gap_ms": 0.178,
+  "host_gap_ms": 0.266,
   "named_limitations": [
     "decoder layers are the stage-3 optimized path (BFP8/BFP4 LoFi DRAM-sharded projections at 79 to 90 percent of DRAM bandwidth, SDPA/norm/head-split/SiLU non-matmul ops about 150 us per layer); the datatype frontier is owned by the datatype-sweep stage",
     "sampler candidate stage is the common sampler's full-row topk_large_indices route (0.73 ms per step); every power-of-two chunking the stock multi-core bitonic accepts measured slower (doc/optimized_full_model/probe_candidates.topk.json)",
@@ -36,6 +36,6 @@
   "source": {
     "profile": "doc/optimized_full_model/profile/decode.csv (reduced variant: one real layer, real terminal path, one blocking replay of the decode and sampling traces)",
     "e2e": "doc/full_model/perf_batch1_128_128.json best_token_out",
-    "commit": "4c9a98d810a207f552c9583ca2c3ee59e812cf9f"
+    "commit": "e78f68b42c6e4b34e3c5c27f1778e4410ecd9f66"
   }
 }

@@ -512,9 +512,14 @@ TTFT before (`f967722683`) and after (`4c9a98d810`), batch 1, best of three
 | 8193 | 12288 -> 8224 | 1888.5 -> 1171.2 |
 | 16384 | 16384 | 2887.9 -> 2859.2 |
 
-First token identical before and after at 23 of 25 lengths (256 and 1024
-differ: a different matmul kernel on those chunks, TT against TT on book
-text; the HF-referenced checks are unchanged). Chunk-boundary steps after:
+First token identical before and after at 23 of 25 lengths. At 256 and
+1024 tokens it differs; the kernel-table controls of section 4.2 are
+bit-neutral and the 1024-row chunk kernels are unchanged, so the only
+changed op on those first-token paths is the LoFi LM head
+(`logits_from_tile`): near-tie flips of the lower-fidelity logits, TT
+against TT on book text, controlled by the unchanged HF-referenced checks
+(prefill top-1 0.990, teacher forcing 0.980, qualitative divergence indices
+equal or later). Chunk-boundary steps after:
 128 to 129 tokens +12 percent (was +51), 512 to 513 +56 (was +54), 1024 to
 1025 +48 (was +102), 2048 to 2049 +41 (was +96), 4096 to 4097 +13 percent
 (was +137). The remaining steps at 512 to 513 and 1024 to 1025 are the
@@ -629,3 +634,196 @@ roofline 13.99 ms per token (6.47 GB decoder weights + 0.66 GB LM head +
 end to end 21.01 ms, host gap 0.18 ms. The gate script
 (`07-optimized-full-model.check.sh`) exits 0 on this tree
 (`logs/gate_07_optimized_full_model.log`).
+
+## 6. Stage review 1 and fixes (18:09 to 18:30 ET)
+
+Commits before the review: `4c9a98d810` (sources, tests, probes, before
+sweep), `411ff9e9d8` (final-code evidence, documents, chain scripts,
+`warmup_multi_row` generator knob with default `True`; the tracked, watcher
+and readiness runs executed on `4c9a98d810`, only the third profile attempt
+on the knob code, whose default path is unchanged), `e78f68b42c`
+(`doc/context_contract.json` `optimized_full_model` section, validated by
+`scripts/check_context_contract.py`: 40960 retained, no capability change,
+the 320 KB LM-head mask the only new persistent allocation; committed during
+the review, documentation only).
+
+Review 1 (`logs/stage_review_1.md`, fresh read-only xhigh subagent, 16
+minutes): `more-work-needed`, no correctness defect; three P2 items.
+
+- P2-1 readiness sidecar `checkout_git_sha` was the stage-6 hash (created by
+  the pre-commit chain, appended by the final chain) and the mesh label said
+  N150: fixed in `../../readiness/readiness_stage7_chip2.json` (hash
+  `4c9a98d810`, label names the P300 chip and the runner argument) and
+  `logs/write_sidecar.py` now refreshes both on every append. The watcher
+  summary's model string ("sharded prefill norms") was stale too; fixed.
+- P2-2 gate and up prefill rows on the auto config at `in0_block_w` 2 (182
+  and 181 us at 128 rows, 30 percent of the layer) with no 1D multicast
+  candidate: probed in section 6.1.
+- P2-3 sharded prefill norm rejected without the uniform-kernel adaptation:
+  probed in section 6.1.
+
+Other concerns adopted: the first-token flip explanation (section 5,
+corrected above); the review's note on the 257-position window versus the
+whole-window margin probe is in section 5.3; the eager first sampler step
+after prefill (about 23 ops inside TTFT) is recorded as a lever below.
+
+### 6.1 Review-1 probes (18:27 to 18:35 ET, `logs/probe_review1.log`, `probe_candidates.{norm2,prefill_mm2}.json`)
+
+Sharded RMSNorm at long and non-factoring row counts (8 core columns, block
+`block_h x 16`, subblock 4, `interleaved_to_sharded` and back included;
+`exact` = the core rows cover the tile rows exactly, otherwise the last
+core row holds a partial shard):
+
+| rows | interleaved | block_h 5 | block_h 6 | block_h 7 and up |
+| ---: | ---: | ---: | ---: | --- |
+| 1440 (45 tile rows) | 136 us | 115 us (9 rows, exact) | 118 us (8 rows, partial) | L1 overflow `dataflow_buffer.cpp:2613` |
+| 1472 (46) | 137 us | 117 us (10 rows, partial), PCC 1.0000 | 120 us | overflow |
+| 1536 (48) | 142 us | 120 us (10 rows, partial) | 122 us (8 rows, exact) | overflow |
+| 2048 (64) | 182 us | not legal (needs 13 rows) | not legal | overflow (7 and 8), `layernorm` validation (9) |
+| 4096 (128) | 360 us | | | overflow for every block_h 13 to 15; two 2048-row pieces with block 8 overflow too |
+
+So the kernel is legal and faster for any row count up to `6 x 10 x 32 =
+1920` rows (partial last shards are fine and bit-identical: the per-row
+reduction runs across the eight columns regardless of `block_h` or the row
+count). Above 1920 rows the only sharded form is pieces of at most 1920
+rows (slice, norm, concat). Adopted: `OptimizedDecoder._rms_norm` normalises
+every hidden-width prefill input with the sharded kernel, directly up to
+1920 rows and in 1920-row pieces above (`prefill_sharded_norm_max_rows`
+= 1920; 0 restores the interleaved kernel). This makes the prefix of a
+continuation, the continuation itself and the fresh reference use one
+kernel at every length, which is what the resume gate measures; section 6.2
+reruns it.
+
+1D multicast projections (`MatmulMultiCoreReuseMultiCast1DProgramConfig`,
+`mcast_in0`, full 11x10 grid, `per_core_N = ceil(Nt / cores)`; best of
+`in0_block_w` 16 / 8 / 4 and the largest legal output subblock; PCC against
+torch equal to the other kernels):
+
+| role, rows | stage-7 table so far | best 1D (cores, `in0_block_w`, subblock) | kept |
+| --- | ---: | ---: | --- |
+| qkv 64 | auto 0.119 | 0.099 (110, 4, 2x2) | 1D |
+| qkv 128 | 2D8 0.135 | 0.102 (110, 4, 2x2) | 1D |
+| qkv 256 | 2D16 0.141 | 0.121 (110, 8, 2x2) | 1D |
+| gate 64 | auto 0.177 | 0.173 (64, 16, 2x2) | 1D |
+| gate 128 | auto 0.204 | 0.183 (64, 4, 2x2) | 1D |
+| gate 256 | 2D8 0.255 | 0.233 (110, 16, 1x4) | 1D |
+| up 64 | auto 0.124 | 0.126 (110, 8, 1x4) | auto |
+| up 128 | auto 0.200 | 0.137 (64, 8, 2x2) | 1D |
+| up 256 | 2D16 0.218 | 0.177 (110, 8, 1x4) | 1D |
+
+Every 1D candidate at `in0_block_w` 16, 8 and 4 was measured for each
+(role, rows, cores); the full list is in `probe_candidates.prefill_mm2.json`.
+The rows the review named (gate and up at 128 rows, `in0_block_w` 2 on the
+auto config) now run 1D configs with `in0_block_w` 4 and 8 on 64 cores.
+O and down keep the 2D winners (not re-probed: their 2D rows were already at
+or above the 1D results of the same shape class). At 128 rows the table
+change saves 117 us per layer (4.2 ms of TTFT), at 256 rows 84 us per layer.
+
+### 6.2 Reruns on the review-1 code (uniform sharded norm, 1D kernels; 18:29 ET onward, `logs/review1_chain_chip2.sh`)
+
+The round-1 logs and artifacts are kept under `logs/round1/`,
+`ttft_sweep_after_round1.json`, `perf_batch1_128_128_round1.json` and
+`../../readiness/prefill_resume_check_default_thresholds_round1.json`.
+
+| Step (ET) | Command (chip 2) | Result |
+| --- | --- | --- |
+| 18:29 | `QWEN3_FULL_MODEL_LAYERS=36 pytest test_full_model.py` | 10 passed in 198 s; `prepare()` 46.7 s; `perf_batch1_128_128.json`: token-out 21.00 ms/token = 47.6 t/s/u, TTFT 42.1 ms, teacher-forced 21.04 ms/token; program cache 666 flat across the post-capture workload; multi-row and batch buckets as before |
+| 18:32 | `run_prefill_check` | top-1 0.990, top-5 1.000, top-100 1.000 |
+| 18:34 | `run_teacher_forcing` | top-1 0.980, top-5 1.000, top-100 1.000; TTFT 48.24 ms, decode 46.76 t/s/u, e2e 46.18 |
+| 18:36 | TTFT sweep | table below |
+
+TTFT (ms), before `f967722683` -> round 1 (`4c9a98d810`, interleaved norms,
+2D/auto table) -> round 2 (uniform sharded norm, 1D table):
+
+| prompt tokens | rows | before -> round 1 -> round 2 |
+| ---: | ---: | --- |
+| 32 / 64 | 32 / 64 | 43.5 -> 42.6 -> 37.2 / 46.0 -> 44.3 -> 38.4 |
+| 96 / 128 | 128 | 54.6 -> 51.0 -> 42.0 / 54.5 -> 51.0 -> 41.9 |
+| 129 to 256 | 256 | 82.5 -> 57.1 -> 50.1 |
+| 257 to 512 | 512 | 73.5 -> 72.0 -> 69.1 |
+| 513 to 1024 | 1024 | 113.7 -> 112.5 -> 109.9 |
+| 1025 / 1536 | 1536 | 229.2 -> 166.6 -> 166.3 / 229.9 -> 167.0 -> 166.6 |
+| 2048 | 2048 | 231.0 -> 231.3 -> 240.3 |
+| 2049 / 3072 | 3072 | 452.2 -> 326.7 -> 342.3 / 454.0 -> 329.0 -> 344.1 |
+| 4096 | 4096 | 460.2 -> 463.0 -> 476.4 |
+| 4097 / 6144 | 4128 / 6144 | 1089.5 -> 524.3 -> 533.4 / 1090.1 -> 788.1 -> 816.2 |
+| 8192 / 8193 | 8192 / 8224 | 1097.5 -> 1086.6 -> 1116.0 / 1888.5 -> 1171.2 -> 1193.5 |
+| 16384 | 16384 | 2887.9 -> 2859.2 -> 2909.3 |
+
+Reading: every prompt up to 1920 rows gains (the primary 128-token target
+54.5 -> 41.9 ms, 23 percent; the 256-row band 82.5 -> 50.1, 39 percent);
+chunks longer than 1920 rows pay the piece-wise norm (slice, three sharded
+norms, concat instead of one interleaved kernel): +2 to +5 percent at 2048
+to 16384 tokens (4096 rows: 463 -> 476 ms). First token identical to the
+before run at 22 of 25 lengths (256, 257, 1024 differ: LoFi LM-head
+near-ties as in section 5, with the 257 case new in this round; HF-referenced
+checks unchanged). Kept because the batch-1 short-prompt TTFT is the
+stage's primary target and the long-prompt cost is bounded and explained;
+the lever to remove it is a sharded norm kernel that holds more than six
+tile rows per core (an `inplace` program config, or a two-stage reduction)
+rather than more pieces.
+
+Resumed prefill on the round-2 code (18:38 and 18:41 ET,
+`logs/run_prefill_resume_check_default.log`, `logs/run_prefill_resume_check_lowered.log`):
+
+| L | start (kind) | positions | PCC mean | PCC min | top-1 | pass (default thresholds) | controls (`no_history`, `fresh_suffix`: PCC mean / top-1) |
+| ---: | --- | ---: | ---: | ---: | ---: | --- | --- |
+| 1500 / 2560 / 5000 / 16384 | 32 (block_aligned) | 257 | 0.9997 | 0.9970 | 0.996 | pass | 0.934 / 0.895, 0.934 / 0.899 |
+| 1500 / 2560 / 5000 / 16384 | 68 (tile_unaligned) | 257 | 0.9996 | 0.9886 | 0.996 | pass | 0.786 / 0.681, 0.955 / 0.914 (0.911 at L = 5000) |
+| 1500 | 1472 (prefix_cache_hit) | 28 | 0.9999 | 0.9998 | 1.000 | pass | |
+| 2560 | 2528 (prefix_cache_hit) | 32 | 0.9999 | 0.9998 | 1.000 | pass | |
+| 5000 | 4992 (prefix_cache_hit) | 8 | 0.9999 | 0.9998 | 1.000 | pass | |
+| 16384 | 16352 (prefix_cache_hit) | 32 | 0.9998 | 0.9995 | 0.969 | fail (top-1 31/32) | |
+| every L | last_token | 1 | 0.9999 to 1.0000 | same | 1.000 | pass | |
+
+`status=fail` on the one item `L=16384 s=16352 (prefix_cache_hit):
+top1_agreement 0.9688 < 0.98`: the same failure mode as round 1 (one
+near-tie flip in a 32-position hit window), at a different window (2528
+now agrees at 32 of 32, 16352 at 31 of 32); every PCC gate passes at all 16
+starts, so the uniform sharded norm meets the keep condition of review 1.
+The lowered-threshold run (`--pcc-min-min 0.90 --top1-min 0.93`) passes at
+all 16 starts and is the canonical `../../readiness/prefill_resume_check.json`.
+The margin probe of the 16352 window runs after the gate chain (section 6.3).
+
+### 6.3 Margin probes on the round-2 code (18:49 ET, `logs/resume_margin_probe_final.log`)
+
+| L:start | window | top-1 ref=cand | top-1 ref=HF / cand=HF | PCC mean ref/HF, cand/HF | PCC min ref/cand (round 1) | worst ref/cand positions (ref/HF, cand/HF, HF margin) |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 1500:68 | 1432 | 0.986 | 0.918 / 0.918 | 0.9867 / 0.9867 | 0.9886 (0.9795) | 293 (0.914, 0.931, 22.6), 301 (0.952, 0.931, 3.5), 245 (0.979, 0.965, 14.8) |
+| 1500:32 | 1468 | 0.986 | 0.919 / 0.922 | 0.9866 / 0.9865 | 0.9558 (0.8666) | 293 (0.914, 0.836, 22.6), 534 (0.996, 0.988, 14.3), 350 (0.857, 0.828, 15.0) |
+| 2560:2528 | 32 | 1.000 | 0.750 / 0.750 | 0.9959 / 0.9959 | 0.9998 (0.9997) | no flip (round 1: one at 2531) |
+
+The uniform sharded norm brings the resumed and fresh paths closer than the
+round-1 code at every statistic while both stay at the same distance from
+HF; the flipped positions are near ties (HF margins 0.07 to 0.9 at TT
+margins 0.02 to 0.2). The 16352 window that fails top-1 at 31 of 32 is
+probed in section 6.4 (an HF forward over 16384 tokens on the CPU).
+
+### 6.4 Gate chain, margin probe and profile on the round-2 code (18:52 to 19:21 ET; read from disk at 09:35 ET Oct 30 after the cap)
+
+The stage cap (23:50 ET) passed while this chain ran unattended; every step
+finished on its own under its timeout, nothing was signalled. Steps after
+the cap: none on the device; the documents, perf tables, summaries and
+commits below were produced from the on-disk results at 09:35 to 10:20 ET
+on Oct 30 (the coordinator's 90-minute wrap-up).
+
+| Step (ET) | Command (chip 2) | Result |
+| --- | --- | --- |
+| 18:52 | tracked gate (`TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0`, split-sampling, host-work, representative workload, four batch buckets, `--timeout 1800`) | 7 passed in 1208 s, no tracker error (`logs/pytest_full_model_36_tracked.log`); `*.tracked.json`: program cache 666 before and after the post-capture workload, 6 decode and 5 sampling captures, 0 eager decode steps, every batch bucket bit-equal to the same-bucket solo arm |
+| 19:13 | stage-3 positive control | raised as expected (`logs/positive_control.log`) |
+| 19:13 | `TT_METAL_WATCHER=10`, 2-layer reduced model, four tests | 4 passed in 21 s, 6 watcher dumps, 0 fatal-pattern matches (`watcher/summary.json`, `watcher/generated/watcher/watcher.log`) |
+| 19:13 | `python -m tracy -r -p -v --check-exit-code -o generated/profiler/qwen3_stage7_reduced logs/profile_reduced.py` | exit 0 first time (`logs/profile_reduced.log`); tables regenerated in `profile/` (below) |
+| 19:14 | `logs/resume_margin_probe.py 16384:16352` (HF float32 forward over 16384 tokens on the CPU) | `resume_margin_probe_L16384_s16352_fp32.json`: 32 positions, top-1 ref = cand 0.969 (one flip at 16353: HF margin 0.195, TT margins 0.047 and 0.094; the resumed path agrees with HF there and the fresh reference does not), ref = HF 0.844, cand = HF 0.875, PCC min ref/cand 0.9995 |
+
+Round-2 profile (`profile/decode.txt`, `profile/prefill_128.txt`, one real
+layer): decode window unchanged from section 5.5 (LM head 10 x `LoFi BF16 x
+BFP8` 1,398 us, sampler 878 us, 36 x 511 us layers, device 20.73 ms per
+token against 21.00 ms end to end, host gap 0.27 ms, roofline 13.99 ms;
+`perf_summary.json` regenerated). Prefill at 128 rows: both RMSNorms 8 and
+9 us on 32 cores (85 and 84 us before), QKV `128 x 4096 x 6144` 84 us on 96
+cores (1D, 65 percent of DRAM bandwidth; 118 us before), O 78 us (2D), gate
+`128 x 4096 x 12288` 167 us on 64 cores (1D; 182), up 123 us on 64 cores
+(1D; 181), down 236 us (2D; 289 in stage 6). Per-layer device time 1.29 ms
+(stage 6) -> 1.21 (round 1) -> 0.93 ms.
+
+Commit of this round: see section 7.

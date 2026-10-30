@@ -288,7 +288,9 @@
     "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2, 1x1 mesh, p150 mesh graph descriptor); stages 4 and 5 skipped by the operator",
     "commits": [
       "4c9a98d810",
-      "411ff9e9d8"
+      "411ff9e9d8",
+      "e78f68b42c",
+      "<round-2 commit, see doc/optimized_full_model/work_log.md section 7>"
     ],
     "current_supported_context": 40960,
     "capability_reduction": null,
@@ -339,7 +341,7 @@
         4096
       ],
       "long_prompts": "whole 4096-token chunks plus a bucketed tail, each piece a (chunk start, bucket) program set warmed in prepare() for starts 0 to 36864",
-      "kernel_table": "PREFILL_KERNEL_TABLES['stage7'] (per role and chunk size); prefill norms interleaved (block-sharded variant rejected, work_log 4.2)",
+      "kernel_table": "PREFILL_KERNEL_TABLES['stage7'] (per role and chunk size: 1D multicast, 2D, auto, minimal_matmul); prefill norms block-sharded over 8 core columns for every hidden-width input, in 1920-row pieces above 1920 rows (OptimizedPolicy.prefill_sharded_norm_max_rows=1920)",
       "largest_checked_prefill": 16384,
       "largest_checked_prefill_artifact": "readiness/prefill_resume_check.json (lengths 1500, 2560, 5000, 16384)",
       "largest_checked_non_aligned_prefill": 12345,
@@ -357,8 +359,8 @@
       "largest_executed_decode_position": 40958
     },
     "performance": {
-      "token_out_decode_ms_per_token": 21.011,
-      "ttft_ms_128_tokens": 50.68,
+      "token_out_decode_ms_per_token": 21.0,
+      "ttft_ms_128_tokens": 42.11,
       "artifact": "full_model/perf_batch1_128_128.json, optimized_full_model/ttft_sweep_after.json, optimized_full_model/perf_summary.json"
     },
     "notes": [

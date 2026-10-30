@@ -2,8 +2,8 @@
 
 Status: optimized on one Blackhole P300 chip (chip 2, 1x1 mesh, p150 mesh
 graph descriptor); every accuracy, generation, trace, watcher and gate check
-reran on the final code (commit `4c9a98d810` plus this evidence commit); the
-stage gate script exits 0. Stages 4 and 5 (multichip) were skipped by the
+reran on the final code (the review-2 commit named in `work_log.md` section
+6); the stage gate script exits 0. Stages 4 and 5 (multichip) were skipped by the
 operator; one chip is the target topology. Stage review: see `work_log.md`
 section 6.
 
@@ -18,11 +18,11 @@ token), t/s/u (tokens per second per user), ET (Eastern Time).
 
 | Metric | Before | After | Workload | Artifact |
 | --- | ---: | ---: | --- | --- |
-| Token-out decode (decode trace + sampling trace + one token readback per step) | 21.86 ms/token = 45.7 t/s/u | 21.01 ms/token = 47.6 t/s/u (three runs 21.011 / 21.02 / 21.03) | 128-token book prompt, 128 greedy tokens, `test_perf_batch1` | `../full_model/perf_batch1_128_128.json` (provenance `checkout_git_sha`, `visible_devices 2`) |
-| Teacher-forced decode (same traces, forced token written when it differs) | 21.9 ms/token | 21.06 ms/token | same | same |
-| Token-out TTFT, 128-token prompt | 54.5 ms | 50.7 ms (`test_perf_batch1`), 51.0 ms (sweep) | prefill + first sampled token readback | same; `ttft_sweep_{before,after}.json` |
-| TTFT at every bucket boundary | see table | 129 tokens 82.5 -> 57.1 ms, 1025 tokens 229 -> 167 ms, 2049 tokens 452 -> 327 ms, 4097 tokens 1090 -> 524 ms, 8193 tokens 1889 -> 1171 ms | `logs/ttft_sweep.py`, 25 lengths | `ttft_sweep_before.json`, `ttft_sweep_after.json` |
-| Readiness teacher forcing (AIME24 chat, 158-token prompt, 100 tokens, traced decode and sampler) | TTFT 80.5 ms, 44.9 t/s/u, e2e 43.8; top-1 0.980, top-5 1.000, top-100 1.000 | TTFT 55.2 ms, 46.7 t/s/u, e2e 46.0; top-1 0.980, top-5 1.000, top-100 1.000 | `run_teacher_forcing` | `logs/run_teacher_forcing.log`, `../../readiness/readiness_stage7_chip2.json` |
+| Token-out decode (decode trace + sampling trace + one token readback per step) | 21.86 ms/token = 45.7 t/s/u | 21.00 ms/token = 47.6 t/s/u | 128-token book prompt, 128 greedy tokens, `test_perf_batch1` | `../full_model/perf_batch1_128_128.json` (provenance `checkout_git_sha`, `visible_devices 2`) |
+| Teacher-forced decode (same traces, forced token written when it differs) | 21.9 ms/token | 21.04 ms/token | same | same |
+| Token-out TTFT, 128-token prompt | 54.5 ms | 42.1 ms (`test_perf_batch1`), 41.9 ms (sweep) | prefill + first sampled token readback | same; `ttft_sweep_{before,after}.json` |
+| TTFT at every bucket boundary | see table | 32 tokens 43.5 -> 37.2 ms, 129 tokens 82.5 -> 50.1, 513 tokens 113.7 -> 109.9, 1025 tokens 229 -> 166, 2049 tokens 452 -> 342, 4097 tokens 1090 -> 533, 8193 tokens 1889 -> 1194; prompts of 2048 tokens and more pay 2 to 5 percent for the piece-wise norm (4096: 460 -> 476) | `logs/ttft_sweep.py`, 25 lengths | `ttft_sweep_before.json`, `ttft_sweep_after.json` (round 1 in `ttft_sweep_after_round1.json`) |
+| Readiness teacher forcing (AIME24 chat, 158-token prompt, 100 tokens, traced decode and sampler) | TTFT 80.5 ms, 44.9 t/s/u, e2e 43.8; top-1 0.980, top-5 1.000, top-100 1.000 | TTFT 48.2 ms, 46.8 t/s/u, e2e 46.2; top-1 0.980, top-5 1.000, top-100 1.000 | `run_teacher_forcing` | `logs/run_teacher_forcing.log`, `../../readiness/readiness_stage7_chip2.json` |
 | Readiness prefill check | top-1 0.990, top-5 1.000, top-100 1.000 | top-1 0.990, top-5 1.000, top-100 1.000 | `run_prefill_check` | `logs/run_prefill_check.log` |
 | `prepare()` (two-phase warmup, 36 layers) | 64 s (17 prefill lengths) | 47 s with the kernel cache warm, 89 s on the first build of a new program set (10 buckets, 90 chunk pieces) | build time, not request time | `logs/pytest_full_model_36.log`, `logs/variant_sharded_norm/pytest_full_model_36.log` |
 
@@ -50,7 +50,8 @@ candidate table):
 | --- | --- | --- |
 | LM head decode fidelity HiFi2 -> LoFi (BFP8 weights, same DRAM-sharded geometry) | 10 x `32 x 4096 x N` matmuls 2.26 -> 1.50 ms per token (the HiFi2 row was FLOP-bound at 84 percent); readiness top-1/top-5/top-100 unchanged | `tt/model.py` `TerminalPolicy.lm_head_decode_fidelity`; `QWEN3_LM_HEAD_DECODE_FIDELITY=hifi2` restores |
 | Padded-vocab mask moved from the sampler into the LM head: a persistent `[32, 5120]` bf16-min additive mask on the last split's sharded output (2 us); the sampler is built with `vocab_size = padded_vocab_size` | the common sampler's tail-mask path (two slices, add, concat) cost 106 us per step: greedy sampler trace 0.976 -> 0.869 ms | `tt/model.py` `lm_head_tail_mask`, `tt/generator.py` `_sampling_args` |
-| Prefill projection kernel per role and chunk size (`PREFILL_KERNEL_TABLES["stage7"]`): 2D `MatmulMultiCoreReuseMultiCastProgramConfig` for O and down from 64 rows, QKV from 128, gate and up from 256 (gate `minimal_matmul` at 512); auto config kept where it won | per-role probe at 64 to 512 rows: the 256-row chunk goes from 1.65 to 0.97 ms of matmul per layer, the 128-row chunk saves 80 us per layer | `tt/optimized_decoder.py` `OptimizedPolicy.prefill_kernel`; `QWEN3_PREFILL_KERNEL_TABLE=stage3` restores |
+| Prefill projection kernel per role and chunk size (`PREFILL_KERNEL_TABLES["stage7"]`): 1D multicast `MatmulMultiCoreReuseMultiCast1DProgramConfig` (`mcast_in0`, full grid, `in0_block_w` 4 to 16, output subblocks 2x2 or 1x4) for QKV at 64 to 256 rows, gate at 64 to 256, up at 128 and 256; 2D `MatmulMultiCoreReuseMultiCastProgramConfig` for O and down from 64 rows and for QKV/up at 512; auto config only for up at 64; gate `minimal_matmul` at 512 | per-role probes at 64 to 512 rows (work log 2.2 and 6.1): the 128-row chunk saves 200 us per layer of matmul against the stage-6 kernels, the 256-row chunk 760 us | `tt/optimized_decoder.py` `OptimizedPolicy.prefill_kernel`; `QWEN3_PREFILL_KERNEL_TABLE=stage3` restores |
+| Prefill RMSNorm block-sharded over 8 core columns for every hidden-width input: directly up to 1920 rows (`block_h` up to 6, partial last core row allowed), in 1920-row pieces above (slice, norm, concat) | 95 us on 2 to 32 cores -> 25 to 88 us per norm for 64 to 1024 rows and 142 -> 120 us at 1536; the uniform kernel keeps every prefill path (prefix, continuation, fresh reference) on one reduction, which the resume gate requires (work log 4.2 and 6.2); chunks above 1920 rows pay the pieces (+2 to +5 percent TTFT at 2048 to 16384 tokens) | `tt/optimized_decoder.py` `_rms_norm`, `prefill_sharded_norm_max_rows` (1920; `QWEN3_PREFILL_SHARDED_NORM_MAX_ROWS=0` restores the interleaved kernel) |
 | Prompts longer than one chunk run chunk by chunk through the whole stack with a bucketed tail (4097 tokens compute 4096 + 32 rows instead of 8192); buckets 1536 and 3072 added inside the first chunk | TTFT 4097 tokens 1090 -> 517 ms, 8193 tokens 1889 -> 1173 ms, 1025 tokens 229 -> 166 ms, 2049 tokens 452 -> 328 ms | `tt/model.py` `prefill_pieces`, `prefill_hidden(keep_all_rows)`, `prefill_row_offset`; `tt/generator.py` `prepare` warms every (chunk start, bucket) piece |
 
 Rejected or blocked, with evidence (`work_log.md` 2.1, 2.2):
@@ -73,16 +74,15 @@ Rejected or blocked, with evidence (`work_log.md` 2.1, 2.2):
   (killed by its own timeout) and the sharded-input head split trips the
   watcher (stage 3). Both ops stay on their per-tile-row core split (a
   tt-metal kernel item).
-- Prefill RMSNorm block-sharded over 8 core columns for 64 to 1024-row
-  chunks: 95 us -> 25 to 88 us per norm (PCC 1.0000 against the interleaved
-  kernel) and about 4.8 ms of TTFT at 128 tokens, but the resume check then
-  fails at the default and the lowered thresholds (`pcc_min` 0.8756 at
-  start 68 against 0.9949 without it): the prefix of a continuation (32 or
-  128 rows, sharded norm) and the fresh reference (1536 rows and up,
-  interleaved norm) disagree at one position per window. Attributed by
-  four controls (work log 4.2); rejected, kept as the
-  `QWEN3_PREFILL_SHARDED_NORM_MAX_ROWS=<rows>` experiment knob. At 4096 rows
-  it overflows L1 anyway (`dataflow_buffer.cpp:2604`).
+- Sharded prefill norm limited to 1024 rows (the first variant): the
+  prefix of a continuation (32 or 128 rows, sharded) and the fresh reference
+  (1536 rows and up, interleaved) then disagree at one position per window
+  (`pcc_min` 0.8756 at start 68 against 0.9949), attributed by four controls
+  (work log 4.2); replaced by the uniform sharded norm above. `block_h` of 7
+  tile rows and more overflows L1 (`dataflow_buffer.cpp:2613`) at every row
+  count from 1440 to 4096, including a two-piece 4096 variant with 8-row
+  blocks, so pieces of at most 1920 rows are the only sharded form above
+  1920 rows (work log 6.1).
 
 ## Evidence
 
@@ -92,12 +92,12 @@ Rejected or blocked, with evidence (`work_log.md` 2.1, 2.2):
 | --- | --- | --- |
 | `run_prefill_check` (AIME24 chat reference, 100 tokens, top-100) | top-1 0.990, top-5 1.000, top-100 1.000 | `logs/run_prefill_check.log`, `../../readiness/readiness_stage7_chip2.json` |
 | `run_teacher_forcing` (traced decode) | top-1 0.980, top-5 1.000, top-100 1.000; TTFT 55.17 ms; 46.74 t/s/u | `logs/run_teacher_forcing.log` |
-| `run_autoregressive` (raw 59-token prompt, continuation stress) and `check_degenerate_output --scope autoregressive` | HF and TT 256 coherent tokens, identical first 31 (stage 6: 18); adjacent duplication 0.0, trigram loop 0.027, no degenerate output, exit 0 | `../../readiness_autoregressive/`, `degenerate_output_autoregressive.json` |
-| Shared qualitative suite, chat template, HF control, stage-6 TT control | six prompts, 128 greedy tokens each: every output coherent, on topic, English, HF-like `<think>` structure, 0.0 adjacent duplication, no control tokens; first divergence from HF at tokens 34, 37, 32, 35, 40, 22 (stage 6: 34, 4, 32, 39, 40, 22; prompts 2 and 5 are token-identical to the stage-6 TT output over all 128 tokens) | `qualitative/{qualitative_prompt_format,rendered_prompts,hf_outputs,tt_outputs,tt_counters,verdict}.json` |
+| `run_autoregressive` (raw 59-token prompt, continuation stress) and `check_degenerate_output --scope autoregressive` | HF and TT 256 coherent tokens, identical first 30 (stage 6: 18); adjacent duplication 0.0, trigram loop 0.027, no degenerate output, exit 0 | `../../readiness_autoregressive/`, `degenerate_output_autoregressive.json` |
+| Shared qualitative suite, chat template, HF control, stage-6 TT control | six prompts, 128 greedy tokens each: every output coherent, on topic, English, HF-like `<think>` structure, 0.0 adjacent duplication, no control tokens; first divergence from HF at tokens 34, 37, 32, 35, 33, 22 (stage 6: 34, 4, 32, 39, 40, 22; against the stage-6 TT outputs the first differences are at 119, 4, 112, 35, 33, 88) | `qualitative/{qualitative_prompt_format,rendered_prompts,hf_outputs,tt_outputs,tt_counters,verdict}.json` |
 | Multi-row prefill equals solo (rows 5, 31, 33, 127, 129, 257, 640, 1000) | PCC 1.0000 per row, top-1 equal, rerun and reordered bit-equal | `../full_model/multi_row_prefill.json` |
 | Batched decode equals single-user (32 greedy tokens, same-bucket solo arm) | buckets 8, 16, 24, 32: every user bit-equal, 31 decode and 31 sampling replays, 0 captures | `../full_model/batch_decode_{8,16,24,32}.json` |
 | Determinism | repeated 64-token `generate` bit-equal; repeated prefill bit-equal | `../full_model/host_work_counters.json`, `multi_row_prefill.json` |
-| Resumed prefill (`run_prefill_resume_check`, lengths 1500, 2560, 5000, 16384, block 32, natural text) | default thresholds: every PCC gate passes at all 16 starts (PCC mean 0.9997 to 1.0000, min 0.9897 to 1.0000), both controls fail at every 257-position window, top-1 1.000 everywhere except the 32-position cache-hit window at 2528 (31 of 32, the stage-6 BF16 near-tie flip at position 2531: HF margin 0.032, TT margins 0.016) which makes `status=fail`; lowered thresholds (0.90 / 0.93, stage 6): `status=pass` at all 16 starts, same numbers | `../../readiness/prefill_resume_check_default_thresholds.json`, `prefill_resume_check.json`, `../full_model/resume_margin_probe_L2560_s2528_fp32.json`, `resume_margin_probe_L*_fp32.json` |
+| Resumed prefill (`run_prefill_resume_check`, lengths 1500, 2560, 5000, 16384, block 32, natural text) | default thresholds: every PCC gate passes at all 16 starts (PCC min 0.9886 to 1.0000), both controls fail at every 257-position window, top-1 0.996 to 1.000 everywhere except the 32-position cache-hit window at 16352 (31 of 32, one BF16 near-tie flip, margin probe `resume_margin_probe_L16384_s16352_fp32.json`) which makes `status=fail`; lowered thresholds (0.90 / 0.93, stage 6): `status=pass` at all 16 starts; round 1 (interleaved norms) failed only the 2528 hit window the same way | `../../readiness/prefill_resume_check_default_thresholds.json`, `prefill_resume_check.json`, `../full_model/resume_margin_probe_L2560_s2528_fp32.json`, `resume_margin_probe_L*_fp32.json` |
 
 ### Split-sampling, trace and host-work evidence (this stage's code)
 
@@ -118,9 +118,9 @@ Rejected or blocked, with evidence (`work_log.md` 2.1, 2.2):
 - Trace allocation gate (`TT_METAL_TRACE_ALLOC_TRACKING=1
   TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0`, final code): the split-sampling
   test, the host-work test, the representative workload and the four batch
-  buckets, 7 passed in 1261 s with program-cache allocations included and
+  buckets, 7 passed in 1208 s with program-cache allocations included and
   no tracker error (`logs/pytest_full_model_36_tracked.log`,
-  `../full_model/*.tracked.json`: program cache 639 before and after the
+  `../full_model/*.tracked.json`: program cache 666 before and after the
   post-capture workload, 6 decode and 5 sampling captures for the five
   buckets, 0 eager decode steps, 0 seeded eager steps); the stage-3
   positive control raised in the same environment
@@ -143,9 +143,9 @@ Rejected or blocked, with evidence (`work_log.md` 2.1, 2.2):
 | Term | Value | Source |
 | --- | ---: | --- |
 | Roofline: 6.47 GB of decoder weights + 0.66 GB of LM-head weights + 24 MB of KV reads per token at 512 GB/s | 13.99 ms | `../context_contract.json` byte accounting |
-| Device time per token: 36 x 513 us decoder layer (reduced profile at position about 130) + terminal 2.35 ms | 20.83 ms | `profile/decode.txt` (one blocking replay of the decode and sampling traces, 80 device ops, 2,862 us for one layer plus terminal) |
-| End to end (host wall time per token, nonblocking replay plus one 128-byte token readback) | 21.01 ms | `../full_model/perf_batch1_128_128.json` |
-| Host gap | 0.18 ms | difference |
+| Device time per token: 36 x 511 us decoder layer (reduced profile at position about 130) + terminal 2.35 ms | 20.73 ms | `profile/decode.txt` (one blocking replay of the decode and sampling traces, 80 device ops, 2,860 us for one layer plus terminal) |
+| End to end (host wall time per token, nonblocking replay plus one 128-byte token readback) | 21.00 ms | `../full_model/perf_batch1_128_128.json` |
+| Host gap | 0.27 ms | difference |
 
 Terminal path per token: embedding 23 us (1 core), final RMSNorm 8 us (sharded, 33
 cores), LM head 10 x `32 x 4096 x N` 1,400 us (`LoFi BF16 x BFP8`, 87 percent of
@@ -158,8 +158,8 @@ is 89 percent of the device time and carries the stage-3 policy, so the
 remaining gap is the decoder's non-matmul ops (about 150 us per layer: SDPA,
 SiLU-mul, head split, norms, RoPE gather, cache update) and the sampler's
 candidate stage, both named in `perf_summary.json`. The layer-stack lower
-bound (36 x 513 us = 18.5 ms) plus the terminal path (2.35 ms) is 20.8 ms;
-token-out decode at 21.0 ms is within 1 percent of it.
+bound (36 x 511 us = 18.4 ms) plus the terminal path (2.35 ms) is 20.7 ms;
+token-out decode at 21.0 ms is within 1.3 percent of it.
 
 ## Checklist (optimize skill, single chip)
 
@@ -171,11 +171,11 @@ token-out decode at 21.0 ms is within 1 percent of it.
 | Operation-topology audit | done: work log 1.1 (decode and prefill op sequences, material matmuls, layout conversions, candidates, action) |
 | Multi-device families, lower-movement residual, fused CCL, persistent CCL buffers | not applicable: one chip, no collectives (stages 4 and 5 skipped by the operator) |
 | Best-candidate comparison and final default reproduces it | done: every kept candidate's probe number is reproduced in the final `test_perf_batch1` and TTFT sweep runs on the default code path |
-| Dtype/fidelity policy visible in measured rows | done: `profile/decode.txt` rows 745 to 763 `LoFi BF16 x BFP8` for the LM head, the layer rows unchanged from stage 3 (`LoFi BF16 x BFP8` / `BFP4`); `profile/prefill_128.txt` shows the 44-core 2D QKV, O and down kernels |
+| Dtype/fidelity policy visible in measured rows | done: `profile/decode.txt` LM-head rows `LoFi BF16 x BFP8` (150 us each), the layer rows unchanged from stage 3 (`LoFi BF16 x BFP8` / `BFP4`); `profile/prefill_128.txt` shows the 96-core 1D QKV (84 us), 64-core 1D gate and up (167, 123 us), 44-core 2D O and down (78, 236 us) and the 32-core sharded norms (8 and 9 us) |
 | SDPA and composite ops | unchanged from stage 3 (explicit SDPA configs) |
 | Fused or packed same-input projections | unchanged from stage 3 (QKV packed; gate/up separate for their different dtypes) |
 | Explicit memory, program and compute-kernel configs for important ops | done: LM head (DRAM-sharded config, LoFi compute config, sharded output configs, mask), prefill norms (sharded program config), prefill matmuls (table) |
-| Dominant matmul program-config sweep | done for the LM head (readers, `in0_block_w`/cores, fidelity, `packer_l1_acc`; work log 2.1) and the prefill projections (four kernels x four sizes x five roles; 2.2); decoder decode matmuls carry the stage-3 sweep |
+| Dominant matmul program-config sweep | done for the LM head (readers, `in0_block_w`/cores, fidelity, `packer_l1_acc`; work log 2.1) and the prefill projections (auto, `minimal_matmul`, 2D at `in0_block_w` 16 and 8, 1D multicast at `in0_block_w` 16, 8 and 4 over 110, 96 and 64 cores with the largest legal subblock; work log 2.2 and 6.1); no material prefill row is left on an `in0_block_w` 2 auto config at 64 to 256 rows except up at 64 rows, where auto (0.124 ms) beat every 1D candidate (0.126 and up); decoder decode matmuls carry the stage-3 sweep |
 | Compute fidelity swept per group | done for the LM head (LoFi kept); stage 3 for the decoder |
 | Attention / MLP weight dtype trials, BFP4/LoFi | stage 3 (real weights, real activations; BFP4 attention and BFP4 gate/down rejected on layer-17 delta PCC); not repeated here, `$datatype-sweep` owns the frontier |
 | Clean shard specs and core grids | done: 32 x 4 tiles LM head input, 8 x 16-tile norm blocks, 2D matmul grids 11 x 10 |
@@ -187,7 +187,7 @@ token-out decode at 21.0 ms is within 1 percent of it.
 | Reduced-precision experiments appropriate to this stage | LM head LoFi (kept, readiness unchanged); decoder policy unchanged by design |
 | Performance accounting reconciled, `perf_summary.json` | done: roofline 13.99 ms, device 20.83 ms, end to end 21.01 ms from the same code (`perf_summary.json`) |
 | Batch capability preserved | done: batch-1 primary; buckets 8, 16, 24, 32 bit-equal to solo on this code |
-| Batched prefill (dense work once for all short rows), prefill burst, resume check | batched prefill is implemented by stage 10 per `prefill-features.md` ("Stage 10 implements batched prefill"); this stage leaves the calibration it asks for (single-row prefill cost per bucket: `ttft_sweep_after.json`) and keeps the per-row loop (`multi_row_prefill.json`). Resume check: passes every PCC gate at the default thresholds, fails top-1 only on the 32-position hit window at 2528 (BF16 near tie, margin probes); lowered-threshold run kept beside it (work log 5.1, 5.2) |
+| Batched prefill (dense work once for all short rows), prefill burst, resume check | batched prefill is implemented by stage 10 per `prefill-features.md` ("Stage 10 implements batched prefill"); this stage leaves the calibration it asks for (single-row prefill cost per bucket: `ttft_sweep_after.json`) and keeps the per-row loop (`multi_row_prefill.json`). Resume check: passes every PCC gate at the default thresholds, fails top-1 only on one 32-position hit window (BF16 near tie, margin probes); lowered-threshold run kept beside it (work log 5.1, 5.2, 6.2) |
 
 ## Limitations and open items
 
@@ -196,11 +196,12 @@ token-out decode at 21.0 ms is within 1 percent of it.
   (`$datatype-sweep`), not generator orchestration.
 - `prepare()` grew from 64 to 89 s (90 chunk-piece warms); it runs once per
   process.
-- The prefill norms stay on the interleaved kernel (2 to 32 cores for 64
-  to 1024 rows, 95 us each); a sharded norm used on every row count,
-  including a two-stage variant for 2048 and 4096 rows, would remove the
-  cross-path disagreement that rejected the partial version and is the next
-  prefill lever.
+- Prefill chunks longer than 1920 rows normalise in 1920-row pieces (slice,
+  norm, concat) and pay 2 to 5 percent of TTFT at 2048 to 16384 tokens; a
+  sharded norm kernel that holds more than six tile rows per core (an
+  `inplace` program config or a two-stage reduction) would remove the pieces.
+- The first sampler step after prefill runs eagerly (about 23 sampler ops
+  inside TTFT, 1 to 2 ms); a traced prefill sampler is a small TTFT lever.
 - Continuation prefill at an arbitrary `start_pos` (prefix-cache hits,
   chunked continuations) is still eager with per-offset programs (stage 9/10
   item, unchanged from stage 6).

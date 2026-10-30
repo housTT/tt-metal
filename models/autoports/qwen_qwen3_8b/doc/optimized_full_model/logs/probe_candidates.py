@@ -556,6 +556,188 @@ def prefill_mm_section():
         w_il.deallocate(True)
 
 
+def prefill_mm2_section():
+    """Review-1 item: 1D multicast configs over the full grid for the rows still on the auto config."""
+    roles = {"qkv": (H, 6144, "bfp8"), "gate": (H, 12288, "bfp8"), "up": (H, 12288, "bfp4")}
+    lofi = ckc(ttnn.MathFidelity.LoFi, True, False)
+    ncores = grid.x * grid.y
+    for name, (k, n, dtype) in roles.items():
+        wt = (torch.randn(1, 1, k, n) * 0.02).bfloat16()
+        tt_dtype = {"bfp8": ttnn.bfloat8_b, "bfp4": ttnn.bfloat4_b}[dtype]
+        w_il = ttnn.from_torch(
+            wt, dtype=tt_dtype, layout=ttnn.TILE_LAYOUT, device=mesh, memory_config=ttnn.DRAM_MEMORY_CONFIG
+        )
+        w_ref = ttnn.to_torch(w_il).float()
+        for rows in (64, 128, 256):
+            xt = torch.randn(1, 1, rows, k).bfloat16()
+            x = ttnn.from_torch(xt, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=mesh)
+            ref = xt.float() @ w_ref[0, 0]
+            timed(
+                f"{name} auto rows={rows}",
+                lambda: ttnn.linear(
+                    x, w_il, dtype=ttnn.bfloat16, compute_kernel_config=lofi, memory_config=ttnn.DRAM_MEMORY_CONFIG
+                ),
+                role=name,
+                rows=rows,
+            )
+            mt, nt, kt = rows // 32, n // 32, k // 32
+            for cores in (ncores, 96, 64):
+                per_core_n = -(-nt // cores)
+                for blk in (16, 8, 4):
+                    if kt % blk:
+                        continue
+                    for sub_h, sub_w in ((1, 4), (2, 2), (1, 2), (2, 1), (1, 1)):
+                        if mt % sub_h or per_core_n % sub_w or sub_h * sub_w > 4:
+                            continue
+                        pc = ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
+                            compute_with_storage_grid_size=(grid.x, grid.y),
+                            in0_block_w=blk,
+                            out_subblock_h=sub_h,
+                            out_subblock_w=sub_w,
+                            per_core_M=mt,
+                            per_core_N=per_core_n,
+                            fuse_batch=True,
+                            fused_activation=None,
+                            mcast_in0=True,
+                        )
+                        out = timed(
+                            f"{name} 1D mcast_in0 cores={cores} in0_block_w={blk} sub={sub_h}x{sub_w} per_core={mt}x{per_core_n} rows={rows}",
+                            lambda: ttnn.linear(
+                                x,
+                                w_il,
+                                program_config=pc,
+                                dtype=ttnn.bfloat16,
+                                compute_kernel_config=lofi,
+                                memory_config=ttnn.DRAM_MEMORY_CONFIG,
+                            ),
+                            role=name,
+                            rows=rows,
+                            cores=cores,
+                            in0_block_w=blk,
+                            sub=[sub_h, sub_w],
+                        )
+                        if out is not None:
+                            print(
+                                "RESULT "
+                                + json.dumps(
+                                    {
+                                        "candidate": f"{name} 1D pcc rows={rows} cores={cores} blk={blk} sub={sub_h}x{sub_w}",
+                                        "pcc": pcc(ttnn.to_torch(out), ref),
+                                    }
+                                ),
+                                flush=True,
+                            )
+                        break
+            x.deallocate(True)
+        w_il.deallocate(True)
+
+
+def norm2_section():
+    """Review-1 item: sharded RMSNorm at long and non-factoring row counts; two-piece 4096."""
+    weight = ttnn.from_torch(torch.ones(1, 1, 1, H), dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=mesh)
+    compute = ckc(ttnn.MathFidelity.HiFi4, True, False)
+    kt = H // 32
+    cores_c, block_w = 8, kt // 8
+
+    def config(tile_rows, block_h, cores_r):
+        core_grid = ttnn.CoreRangeSet([ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(cores_c - 1, cores_r - 1))])
+        mem = ttnn.create_sharded_memory_config(
+            shape=(block_h * 32, block_w * 32),
+            core_grid=core_grid,
+            strategy=ttnn.ShardStrategy.BLOCK,
+            orientation=ttnn.ShardOrientation.ROW_MAJOR,
+            use_height_and_width_as_shard_shape=True,
+        )
+        pc = ttnn.LayerNormShardedMultiCoreProgramConfig(
+            compute_with_storage_grid_size=(cores_c, cores_r),
+            subblock_w=4,
+            block_h=block_h,
+            block_w=block_w,
+            inplace=False,
+        )
+        return mem, pc
+
+    for rows in (1440, 1472, 1536, 2048, 3072, 4096):
+        x = ttnn.from_torch(
+            torch.randn(1, 1, rows, H).bfloat16(), dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=mesh
+        )
+        base = timed(
+            f"rms_norm interleaved rows={rows}",
+            lambda: ttnn.rms_norm(
+                x, epsilon=1e-6, weight=weight, compute_kernel_config=compute, memory_config=ttnn.DRAM_MEMORY_CONFIG
+            ),
+            rows=rows,
+        )
+        tile_rows = rows // 32
+        candidates = []
+        for block_h in range(1, tile_rows + 1):
+            cores_r = -(-tile_rows // block_h)
+            if cores_r <= grid.y:
+                candidates.append((block_h, cores_r, cores_r * block_h == tile_rows))
+        tried = 0
+        for block_h, cores_r, exact in candidates:
+            if tried >= 3:
+                break
+            tried += 1
+            mem, pc = config(tile_rows, block_h, cores_r)
+
+            def run():
+                xs = ttnn.to_memory_config(x, mem)
+                y = ttnn.rms_norm(
+                    xs, epsilon=1e-6, weight=weight, program_config=pc, memory_config=mem, compute_kernel_config=compute
+                )
+                return ttnn.sharded_to_interleaved(y, ttnn.DRAM_MEMORY_CONFIG)
+
+            out = timed(
+                f"rms_norm block-sharded 8x{cores_r} block {block_h}x16 rows={rows} exact={exact}",
+                run,
+                rows=rows,
+                block_h=block_h,
+                cores_r=cores_r,
+                exact_cover=exact,
+            )
+            if out is not None and base is not None:
+                print(
+                    "RESULT "
+                    + json.dumps(
+                        {
+                            "candidate": f"pcc rows={rows} block_h={block_h}",
+                            "pcc": pcc(ttnn.to_torch(base), ttnn.to_torch(out)),
+                        }
+                    ),
+                    flush=True,
+                )
+        if rows == 4096:
+            mem, pc = config(64, 8, 8)
+
+            def two_pieces():
+                outs = []
+                for lo in (0, 2048):
+                    piece = ttnn.slice(x, [0, 0, lo, 0], [1, 1, lo + 2048, H], memory_config=ttnn.DRAM_MEMORY_CONFIG)
+                    xs = ttnn.to_memory_config(piece, mem)
+                    y = ttnn.rms_norm(
+                        xs,
+                        epsilon=1e-6,
+                        weight=weight,
+                        program_config=pc,
+                        memory_config=mem,
+                        compute_kernel_config=compute,
+                    )
+                    outs.append(ttnn.sharded_to_interleaved(y, ttnn.DRAM_MEMORY_CONFIG))
+                return ttnn.concat(outs, dim=2, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+
+            out = timed("rms_norm two 2048-row sharded pieces (slice, norm, concat) rows=4096", two_pieces, rows=4096)
+            if out is not None and base is not None:
+                print(
+                    "RESULT "
+                    + json.dumps(
+                        {"candidate": "pcc rows=4096 two pieces", "pcc": pcc(ttnn.to_torch(base), ttnn.to_torch(out))}
+                    ),
+                    flush=True,
+                )
+        x.deallocate(True)
+
+
 SECTIONS = {
     "lmhead": lm_head_section,
     "topk": topk_section,
@@ -563,6 +745,8 @@ SECTIONS = {
     "norm": norm_section,
     "heads": heads_section,
     "prefill_mm": prefill_mm_section,
+    "prefill_mm2": prefill_mm2_section,
+    "norm2": norm2_section,
 }
 for name in sections:
     print(f"SECTION {name}", flush=True)
