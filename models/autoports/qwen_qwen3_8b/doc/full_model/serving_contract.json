@@ -58,7 +58,7 @@
       "kind": "call",
       "status": "supported",
       "evidence": "readiness_vllm/sampling_tests.log",
-      "notes": "served: readiness_vllm/sampling_tests.log, readiness_vllm/prefix_cache_check.json (start_pos at the cached length), readiness_vllm/mixed_shape_trace_reuse.json (multi-row calls, nonzero starts, program cache 461 before and after); generator level: doc/full_model/multi_row_prefill.stage9_tracked.json, readiness/prefill_resume_check.json, doc/vllm_integration/logs/continuation_probe_L2_chip2.json and context_end_probe_L36_chip2.json; model_runner.py:2770-2840. Continuation rows at any start offset and length run through programs prepare() compiled (bucketed windows, runtime-index RoPE and lead rows, host-rolled fill table, chunk_start_idx_tensor); near the context end the window start moves down so the bucket fits"
+      "notes": "served: readiness_vllm/sampling_tests.log, readiness_vllm/prefix_cache_check.json (start_pos at the cached length), readiness_vllm/mixed_shape_trace_reuse.json (multi-row calls, nonzero starts, program cache 444 before and after); generator level: doc/full_model/multi_row_prefill.stage9_tracked.json, readiness/prefill_resume_check.json, doc/vllm_integration/logs/continuation_probe_L2_chip2_final.json and context_end_probe_L36_chip2_v4.json; model_runner.py:2770-2840. Continuation rows at any start offset and length run through programs prepare() compiled (bucketed windows, runtime-index RoPE and lead rows, host-rolled fill table, chunk_start_idx_tensor); near the context end the window start moves down so the bucket fits"
     },
     {
       "item": "prefill_forward: several rows per call with per-row start_pos and prompt_lens ends",
@@ -79,7 +79,8 @@
       "kind": "call",
       "status": "not_supported",
       "declaration": "prefill_forward accepts enable_trace and ignores it: prefill chunks run eagerly (tt/generator.py); the plugin passes enable_trace=trace_mode in ['all'] and does not require prefill traces (model_runner.py:2775)",
-      "reason": "prefill is eager in this stage; requests run unchanged, TTFT is the eager prefill time recorded in doc/full_model/README.md"
+      "reason": "prefill is eager in this stage; requests run unchanged, TTFT is the eager prefill time recorded in doc/full_model/README.md",
+      "notes": ""
     },
     {
       "item": "prefill_forward: empty_slots",
@@ -100,7 +101,8 @@
       "kind": "call",
       "status": "not_supported",
       "declaration": "supports_original_prompt_lens is absent, which the plugin reads as False (model_runner.py:2794)",
-      "reason": "after a preemption the plugin re-prefills accepted tokens as prompt tokens; no exact-output replay through decode is claimed"
+      "reason": "after a preemption the plugin re-prefills accepted tokens as prompt tokens; no exact-output replay through decode is claimed",
+      "notes": ""
     },
     {
       "item": "decode_forward(tokens, page_table, kv_cache, start_pos, sampling_params, enable_trace, read_from_device)",
@@ -121,7 +123,8 @@
       "kind": "call",
       "status": "not_supported",
       "declaration": "model_capabilities['supports_device_penalties'] = False (platform.py:745 reads it; default True)",
-      "reason": "the penalties variant of the sampler trace is not prepared in this stage; requests with penalties take the plugin's host sampling over the logits that decode_forward returns without sampling_params"
+      "reason": "the penalties variant of the sampler trace is not prepared in this stage; requests with penalties take the plugin's host sampling over the logits that decode_forward returns without sampling_params",
+      "notes": ""
     },
     {
       "item": "read_decode_output(tt_out, async_read=True) / process_decode_output_host",
@@ -163,14 +166,15 @@
       "kind": "capability",
       "status": "supported",
       "evidence": "tt/generator.py",
-      "notes": "SeedManager with salt_duplicate_seeds=False (vLLM reproducibility contract); seeds registered at prefill admission, re-registered on reset_batch, slot_remap applied, live slots from positions >= 0, counters aligned to positions (tt/generator.py _apply_sampling_params); seeded steps run the sampler eagerly per the common sampler and are counted in seeded_eager_sampling_steps; tests/test_full_model.py test_seeded_sampling_last (rerun pending the device reset)"
+      "notes": "SeedManager with salt_duplicate_seeds=False (vLLM reproducibility contract); seeds registered at prefill admission, re-registered on reset_batch, slot_remap applied, live slots from positions >= 0, counters aligned to positions (tt/generator.py _apply_sampling_params); seeded steps run the sampler eagerly per the common sampler and are counted in seeded_eager_sampling_steps; tests/test_full_model.py test_seeded_sampling_last (stage 9: the served sampling suite's seeded tests, readiness_vllm/sampling_tests.log)"
     },
     {
       "item": "supports_device_penalties",
       "kind": "capability",
       "status": "not_supported",
       "declaration": "model_capabilities['supports_device_penalties'] = False",
-      "reason": "see decode_forward prompt_tokens/output_tokens; host (compat) sampling serves penalties; the plugin suite tests/tt/test_tt_penalties.py runs through that path"
+      "reason": "see decode_forward prompt_tokens/output_tokens; host (compat) sampling serves penalties; the plugin suite tests/tt/test_tt_penalties.py runs through that path",
+      "notes": ""
     },
     {
       "item": "supports_async_decode",
@@ -184,14 +188,15 @@
       "kind": "capability",
       "status": "supported",
       "evidence": "readiness/prefill_resume_check.json",
-      "notes": "readiness/prefill_resume_check.json (pass at lowered thresholds 0.90/0.93, both controls fail) and readiness/prefill_resume_check_stage9_default_thresholds.json (default thresholds: only the 16352 hit window top-1 31/32, stage-7 margin probe); served: readiness_vllm/prefix_cache_check.json (warm TTFT 64 ms against cold 355 ms, long resume 111 ms, hit rates 1.00/0.00), readiness_vllm/vllm_run_summary.json (apc_log_enabled true), sampling and qualitative verdicts from the same caching-enabled server; prefix-cache hits are continuation prefills that compile nothing after the warmup (doc/vllm_integration/logs/tracked_served/, mixed_shape_trace_reuse.json program cache 461 before and after)"
+      "notes": "readiness/prefill_resume_check.json (pass at lowered thresholds 0.90/0.93, both controls fail) and readiness/prefill_resume_check_stage9_default_thresholds.json (default thresholds: only the 16352 hit window top-1 31/32, stage-7 margin probe); served: readiness_vllm/prefix_cache_check.json (warm TTFT 64 ms against cold 355 ms, long resume 111 ms, hit rates 1.00/0.00), readiness_vllm/vllm_run_summary.json (apc_log_enabled true), sampling and qualitative verdicts from the same caching-enabled server; prefix-cache hits are continuation prefills that compile nothing after the warmup (doc/vllm_integration/logs/tracked_served_final/, mixed_shape_trace_reuse.json program cache 444 before and after)"
     },
     {
       "item": "supports_prefix_caching_sliding_window",
       "kind": "capability",
       "status": "not_supported",
       "declaration": "absent (default False); only read for models with a sliding window (platform.py:838)",
-      "reason": "Qwen3-8B has no sliding window (config.json sliding_window null, use_sliding_window false)"
+      "reason": "Qwen3-8B has no sliding window (config.json sliding_window null, use_sliding_window false)",
+      "notes": ""
     },
     {
       "item": "output_tokens_per_step",
@@ -226,7 +231,7 @@
       "kind": "request_feature",
       "status": "supported",
       "evidence": "readiness_vllm/sampling_tests.log",
-      "notes": "see supports_device_seeded_sampling; the single-slot generate path and the multi-slot serving path are untested on hardware since the fix (pending the device reset)"
+      "notes": "see supports_device_seeded_sampling; the single-slot generate path and the multi-slot serving path are covered in stage 9 by the served sampling suite (readiness_vllm/sampling_tests.log) and the mixed-shape seeded repeats"
     },
     {
       "item": "logprobs (any count, single chip)",
@@ -240,7 +245,8 @@
       "kind": "request_feature",
       "status": "not_supported",
       "declaration": "TTPlatform.validate_request raises for prompt_logprobs (platform.py:882)",
-      "reason": "plugin rejects the request before the model; not a model path"
+      "reason": "plugin rejects the request before the model; not a model path",
+      "notes": ""
     },
     {
       "item": "presence_penalty / frequency_penalty / repetition_penalty",

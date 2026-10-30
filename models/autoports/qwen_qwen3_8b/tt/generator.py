@@ -1000,6 +1000,7 @@ class Qwen3Generator(Generator):
             predictions.append(int(self._read_tokens(state, 1)[0]))
             self.slot_len[0] += 1
             forced = next_input(step, predictions[-1]) if next_input is not None else predictions[-1]
+        state.device_state_valid = False
         return predictions
 
     # ----------------------------------------------------------- budgets

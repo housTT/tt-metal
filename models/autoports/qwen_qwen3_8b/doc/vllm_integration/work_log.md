@@ -668,9 +668,12 @@ Probe v4 (`logs/context_end_probe_L36_chip2_v4.{json,log}`): every case back
 to PCC min >= 0.9975 (full-width cases 0.9996 and 0.9997, top-1 1.000);
 after a decode capture ten served-entry continuations (the five cases plus
 starts 40100, 39000, 37000, 40500 and 38000 with unseen shift amounts) ran
-at program cache 461 before and after, the three continuations of the same
-40959-token prompt (starts 40000, 40100, 40928) all produce token 304, no
-tracker error. The probe's own per-case top-1 gate still marks the
+at program cache 461 before and after, no tracker error. (The served-entry
+phase resets the generator pool before each case, which zeroes the prefix
+blocks, so its tokens prove program-cache stability only; the agreement
+evidence for the same prompt at different starts is phase A of the probe
+and the live-server triple in 9.2, where starts 40000, 40928 and 36864
+return the same four greedy tokens.) The probe's own per-case top-1 gate still marks the
 31-position window at start 40928 (30 of 31) as `fail`, the near-tie class
 of the resume check.
 
@@ -801,3 +804,64 @@ The two earlier runs on interim code (8 passed each) are kept in
 | Commit | Content |
 | --- | --- |
 | `76a55a0fb6` | review-1 fixes and the final evidence (section 8 and 9) |
+
+## Appendix A (continued). Skill gaps met during the review cycle
+
+- `vllm-integration/SKILL.md`, async decode: the skill says a reset that
+  reloads host tokens or positions must drain pending results, but not
+  that a steady step's `start_pos` itself can lag the device by one under
+  overlap. Any adapter state derived from the plugin's position on a steady
+  step (here the page-table redirect) silently corrupts a block boundary;
+  the symptom was greedy text diverging run to run at absolute positions
+  32 and 64. The skill should say: on steady steps use only device-owned
+  or generator-mirrored position state; treat `start_pos` as advisory.
+- `vllm-integration/references/prefill-features.md`, "Continuation
+  invariants": the bucket rounding the rules imply can pass the context
+  end for starts near it (the review-1 P1); the reference should state
+  the bound (`phys_base + compute_len <= max_model_len`) and the shift of
+  the window start as one way to keep the bucket program.
+- `tt-enable-tracing/SKILL.md`: the tracker only checks before a replay;
+  a request with `max_tokens 1` compiles after capture and nothing checks
+  until a later request's decode, which the stage saw as a crash on a
+  different request. The skill should say to end every tracked workload
+  with a decode replay (or to read `num_program_cache_entries()` after
+  each prefill, as the adapter's log line does).
+- `stage-review/SKILL.md` and `vllm-integration/SKILL.md`: the sampling
+  suite's seeded mixed-batch tests can fail from the plugin's per-step
+  host/device routing alone (a seeded request admitted alone takes its
+  first draw on the device and the rest on the host); the skill names the
+  tests as reproducibility-only but gives no way to prove it. The server
+  log admission windows (prefill grouping and per-step mode) were the
+  decisive evidence; a one-line rule ("compare the admission pattern of a
+  passing and a failing run") would save a review cycle.
+- The `.gitignore` `*.log` rule and the 500 KB limit interact with the
+  evidence the review needs (server logs): `.log.gz` beside the plain file
+  worked; the skills could name that convention.
+
+## 10. Stage review 2 and closure (16:07 to 16:40 ET)
+
+Review 2 (`logs/review/stage_review_2.md`, fresh read-only subagent, HEAD
+`bc74e93d1b`): `clean-pass`, no required work; every review-1 item verified
+from artifacts. Its other concerns were closed afterwards: work log 8.7's
+sentence about the served-entry tokens corrected (the probe resets the
+pool before each served-entry case, so those tokens prove program-cache
+stability only); README numbers regenerated from the final
+`readiness_vllm/` JSON (CI burst, prefix cache, ITL p99), the stale logit
+sentence replaced, the host-mode capture count corrected to five, and a
+note added that the primary benchmark ran while chip 0 ran the tracked
+tests on the same host; serving-contract notes updated (program cache
+444, `logs/tracked_served_final/`, probe v4, the seed rows); `generate`
+now invalidates its bucket state at the end so a later `decode_forward`
+reloads the position mirror. The device-versus-host sampler difference at
+temperature 0.01 for the same seed is carried to stage 10 with the device
+penalties item.
+
+Hours used: 13:26 to 16:40 ET on Oct 30 (3 h 14 min; three chips in
+parallel, no idle device time beyond server restarts). Process audit at
+closure: no `EngineCore`, `api_server` or `run_vllm_server` process; no
+holder on `/dev/tenstorrent/0`, `1` or `2`.
+
+| Commit | Content |
+| --- | --- |
+| `bc74e93d1b` | chip-0 tracked tests on the final code, work log |
+| (closure commit) | review 2 record, documentation corrections, contract notes, `generate` mirror hygiene, skill-gaps appendix |

@@ -32,10 +32,15 @@ server `--max-num-seqs 32 --max-model-len 40960 --block-size 32`,
 | --- | ---: |
 | TTFT p50 / p99 | 49.3 ms / 49.3 ms |
 | TPOT mean / p99 | 20.7 ms / 20.7 ms |
-| ITL p50 / p99 | 20.7 ms / 21.1 ms |
+| ITL p50 / p99 | 20.7 ms / 21.5 ms |
 | Decode t/s/u (1000 / mean TPOT) | 48.3 |
 | Aggregate output throughput | 47.8 tok/s |
 | e2e latency | 2.68 s |
+
+Measured while chip 0 of the same host ran the tracked full-model tests
+(15:43 to 16:06 ET); TPOT equals the earlier single-host chains and the
+teacher-forcing bound, so the comparison below is reported with that
+caveat (`tt-device-usage`: host-wall numbers from concurrent one-process-per-chip runs are not same-regime).
 
 The pre-fix server (same launch, generator before the continuation changes,
 `prefix_code_served/vllm_benchmark.json`) measured TTFT p50 47.8 ms, TPOT
@@ -51,8 +56,8 @@ with no token, position or page-table refresh (section 4).
 
 Secondary CI serving-burst profile (vLLM-nightly shape: 100-token prompts,
 100 output tokens, 32 requests, no concurrency cap, greedy, `ignore_eos`;
-`readiness_vllm/vllm_ci_serving_benchmark.json`): TTFT p50 1222 ms / p99
-1223 ms, TPOT mean 25.1 ms / p99 32.8 ms, 871.9 tok/s aggregate, 39.9
+`readiness_vllm/vllm_ci_serving_benchmark.json`): TTFT p50 1218 ms / p99
+1219 ms, TPOT mean 25.1 ms / p99 32.9 ms, 873.2 tok/s aggregate, 39.9
 t/s/u from mean TPOT, 32/32 completed. Not a headline decode number: burst admission serializes 32
 prefills (one row at a time at this stage) and the decode runs at batch 32.
 
@@ -90,8 +95,8 @@ prefills (one row at a time at this stage) and the decode runs at batch 32.
   phase 2 `capture_decode_traces` captures the five device-mode decode and
   sampling traces (buckets 1, 8, 16, 24, 32) before the first request;
   host-mode decode traces are captured on first use (deferred first
-  capture, three in the sampling suite). No trace is released during
-  serving.
+  capture, one per bucket, five in the final sampling suite). No trace is
+  released during serving.
 - Async decode: `decode_forward(read_from_device=False)` returns the
   device handles, `read_decode_output(async_read=True)` enqueues a
   non-blocking read plus an event on CQ 0, `process_decode_output_host`
@@ -151,7 +156,7 @@ out-of-vocabulary scan found 0 invalid ids in every served run.
 | Qualitative (6 prompts, chat template, greedy and sampled T 0.7 / p 0.9, 256 tokens) | served greedy text token-identical to the same-regime generator control (stage-9 code, chip 1, 128 greedy tokens) on every prompt (divergence index 128 = control length); the generator controls on chips 0 and 1 are identical to each other and to the stage-8 control; first divergence from the HF greedy control at tokens 86, 37, 32, 39, 33, 22 (the generator's own numbers since stage 7); every output coherent, on topic, English, HF-like `<think>` structure, adjacent duplication 0.0 to 0.0048, no control-token leakage, no request contamination; degenerate-output check: none | `readiness_vllm/vllm_qualitative_outputs.json`, `qualitative_verdict.json`, `qualitative_control/chip{0,1}/`, `logs/stage_degenerate.log` |
 | Primary benchmark 128/128/1 | section 1 | `readiness_vllm/vllm_benchmark.json` |
 | CI serving burst 100/100/32 | section 1 | `readiness_vllm/vllm_ci_serving_benchmark.json` |
-| Prefix cache (2305-token prompt, APC counters from `/metrics`) | pass: cold TTFT 356 / 354 ms with 0 hits of 2305 queries; warm 64.6 / 65.3 / 63.5 ms with 2304 hits (rate 1.00); warm/cold TTFT ratio 0.182; first token and logprob identical, greedy identical through 16 tokens; long resume (256 new tokens after the 2305 prefix, `/reset_prefix_cache` available): resumed 110.4 ms with hit rate 0.90 against cold 354.6 ms; shared-prefix bench (4 x 2048 prefixes, 128-token suffixes, 32 requests at concurrency 8): hit rate 0.823, 32/32 completed | `readiness_vllm/prefix_cache_check.json`, `vllm_shared_prefix_benchmark.json`, `vllm_run_summary.json` (`apc_log_enabled true`) |
+| Prefix cache (2305-token prompt, APC counters from `/metrics`) | pass: cold TTFT 355 / 354 ms with 0 hits of 2305 queries; warm 64.8 / 64.8 / 64.0 ms with 2304 hits (rate 1.00); warm/cold TTFT ratio 0.182; first token and logprob identical, greedy identical through 16 tokens; long resume (256 new tokens after the 2305 prefix, `/reset_prefix_cache` available): resumed 111.2 ms with hit rate 0.90 against cold 354.2 ms; shared-prefix bench (4 x 2048 prefixes, 128-token suffixes, 32 requests at concurrency 8): hit rate 0.823, 32/32 completed | `readiness_vllm/prefix_cache_check.json`, `vllm_shared_prefix_benchmark.json`, `vllm_run_summary.json` (`apc_log_enabled true`) |
 | Prefill burst (32 x 128-token prompts at concurrency 32, 32 output tokens) | 32/32; TTFT p50 1230 ms, p99 1231 ms, mean 1194 ms; serial reference (same workload, same server, prefix cache reset between): ratios 1.000 (`config_matches true`). Prefill is one row at a time in this stage, so the measurement is its own serial reference; the ratio gate is advisory here and stage 10 owns batched prefill | `readiness_vllm/vllm_prefill_burst_benchmark.json`, `vllm_prefill_burst_serial_benchmark.json` |
 | Mixed-shape trace reuse and request lifecycle (`logs/mixed_shape_check.py`) | 47/47 requests: unseen lengths 129, 130, 131, 5, 33, 257, 1025 solo then repeated (all seven repeats identical, the last one a one-token prefix-cache continuation at start 1024); a concurrent burst of 31 to 4097 tokens; prefix-cache resumes at start 992 (200, 1 and 0 new tokens) and a 5000-token prompt while a 400-token decode ran; greedy -> sampled -> greedy -> seeded -> seeded -> greedy on one prompt (greedy identical, same seed identical); the burst reordered with new lengths; logprobs and penalty requests beside a device-sampled one. 32 prefill calls, 30 rows with nonzero starts, 928 decode steps on buckets 1, 8, 16 (905 device-sampled, 23 host-sampled), 34 `reset_batch` steps, 0 decode or sampling trace captures, program-cache entries 444 before and after, DRAM allocated 31747 MB before and after, 0 out-of-vocabulary ids, 0 trace releases; TTFT p50 84 ms, p99 1367 ms (the burst's last rows wait for the serial prefill of the earlier rows), longest decode pause 1354 ms (same cause) | `readiness_vllm/mixed_shape_trace_reuse.json` |
 | Non-aligned prompt lengths through serving | 129, 130, 131, 5, 33, 257, 1025, 2049, 4097 and 5000-token completions above; the 2305-token prefix-cache prompt; chat prompts of 15 to 25 tokens; near the context end: prompts of 40000, 40956, 40900, 36869, 38000, 40933 and 39956 tokens (section 5) | same, `logs/tracked_served4/served_experiments.json` |
@@ -239,11 +244,11 @@ diverge, work log 8.10). Evidence: section 4, served greedy determinism.
   `model_type qwen3` (`max_num_batched_tokens` raised to 40960); nonzero
   starts in this stage come from prefix-cache hits and the model's own
   4096-row chunking of long windows.
-- Reproducibility of logits through vLLM: greedy repeats are identical
-  across sampled, seeded and host-sampled interleavings (mixed-shape check)
-  and the sampling suite's determinism tests pass; a batch-position logit
-  comparison through vLLM was not run separately (the generator-level
-  `multi_row_prefill` and `batch_decode` tests cover it).
+- Reproducibility of logits through vLLM: top-20 logprob vectors are
+  identical run to run and across decode buckets 1, 8, 16 and 24
+  (`logs/tracked_served2/logit_repro_check.json`), greedy repeats are
+  identical across sampled, seeded and host-sampled interleavings
+  (mixed-shape check) and the sampling suite's determinism tests pass.
 
 ## 7. Reproduction
 
@@ -286,6 +291,13 @@ MODEL_DIR=models/autoports/qwen_qwen3_8b bash /home/hous/dev/skills/plugins/tt-m
   `evidence_chain.sh`, `mixed_shape_check.py`, `continuation_probe.py`,
   `update_serving_contract.py`, `write_sidecar.py`.
 
-## 9. Stage review
+## 9. Stage reviews
 
-Recorded in `work_log.md` section 8 when the review returns.
+Review 1 (`logs/review/stage_review_1.md`, HEAD `85020b4eed`): `more-work-needed`
+(one P1: continuation windows past the context end; three P2: the
+qualitative control regime, the seeded mixed-batch classification and the
+logit reproducibility check, stale contract notes). All fixed with device
+evidence (work log section 8; the served-greedy async defect found on the
+way is section 5). Review 2 (`logs/review/stage_review_2.md`, HEAD
+`bc74e93d1b`): `clean-pass`, no required work; its documentation concerns
+were closed afterwards (work log section 10).
