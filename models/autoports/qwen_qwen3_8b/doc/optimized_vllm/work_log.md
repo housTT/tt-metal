@@ -339,26 +339,46 @@ reason). Serving contract rows updated by
 `readiness_vllm/` archived in `served_final/` (server log gzipped);
 stage 9's final JSON kept in `served_stage9_final/` as the before numbers.
 
-### 8.1 `test_mixed_params_batch`
+### 8.1 `test_mixed_params_batch` (rewritten after review 1, from the saved logs)
 
-Fails in the smoke run and in the full run on the final server (request
-1, `temp=0.01 seed=42`: `'100'` against `'198'`). The server log for the
-two runs of the test: run 1 admitted the seeded request alone
-(`prefill call=1 rows=1 mode=device-sampled`) and the remaining nine
-together with host sampling (`call=2 rows=9 mode=logits`, the batch holds
-a `top_k 100` request above the 32-candidate device ceiling, so
-`check_perform_device_sampling` routes every later step to the host);
-run 2 admitted it alone but host-sampled (`call=9 rows=1 mode=logits`).
-The seeded request's first token therefore comes from the device stream in
-run 1 and from its host generator in run 2, and its later host draws are
-offset by one, which flips the second token at a near tie. The low-
-temperature probe (section 9) shows the device sampler itself returns the
-host argmax at temperature 0.01, so the difference is the stream offset,
-not the sampler. Device penalties removed the penalty-routing cause of
-stage 9 (`test_presence_penalty_mixed_batch` passes); the `top_k 100`
-cause needs a wider device top-k or a plugin routing rule and stays
-reproducibility-only (correctness, logprobs, crash-free serving and the
-qualitative suite pass on the same server).
+The test sends ten requests twice (the second time in shuffled order) and
+asserts that greedy and seeded rows reproduce. The failing row differs per
+run: full suite (`readiness_vllm/sampling_tests.log`): request 0
+(`temp=0.5, seed=42`, the frequency-penalty prompt), `'10, 20, 30'`
+against `'1, 2, 3, 4'`; smoke (`logs/sampling_smoke_full_model.log`):
+request 2 (`temp=0.5, seed=42`), `'10, 2'` against `'3, 6,'`; tracked smoke
+(`logs/tracked_served/sampling_smoke.log`): request 1 (`temp=1.0, seed=7`,
+the top-p prompt), `'5\n ...'` against `'10000000'`.
+
+Server log of the full run (`readiness_vllm/server.log`): run 1 admits
+one row alone, `prefill call=70 rows=1 ends=[3] mode=logits` (the `top_k
+100` request, above `max_device_top_k` 32, so the step is host-sampled),
+then the other nine, `call=71 rows=9 ends=[3, 6, 3, 3, 3, 3, 7, 3, 4]
+mode=device-sampled` (no host-only request in that step: the seeded
+penalised prompts take their first draw on the device sampler); the decode
+steps 540 to 544 are host-sampled (the `top_k 100` request is in the
+batch) and 545 to 549 device-sampled after it finishes. Run 2 admits a
+different lone row device-sampled (`call=72 rows=1 ends=[4]`) and the
+nine others with the `top_k 100` request host-sampled (`call=73 rows=9
+mode=logits`); steps 550 to 553 host, 554 to 558 device. The smoke run
+shows the same flip at calls 11 to 14. Every seeded request of the 9-row
+group therefore takes its first draw on the device in one run and on the
+host in the other, and its later host draws are offset by one; at
+temperature 0.5 and 1.0 that flips tokens without any near tie. The
+`top_k 100` request sets the step mode through the plugin's per-step
+routing (`check_perform_device_sampling`).
+
+Device penalties removed the penalty-routing cause of stage 9
+(`test_presence_penalty_mixed_batch` and the other five penalty tests
+pass; penalised rows are device-sampled whenever the step has no host-only
+request). The `top_k 100` cause needs a device top-k above 32 (the common
+sampler draws from one 32-candidate tile) or a plugin routing rule, and
+stays reproducibility-only: correctness, logprobs, crash-free serving, the
+greedy repeats of the mixed-shape check and the qualitative suite pass on
+the same server. The stage-9 instance of this test (`'198'` against
+`'100'` at temperature 0.01) is the subject of carried item (c), section
+9; the low-temperature probe characterises that instance, not the
+stage-10 rows above.
 
 ## 9. Carried item (c): the device sampler at temperature 0.01 (chip 2, 17:32 to 17:36 ET)
 
@@ -421,6 +441,7 @@ the seeded-stream offset of section 8.1.
 | --- | --- |
 | `2f371d340a` | batched prefill, the batched 2D/1D kernel table, the `stage10` solo table (1D O and down, gate 512 on 1D), device penalties, the acceptance test, probes, generator-level evidence, sidecars, work log |
 | `24a48e130b` | served evidence (`readiness_vllm/` copy in `served_final/`), resume checks, low-temperature probe, serving contract rows, `perf_summary.json`, `qualitative_verdict.json`, README, work log, hook formatting |
+| `4f72f52bb2` | tracked generator-level gate, tracked serving, positive control, gate log, `readiness_vllm/` restored, sidecars, README and work log |
 
 ### 10.1 Tracked generator-level gate (chip 0, 17:29 to 17:53 ET)
 
@@ -436,3 +457,50 @@ calls (74 batched groups, 597 batched rows, 241 single-row rows), 2786
 decode and 2785 sampling replays, 6 decode and 5 sampling captures (the
 module's deferred first captures), 0 eager decode steps, program cache
 650 at the end. Sidecar `readiness/readiness_stage10_chip0.json`.
+
+## 11. Stage review 1 and the fixes (17:55 to 18:40 ET)
+
+Review 1 (`logs/review/stage_review_1.md`, fresh read-only subagent at
+HEAD `4f72f52bb2`): `more-work-needed` with one P2: work log 8.1 and
+README section 6 attributed the `test_mixed_params_batch` failure to the
+stage-9 instance (`'100'` against `'198'`, temperature 0.01) and described
+the admission pattern backwards; the saved logs show other rows failing
+(temperature 0.5 and 1.0 seeded prompts) with the `top_k 100` request
+setting the step mode. Fixed from the saved logs without hardware:
+section 8.1 and README sections 5 (c) and 6 rewritten with the failing
+request per run, the prefill calls 70 to 73 and 11 to 14 with their modes
+and the decode-mode windows, and the stage-9 pair moved to carried item
+(c). Other concerns addressed: README section 1 regime sentence corrected
+(chip 0 ran the tracked tests during the headline benchmark, the stage-9
+regime) and the serial-reference age recorded beside the ratio with the
+like-for-like generator-level pair; `4f72f52bb2` added to the commit
+table; a `regime` field added to every run in the three sidecars; the
+prompt-format control path added to `qualitative_verdict.json`; the
+device-penalty dependencies (plugin `prompt_tokens` / `output_tokens` on
+every penalised step; the `_run_sampling(count_tokens=True)` warmup
+coupling to the common sampler) and the undocumented capability key noted
+in the serving contract. Hard-check gap closed: the adapter now logs
+`ttnn.trace_allocation_config.TRACE_ALLOC_TRACKING` with the two
+environment variables at model init (`qwen3-vllm trace allocation
+tracking in this engine process: True (...)`), and a second tracked
+server run on chip 1 (`logs/tracked_served2/`, `logs/tracked_chain2_chip1.status`)
+shows the line in the engine process beside the same served workload
+(smoke subset, prefix-cache stage, 32 x 128 burst, mixed-shape); results
+in 11.1. The log line runs once at init and changes no numerics; the
+headline and burst evidence stand on the code of `2f371d340a`.
+
+### 11.1 Second tracked server run (chip 1, 18:20 to 18:24 ET)
+
+`doc/vllm_integration/logs/serve.sh 1 8000 3600 TT_METAL_TRACE_ALLOC_TRACKING=1
+TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0` with the adapter log line
+(`logs/tracked_served2/server.log.gz`: `qwen3-vllm trace allocation
+tracking in this engine process: True (TT_METAL_TRACE_ALLOC_TRACKING='1',
+TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE='0')` in `EngineCore_DP0`), healthy
+after 130 s; `logs/tracked_chain2_stage10.sh`: smoke subset (2 passed, 1
+skipped, `test_mixed_params_batch` failed as in 8.1), prefix-cache stage
+pass (ratio 0.156), the 32 x 128 burst 32 of 32 (TTFT p50 487.4 ms,
+ratios 0.396 / 0.397 against the serial reference, 32 decode replays
+after it), mixed-shape 47 of 47 (0 captures, 0 releases, program cache
+651 flat, greedy repeats identical); no `still alive` line, `/health` 200
+at the end, stopped at idle (2 s), chip released. `readiness_vllm/`
+restored from `served_final/` afterwards (md5 identical).

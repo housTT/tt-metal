@@ -1,0 +1,51 @@
+# Stage Review (review 1, fresh read-only subagent, HEAD 4f72f52bb2, 2026 Oct 30 17:57 to 18:15 ET)
+
+Verdict: more-work-needed
+
+One P2 only. It is a record defect in the anomaly classification of the sampling suite, fixable from the saved server log without hardware. Every contract item of the stage is otherwise met and re-derived from the artifacts. No plugin or vLLM change was made, so no item needs human authorization.
+
+## Required Work
+
+- P2: Section 8.1 of the work log and section 6 of the README attribute the `test_mixed_params_batch` failure to an instance that does not exist in this stage's saved runs.
+  Evidence: work log 8.1 says the test "fails in the smoke run and in the full run on the final server (request 1, `temp=0.01 seed=42`: `'100'` against `'198'`)" and that "run 1 admitted the seeded request alone (`prefill call=1 rows=1 mode=device-sampled`)". The saved full-suite log `readiness_vllm/sampling_tests.log` lines 180 to 187 record the failure as `Request 0 ... temp=0.5, seed=42, Run 1: '10, 20, 30', Run 2: '1, 2, 3, 4'`: a penalised seeded request, not the temperature-0.01 one. The saved smoke log `logs/sampling_smoke_full_model.log` lines 104 to 108 record `Request 2 ... temp=0.5, seed=42, '10, 2' vs '3, 6,'`. The tracked smoke log `logs/tracked_served/sampling_smoke.log` lines 104 to 108 record `Request 1 ... temp=1.0, seed=7` (the top-p request). The `'100'` / `'198'` pair and the "admitted alone" description come from stage 9 (`doc/vllm_integration/work_log.md` lines 377 to 380 and 697 to 698). The server log supports the stage-9 mechanism for the requests that actually failed, with the admission pattern inverted relative to the work log's text. Full run (`readiness_vllm/server.log`): run 1 is `call=70 rows=1 ends=[3] mode=logits` (the lone row is the `top_k 100` request) followed by `call=71 rows=9 ends=[3, 6, 3, 3, 3, 3, 7, 3, 4] mode=device-sampled` (the 6- and 7-token penalised seeded prompts take their first draw on the device); run 2 is `call=72 rows=1 ends=[4] mode=device-sampled` followed by `call=73 rows=9 ends=[3, 6, 3, 3, 3, 7, 3, 3, 3] mode=logits` (the same prompts take their first draw on the host). After each group the decode steps are host-sampled for 4 steps (541 to 544, 550 to 553) and device-sampled after the `top_k 100` request finishes (545 to 549, 554 to 558). The smoke run shows the same flip at calls 11 to 14. At temperature 0.5 a one-draw stream offset flips tokens without any near tie, so the class is better supported than the work log's temperature-0.01 narrative.
+  Why this matters: the work log is the record a later stage uses to recognise this failure class. As written it states a result that no saved artifact shows, names the wrong request, and describes the admission pattern backwards. The reviewer had to redo the mapping. The low-temperature probe (carried item (c)) characterises the stage-9 instance and stays valid as that carried item, but it is not evidence for the stage-10 failures.
+  Required next step: rewrite section 8.1 and README section 6 from the saved logs (no hardware): name the failing request per run, cite the prefill call lines and modes (11 to 14, 70 to 73) and the decode-mode windows, state that the `top_k 100` request sets the step mode and that every seeded request in the 9-row group changes sampler between runs, and move the `'100'` / `'198'` sentence to the carried-item (c) paragraph as the stage-9 instance. Keep the classification reproducibility-only.
+
+## Other Concerns
+
+- Serial reference age. The burst gate uses stage 9's serial file, measured with the stage-7 solo kernel table. The stage-10 solo table is faster (generator TTFT 42.1 to 37.9 ms), so an in-stage serial run with `QWEN3_BATCHED_PREFILL=0` would be the like-for-like reference. The operator brief accepted the stage-9 reference, `config_matches` is true, and the generator-level pair on the final code (`logs/batched_prefill_probe_L36_chip2_v2.json`: serial 1094.9 ms, batched 426.6 ms, ratio 0.39) shows the gate holds either way. Record this in the README beside the ratio.
+- README section 1 says the headline benchmark ran "while chip 0 ran the untracked full-model tests". Chip 0 ran the tracked tests at that time. Correct the sentence. The regime matches stage 9.
+- Regime label. `tt-device-usage` asks for a `serial` or `concurrent` label in each measurement's sidecar; the sidecars carry chip, command and times but no regime field. Add the field.
+- Commit record. The work log's commit table lists `2f371d340a` and `24a48e130b` only; `4f72f52bb2` is not logged. Push state per the run plan: the supervisor pushes.
+- `prepare()` warms the penalties-on sampler through the common sampler's private `_run_sampling(..., count_tokens=True)` because the public `precompile` skips the count update; a maintenance coupling to `models/common/sampling/generator.py`. Note the dependency.
+- Prefill-time `reset_output_state()` in `_apply_sampling_params` clears the device penalty counts of every live slot on each admission; the next reload step restores them from the plugin's `output_tokens`, which the pinned plugin populates on every penalised step. Record the dependency in the serving-contract row.
+- Qualitative evidence reuses the stage-7 HF control and prompt-format record without naming `doc/optimized_full_model/qualitative/qualitative_prompt_format.json` in `qualitative_verdict.json`. Add the path.
+
+## Hard-Check Gaps
+
+- Tracked serving has no in-process proof that the tracker was active in the engine. The environment path is sound; the tracked server ran at the untracked speed, explained by `freeze_gc_heap()` in vLLM's engine core making the tracker's per-replay `gc.collect()` cheap; the positive control ran in a separate process. A one-line adapter log of `ttnn.trace_allocation_config.TRACE_ALLOC_TRACKING` at init would close this gap in future tracked runs.
+- The stage gate script exits 1 on the advisory for the resume check at lowered thresholds; `prefill-features.md` accepts a lowered pass with the default run and margin probe beside it, and both are present, so the exit code is a gate-wording limit, not a stage defect.
+- `supports_device_penalties` is read by the pinned plugin (`platform.py` lines 579 and 745) but is not described in the plugin's `docs/` or `README.md`. Note it in the serving contract's `documents_read` row.
+- The `prefix_cache` stage of the tracked chain ran with `--no-prefix-cache-shared-bench`; the untracked run has the shared-prefix bench (pass).
+
+## Anomaly Ledger
+
+- `test_mixed_params_batch` fails in the full, smoke and tracked-smoke runs with different requests each time. Evidence: the three logs and server-log calls 11 to 14 and 70 to 73. Affected path: plugin per-step host/device routing for a batch holding a `top_k 100` request. Control: the 9-row group's prefill mode flips between the two runs; greedy repeats identical; same-seed repeats identical under one sampler; logprobs and the other 71 tests pass. Likely subsystem: seeded RNG stream split across two samplers. Resolution: controlled for the class; record correction required (P2).
+- Resume check at default thresholds fails one gate (top-1 31 of 32 at start 16352). Every per-start number identical to the stage-9 default run; stage-7 margin probe applies. Resolution: controlled.
+- First batched kernel policy (`minimal_matmul` above 256 dense rows) was not bit equal to solo rows; bisect and sweeps isolated the down projection under `minimal_matmul`; fixed with `BATCHED_PREFILL_KERNEL_TABLE` at 0.83 ms per layer. Resolution: fixed.
+- Single-user TTFT changed by more than 5 percent (49.3 to 44.6 ms, minus 9.5 percent) from the contracted 1D O and down kernels; TPOT unchanged. Resolution: controlled (an improvement; the 5 percent bound guards regression).
+- Tracked server as fast as the untracked server; explained by `freeze_gc_heap()`; positive control raised in a separate process. Resolution: controlled; in-process proof line under Hard-Check Gaps.
+
+## Scope Inspected
+
+Goal and skill paths, every artifact listed in the review brief under `doc/optimized_vllm/`, `readiness_vllm/`, `doc/full_model/`, `readiness/`, stage-9 and stage-7 documents; code diff `534fb6fda1..HEAD` for the five source and test files, `ast.dump` identity of `2f371d340a` against HEAD (AST identical), the common sampler, plugin `platform.py`, `model_runner.py`, `tests/tt/test_request_isolation.py`, vLLM `v1/engine/core.py`, the in-tree readiness runner, the tt-metal tracker modules. Read-only commands only; no device opened, no server started.
+
+Re-derived numbers: single-user 128/128/1 TTFT p50 49.299 to 44.592 ms (minus 9.55 percent), TPOT mean 20.714 to 20.707 ms, ITL p50 20.674 to 20.677 ms, throughput 47.75 to 47.86 tok/s, 48.28 to 48.29 t/s/u. CI burst 100/100/32: TTFT p50 1217.9 to 477.5 ms, TPOT mean 25.06 to 24.82 ms, throughput 873.2 to 1094.4 tok/s, 32 of 32. Burst 32 x 128: TTFT p99 481.05 ms, mean 467.00 ms against serial 1231.87 and 1194.54 ms; ratios 0.3905 and 0.3910; `config_matches` true; first run 0.3932 and 0.3937; tracked run 0.4026 and 0.4034. Batched equals solo: seven cases, every row bit equal, K/V pages of layers 0 and 35 bit equal, program cache 645 (650 tracked) flat; batch decode 8/16/24/32 identical for all 32 tokens; 22-shape probe program cache 645 flat. Served program cache 651 on all 6909 adapter lines; mixed-shape 47 of 47, 0 captures, 0 releases; prefix cache pass with ratio 0.180; `max_model_len` 40960; plugin and vLLM checkouts clean at `f96662a7d`.
+
+## Residual Risk
+
+- Seeded requests that share a batch with a request above the 32-candidate device top-k still change sampler mid-stream; `test_mixed_params_batch` stays a known reproducibility-only failure.
+- Headline single-user numbers were measured beside two busy chips on the same host, as in stage 9.
+- Tracker activity inside the served engine rests on environment inheritance and the clean result, not on an in-process assertion.
+- Batched prefill covers fresh rows up to 512 tokens; longer bursts and prefix-cache hits still serialize.
+- The device-penalty path depends on the plugin sending `prompt_tokens` and `output_tokens` on every penalised step.

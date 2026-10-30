@@ -40,7 +40,8 @@
       "started_utc": null,
       "ended_utc": null,
       "recorded_utc": "2026-10-30T21:30:30Z",
-      "note": "device penalties at the generator level (plugin call pattern); first attempt crashed in capture (uncounted precompile), fixed"
+      "note": "device penalties at the generator level (plugin call pattern); first attempt crashed in capture (uncounted precompile), fixed",
+      "regime": "concurrent (chips 0 and 2 busy)"
     },
     "served_chain_final": {
       "checkout_git_sha": "24a48e130b349ee8467725b198422f9d04e5e22a",
@@ -93,7 +94,8 @@
       "started_utc": "2026-10-30T21:29:46Z",
       "ended_utc": "2026-10-30T21:38:46Z",
       "recorded_utc": "2026-10-30T21:44:49Z",
-      "note": "final server on chip 1 (commit 2f371d340a code; later commits reformat only, AST identical); the chain's first attempt aborted on the smoke result (attempt1 status file)"
+      "note": "final server on chip 1 (commit 2f371d340a code; later commits reformat only, AST identical); the chain's first attempt aborted on the smoke result (attempt1 status file)",
+      "regime": "concurrent (chip 0 tracked pytest, chip 2 resume check and low-temperature probe)"
     },
     "tracked_served": {
       "checkout_git_sha": "24a48e130b349ee8467725b198422f9d04e5e22a",
@@ -140,7 +142,8 @@
       "started_utc": "2026-10-30T21:40:06Z",
       "ended_utc": "2026-10-30T21:43:31Z",
       "recorded_utc": "2026-10-30T21:44:49Z",
-      "note": "no tracker error on the smoke subset, the prefix-cache stage, the 32 x 128 burst (batched prefill, decode replays after) and the mixed-shape workload; program cache 651 flat"
+      "note": "no tracker error on the smoke subset, the prefix-cache stage, the 32 x 128 burst (batched prefill, decode replays after) and the mixed-shape workload; program cache 651 flat",
+      "regime": "concurrent (chip 0 tracked pytest)"
     },
     "positive_control": {
       "checkout_git_sha": "24a48e130b349ee8467725b198422f9d04e5e22a",
@@ -185,7 +188,43 @@
       "started_utc": null,
       "ended_utc": null,
       "recorded_utc": "2026-10-30T21:44:49Z",
-      "note": "raised as expected: Found 1 device buffer(s) still alive before trace replay"
+      "note": "raised as expected: Found 1 device buffer(s) still alive before trace replay",
+      "regime": "serial"
+    },
+    "tracked_served2": {
+      "checkout_git_sha": "4f72f52bb22b052eebf0cb7f400cc7634f4da333",
+      "dirty_autoport_files_at_record_time": [
+        "M models/autoports/qwen_qwen3_8b/doc/full_model/serving_contract.json",
+        " M models/autoports/qwen_qwen3_8b/doc/optimized_vllm/README.md",
+        " M models/autoports/qwen_qwen3_8b/doc/optimized_vllm/logs/qualitative_verdict_stage10.py",
+        " M models/autoports/qwen_qwen3_8b/doc/optimized_vllm/logs/update_serving_contract_stage10.py",
+        " M models/autoports/qwen_qwen3_8b/doc/optimized_vllm/qualitative_verdict.json",
+        " M models/autoports/qwen_qwen3_8b/doc/optimized_vllm/work_log.md",
+        " M models/autoports/qwen_qwen3_8b/readiness/readiness_stage10_chip0.json",
+        " M models/autoports/qwen_qwen3_8b/readiness/readiness_stage10_chip1.json",
+        " M models/autoports/qwen_qwen3_8b/readiness/readiness_stage10_chip2.json",
+        " M models/autoports/qwen_qwen3_8b/readiness_vllm/sampling_tests.log",
+        " M models/autoports/qwen_qwen3_8b/readiness_vllm/server.log.gz",
+        " M models/autoports/qwen_qwen3_8b/readiness_vllm/vllm_prefill_burst_benchmark.log",
+        " M models/autoports/qwen_qwen3_8b/tt/generator_vllm.py",
+        "?? models/autoports/qwen_qwen3_8b/doc/optimized_vllm/logs/review/",
+        "?? models/autoports/qwen_qwen3_8b/doc/optimized_vllm/logs/tracked_chain2_chip1.status",
+        "?? models/autoports/qwen_qwen3_8b/doc/optimized_vllm/logs/tracked_chain2_stage10.sh",
+        "?? models/autoports/qwen_qwen3_8b/doc/optimized_vllm/logs/tracked_served2/"
+      ],
+      "chip": "1",
+      "command": "doc/vllm_integration/logs/serve.sh 1 8000 3600 TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0; doc/optimized_vllm/logs/tracked_chain2_stage10.sh 8000 doc/optimized_vllm/logs/tracked_chain2_chip1.status",
+      "log": "doc/optimized_vllm/logs/serve_runner_tracked2_chip1.log",
+      "artifacts": [
+        "doc/optimized_vllm/logs/tracked_served2"
+      ],
+      "exit_code": null,
+      "started_utc": "2026-10-30T22:20:33Z",
+      "ended_utc": "2026-10-30T22:23:45Z",
+      "recorded_utc": "2026-10-30T22:24:16Z",
+      "note": "review-1 hard-check gap: the engine process logs the tracker flag True; no tracker error; regime serial (chips 0 and 2 idle)",
+      "regime": "serial (chips 0 and 2 idle)"
     }
-  }
+  },
+  "regime_note": "host-wall numbers from one-process-per-chip runs; 'concurrent' names the other chips in use (tt-device-usage)"
 }

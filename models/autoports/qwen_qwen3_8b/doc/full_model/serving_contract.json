@@ -22,7 +22,8 @@
     "tests/tt/test_tt_penalties.py",
     "tests/tt/test_request_isolation.py",
     "tests/tt/test_host_only_params.py",
-    "tests/tt/test_structured_output_dp1.py"
+    "tests/tt/test_structured_output_dp1.py",
+    "src/vllm_tt_plugin/platform.py (supports_device_penalties read at 579/745; not in docs/ or README)"
   ],
   "rows": [
     {
@@ -175,7 +176,7 @@
       "status": "supported",
       "declaration": "model_capabilities['supports_device_penalties'] = False",
       "reason": "see decode_forward prompt_tokens/output_tokens; host (compat) sampling serves penalties; the plugin suite tests/tt/test_tt_penalties.py runs through that path",
-      "notes": "model_capabilities['supports_device_penalties'] = True; the common SamplingGenerator's TTPenalties path (presence, frequency, repetition) with a penalties-on sampling trace per decode bucket captured in warmup_model_decode (readiness_vllm/server.log 'device+penalties'); test_tt_penalties.py through the device sampler; doc/optimized_vllm/logs/penalty_probe_L2_chip1.json",
+      "notes": "model_capabilities['supports_device_penalties'] = True; the common SamplingGenerator's TTPenalties path (presence, frequency, repetition) with a penalties-on sampling trace per decode bucket captured in warmup_model_decode (readiness_vllm/server.log 'device+penalties'); test_tt_penalties.py through the device sampler; doc/optimized_vllm/logs/penalty_probe_L2_chip1.json. Dependencies: (1) the pinned plugin sends prompt_tokens and output_tokens on every decode step that needs penalties (model_runner.py 1309-1341), which the generator relies on because a prefill admission resets the device output counts of every slot and the next reload step restores them from output_tokens; (2) prepare() warms the penalties-on sampler through SamplingGenerator._run_sampling(count_tokens=True) because the public precompile() skips the output-count update (models/common/sampling/generator.py); the key is read by platform.py:579/745 and is not described in the plugin's docs/ or README",
       "evidence": "readiness_vllm/sampling_tests.log"
     },
     {

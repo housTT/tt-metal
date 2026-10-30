@@ -43,10 +43,12 @@ stage 9's final server with the same launch line,
 
 Single-user TTFT and TPOT are within the 5 percent envelope (TTFT is 4.7
 ms lower from the carried 1D O and down prefill kernels, section 3.2;
-TPOT equal). Measured while chip 0 ran the untracked full-model tests and
-chip 2 the resume check on the same host; TPOT equals the stage-8 and
-stage-9 single-host numbers, so the host-wall regime caveat of
-`tt-device-usage` is recorded but does not change the comparison.
+TPOT equal). Regime: concurrent, measured while chip 0 ran the tracked
+full-model tests (17:29 to 17:53 ET) and chip 2 the resume check on the
+same host, the same regime as stage 9's headline (its benchmark also ran
+beside a chip-0 tracked run); TPOT equals the stage-8 and stage-9
+single-host numbers, so the host-wall caveat of `tt-device-usage` is
+recorded and the before/after comparison is like for like.
 
 Generator-level lower bound (stage 8, teacher forcing, traced decode and
 sampler): 47.24 t/s/u, TTFT 48.05 ms (158-token prompt). Serving decode is
@@ -85,7 +87,14 @@ Batched-prefill gate (`readiness_vllm/vllm_prefill_burst_benchmark.json`,
 request count and concurrency; the reference is
 `doc/optimized_vllm/vllm_prefill_burst_serial_benchmark.stage9.json`, a
 copy of stage 9's `readiness_vllm/vllm_prefill_burst_serial_benchmark.json`,
-passed as `--prefill-burst-serial-result`). The stage ran twice on the
+passed as `--prefill-burst-serial-result`, as the operator brief
+directs). That reference was measured with the stage-7 solo kernel table;
+the stage-10 solo table is faster (single-row 128-token prefill 36.5
+against about 37 ms), so an in-stage serial run would give slightly
+smaller denominators. The generator-level pair on the final code
+(`logs/batched_prefill_probe_L36_chip2_v2.json`: 32 x 128 serial call
+1094.9 ms, batched 426.6 ms, ratio 0.39) shows the gate holds against a
+like-for-like serial reference as well. The stage ran twice on the
 same server (first run p99 ratio 0.393, mean 0.394, `logs/stage_prefill_burst.log`;
 the JSON holds the repeat), 32 of 32 completed each time. The 31-row
 batched call takes 422 ms in the server log (`prefill call=207 rows=31
@@ -253,18 +262,22 @@ archived in `served_final/` (server log gzipped).
 | --- | --- |
 | (a) 1D multicast O and down prefill kernels (stage-7 review-2 P2) | integrated in the `stage10` table (section 2); generator TTFT 42.1 -> 37.9 ms, served TTFT p50 49.3 -> 44.6 ms; continuation numerics unchanged (resume check identical to stage 9 at every start) |
 | (b) device penalties | implemented and served (section 2); `test_tt_penalties.py` 6 of 6 on the device sampler, `test_presence_penalty_mixed_batch` passes |
-| (c) device versus host sampler at temperature 0.01 | characterized (`logs/low_temperature_probe_chip2.json`, 36 layers): for the stage-9 prompts `Letter: `, `Random: ` and a third, the device sampler's first token equals the host argmax in 48 of 48 seeded draws at temperature 0.01 (top-2 logit gaps 0.14 to 0.60; bf16 scaling merges no leader), and at 0.7 the device draws follow the host distribution's rank order. The stage-9 `'198'` against `'100'` difference is in the second token: a seeded request whose prefill step was device-sampled (admitted alone) and whose decode steps were host-sampled (a `top_k 100` request joined) takes its first draw from the device stream and the rest from its host generator, one draw offset from a request host-sampled throughout; the two streams cannot agree by construction. Not a distribution difference |
+| (c) device versus host sampler at temperature 0.01 | characterized (`logs/low_temperature_probe_chip2.json`, 36 layers): for the stage-9 prompts `Letter: `, `Random: ` and a third, the device sampler's first token equals the host argmax in 48 of 48 seeded draws at temperature 0.01 (top-2 logit gaps 0.14 to 0.60; bf16 scaling merges no leader), and at 0.7 the device draws follow the host distribution's rank order. The stage-9 `'198'` against `'100'` pair (the stage-9 instance of `test_mixed_params_batch`) differs in the second token: a seeded request whose prefill step was device-sampled and whose decode steps were host-sampled takes its first draw from the device stream and the rest from its host generator, one draw offset from a request host-sampled throughout; the two streams cannot agree by construction. Not a distribution difference. The stage-10 instances of the same test (different rows, temperatures 0.5 and 1.0) are in section 6 and work log 8.1 |
 | (d) resume check at default thresholds on the final code | identical to stage 9 at every start: all PCC gates pass (min 0.9886), both controls fail at every window, top-1 fails only the 32-position hit window at 16352 (31 of 32, the stage-7 near tie); lowered run passes (`readiness/prefill_resume_check.json`); default run kept beside it (`readiness/prefill_resume_check_stage10_default_thresholds.failed.json`) |
 
 ## 6. Limitations and open items
 
-- `test_mixed_params_batch` still fails intermittently: its batch holds a
-  `top_k 100` request, above the device sampler's 32-candidate ceiling, so
-  the plugin host-samples every step that contains it; a seeded request
-  admitted alone before it is device-sampled at prefill and host-sampled
-  afterwards, and its stream is one draw offset from a run where both
-  steps are host-sampled (section 5 (c); the mechanism of stage 9 work log
-  9.1 with the `top_k` cause instead of penalties). Reproducibility-only:
+- `test_mixed_params_batch` still fails (one row per run; full suite:
+  request 0, `temp=0.5 seed=42`, a frequency-penalty prompt; smoke:
+  request 2, `temp=0.5 seed=42`; tracked smoke: request 1, `temp=1.0
+  seed=7`, the top-p prompt). Its batch holds a `top_k 100` request, above
+  the device sampler's 32-candidate ceiling, so the plugin host-samples
+  every step that contains it; the server log shows the 9-row group
+  admitted device-sampled in one run (the `top_k 100` request was admitted
+  alone before it) and host-sampled in the other, so every seeded request
+  in the group takes its first draw on a different sampler and its stream
+  is offset by one draw (work log 8.1, prefill calls 70 to 73 and 11 to
+  14 with the decode-mode windows after them). Reproducibility-only:
   correctness, logprobs, crash-free serving and the qualitative suite pass
   on the same server. A fix needs a device top-k above 32 (the common
   sampler draws from one 32-candidate tile) or a plugin routing rule; the
@@ -349,6 +362,9 @@ python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen3-8B --block_size 
 - `served_stage9_final/`: stage 9's final served JSON (the before numbers).
 - `vllm_prefill_burst_serial_benchmark.stage9.json`: the serial reference.
 - `perf_summary.json`, `qualitative_verdict.json`.
+- `qualitative_verdict.json` cites its controls; the prompt-format record
+  it relies on is `doc/optimized_full_model/qualitative/qualitative_prompt_format.json`
+  (chat template, stage 7, unchanged tokenizer and prompts).
 - `logs/`: probes and their JSON (`batched_prefill_probe*`,
   `kernel_equality_probe`, `op_bisect_probe*`, `down_kernel_probe`,
   `dense_kernel_probe`, `wide_kernel_probe`, `penalty_probe`,

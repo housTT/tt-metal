@@ -128,6 +128,20 @@ class Qwen3ForCausalLM:
             raise RuntimeError(f"selected precision config not consumed by the runtime: {problems}")
         instance = cls(generator)
         cls._live = instance
+        try:
+            from ttnn import trace_allocation_config
+
+            tracking = bool(trace_allocation_config.TRACE_ALLOC_TRACKING)
+        except Exception:
+            tracking = None
+        logger.info(
+            "%s trace allocation tracking in this engine process: %s (TT_METAL_TRACE_ALLOC_TRACKING=%r, "
+            "TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=%r)",
+            LOG_PREFIX,
+            tracking,
+            os.environ.get("TT_METAL_TRACE_ALLOC_TRACKING"),
+            os.environ.get("TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE"),
+        )
         logger.info(
             "%s model ready in %.1f s: class %s.%s, max_batch_size %d, max_seq_len %s, decode buckets %s, "
             "kv dtype %s, program cache entries %d",

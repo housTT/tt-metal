@@ -71,6 +71,7 @@ def main() -> None:
             "stage9_served": "doc/optimized_vllm/served_stage9_final/vllm_qualitative_outputs.json (stage-9 final server, same launch line)",
             "stage9_generator_chip1": "doc/vllm_integration/qualitative_control/chip1/tt_outputs.json (stage-9 code, generator greedy, 128 tokens)",
             "hf": "doc/optimized_full_model/qualitative/hf_outputs.json (HF greedy, chat template, 128 tokens)",
+            "prompt_format": "doc/optimized_full_model/qualitative/qualitative_prompt_format.json (chat template, stage 7; tokenizer and prompts unchanged)",
         },
         "rows": rows,
     }

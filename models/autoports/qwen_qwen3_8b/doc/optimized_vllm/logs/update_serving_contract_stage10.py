@@ -34,7 +34,7 @@ UPDATES = {
     "supports_device_penalties": {
         "status": "supported",
         "evidence": f"{RV}/sampling_tests.log",
-        "notes": f"model_capabilities['supports_device_penalties'] = True; the common SamplingGenerator's TTPenalties path (presence, frequency, repetition) with a penalties-on sampling trace per decode bucket captured in warmup_model_decode ({RV}/server.log 'device+penalties'); test_tt_penalties.py through the device sampler; {OV}/logs/penalty_probe_L2_chip1.json",
+        "notes": f"model_capabilities['supports_device_penalties'] = True; the common SamplingGenerator's TTPenalties path (presence, frequency, repetition) with a penalties-on sampling trace per decode bucket captured in warmup_model_decode ({RV}/server.log 'device+penalties'); test_tt_penalties.py through the device sampler; {OV}/logs/penalty_probe_L2_chip1.json. Dependencies: (1) the pinned plugin sends prompt_tokens and output_tokens on every decode step that needs penalties (model_runner.py 1309-1341), which the generator relies on because a prefill admission resets the device output counts of every slot and the next reload step restores them from output_tokens; (2) prepare() warms the penalties-on sampler through SamplingGenerator._run_sampling(count_tokens=True) because the public precompile() skips the output-count update (models/common/sampling/generator.py); the key is read by platform.py:579/745 and is not described in the plugin's docs/ or README",
     },
     "presence_penalty / frequency_penalty / repetition_penalty": {
         "status": "supported",
@@ -58,6 +58,10 @@ def main() -> None:
             raise SystemExit(f"row not found: {name}")
         row.update(update)
         updated.append(name)
+    data.setdefault("documents_read", [])
+    for doc in ("src/vllm_tt_plugin/platform.py (supports_device_penalties read at 579/745; not in docs/ or README)",):
+        if doc not in data["documents_read"]:
+            data["documents_read"].append(doc)
     data.setdefault("vllm_integration", {})["optimized_vllm"] = {
         "stage": 10,
         "batched_prefill": "on by default (QWEN3_BATCHED_PREFILL=0 disables)",
