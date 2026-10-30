@@ -788,3 +788,16 @@ class of 9.1). No `still alive` line in `server.log`; program cache 444 at
 the last prefill call; the server answered `/health` 200 at the end and
 was stopped at idle (2 s). The untracked evidence was restored to
 `readiness_vllm/` from `served_final/` (md5 identical).
+
+### 9.3 Chip-0 tracked full-model tests on the final code (15:43 to 16:06 ET)
+
+`logs/pytest_full_model_36_stage9_tracked_chip0.log`: 8 passed, 2 deselected, 2 warnings in 1406.21s (0:23:26), program
+cache 443 before and after the post-capture workload, 6 decode and 5 sampling
+captures, 0 eager decode steps, no tracker error
+(`doc/full_model/*.stage9_tracked.json`, sidecar `readiness/readiness_stage9_chip0.json`).
+The two earlier runs on interim code (8 passed each) are kept in
+`logs/fix1_tracked/` and `logs/fix2_tracked/` with their logs.
+
+| Commit | Content |
+| --- | --- |
+| `76a55a0fb6` | review-1 fixes and the final evidence (section 8 and 9) |
