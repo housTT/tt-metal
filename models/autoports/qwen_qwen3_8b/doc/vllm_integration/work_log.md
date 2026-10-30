@@ -421,6 +421,7 @@ Server logs larger than the repository's 500 KB pre-commit limit
 files stay in the working tree, untracked.
 | `0ea5639d50` | served evidence (`readiness_vllm/`, `served_final/`, `prefix_code_served/`, tracked serving), resume checks, serving contract rows, README, work log, scripts |
 | `0abf55e1e1` | stage `.log` files under 400 KB (the repository ignores `*.log`; force-added as evidence) |
+| `85020b4eed` | chip-0 tracked tests on the fixed path, README and work-log updates, skill-gaps appendix |
 
 ### 7.1 Chip-0 tracked full-model tests on the fixed code (14:14 to 14:37 ET)
 
@@ -503,3 +504,287 @@ steps, no tracker error (`doc/full_model/*.stage9_tracked.json`, sidecar
   its 500 KB file limit (server logs committed gzipped), and the in-tree
   runner's lack of `--enable-prefix-caching` (passed through
   `--additional-server-args`).
+
+## 8. Stage review 1 and the fixes (14:40 to 15:30 ET)
+
+Review 1 (`logs/review/stage_review_1.md`, fresh read-only subagent, HEAD
+`85020b4eed`): `more-work-needed`. P1: a bucket-rounded continuation window
+can pass the 40960-token context (`prefill_hidden` rounded every window to
+a bucket from the tile below the start; the decoder then raises on a valid
+request near the context end). P2: the qualitative verdict compared the
+served greedy text only with HF and the stage-7 control, while the
+same-precision stage-8 control leaves the served text earlier than it
+leaves HF. P2: the `test_mixed_params_batch` record conflated two
+mechanisms (the full-run failure was a top_k 100 request, host-routed in
+every step, so stream mixing cannot explain it) and no logit
+reproducibility check through vLLM was run; the README count was 3 of 5
+instead of 4 of 5. P2: two serving-contract notes still described the
+pre-fix limitation.
+
+### 8.1 P1: window start moves down at the context end
+
+`Qwen3Model.prefill_hidden` now checks `start + seq_len <= max_context`,
+and when `phys_base + prefill_compute_len(window) > max_context` it moves
+`phys_base` down to `max_context - compute_len` (more pad-token lead rows,
+same bucket program) and recomputes the window; `lead_rows`,
+`prefill_row_offset` and `last_row_index` take the prompt length so the
+row gather follows. Probe `logs/context_end_probe.py` (36 layers, chip 2,
+tracker on, `logs/context_end_probe_L36_chip2.{json,log}`): continuation
+logits over the last 64 positions against a fresh prefill of the whole
+prompt through the same row gather:
+
+| start | end | lead rows | positions | PCC mean | PCC min | top-1 |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 40000 | 40959 | 64 | 64 | 0.99991 | 0.99963 | 1.000 |
+| 32 | 39969 | 32 | 64 | 0.99986 | 0.99890 | 0.984 |
+| 40928 | 40959 | 0 | 31 | 0.99961 | 0.99749 | 0.968 (30 of 31) |
+| 36869 | 40960 | 5 | 64 | 0.99991 | 0.99968 | 1.000 |
+| 40959 | 40960 | 31 | 1 | 0.99974 | 0.99974 | 1.000 |
+
+Final-position top-1 equal in every case. The probe's own top-1 gate (0.98
+per case) marks the 31-position window `fail` by one flip, the class the
+resume check records at its hit windows (PCC gates pass). After a decode
+capture the same five cases through the served entry (`prefill_forward`
+with greedy sampling) ran at program cache 480 before and after, no
+tracker error (prepare 56.9 s). The served check on the live tracked
+server follows in 8.4.
+
+### 8.2 P2: same-regime qualitative control
+
+`logs/qualitative_control.py` (stage-9 code, generator `generate`, greedy,
+bucket 1, 128 tokens, the rendered chat prompts) on chip 1 (the server's
+chip) and chip 0 (`qualitative_control/chip{0,1}/`): both runs are
+token-identical to each other and to the stage-8 control
+(`doc/datatype_sweep/qualitative/tt_outputs.json`, chip 2, commit
+`2e52cebf61`) for all 128 tokens of all six prompts. So the generator path
+is unchanged across code revisions and chips, and the served greedy text
+diverges from the generator path at tokens 50, 37, 53, 17, 27 and 16
+(served/control first divergence; `logs/serving_simulator.py` isolates the
+served-path inputs in 8.3).
+
+### 8.3 Serving simulator at generator level (chip 0, 15:05 to 15:10 ET)
+
+`logs/serving_simulator.py` builds the generator without warmup, adopts a
+3584-block cache (plus scratch), warms and captures on it, then drives each
+rendered prompt exactly like the plugin: `prefill_forward` with greedy
+sampling over a non-contiguous page table (block ids 97, 110, 123, ...,
+allocated one block ahead), then `decode_forward(read_from_device=False)`,
+`read_decode_output(async_read=True)`, `event_synchronize`,
+`process_decode_output_host` per step with the page table growing block by
+block and `reset_batch=True` on the first decode. Result
+(`logs/serving_simulator_chip0.json`): all six prompts token-identical to
+the chip-1 control for 128 tokens. So the vLLM-sized cache, the page-table
+ids, the deferred read and the per-step page-table refresh do not change the
+greedy path; what remains between this simulator and the served text is
+what vLLM sends (the chat rendering, the sampling parameters) or the
+scheduler's overlap. Section 8.6 settles it on the live server.
+
+### 8.5 Logit reproducibility through vLLM (tracked server, 15:12 ET)
+
+`logs/logit_repro_check.py` (`logs/tracked_served2/logit_repro_check.json`):
+the prompt "The three laws of thermodynamics are", greedy with top-20
+logprobs (host-sampled on one chip because logprobs are requested), alone
+and beside 3, 10 and 20 greedy fillers (decode buckets 1, 8, 16, 24), two
+runs each: every generated text identical, top-20 logprob vectors identical
+run to run and across batch shapes (maximum absolute difference 0, the same
+token sets at every position). The host-routed seeded request of the
+failing test (`Random: `, temperature 2.0, top_k 100, seed 42) reproduces
+solo and beside 3 fillers (`' You know that for integer'` twice each). So
+run-to-run and batch-position logits through vLLM are bit-reproducible and
+the seeded host path reproduces when the batch shape is fixed; the
+remaining variable in the failing test is the mixed batch of seeded
+requests, which 8.6 probes with two seeded requests in both submission
+orders.
+
+### 8.4 Served near-context hits and the fill-table change (15:10 to 15:20 ET)
+
+Tracked server 2 (`logs/tracked_served2/`, the window-shift fix): a cold
+40000-token prompt, its 959-token extension (hit at 40000, window moved
+down to 39936 with 64 lead rows), the exact repeat (hit at 40928), a cold
+36869-token prompt plus its 4091-token extension (hit at 36864), and a
+32-token prompt plus a 39937-token extension (hit at 32) all served with
+`max_tokens 1` and agreeing first tokens (`logs/tracked_served2/context_end_served.log`),
+but the first shifted hit compiled two programs (461 -> 463): the
+`_fill_prefill_cache` slice of K/V at row 64 (the fill start inside the
+shifted window) and its `PagedFillCache`, variants `prepare()` only warmed
+for rows 0 and 32. With `max_tokens 1` no replay followed; the tracker
+raised on the next decode replay of a later request (`logs/tracked_served2/server.log`,
+`Found 2 device buffer(s) still alive`) and the engine died, as it did on
+tracked server 3 (`logs/tracked_served3/`), which was launched before the
+fix below had reached the file (a patch script had aborted on a formatting
+mismatch; recorded as is).
+
+Fix: `_fill_prefill_cache` no longer slices K/V when the host page table is
+available; the fill runs over the whole chunk and the host-built fill table
+names the scratch block for the leading tiles (and after the request's
+blocks), so the fill program keys only on the bucket. The reduced probe
+(`logs/continuation_probe_L2_chip0_fill3.{json,log}`, chip 0, tracker on):
+identical PCC and top-1 at every start, program cache 458 before and after
+(475 with the slice variants), greedy identical, no tracker error.
+`logs/continuation_probe_L2_chip0_fill2.*` is the same probe on the
+unchanged code (the aborted patch) and matches `continuation_probe_L2_chip2.json`.
+
+### 8.6 Served greedy divergence: cause and fix (15:15 to 15:35 ET)
+
+Experiments on the live server (tracked server 4, `logs/tracked_served4/served_experiments.json`,
+`served_determinism.log`): the rendered prompt ids through `/v1/completions`
+greedy, with explicit `top_k 1 top_p 1.0`, and through `/v1/chat/completions`
+all diverge from the generator control at the same early tokens (18, 11,
+35, 17, 12, 16), the chat rendering reproduces the rendered ids exactly,
+and three identical greedy requests of the same prompt diverge from each
+other (prompt 2: first divergence from the control at 36, 35 and 51). With
+`--no-async-scheduling` (`logs/serve_noasync.sh`, `logs/noasync/served_determinism.log`)
+every prompt is token-identical to the control for 128 tokens in three
+runs. So the generator path, the chat rendering, the sampling parameters
+and the vLLM-owned cache are all correct (8.2, 8.3) and the async overlap
+path corrupted the served decode.
+
+The divergence points are absolute positions 32 and 64 (prompt lengths
+14 to 29 plus the divergence index), the first decode steps that need a
+new 32-token block. The adapter's decode page-table redirect derived the
+request's valid block count from the plugin's host position
+(`ceil((position + 1) / 32)`); under overlap the host position of the step
+that writes position 32 can still read 31 (the previous step's sampled
+token is not yet applied), so the column of the newly allocated block
+pointed at the scratch block for that step, the K/V row of position 32
+went to the scratch block, and every later step read a stale row there.
+Fix (`Qwen3Generator._redirect_table`): for a caller-owned cache the
+caller's table is kept as given and only its null-block padding (block 0,
+which vLLM reserves and never allocates; `vllm/v1/core/block_pool.py:174`)
+is mapped to the scratch block; the position-derived count stays for the
+generator's own pool. Validation on the async server with the fix follows
+in 8.7.
+
+### 8.7 Fill-table scratch column (15:20 to 15:30 ET)
+
+Probe v3 (`logs/context_end_probe_L36_chip2_v3.{json,log}`, the rolled fill
+table reading the scratch id from the host table's last column) failed the
+two full-width cases: (40000, 40959) PCC min 0.836 and (36869, 40960) PCC
+min 0.899, because a request that spans all 1280 columns has no scratch
+column, so the lead tiles were filled into the request's last block. The
+generator now appends the scratch block id as an extra trailing column of
+the host page table it passes and `_fill_prefill_cache` reads it there.
+Probe v4 (`logs/context_end_probe_L36_chip2_v4.{json,log}`): every case back
+to PCC min >= 0.9975 (full-width cases 0.9996 and 0.9997, top-1 1.000);
+after a decode capture ten served-entry continuations (the five cases plus
+starts 40100, 39000, 37000, 40500 and 38000 with unseen shift amounts) ran
+at program cache 461 before and after, the three continuations of the same
+40959-token prompt (starts 40000, 40100, 40928) all produce token 304, no
+tracker error. The probe's own per-case top-1 gate still marks the
+31-position window at start 40928 (30 of 31) as `fail`, the near-tie class
+of the resume check.
+
+### 8.8 Async server with the redirect fix (15:33 ET)
+
+`logs/serve.sh 1 8000 21600` (async scheduling on, final generator code;
+`logs/async_fix/serve_runner.log`, `served_determinism.log`): every prompt
+token-identical to the generator control for 128 tokens in three identical
+greedy requests each, and through `/v1/chat/completions` as the readiness
+runner sends them. The served path now equals the generator path under
+overlap. The served chain, the tracked serving run and the full-model
+tracked tests are rerun on this code (section 9).
+
+### 8.9 `test_mixed_params_batch` after the fix
+
+The seeded-pair experiment on tracked server 4
+(`logs/tracked_served4/served_experiments.json`, `seeded_pairs`): two
+host-routed seeded requests (`Random:` seed 42 top_k 100, `Other:` seed 7
+top_k 100) reproduce solo, in both submission orders and with a duplicate
+of the first; the device-sampled seeded `Letter:` request (temperature
+0.01, seed 42) reproduces solo and in the `ABC` order but returned `'198'`
+once and `'100'` once in the `CBA` and `ACB` orders. That experiment ran
+on the pre-fix redirect, where a host position lag at a block boundary
+could also change a device-sampled request's reads; the test is rerun in
+the final chain's full sampling suite (section 9) and classified there.
+
+### 8.10 Position mirror instead of the position-independent redirect (15:35 to 15:45 ET)
+
+The served chain on the async server with the position-independent
+redirect (`logs/async_fix_chain1/`: sampling 72 passed, 1 skipped,
+`test_mixed_params_batch` passing; benchmark TTFT 49.4 ms, 48.3 t/s/u;
+prefix cache pass; program cache 444 flat) exposed a second hazard in the
+mixed-shape check: the repeat of the 1025-token prompt (a one-token
+continuation at start 1024) diverged from its first encounter at token 6
+(`repeat_identical[6] false`), which both earlier chains had identical.
+Keeping every non-null column of the plugin's row keeps stale block ids a
+previous occupant of that batch row left past the request's blocks, and
+the decode attention's masked tail can read them (positions past the row
+end are read from whatever those blocks hold); the exact column count had
+pointed those columns at the scratch block, whose contents are finite.
+
+Final rule (`Qwen3Generator.decode_forward`): the redirect keeps the exact
+column count, but from a host mirror of the device position:
+`state.host_pos` is loaded from the plugin's positions on a reload
+(`reset_batch`, first step after a prefill, mode change, host mode) and
+advanced by one after every step, as the device does with `plus_one`; the
+plugin's `start_pos` is otherwise unused on steady steps, so a one-step
+lag under overlap cannot move the new block's column to scratch. The
+redirect itself is the stage-6 function again. Reduced probe on the final
+code (`logs/continuation_probe_L2_chip2_final.json`): pass, program cache
+flat. The final server (`logs/final_server/`), its chain, the tracked
+serving run and the chip-0 tracked tests follow in section 9.
+
+## 9. Final code: served chain, seeded mixed-batch classification (15:46 to 16:15 ET)
+
+Final server (`logs/final_server/`, async scheduling on, position mirror):
+greedy determinism 128 of 128 on all six prompts, three runs each, chat
+included (`logs/final_server/served_determinism.log`). Served chain
+(`logs/evidence_chain_chip1.status`, 15:46 to 15:52 ET; `readiness_vllm/`,
+archived in `served_final/`): sampling full 71 passed, 1 failed
+(`test_presence_penalty_mixed_batch`), 1 skipped; qualitative and
+degenerate check clean; benchmark 128/128/1 TTFT p50 49.3 ms, TPOT mean
+20.7 ms, 48.3 t/s/u; CI burst 871.9 tok/s, 39.9 t/s/u; prefix cache pass
+(warm 64.6 / 65.3 / 63.5 ms against cold 356 / 354 ms, ratio 0.182, long
+resume 110.4 ms, hit 0.90); burst 32/32, ratios 1.000; mixed-shape 47/47,
+program cache 444 before and after, 0 captures, every repeat identical,
+greedy identical across sampled and seeded requests.
+
+### 9.1 Seeded mixed batches: evidence-backed classification
+
+Standalone reruns on the final server (`logs/final_server/rerun_*.log`):
+`test_presence_penalty_mixed_batch` failed 2 of 3 and then 2 of 3 more
+(`rerun_{4,5,6}_penalty.log`), `test_mixed_params_batch` failed 2 of 3.
+Both tests send seeded requests (seed 42, temperature 0.7 or 0.01 / 2.0)
+beside penalty requests, which `supports_device_penalties False` routes to
+the host sampler for every step in which one is present. Server-log
+windows per run (`rerun_{4,5,6}_penalty_serverlines.log`): the passing run
+admitted the 32 requests as 3 + 29 rows and every one of its 39 decode
+steps was host-sampled (1 unique no-penalty output); both failing runs
+admitted them as 1 + 31 rows, the lone first request's prefill was
+device-sampled (its step held no penalty request) and every decode step
+was host-sampled (2 unique no-penalty outputs, one request diverging at
+token 7). The lone request's first draw came from the device sampler's
+position-keyed stream and its later draws from its host generator, so its
+stream is offset by one draw from the fifteen requests whose first token
+the host sampler produced; the divergence appears at the first
+low-confidence position. An exact replication of the test's requests from
+a plain HTTP client (`logs/final_server/mixed_penalty_replication.log`,
+`mixed_penalty_greedy_check.log`) was admitted as 1 + 31 with the lone
+prefill host-sampled and was deterministic in 4 of 4 sampled and 3 of 3
+greedy runs, and the vLLM logit reproducibility check (8.5) shows
+identical logprobs across runs and batch shapes. Classification:
+reproducibility-only, caused by the plugin's per-step host/device routing
+of a seeded request; correctness, logprobs, crash-free serving and the
+qualitative suite pass on the same server. Remedy carried to stage 10:
+device penalties (`supports_device_penalties True`), which keeps every
+seeded request on one stream. Work log 5.10's earlier wording (which
+blamed the same mechanism without the admission evidence) is superseded
+by this section.
+
+### 9.2 Final tracked serving run (chip 1, 15:57 to 16:03 ET)
+
+`logs/serve.sh 1 8000 7200 TT_METAL_TRACE_ALLOC_TRACKING=1
+TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0` on the final code
+(`logs/tracked_served_final/`): smoke sampling 3 passed, 1 skipped; the
+prefix-cache stage pass; the full mixed-shape workload 47/47 with program
+cache 444 before and after, 0 captures, every repeat identical; the served
+experiments: near-context prefix-cache hits at starts 40000 (shifted
+window), 40928, 40896, 36864, 37984 and 32 with decode replays after each,
+the three continuations of the 40956-token prompt agreeing (`' not in the
+habit'`), the rendered prompt ids and the chat path 128 of 128 tokens
+identical to the generator control on every prompt, and the seeded pairs
+reproducing in every order except one `CBA` run (the seeded mixed-stream
+class of 9.1). No `still alive` line in `server.log`; program cache 444 at
+the last prefill call; the server answered `/health` 200 at the end and
+was stopped at idle (2 s). The untracked evidence was restored to
+`readiness_vllm/` from `served_final/` (md5 identical).

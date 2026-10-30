@@ -254,7 +254,7 @@ class Qwen3Generator(Generator):
                 layout=ttnn.ROW_MAJOR_LAYOUT,
                 device=self.mesh_device,
             )
-            host_scratch = torch.full((1, self.page_table_width), self.scratch_block, dtype=torch.int32)
+            host_scratch = torch.full((1, self.page_table_width + 1), self.scratch_block, dtype=torch.int32)
             for start in self.warmup_chunk_starts:
                 self.log(f"warmup chunk pieces at start {start}: {chunk_lengths}")
                 for length in chunk_lengths:
@@ -432,7 +432,9 @@ class Qwen3Generator(Generator):
     def _redirect_table(
         self, page_table: torch.Tensor, valid_tokens: Sequence[int], scratch_block: int | None = None
     ) -> torch.Tensor:
-        """Full-width int32 copy of a caller page table whose columns past each row's blocks name the scratch block."""
+        """Full-width int32 copy of a caller page table whose columns past each row's ``valid_tokens`` name the
+        scratch block (a caller's rows can carry stale block ids past the request's blocks, and the masked
+        tail of a decode read may touch them, so the count must stay exact)."""
         rows = page_table.shape[0]
         scratch = self.scratch_block if scratch_block is None else int(scratch_block)
         table = torch.full((rows, self.page_table_width), scratch, dtype=torch.int32)
@@ -638,6 +640,9 @@ class Qwen3Generator(Generator):
                 table[i : i + 1], dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device
             )
 
+        def host_row(i: int) -> torch.Tensor:
+            return torch.cat([table[i : i + 1], torch.full((1, 1), scratch, dtype=torch.int32)], dim=1)
+
         if return_all_logits:
             if rows != 1:
                 raise ValueError("return_all_logits supports one row per call")
@@ -649,9 +654,9 @@ class Qwen3Generator(Generator):
                 user_slot=0,
                 page_table=tt_table,
                 kv_cache=kv_cache,
-                host_page_table=table[0:1],
+                host_page_table=host_row(0),
             )
-            lead = self.model.lead_rows(starts[0])
+            lead = self.model.lead_rows(starts[0], len(ids))
             logits = self.model.logits_all_rows(hidden)[lead : lead + len(ids)]
             hidden.deallocate(True)
             tt_table.deallocate(True)
@@ -667,7 +672,7 @@ class Qwen3Generator(Generator):
                 page_table=tt_table,
                 kv_cache=kv_cache,
                 keep_all_rows=False,
-                host_page_table=table[i : i + 1],
+                host_page_table=host_row(i),
             )
             tt_table.deallocate(True)
             pieces.append(self.model.gather_rows(hidden, [self.model.last_row_index(len(ids), starts[i])]))
@@ -698,10 +703,15 @@ class Qwen3Generator(Generator):
         table = self._host_page_table([slot])
         tt_table = ttnn.from_torch(table, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device)
         hidden = self.model.prefill_hidden(
-            ids, start_pos=start, user_slot=0, page_table=tt_table, kv_cache=self.kv_cache, host_page_table=table
+            ids,
+            start_pos=start,
+            user_slot=0,
+            page_table=tt_table,
+            kv_cache=self.kv_cache,
+            host_page_table=torch.cat([table, torch.full((1, 1), self.scratch_block, dtype=torch.int32)], dim=1),
         )
         tt_table.deallocate(True)
-        lead = self.model.lead_rows(start)
+        lead = self.model.lead_rows(start, len(ids))
         if any(not 0 <= p - start < len(ids) for p in positions):
             raise ValueError("positions must lie inside the continuation window")
         local = [lead + p - start for p in positions]
@@ -742,7 +752,9 @@ class Qwen3Generator(Generator):
         token and position state is authoritative across steady steps, so host tokens are only loaded
         on the first step after a prefill, after ``reset_batch`` or after a mode change. Without
         ``sampling_params`` the step returns ``[B, vocab]`` logits and reloads tokens and positions
-        from the host every step (host-sampling compatibility mode).
+        from the host every step (host-sampling compatibility mode). ``state.host_pos`` mirrors the
+        device position (loaded on a reload, advanced once per step); the page-table redirect uses the
+        mirror, because a caller that overlaps steps can pass a ``start_pos`` one behind the device.
         """
         self._require_prepared()
         batch = tokens.shape[0]
@@ -760,10 +772,15 @@ class Qwen3Generator(Generator):
         if reload:
             self._write_tokens(state, torch.as_tensor(tokens).reshape(-1))
             self._write_positions(state, positions)
+        device_positions = state.host_pos[:batch]
+        if int(device_positions.max()) >= self.max_context:
+            raise ValueError(
+                f"device position {int(device_positions.max())} is outside the {self.max_context}-token context"
+            )
         scratch = self._scratch_for(kv_cache, kwargs.get("scratch_block"))
         self._write_page_table(
             state,
-            self._redirect_table(torch.as_tensor(page_table), [int(p) + 1 for p in positions], scratch),
+            self._redirect_table(torch.as_tensor(page_table), [int(p) + 1 for p in device_positions], scratch),
             scratch,
         )
         if mode == "device":
@@ -786,6 +803,7 @@ class Qwen3Generator(Generator):
                 self._sample_eager(out, state)
         state.last_mode = mode
         state.device_state_valid = mode == "device" and enable_trace
+        state.host_pos = torch.where(state.host_pos >= 0, state.host_pos + 1, state.host_pos)
         if not read_from_device:
             return DecodeOutput(state, mode, batch, state.tokens if mode == "device" else out, eager=not enable_trace)
         if mode == "device":

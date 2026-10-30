@@ -58,7 +58,7 @@
       "kind": "call",
       "status": "supported",
       "evidence": "readiness_vllm/sampling_tests.log",
-      "notes": "served: readiness_vllm/sampling_tests.log, readiness_vllm/prefix_cache_check.json (start_pos at the cached length), readiness_vllm/mixed_shape_trace_reuse.json (multi-row calls, nonzero starts); generator level: doc/full_model/multi_row_prefill.json, readiness/prefill_resume_check.json; model_runner.py:2770-2840; continuation rows compile per (start, length) after warmup (doc/vllm_integration/README.md limitations, stage-10 runtime-indexed prefill)"
+      "notes": "served: readiness_vllm/sampling_tests.log, readiness_vllm/prefix_cache_check.json (start_pos at the cached length), readiness_vllm/mixed_shape_trace_reuse.json (multi-row calls, nonzero starts, program cache 461 before and after); generator level: doc/full_model/multi_row_prefill.stage9_tracked.json, readiness/prefill_resume_check.json, doc/vllm_integration/logs/continuation_probe_L2_chip2.json and context_end_probe_L36_chip2.json; model_runner.py:2770-2840. Continuation rows at any start offset and length run through programs prepare() compiled (bucketed windows, runtime-index RoPE and lead rows, host-rolled fill table, chunk_start_idx_tensor); near the context end the window start moves down so the bucket fits"
     },
     {
       "item": "prefill_forward: several rows per call with per-row start_pos and prompt_lens ends",
@@ -107,7 +107,7 @@
       "kind": "call",
       "status": "supported",
       "evidence": "readiness_vllm/server.log",
-      "notes": "served through the async split: decode_forward(read_from_device=False) -> DecodeOutput, read_decode_output(async_read=True), process_decode_output_host (readiness_vllm/server.log 'deferred_read=True', readiness_vllm/vllm_benchmark.json); generator level: doc/full_model/split_sampling_trace.tracked.json, batch_decode_*.json; async_decode.py:625"
+      "notes": "served through the async split: decode_forward(read_from_device=False) -> DecodeOutput, read_decode_output(async_read=True), process_decode_output_host (readiness_vllm/server.log 'deferred_read=True', readiness_vllm/vllm_benchmark.json). The page-table redirect uses a host mirror of the device position (loaded on a reload, advanced once per step), because under async overlap the plugin's start_pos can lag the device by one at a block boundary (doc/vllm_integration/work_log.md 8.6, 8.10); served greedy equals the generator path for 128 tokens on six prompts, three runs each (doc/vllm_integration/logs/final_server/served_determinism.log). Generator level: doc/full_model/split_sampling_trace.stage9_tracked.json, batch_decode_*.json; async_decode.py:625"
     },
     {
       "item": "decode_forward: reset_batch / slot_remap",
@@ -128,7 +128,7 @@
       "kind": "call",
       "status": "supported",
       "evidence": "tt/generator.py",
-      "notes": "model_capabilities['supports_async_decode'] = True; tt/generator.py read_decode_output (tensor.cpu(blocking=False) + ttnn.record_event on CQ 0) and process_decode_output_host; served with --async-scheduling (readiness_vllm/server.log 'async_scheduling=True', every decode line 'deferred_read=True'); stale-token/current-position/page-table coverage: doc/full_model/split_sampling_trace.stage9_tracked.json plus the served greedy repeats in readiness_vllm/mixed_shape_trace_reuse.json"
+      "notes": "model_capabilities['supports_async_decode'] = True; tt/generator.py read_decode_output (tensor.cpu(blocking=False) + ttnn.record_event on CQ 0) and process_decode_output_host; served with --async-scheduling (readiness_vllm/server.log 'async_scheduling=True', every decode line 'deferred_read=True'); stale-token/current-position/page-table coverage: doc/full_model/split_sampling_trace.stage9_tracked.json, the served greedy determinism and control equality under overlap (doc/vllm_integration/logs/final_server/served_determinism.log), the greedy repeats in readiness_vllm/mixed_shape_trace_reuse.json"
     },
     {
       "item": "warmup_model_prefill / warmup_model_decode (two-phase)",
@@ -177,14 +177,14 @@
       "kind": "capability",
       "status": "supported",
       "evidence": "readiness_vllm/vllm_benchmark.json",
-      "notes": "model_capabilities['supports_async_decode'] = True; see the read_decode_output row; readiness_vllm/vllm_benchmark.json measured with async scheduling on"
+      "notes": "model_capabilities['supports_async_decode'] = True; served with async scheduling on and proven equal to the synchronous generator path (doc/vllm_integration/logs/final_server/served_determinism.log, logs/noasync/served_determinism.log for the async-off comparison); readiness_vllm/vllm_benchmark.json measured with async scheduling on"
     },
     {
       "item": "supports_prefix_caching",
       "kind": "capability",
       "status": "supported",
       "evidence": "readiness/prefill_resume_check.json",
-      "notes": "readiness/prefill_resume_check.json (pass at lowered thresholds 0.90/0.93, both controls fail) and readiness/prefill_resume_check_stage9_default_thresholds.json (default thresholds: only the 16352 hit window top-1 31/32, stage-7 margin probe); served: readiness_vllm/prefix_cache_check.json, readiness_vllm/vllm_run_summary.json (apc_log_enabled true), sampling and qualitative verdicts from the same caching-enabled server (readiness_vllm/sampling_tests.log, readiness_vllm/vllm_qualitative_outputs.json); continuation prefill compiles per start offset after warmup (doc/vllm_integration/README.md limitations)"
+      "notes": "readiness/prefill_resume_check.json (pass at lowered thresholds 0.90/0.93, both controls fail) and readiness/prefill_resume_check_stage9_default_thresholds.json (default thresholds: only the 16352 hit window top-1 31/32, stage-7 margin probe); served: readiness_vllm/prefix_cache_check.json (warm TTFT 64 ms against cold 355 ms, long resume 111 ms, hit rates 1.00/0.00), readiness_vllm/vllm_run_summary.json (apc_log_enabled true), sampling and qualitative verdicts from the same caching-enabled server; prefix-cache hits are continuation prefills that compile nothing after the warmup (doc/vllm_integration/logs/tracked_served/, mixed_shape_trace_reuse.json program cache 461 before and after)"
     },
     {
       "item": "supports_prefix_caching_sliding_window",
@@ -247,7 +247,7 @@
       "kind": "request_feature",
       "status": "supported",
       "evidence": "readiness_vllm/sampling_tests.log",
-      "notes": "host sampling via supports_device_penalties=False (platform.py:745, worker.py:384 can_sample_device); logits path as above"
+      "notes": "host sampling via supports_device_penalties=False (platform.py:745, worker.py:384 can_sample_device); a seeded request whose steps are split between the device sampler and the host sampler (a penalty request present in some steps only) draws from two streams, which makes test_presence_penalty_mixed_batch and test_mixed_params_batch reproducibility-only failures (doc/vllm_integration/work_log.md 9.1); device penalties are the stage-10 item"
     },
     {
       "item": "min_p, bad_words, structured_outputs, logit_bias, allowed_token_ids, min_tokens",

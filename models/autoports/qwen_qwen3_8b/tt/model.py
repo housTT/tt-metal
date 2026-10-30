@@ -331,8 +331,8 @@ class Qwen3Model:
     ) -> ttnn.Tensor:
         """Run one row through every layer; returns the final hidden state ``[1, 1, compute_len, H]``.
 
-        The physical window starts at the tile boundary at or below ``start_pos``: ``lead = start_pos % 32``
-        rows of a pad token precede the prompt (their K/V are never written; the cache already holds those
+        The physical window starts at the tile boundary at or below ``start_pos``, moved further down when the
+        bucket-rounded window would pass the context end: ``lead`` rows of a pad token precede the prompt (their K/V are never written; the cache already holds those
         live rows), rows ``[lead, lead + len(token_ids))`` are the prompt, and rows past it are padding
         whose cache writes stay in the row's last block or the scratch block the page table names past the
         allocation. The window length rounds up to a prefill bucket for every start, so program keys do not
@@ -342,14 +342,23 @@ class Qwen3Model:
         otherwise only the last piece is returned and ``last_row_index`` gives the row of the last token.
         """
         seq_len = len(token_ids)
+        if start_pos + seq_len > self.max_context:
+            raise ValueError(f"start {start_pos} + {seq_len} tokens exceeds the {self.max_context}-token context")
         lead = start_pos % TILE_SIZE
         phys_base = start_pos - lead
         window = lead + seq_len
-        ids = [0] * lead + list(token_ids)
         if compute_len is None:
             compute_len = prefill_compute_len(window)
+            if phys_base + compute_len > self.max_context:
+                phys_base = self.max_context - compute_len
+                lead = start_pos - phys_base
+                window = lead + seq_len
+                compute_len = prefill_compute_len(window)
         if compute_len < window:
             raise ValueError(f"compute_len {compute_len} < window length {window}")
+        if phys_base + compute_len > self.max_context:
+            raise ValueError(f"window {phys_base}+{compute_len} exceeds the {self.max_context}-token context")
+        ids = [0] * lead + list(token_ids)
         if window > PREFILL_CHUNK:
             outputs = []
             for piece_start, length, piece_len in prefill_pieces(window):
@@ -388,22 +397,32 @@ class Qwen3Model:
             host_page_table=host_page_table,
         )
 
-    @staticmethod
-    def prefill_row_offset(seq_len: int, start_pos: int = 0, keep_all_rows: bool = False) -> int:
+    def lead_rows(self, start_pos: int, seq_len: int | None = None) -> int:
+        """Pad rows in front of the prompt in the window ``prefill_hidden`` computes (``seq_len`` needed near the
+        context end, where the window start moves down so the bucket fits)."""
+        lead = start_pos % TILE_SIZE
+        if seq_len is None:
+            return lead
+        compute_len = prefill_compute_len(lead + seq_len)
+        if start_pos - lead + compute_len > self.max_context:
+            return start_pos - (self.max_context - compute_len)
+        return lead
+
+    def prefill_row_offset(self, seq_len: int, start_pos: int = 0, keep_all_rows: bool = False) -> int:
         """Window-row index of row 0 of the tensor ``prefill_hidden`` returns for this prompt."""
-        window = start_pos % TILE_SIZE + seq_len
+        window = self.lead_rows(start_pos, seq_len) + seq_len
         if keep_all_rows or window <= PREFILL_CHUNK:
             return 0
         return prefill_pieces(window)[-1][0]
 
-    @classmethod
-    def last_row_index(cls, seq_len: int, start_pos: int = 0, keep_all_rows: bool = False) -> int:
+    def last_row_index(self, seq_len: int, start_pos: int = 0, keep_all_rows: bool = False) -> int:
         """Row of the prompt's last token in the tensor ``prefill_hidden`` returns."""
-        return start_pos % TILE_SIZE + seq_len - 1 - cls.prefill_row_offset(seq_len, start_pos, keep_all_rows)
-
-    @staticmethod
-    def lead_rows(start_pos: int) -> int:
-        return start_pos % TILE_SIZE
+        return (
+            self.lead_rows(start_pos, seq_len)
+            + seq_len
+            - 1
+            - self.prefill_row_offset(seq_len, start_pos, keep_all_rows)
+        )
 
     def _prefill_piece(
         self,

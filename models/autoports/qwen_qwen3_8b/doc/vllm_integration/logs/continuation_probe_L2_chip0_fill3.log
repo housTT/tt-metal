@@ -1,0 +1,190 @@
+2026-10-30 19:16:09.069 | DEBUG    | ttnn:<module>:45 - Initial ttnn.CONFIG:
+Config{cache_path=/home/hous/.cache/ttnn,model_cache_path=/home/hous/.cache/ttnn/models,tmp_dir=/tmp/ttnn,enable_model_cache=false,enable_fast_runtime_mode=true,validate_program_args=false,throw_exception_on_fallback=true,enable_logging=false,enable_graph_report=false,enable_graph_python_stack_traces=false,enable_detailed_buffer_report=false,enable_detailed_tensor_report=false,enable_comparison_mode=false,comparison_mode_should_raise_exception=false,comparison_mode_pcc=0.9999,root_report_path=generated/ttnn/reports,report_name=std::nullopt,std::nullopt}
+2026-10-30 19:16:09.521 | info     |          Device | Opening user mode device driver (tt_cluster.cpp:224)
+2026-10-30 19:16:09.521 | info     |             UMD | Cluster constructor started. (cluster.cpp:406)
+2026-10-30 19:16:09.521 | info     |             UMD | Creating TopologyDiscovery for architecture: blackhole (topology_discovery.cpp:96)
+2026-10-30 19:16:09.521 | info     |             UMD | Starting topology discovery. (topology_discovery.cpp:115)
+2026-10-30 19:16:09.522 | info     |             UMD | Established firmware bundle version: 19.15.0 (topology_discovery.cpp:576)
+2026-10-30 19:16:09.522 | info     |             UMD | Completed topology discovery. (topology_discovery.cpp:119)
+2026-10-30 19:16:09.523 | warning  |             UMD | Board 0x4613193409f has 1 chips, but expected 2 chips for board type p300. (cluster_descriptor.cpp:1246)
+2026-10-30 19:16:09.542 | info     |             UMD | Opening local chip ids/PCIe ids: {0}/[0] and remote chip ids {} (cluster.cpp:173)
+2026-10-30 19:16:09.542 | info     |             UMD | IOMMU: enabled (cluster.cpp:147)
+2026-10-30 19:16:09.542 | info     |             UMD | KMD version: 2.11.0 (cluster.cpp:150)
+2026-10-30 19:16:09.542 | info     |             UMD | Cluster constructor completed. (cluster.cpp:665)
+2026-10-30 19:16:09.542 | warning  |          Device | Using CUSTOM cluster type for P300 board with 1 chips (tt_cluster.cpp:198)
+2026-10-30 19:16:09.543 | info     |             UMD | Starting devices in cluster (cluster.cpp:1205)
+2026-10-30 19:16:09.567 | info     |             UMD | Starting devices in cluster completed. (cluster.cpp:1213)
+2026-10-30 19:16:09.628 | info     |     Distributed | Using custom mesh graph descriptor: /home/hous/dev/tt-metal/tt_metal/fabric/mesh_graph_descriptors/p150_mesh_graph_descriptor.textproto (metal_env.cpp:418)
+2026-10-30 19:16:09.629 | warning  |          Always | Unknown motherboard 'B850M-C' for chip_id=0 (bus_id=0x1) — falling back to bus_id as tray_id. Add this motherboard and its bus IDs to mobo_to_bus_ids in physical_system_discovery.cpp. (physical_system_discovery.cpp:119)
+2026-10-30 19:16:09.629 | info     |          Fabric | Loaded physical groupings from: /home/hous/dev/tt-metal/tests/tt_metal/tt_fabric/physical_groupings/default_physical_grouping_descriptor.textproto (fabric_host_utils.cpp:338)
+2026-10-30 19:16:09.629 | info     |          Fabric | Matching MESH mgd groupings to MESH groupings (physical_grouping_descriptor_matching.cpp:943)
+2026-10-30 19:16:09.629 | info     |          Fabric | Grouping valid candidates by node difference (physical_grouping_descriptor_matching.cpp:1001)
+2026-10-30 19:16:09.629 | info     |          Fabric | Physical groupings: Mesh graph descriptor 'M0': 4 topology match(es), fallback to Mesh graph descriptor: M0 (MESH) (physical_grouping_descriptor_matching.cpp:1218)
+2026-10-30 19:16:09.629 | info     |          Fabric | Rank-bound PGD pinning enrichment: assigned pinnings to 0/1 logical mesh(es) (topology_mapper_utils.cpp:1617)
+2026-10-30 19:16:09.629 | info     |          Fabric | Logical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3368)
+2026-10-30 19:16:09.629 | info     |          Fabric | Physical multi-mesh adjacency: intermesh degree histogram {0:1}; intra-mesh degree histograms mesh0 {0:1} (topology_mapper_utils.cpp:3376)
+2026-10-30 19:16:09.646 | warning  |           Metal | Failed to create shared memory /tt_device_154095682327521_memory: Permission denied (memory_stats_shm.cpp:60)
+2026-10-30 19:16:13.720 | info     |           Metal | Pinned source memory start address 0x7aa5df802478 must be aligned 64 B (dispatch.cpp:1202)
+precision config c9_lm_head_bfp4 from /home/hous/dev/tt-metal-wt-qwen3/models/autoports/qwen_qwen3_8b/doc/datatype_sweep/selected_precision_config.json: weight groups {"down_proj": {"dtype": "bfp8", "fidelity": "lofi", "fp32_acc": false, "in0_block_w": 6, "readers": 1}, "gate_proj": {"dtype": "bfp8", "fidelity": "lofi", "fp32_acc": false, "in0_block_w": 4, "readers": 1}, "o_proj": {"dtype": "bfp8", "fidelity": "lofi", "fp32_acc": false, "in0_block_w": 4, "readers": 1}, "qkv": {"dtype": "bfp8", "fidelity": "lofi", "fp32_acc": false, "in0_block_w": 4, "readers": 1}, "up_proj": {"dtype": "bfp4", "fidelity": "lofi", "fp32_acc": false, "in0_block_w": 4, "readers": 3}}, layer exceptions [], kv cache bf16, lm head {"decode_fidelity": "lofi", "decode_fp32_acc": false, "dtype": "bfp4", "in0_block_w": 4, "prefill_fidelity": "lofi", "prefill_fp32_acc": true, "readers": 1}
+loading layer 0
+loading layer 1
+loading embedding, final norm and LM head
+model weights on device in 6.4 s
+warmup prefill 32
+warmup prefill 64
+warmup prefill 128
+warmup prefill 256
+warmup prefill 512
+warmup prefill 1024
+warmup prefill 1536
+warmup prefill 2048
+warmup prefill 3072
+warmup prefill 4096
+warmup chunk pieces at start 4096: [32, 64, 128, 256, 512, 1024, 1536, 2048, 3072, 4096]
+warmup chunk pieces at start 8192: [32, 64, 128, 256, 512, 1024, 1536, 2048, 3072, 4096]
+warmup chunk pieces at start 12288: [32, 64, 128, 256, 512, 1024, 1536, 2048, 3072, 4096]
+warmup chunk pieces at start 16384: [32, 64, 128, 256, 512, 1024, 1536, 2048, 3072, 4096]
+warmup chunk pieces at start 20480: [32, 64, 128, 256, 512, 1024, 1536, 2048, 3072, 4096]
+warmup chunk pieces at start 24576: [32, 64, 128, 256, 512, 1024, 1536, 2048, 3072, 4096]
+warmup chunk pieces at start 28672: [32, 64, 128, 256, 512, 1024, 1536, 2048, 3072, 4096]
+warmup chunk pieces at start 32768: [32, 64, 128, 256, 512, 1024, 1536, 2048, 3072, 4096]
+warmup chunk pieces at start 36864: [32, 64, 128, 256, 512, 1024, 1536, 2048, 3072, 4096]
+warmup continuation at start 32 (lead 0): [32, 64, 128, 256, 512, 1024, 1536, 2048, 3072, 4096]
+warmup continuation at start 64 (lead 0): [32, 64, 128, 256, 512, 1024, 1536, 2048, 3072, 4096]
+warmup continuation at start 128 (lead 0): [32, 64, 128, 256, 512, 1024, 1536, 2048, 3072, 4096]
+warmup continuation at start 256 (lead 0): [32, 64, 128, 256, 512, 1024, 1536, 2048, 3072, 4096]
+warmup continuation at start 33 (lead 1): [32, 64, 128, 256, 512, 1024, 1536, 2048, 3072, 4096]
+warmup multi-row prefill 32 rows
+warmup decode bucket 1 mode device
+warmup decode bucket 1 mode host
+warmup decode bucket 8 mode device
+warmup decode bucket 8 mode host
+warmup decode bucket 16 mode device
+warmup decode bucket 16 mode host
+warmup decode bucket 24 mode device
+warmup decode bucket 24 mode host
+warmup decode bucket 32 mode device
+warmup decode bucket 32 mode host
+prepare done in 3.5 s
+A start=  32 n=160 pcc_mean=1.0000 pcc_min=0.9999 top1=0.981
+A start=  37 n=160 pcc_mean=1.0000 pcc_min=1.0000 top1=0.994
+A start=  68 n=160 pcc_mean=1.0000 pcc_min=1.0000 top1=0.988
+A start= 100 n=160 pcc_mean=1.0000 pcc_min=1.0000 top1=0.981
+A start= 288 n=160 pcc_mean=1.0000 pcc_min=0.9999 top1=0.988
+A start= 303 n=160 pcc_mean=1.0000 pcc_min=0.9999 top1=0.988
+A start= 544 n= 56 pcc_mean=1.0000 pcc_min=0.9999 top1=0.982
+A start= 599 n=  1 pcc_mean=1.0000 pcc_min=1.0000 top1=1.000
+B captured: program cache 458, counters {'decode_trace_replays': 7, 'sampling_trace_replays': 7, 'decode_trace_captures': 1, 'sampling_trace_captures': 1, 'token_refreshes': 0, 'position_refreshes': 21, 'page_table_refreshes': 12, 'sampling_param_refreshes': 1, 'token_readbacks': 19, 'logits_readbacks': 1, 'eager_decode_steps': 0, 'eager_sampling_steps': 12, 'seeded_eager_sampling_steps': 0, 'prefill_calls': 14, 'program_cache_entries_after_capture': 458}
+B start=45 len=100 program_cache=458 ms=10.7
+B start=77 len=300 program_cache=458 ms=10.1
+B start=150 len=1 program_cache=458 ms=7.6
+B start=289 len=50 program_cache=458 ms=17.9
+B start=992 len=8 program_cache=458 ms=6.8
+B start=1000 len=200 program_cache=458 ms=10.6
+B start=100 len=4100 program_cache=458 ms=53.4
+B start=4095 len=2 program_cache=458 ms=9.6
+B start=31 len=33 program_cache=458 ms=9.9
+B start=4192 len=4200 program_cache=458 ms=98.2
+B start=8200 len=5000 program_cache=458 ms=63.3
+{
+ "program_cache_after_capture": 458,
+ "program_cache_after_workload": 458,
+ "runs": [
+  {
+   "start": 45,
+   "length": 100,
+   "ms": 10.7,
+   "program_cache": 458
+  },
+  {
+   "start": 77,
+   "length": 300,
+   "ms": 10.1,
+   "program_cache": 458
+  },
+  {
+   "start": 150,
+   "length": 1,
+   "ms": 7.6,
+   "program_cache": 458
+  },
+  {
+   "start": 289,
+   "length": 50,
+   "ms": 17.9,
+   "program_cache": 458
+  },
+  {
+   "start": 992,
+   "length": 8,
+   "ms": 6.8,
+   "program_cache": 458
+  },
+  {
+   "start": 1000,
+   "length": 200,
+   "ms": 10.6,
+   "program_cache": 458
+  },
+  {
+   "start": 100,
+   "length": 4100,
+   "ms": 53.4,
+   "program_cache": 458
+  },
+  {
+   "start": 4095,
+   "length": 2,
+   "ms": 9.6,
+   "program_cache": 458
+  },
+  {
+   "start": 31,
+   "length": 33,
+   "ms": 9.9,
+   "program_cache": 458
+  },
+  {
+   "start": 4192,
+   "length": 4200,
+   "ms": 98.2,
+   "program_cache": 458
+  },
+  {
+   "start": 8200,
+   "length": 5000,
+   "ms": 63.3,
+   "program_cache": 458
+  }
+ ],
+ "greedy_before_equals_after": true,
+ "counters_after": {
+  "decode_trace_replays": 17,
+  "sampling_trace_replays": 17,
+  "decode_trace_captures": 1,
+  "sampling_trace_captures": 1,
+  "token_refreshes": 0,
+  "position_refreshes": 23,
+  "page_table_refreshes": 13,
+  "sampling_param_refreshes": 1,
+  "token_readbacks": 42,
+  "logits_readbacks": 1,
+  "eager_decode_steps": 0,
+  "eager_sampling_steps": 25,
+  "seeded_eager_sampling_steps": 0,
+  "prefill_calls": 27,
+  "program_cache_entries_after_capture": 458
+ },
+ "prefill_4200_tokens_ok": true
+}
+STATUS pass models/autoports/qwen_qwen3_8b/doc/vllm_integration/logs/continuation_probe_L2_chip0_fill3.json
+2026-10-30 19:16:30.247 | DEBUG    | models.common.sampling.generator:reset_trace:166 - Resetting sampling trace (bucket=1, penalties=False, log_probs=False, force_argmax=False, trace_id=MeshTraceId(1))
+runtime counters at teardown: {"decode_trace_captures": 1, "decode_trace_replays": 17, "eager_decode_steps": 0, "eager_sampling_steps": 25, "logits_readbacks": 1, "page_table_refreshes": 13, "position_refreshes": 23, "prefill_calls": 27, "program_cache_entries_after_capture": 458, "sampling_param_refreshes": 1, "sampling_trace_captures": 1, "sampling_trace_replays": 17, "seeded_eager_sampling_steps": 0, "token_readbacks": 42, "token_refreshes": 0}
+2026-10-30 19:16:31.523 | info     |    BuildKernels | JIT cache stats: 1208/1208 hits (100.0%) [1208 cached, 589 build-once dedup, 0 merged artifacts, 0 merged genfiles] (build_cache_telemetry.cpp:207)
+2026-10-30 19:16:31.523 | info     |    BuildKernels | JIT telemetry: 3 registered TelemetryTokens (build_cache_telemetry.cpp:230)
+2026-10-30 19:16:31.542 | info     |          Device | Closing user mode device drivers (tt_cluster.cpp:550)
+2026-10-30 19:16:31.542 | info     |             UMD | Closing devices in cluster (cluster.cpp:1218)
+2026-10-30 19:16:31.685 | info     |             UMD | Closing devices in cluster completed. (cluster.cpp:1227)
+2026-10-30 19:16:31.685 | info     |             UMD | Cluster destructor started. (cluster.cpp:933)
+2026-10-30 19:16:31.685 | info     |             UMD | Cluster destructor completed. (cluster.cpp:936)
+rc=0 Fri Oct 30 07:16:31 PM UTC 2026

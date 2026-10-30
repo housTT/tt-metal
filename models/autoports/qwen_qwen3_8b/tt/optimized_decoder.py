@@ -834,7 +834,10 @@ class OptimizedDecoder(FusedDecoder):
         cache_dtype = key_cache.dtype
         row0 = fill_start - chunk.phys_start
         k_fill, v_fill, owns_fill = k_rot, v_heads, False
-        if row0 != 0:
+        lead_tiles = 0
+        if row0 != 0 and host_page_table is not None:
+            lead_tiles = row0 // block_size
+        elif row0 != 0:
             k_fill = ttnn.slice(k_rot, [0, 0, row0, 0], [1, g.num_kv_heads, chunk.phys_len, g.head_dim])
             v_fill = ttnn.slice(v_heads, [0, 0, row0, 0], [1, g.num_kv_heads, chunk.phys_len, g.head_dim])
             owns_fill = True
@@ -847,10 +850,15 @@ class OptimizedDecoder(FusedDecoder):
             k_fill, v_fill, owns_fill = k_cast, v_cast, True
         first_block = fill_start // block_size
         fill_table, owns_table = user_page_table, False
-        if first_block != 0 and host_page_table is not None:
+        if host_page_table is not None and (first_block != 0 or lead_tiles != 0):
+            width = user_page_table.shape[1]
+            if host_page_table.shape[1] <= width:
+                raise ValueError("host_page_table needs one extra trailing column holding the scratch block id")
+            scratch = host_page_table[:, width : width + 1]
+            columns = host_page_table[:, :width]
             rolled = torch.cat(
-                [host_page_table[:, first_block:], host_page_table[:, -1:].expand(-1, first_block)], dim=1
-            ).to(torch.int32)
+                [scratch.expand(-1, lead_tiles), columns[:, first_block:], scratch.expand(-1, width)], dim=1
+            )[:, :width].to(torch.int32)
             fill_table = ttnn.from_torch(
                 rolled, dtype=ttnn.int32, layout=ttnn.ROW_MAJOR_LAYOUT, device=self.mesh_device
             )

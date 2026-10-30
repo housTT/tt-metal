@@ -1,0 +1,57 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ TestPresencePenalty.test_presence_penalty_mixed_batch _____________
+
+self = <tests.tt.test_tt_penalties.TestPresencePenalty object at 0x7983e8906900>
+tt_server = <tests.tt.conftest.tt_server.<locals>.ServerWrapper object at 0x7983e86e3d10>
+tt_model_name = 'Qwen/Qwen3-8B', max_batch_size = 32
+
+    def test_presence_penalty_mixed_batch(
+        self, tt_server, tt_model_name, max_batch_size
+    ):
+        # Presence penalty is only applied once regardless of repetition, so
+        # use the same reproducible stochastic profile as the sweep above.
+        prompt = "One two three"
+        configs = []
+        for i in range(max_batch_size):
+            configs.append(
+                RequestConfig(
+                    prompt=prompt,
+                    max_tokens=40,
+                    temperature=0.7,
+                    seed=42,
+                    presence_penalty=0.0 if i % 2 == 0 else 2.0,
+                )
+            )
+
+        results = run_concurrent_batch(tt_server, tt_model_name, configs)
+
+        no_penalty = [results[i] for i in range(0, max_batch_size, 2)]
+        with_penalty = [results[i] for i in range(1, max_batch_size, 2)]
+
+>       assert_deterministic(no_penalty, "No penalty requests should be identical.")
+
+../vllm/plugins/vllm-tt-plugin/tests/tt/test_tt_penalties.py:142:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+results = [' four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twen...enty three twenty four twenty five twenty six twenty seven twenty eight twenty nine thirty thirty one thirty two', ...]
+explanation = 'No penalty requests should be identical.'
+
+    def assert_deterministic(results, explanation):
+        unique_results = set(results)
+>       assert len(unique_results) == 1, (
+               ^^^^^^^^^^^^^^^^^^^^^^^^
+            f"{explanation}\n"
+            f"Expected reproducible outputs.\n"
+            f"Got {len(unique_results)} unique results out of {len(results)}.\n"
+            f"Results: {results}"
+        )
+E       AssertionError: No penalty requests should be identical.
+E       Expected reproducible outputs.
+E       Got 2 unique results out of 16.
+E       Results: [' four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty one twenty two twenty three twenty four twenty five twenty six twenty seven twenty eight twenty nine thirty thirty one thirty two', ' four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty one twenty two twenty three twenty four twenty five twenty six twenty seven twenty eight twenty nine thirty thirty one thirty two', ' four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty one twenty two twenty three twenty four twenty five twenty six twenty seven twenty eight twenty nine thirty thirty one thirty two', " four five six seven eight nine, the children counted in order, and placed the number of objects corresponding to the number they said. What is the total number of objects they placed? Let's think about", ' four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty one twenty two twenty three twenty four twenty five twenty six twenty seven twenty eight twenty nine thirty thirty one thirty two', ' four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty one twenty two twenty three twenty four twenty five twenty six twenty seven twenty eight twenty nine thirty thirty one thirty two', ' four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty one twenty two twenty three twenty four twenty five twenty six twenty seven twenty eight twenty nine thirty thirty one thirty two', ' four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty one twenty two twenty three twenty four twenty five twenty six twenty seven twenty eight twenty nine thirty thirty one thirty two', ' four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty one twenty two twenty three twenty four twenty five twenty six twenty seven twenty eight twenty nine thirty thirty one thirty two', ' four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty one twenty two twenty three twenty four twenty five twenty six twenty seven twenty eight twenty nine thirty thirty one thirty two', ' four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty one twenty two twenty three twenty four twenty five twenty six twenty seven twenty eight twenty nine thirty thirty one thirty two', ' four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty one twenty two twenty three twenty four twenty five twenty six twenty seven twenty eight twenty nine thirty thirty one thirty two', ' four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty one twenty two twenty three twenty four twenty five twenty six twenty seven twenty eight twenty nine thirty thirty one thirty two', ' four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty one twenty two twenty three twenty four twenty five twenty six twenty seven twenty eight twenty nine thirty thirty one thirty two', ' four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty one twenty two twenty three twenty four twenty five twenty six twenty seven twenty eight twenty nine thirty thirty one thirty two', ' four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twenty one twenty two twenty three twenty four twenty five twenty six twenty seven twenty eight twenty nine thirty thirty one thirty two']
+
+../vllm/plugins/vllm-tt-plugin/tests/tt/utils.py:183: AssertionError
+=========================== short test summary info ============================
+FAILED ../vllm/plugins/vllm-tt-plugin/tests/tt/test_tt_penalties.py::TestPresencePenalty::test_presence_penalty_mixed_batch
+1 failed in 8.05s
