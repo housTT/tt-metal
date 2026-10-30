@@ -2,10 +2,15 @@
 
 Status: optimized on one Blackhole P300 chip (chip 2, 1x1 mesh, p150 mesh
 graph descriptor); every accuracy, generation, trace, watcher and gate check
-reran on the final code (the review-2 commit named in `work_log.md` section
-6); the stage gate script exits 0. Stages 4 and 5 (multichip) were skipped by the
-operator; one chip is the target topology. Stage review: see `work_log.md`
-section 6.
+reran on the final code (commit `22d4eaee7e`, evidence in `work_log.md`
+sections 6.2 to 6.4); the stage gate script exits 0. Stage reviews 1 and 2
+(`logs/stage_review_{1,2}.md`) returned `more-work-needed`; review 1's three
+P2 items are fixed with device evidence (sections 6 to 6.4), review 2's one
+P2 (1D multicast kernels for the O and down prefill rows) is measured and
+left open (section 7.1): the 1D kernel wins those rows by about 110 us per
+layer at 128 rows and needs one table change plus a rerun of the evidence
+chains. Stages 4 and 5 (multichip) were skipped by the operator; one chip
+is the target topology.
 
 Abbreviations: HF (Hugging Face), PCC (Pearson correlation coefficient), KV
 (key/value), LM (language model), RoPE (rotary position embedding), SDPA
@@ -91,7 +96,7 @@ Rejected or blocked, with evidence (`work_log.md` 2.1, 2.2):
 | Gate | Result | Artifact |
 | --- | --- | --- |
 | `run_prefill_check` (AIME24 chat reference, 100 tokens, top-100) | top-1 0.990, top-5 1.000, top-100 1.000 | `logs/run_prefill_check.log`, `../../readiness/readiness_stage7_chip2.json` |
-| `run_teacher_forcing` (traced decode) | top-1 0.980, top-5 1.000, top-100 1.000; TTFT 55.17 ms; 46.74 t/s/u | `logs/run_teacher_forcing.log` |
+| `run_teacher_forcing` (traced decode) | top-1 0.980, top-5 1.000, top-100 1.000; TTFT 48.24 ms; 46.76 t/s/u | `logs/run_teacher_forcing.log` |
 | `run_autoregressive` (raw 59-token prompt, continuation stress) and `check_degenerate_output --scope autoregressive` | HF and TT 256 coherent tokens, identical first 30 (stage 6: 18); adjacent duplication 0.0, trigram loop 0.027, no degenerate output, exit 0 | `../../readiness_autoregressive/`, `degenerate_output_autoregressive.json` |
 | Shared qualitative suite, chat template, HF control, stage-6 TT control | six prompts, 128 greedy tokens each: every output coherent, on topic, English, HF-like `<think>` structure, 0.0 adjacent duplication, no control tokens; first divergence from HF at tokens 34, 37, 32, 35, 33, 22 (stage 6: 34, 4, 32, 39, 40, 22; against the stage-6 TT outputs the first differences are at 119, 4, 112, 35, 33, 88) | `qualitative/{qualitative_prompt_format,rendered_prompts,hf_outputs,tt_outputs,tt_counters,verdict}.json` |
 | Multi-row prefill equals solo (rows 5, 31, 33, 127, 129, 257, 640, 1000) | PCC 1.0000 per row, top-1 equal, rerun and reordered bit-equal | `../full_model/multi_row_prefill.json` |
@@ -133,7 +138,7 @@ Rejected or blocked, with evidence (`work_log.md` 2.1, 2.2):
   `corruptible_allocation_scope`.
 - Watcher (`TT_METAL_WATCHER=10`, reduced model with two real layers, final
   code): split-sampling, host-work, multi-row prefill and the representative
-  workload, 4 passed, 6 deselected, 2 warnings in 17.79s =================; 4 watcher dumps, 0 fatal-pattern matches
+  workload, 4 passed, 6 deselected, 2 warnings in 21.04s; 3 watcher dumps, 0 fatal-pattern matches
   (`watcher/summary.json`, `watcher/generated/watcher/watcher.log`,
   `../full_model/*.watcher.json`). Watcher and profiler ran in separate
   processes.
@@ -175,7 +180,7 @@ token-out decode at 21.0 ms is within 1.3 percent of it.
 | SDPA and composite ops | unchanged from stage 3 (explicit SDPA configs) |
 | Fused or packed same-input projections | unchanged from stage 3 (QKV packed; gate/up separate for their different dtypes) |
 | Explicit memory, program and compute-kernel configs for important ops | done: LM head (DRAM-sharded config, LoFi compute config, sharded output configs, mask), prefill norms (sharded program config), prefill matmuls (table) |
-| Dominant matmul program-config sweep | done for the LM head (readers, `in0_block_w`/cores, fidelity, `packer_l1_acc`; work log 2.1) and the prefill projections (auto, `minimal_matmul`, 2D at `in0_block_w` 16 and 8, 1D multicast at `in0_block_w` 16, 8 and 4 over 110, 96 and 64 cores with the largest legal subblock; work log 2.2 and 6.1); no material prefill row is left on an `in0_block_w` 2 auto config at 64 to 256 rows except up at 64 rows, where auto (0.124 ms) beat every 1D candidate (0.126 and up); decoder decode matmuls carry the stage-3 sweep |
+| Dominant matmul program-config sweep | done for the LM head (readers, `in0_block_w`/cores, fidelity, `packer_l1_acc`; work log 2.1) and the prefill projections (auto, `minimal_matmul`, 2D at `in0_block_w` 16 and 8, 1D multicast at `in0_block_w` 16, 8 and 4 over 110, 96 and 64 cores with the largest legal subblock; work log 2.2 and 6.1); no material prefill row is left on an `in0_block_w` 2 auto config at 64 to 256 rows except up at 64 rows, where auto (0.124 ms) beat every 1D candidate (0.126 and up); O and down at 64 to 256 rows run the 2D kernels although the review-2 probe (work log 7.1) shows 1D candidates 2 to 35 percent faster: measured, not integrated (open item); decoder decode matmuls carry the stage-3 sweep |
 | Compute fidelity swept per group | done for the LM head (LoFi kept); stage 3 for the decoder |
 | Attention / MLP weight dtype trials, BFP4/LoFi | stage 3 (real weights, real activations; BFP4 attention and BFP4 gate/down rejected on layer-17 delta PCC); not repeated here, `$datatype-sweep` owns the frontier |
 | Clean shard specs and core grids | done: 32 x 4 tiles LM head input, 8 x 16-tile norm blocks, 2D matmul grids 11 x 10 |
@@ -185,7 +190,7 @@ token-out decode at 21.0 ms is within 1.3 percent of it.
 | LM head and sampling: terminal path in the token-out trace, padded vocab masked before TopK, TopK width, no avoidable argmax / full-vocab gather / host readback | done: mask in the LM head output, split top-k greedy through the common sampler's full-row route (measured against every chunking), `tt_out_tok` feedback, one 128-byte token readback per step; terminal costs profiled separately (`profile/decode.txt`, performance accounting above) |
 | LM head DRAM-sharded | done (stage 6 geometry, LoFi) |
 | Reduced-precision experiments appropriate to this stage | LM head LoFi (kept, readiness unchanged); decoder policy unchanged by design |
-| Performance accounting reconciled, `perf_summary.json` | done: roofline 13.99 ms, device 20.83 ms, end to end 21.01 ms from the same code (`perf_summary.json`) |
+| Performance accounting reconciled, `perf_summary.json` | done: roofline 13.99 ms, device 20.73 ms, end to end 21.00 ms from the same code (`perf_summary.json`) |
 | Batch capability preserved | done: batch-1 primary; buckets 8, 16, 24, 32 bit-equal to solo on this code |
 | Batched prefill (dense work once for all short rows), prefill burst, resume check | batched prefill is implemented by stage 10 per `prefill-features.md` ("Stage 10 implements batched prefill"); this stage leaves the calibration it asks for (single-row prefill cost per bucket: `ttft_sweep_after.json`) and keeps the per-row loop (`multi_row_prefill.json`). Resume check: passes every PCC gate at the default thresholds, fails top-1 only on one 32-position hit window (BF16 near tie, margin probes); lowered-threshold run kept beside it (work log 5.1, 5.2, 6.2) |
 
@@ -196,6 +201,10 @@ token-out decode at 21.0 ms is within 1.3 percent of it.
   (`$datatype-sweep`), not generator orchestration.
 - `prepare()` grew from 64 to 89 s (90 chunk-piece warms); it runs once per
   process.
+- O and down prefill rows at 64 to 256 rows: the 1D multicast kernel wins
+  (work log 7.1, about 4 ms of TTFT at 128 tokens); one table change plus
+  the evidence-chain rerun. The sharded norm's `inplace=True` program config
+  is an untried one-flag candidate for the `block_h` 6 L1 cap.
 - Prefill chunks longer than 1920 rows normalise in 1920-row pieces (slice,
   norm, concat) and pay 2 to 5 percent of TTFT at 2048 to 16384 tokens; a
   sharded norm kernel that holds more than six tile rows per core (an

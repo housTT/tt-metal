@@ -793,9 +793,7 @@ The margin probe of the 16352 window runs after the gate chain (section 6.3).
 | 1500:32 | 1468 | 0.986 | 0.919 / 0.922 | 0.9866 / 0.9865 | 0.9558 (0.8666) | 293 (0.914, 0.836, 22.6), 534 (0.996, 0.988, 14.3), 350 (0.857, 0.828, 15.0) |
 | 2560:2528 | 32 | 1.000 | 0.750 / 0.750 | 0.9959 / 0.9959 | 0.9998 (0.9997) | no flip (round 1: one at 2531) |
 
-The uniform sharded norm brings the resumed and fresh paths closer than the
-round-1 code at every statistic while both stay at the same distance from
-HF; the flipped positions are near ties (HF margins 0.07 to 0.9 at TT
+With the uniform sharded norm the resumed and fresh paths agree more closely in PCC (minimum 0.9886 and 0.9558 against 0.9795 and 0.8666) and slightly less in whole-window top-1 (0.986 against 0.992 and 0.989), while both stay at the same distance from HF; the flipped positions are near ties (HF margins 0.07 to 0.9 at TT
 margins 0.02 to 0.2). The 16352 window that fails top-1 at 31 of 32 is
 probed in section 6.4 (an HF forward over 16384 tokens on the CPU).
 
@@ -827,3 +825,59 @@ cores (1D, 65 percent of DRAM bandwidth; 118 us before), O 78 us (2D), gate
 (stage 6) -> 1.21 (round 1) -> 0.93 ms.
 
 Commit of this round: see section 7.
+
+## 7. Commits and stage review 2 (09:35 ET Oct 30 onward, after the cap)
+
+Local commits on `hous/qwen3-8b-autoport` (never pushed):
+
+| Commit | Content |
+| --- | --- |
+| `4c9a98d810` | sources and tests: LoFi LM head, LM-head vocab mask, sampler with padded vocab, per-role prefill kernel table, chunk-piece prefill with tail buckets, chunk-piece warmup, reduced-fixture skip; candidate probes and the before sweep |
+| `411ff9e9d8` | round-1 evidence on chip 2, sharded-norm attribution and rejection, profile, `perf_summary.json`, documents, chain scripts, `warmup_multi_row` generator knob |
+| `e78f68b42c` | `doc/context_contract.json` `optimized_full_model` section |
+| `22d4eaee7e` | review-1 fixes: uniform block-sharded prefill norm (1920-row pieces), 1D multicast prefill kernels, sidecar provenance; round-2 evidence on chip 2 (sections 6.1 to 6.4), documents |
+
+Stage gate on `22d4eaee7e`: `MODEL_DIR=models/autoports/qwen_qwen3_8b bash
+.../07-optimized-full-model.check.sh` exit 0
+(`logs/gate_07_optimized_full_model.log`: no degenerate output).
+
+Stage review 2: launched at 09:37 ET Oct 30 (read-only, fresh xhigh
+subagent, `logs/stage_review_2.md`); verdict recorded below when it returns.
+
+Stage review 2 (`logs/stage_review_2.md`, 09:37 to 09:47 ET Oct 30, HEAD
+`22d4eaee7e`): `more-work-needed`, one P2 (the O and down prefill rows were
+never measured with the 1D multicast kernel) and document nits (sidecar
+note, watcher summary string and README watcher values, stale
+teacher-forcing and accounting numbers, context-contract placeholder, the
+6.3 sentence), all fixed in the commit below.
+
+### 7.1 Review-2 P2: 1D multicast candidates for O and down (09:46 to 09:50 ET Oct 30, `logs/probe_review2.log`, `probe_candidates.review2_prefill_mm2.json`)
+
+| role, rows | current table (ms) | best 1D (ms; cores, `in0_block_w`, subblock) |
+| --- | ---: | ---: |
+| o 64 | 2D16 0.093 | 0.068 (110, 4, 2x2) |
+| o 128 | 2D16 0.095 | 0.072 (96, 8, 2x2) |
+| o 256 | 2D16 0.102 | 0.100 (64, 16, 2x2) |
+| down 64 | 2D8 0.244 | 0.161 (96, 4, 2x2) |
+| down 128 | 2D8 0.254 | 0.167 (64, 8, 2x2) |
+| down 256 | 2D16 0.264 | 0.241 (110, 16, 2x2) |
+
+The reviewer was right: the 1D kernel wins every O and down row at 64 to
+256 rows (about 110 us per layer at 128 rows, roughly 4 ms of the 42 ms
+TTFT; 48 us per layer at 256 rows). Not integrated: a kernel change
+alters prefill numerics and needs the evidence and gate chains again
+(about 45 minutes of chip time), which does not fit the post-cap wrap-up
+window. Open item for the next stage or a follow-up commit: set
+`PREFILL_KERNEL_TABLES["stage7"]["o_proj"]` to `{64: ("1d", (110, 4, 2, 2)),
+128: ("1d", (96, 8, 2, 2)), 256: ("1d", (64, 16, 2, 2))}` and
+`["down_proj"]` to `{64: ("1d", (96, 4, 2, 2)), 128: ("1d", (64, 8, 2, 2)),
+256: ("1d", (110, 16, 2, 2))}`, then rerun `logs/review1_chain_chip2.sh`
+(the full evidence, margin-probe and gate chains). The review-2 verdict
+stands as `more-work-needed` with this one open P2; the brief's rule for a
+P2 after the last review applies (recorded, verdict unchanged).
+
+Hours used: 15:45 ET Oct 29 to 19:21 ET Oct 29 attended and unattended
+device work (3 h 36 min; the gate chain, margin probe and profile finished
+unattended before 19:22 ET), then 09:35 to 10:00 ET Oct 30 for the wrap-up
+(25 min). No device work after the cap except the 4-minute O/down probe at
+09:46 ET Oct 30.

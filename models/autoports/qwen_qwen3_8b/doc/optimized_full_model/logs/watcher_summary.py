@@ -25,7 +25,7 @@ pytest_log = (root / "logs" / "pytest_watcher_reduced.log").read_text(errors="re
 result = re.findall(r"(\d+ passed.*?)\n", pytest_log)
 summary = {
     "command": sys.argv[1] if len(sys.argv) > 1 else "see logs/gate_chain_chip2.sh",
-    "model": "reduced full model: two real decoder layers, real embedding, final norm, interleaved prefill norms, masked LM head, split sampling, traces, chunk-piece warmup",
+    "model": "reduced full model: two real decoder layers, real embedding, final norm, block-sharded prefill norms, masked LM head, split sampling, traces, chunk-piece warmup",
     "result": (result[-1] if result else "see logs/pytest_watcher_reduced.log"),
     "watcher_log": str(log.relative_to(root)) if log.exists() else None,
     "dumps_completed": dumps,

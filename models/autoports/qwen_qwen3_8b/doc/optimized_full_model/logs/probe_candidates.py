@@ -558,7 +558,15 @@ def prefill_mm_section():
 
 def prefill_mm2_section():
     """Review-1 item: 1D multicast configs over the full grid for the rows still on the auto config."""
-    roles = {"qkv": (H, 6144, "bfp8"), "gate": (H, 12288, "bfp8"), "up": (H, 12288, "bfp4")}
+    roles = {
+        "qkv": (H, 6144, "bfp8"),
+        "gate": (H, 12288, "bfp8"),
+        "up": (H, 12288, "bfp4"),
+        "o": (H, H, "bfp8"),
+        "down": (12288, H, "bfp8"),
+    }
+    if os.environ.get("PROBE_ROLES"):
+        roles = {k: v for k, v in roles.items() if k in os.environ["PROBE_ROLES"].split(",")}
     lofi = ckc(ttnn.MathFidelity.LoFi, True, False)
     ncores = grid.x * grid.y
     for name, (k, n, dtype) in roles.items():
@@ -752,7 +760,7 @@ for name in sections:
     print(f"SECTION {name}", flush=True)
     results.clear()
     SECTIONS[name]()
-    out = f"models/autoports/qwen_qwen3_8b/doc/optimized_full_model/probe_candidates.{name}.json"
+    out = f"models/autoports/qwen_qwen3_8b/doc/optimized_full_model/probe_candidates.{os.environ.get('PROBE_SUFFIX', '')}{name}.json"
     with open(out, "w") as fh:
         json.dump({"section": name, "chip": os.environ.get("TT_VISIBLE_DEVICES"), "results": results}, fh, indent=2)
 ttnn.close_mesh_device(mesh)
