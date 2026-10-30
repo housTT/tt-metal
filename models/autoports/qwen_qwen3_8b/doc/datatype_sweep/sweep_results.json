@@ -1,0 +1,2620 @@
+{
+  "model": "Qwen/Qwen3-8B",
+  "reference": "bringup/references/qwen3_8b_aime24_chat.refpt",
+  "reference_note": "AIME24 prompt 0, chat template, 100 generated tokens, top-100 captured (readiness_check.generate)",
+  "acceptance": {
+    "top1_min": 0.9,
+    "top5_min": 0.98,
+    "top100_min": 1.0,
+    "requires_traced_decode": true,
+    "rule": "pass requires the bar on the main AIME24 reference (prefill check and teacher forcing) and on every robustness reference the candidate was evaluated on (second AIME24 prompt, 32-token short-prefix book prompt, 1468 natural-text positions teacher-forced against HF fp32 logits)"
+  },
+  "ranking_metric": "trace-verified teacher-forcing decode t/s/u (batch 1)",
+  "selected_config_id": "c9_lm_head_bfp4",
+  "candidates": [
+    {
+      "config_id": "c12_all_bfp4_inner",
+      "description": "every projection BFP4 LoFi on layers 1 to 34 (c5 plus c8); layers 0 and 35 baseline",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c12_all_bfp4_inner.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp4/lofi",
+          "o_proj": "bfp4/lofi",
+          "gate_proj": "bfp4/lofi",
+          "up_proj": "bfp4/lofi",
+          "down_proj": "bfp4/lofi"
+        },
+        "layer_exceptions": {
+          "0": {
+            "qkv": "bfp8/lofi",
+            "o_proj": "bfp8/lofi",
+            "gate_proj": "bfp8/lofi",
+            "down_proj": "bfp8/lofi"
+          },
+          "35": {
+            "qkv": "bfp8/lofi",
+            "o_proj": "bfp8/lofi",
+            "gate_proj": "bfp8/lofi",
+            "down_proj": "bfp8/lofi"
+          }
+        },
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp8/lofi (prefill hifi2)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "lofi",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 0.91,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c12_all_bfp4_inner_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 0.89,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 44.72,
+        "decode_t_s_u": 54.11,
+        "e2e_t_s_u": 53.35,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c12_all_bfp4_inner_teacher_forcing.log",
+        "timing_regime": "serialized: the only device job on the host during this run",
+        "round2_concurrent_row": null,
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 699,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 10
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c12_all_bfp4_inner.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c12_all_bfp4_inner_chip2.json",
+      "robustness_references": {
+        "aime_p1": {
+          "reference": "bringup/references/qwen3_8b_aime24_chat_p1.refpt",
+          "chip": 1,
+          "prefill_check": {
+            "top1": 0.91,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c12_all_bfp4_inner_aime_p1_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.9,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c12_all_bfp4_inner_aime_p1_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 699,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 10
+            }
+          },
+          "timing_regime": "concurrent: other chips ran device jobs; chain driver stopped after this run (no later jobs on chip 1)",
+          "pass": true
+        }
+      },
+      "main_reference_pass": false,
+      "status": "fail",
+      "selected": false
+    },
+    {
+      "config_id": "c13_all_bfp4_inner_lm_bfp4",
+      "description": "c12 plus a BFP4 LoFi LM head",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c13_all_bfp4_inner_lm_bfp4.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp4/lofi",
+          "o_proj": "bfp4/lofi",
+          "gate_proj": "bfp4/lofi",
+          "up_proj": "bfp4/lofi",
+          "down_proj": "bfp4/lofi"
+        },
+        "layer_exceptions": {
+          "0": {
+            "qkv": "bfp8/lofi",
+            "o_proj": "bfp8/lofi",
+            "gate_proj": "bfp8/lofi",
+            "down_proj": "bfp8/lofi"
+          },
+          "35": {
+            "qkv": "bfp8/lofi",
+            "o_proj": "bfp8/lofi",
+            "gate_proj": "bfp8/lofi",
+            "down_proj": "bfp8/lofi"
+          }
+        },
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp4/lofi (prefill lofi)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "lofi",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 0.9,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c13_all_bfp4_inner_lm_bfp4_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 0.9,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 58.93,
+        "decode_t_s_u": 52.66,
+        "e2e_t_s_u": 51.57,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c13_all_bfp4_inner_lm_bfp4_teacher_forcing.log",
+        "timing_regime": "concurrent: chips 0 and 1 ran accuracy jobs on the same host during this run; host-wall TTFT and decode t/s/u are not same-regime with the serialized rows",
+        "round2_concurrent_row": null,
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 699,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 10
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c13_all_bfp4_inner_lm_bfp4.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c13_all_bfp4_inner_lm_bfp4_chip2.json",
+      "robustness_references": {
+        "book32": {
+          "reference": "bringup/references/qwen3_8b_book32.refpt",
+          "chip": 0,
+          "prefill_check": {
+            "top1": 0.91,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c13_all_bfp4_inner_lm_bfp4_book32_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.87,
+            "top5": 0.98,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c13_all_bfp4_inner_lm_bfp4_book32_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 699,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 28
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": false
+        }
+      },
+      "main_reference_pass": true,
+      "status": "fail",
+      "selected": false
+    },
+    {
+      "config_id": "c14_mlp_bfp4_all_lm_bfp4",
+      "description": "c6 (gate/up/down BFP4 LoFi on every layer) plus a BFP4 LoFi LM head",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c14_mlp_bfp4_all_lm_bfp4.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp8/lofi",
+          "o_proj": "bfp8/lofi",
+          "gate_proj": "bfp4/lofi",
+          "up_proj": "bfp4/lofi",
+          "down_proj": "bfp4/lofi"
+        },
+        "layer_exceptions": {},
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp4/lofi (prefill lofi)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "lofi",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 0.96,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c14_mlp_bfp4_all_lm_bfp4_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 0.94,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 44.91,
+        "decode_t_s_u": 52.44,
+        "e2e_t_s_u": 51.74,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c14_mlp_bfp4_all_lm_bfp4_serial_teacher_forcing.log",
+        "timing_regime": "serialized: the only device job on the host during this run (fuser checked on chips 0, 1 and 2 before the chain)",
+        "round2_concurrent_row": {
+          "top1": 0.94,
+          "top5": 1.0,
+          "top100": 1.0,
+          "ttft_ms": 47.74,
+          "decode_tps_per_user": 50.01,
+          "e2e_tps_per_user": 49.33,
+          "timing_regime": "serialized: the only device job on the host during this run",
+          "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c14_mlp_bfp4_all_lm_bfp4_teacher_forcing.log"
+        },
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 655,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 6
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c14_mlp_bfp4_all_lm_bfp4.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c14_mlp_bfp4_all_lm_bfp4_chip2.json",
+      "robustness_references": {
+        "aime_p1": {
+          "reference": "bringup/references/qwen3_8b_aime24_chat_p1.refpt",
+          "chip": 1,
+          "prefill_check": {
+            "top1": 0.92,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c14_mlp_bfp4_all_lm_bfp4_aime_p1_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.9,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c14_mlp_bfp4_all_lm_bfp4_aime_p1_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 655,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 10
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": true
+        },
+        "book32": {
+          "reference": "bringup/references/qwen3_8b_book32.refpt",
+          "chip": 2,
+          "prefill_check": {
+            "top1": 0.91,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c14_mlp_bfp4_all_lm_bfp4_book32_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.91,
+            "top5": 0.98,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c14_mlp_bfp4_all_lm_bfp4_book32_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 655,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 26
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": true
+        },
+        "natural_text": {
+          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "chip": 2,
+          "top1": 0.8256130814552307,
+          "top5": 0.975476861000061,
+          "pcc_mean": 0.9344356060028076,
+          "pcc_min": 0.5079028606414795,
+          "artifact": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/natural_text_c14_mlp_bfp4_all_lm_bfp4_chip2.json",
+          "pass": false
+        }
+      },
+      "main_reference_pass": true,
+      "status": "fail",
+      "selected": false
+    },
+    {
+      "config_id": "c15_mlp_bfp4_inner_lm_bfp4",
+      "description": "c5 (gate/up/down BFP4 LoFi on layers 1 to 34) plus a BFP4 LoFi LM head",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c15_mlp_bfp4_inner_lm_bfp4.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp8/lofi",
+          "o_proj": "bfp8/lofi",
+          "gate_proj": "bfp4/lofi",
+          "up_proj": "bfp4/lofi",
+          "down_proj": "bfp4/lofi"
+        },
+        "layer_exceptions": {
+          "0": {
+            "gate_proj": "bfp8/lofi",
+            "down_proj": "bfp8/lofi"
+          },
+          "35": {
+            "gate_proj": "bfp8/lofi",
+            "down_proj": "bfp8/lofi"
+          }
+        },
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp4/lofi (prefill lofi)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "lofi",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 0.95,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c15_mlp_bfp4_inner_lm_bfp4_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 0.94,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 45.02,
+        "decode_t_s_u": 52.13,
+        "e2e_t_s_u": 51.43,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c15_mlp_bfp4_inner_lm_bfp4_serial_teacher_forcing.log",
+        "timing_regime": "serialized: the only device job on the host during this run (fuser checked on chips 0, 1 and 2 before the chain)",
+        "round2_concurrent_row": {
+          "top1": 0.94,
+          "top5": 1.0,
+          "top100": 1.0,
+          "ttft_ms": 47.95,
+          "decode_tps_per_user": 49.5,
+          "e2e_tps_per_user": 48.83,
+          "timing_regime": "concurrent: chips 0 and 1 ran accuracy jobs on the same host during this run; host-wall TTFT and decode t/s/u are not same-regime with the serialized rows",
+          "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c15_mlp_bfp4_inner_lm_bfp4_teacher_forcing.log"
+        },
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 677,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 6
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c15_mlp_bfp4_inner_lm_bfp4.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c15_mlp_bfp4_inner_lm_bfp4_chip2.json",
+      "robustness_references": {
+        "aime_p1": {
+          "reference": "bringup/references/qwen3_8b_aime24_chat_p1.refpt",
+          "chip": 1,
+          "prefill_check": {
+            "top1": 0.91,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c15_mlp_bfp4_inner_lm_bfp4_aime_p1_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.91,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c15_mlp_bfp4_inner_lm_bfp4_aime_p1_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 677,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 9
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": true
+        },
+        "book32": {
+          "reference": "bringup/references/qwen3_8b_book32.refpt",
+          "chip": 2,
+          "prefill_check": {
+            "top1": 0.9,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c15_mlp_bfp4_inner_lm_bfp4_book32_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.9,
+            "top5": 1.0,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c15_mlp_bfp4_inner_lm_bfp4_book32_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 677,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 28
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": true
+        },
+        "natural_text": {
+          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "chip": 0,
+          "top1": 0.8194822669029236,
+          "top5": 0.975476861000061,
+          "pcc_mean": 0.9346113204956055,
+          "pcc_min": 0.29942265152931213,
+          "artifact": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/natural_text_c15_mlp_bfp4_inner_lm_bfp4_chip0.json",
+          "pass": false
+        }
+      },
+      "main_reference_pass": true,
+      "status": "fail",
+      "selected": false
+    },
+    {
+      "config_id": "c16_all_bfp4_all_layers",
+      "description": "every projection BFP4 LoFi on every layer plus a BFP4 LoFi LM head (the most aggressive legal policy)",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c16_all_bfp4_all_layers.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp4/lofi",
+          "o_proj": "bfp4/lofi",
+          "gate_proj": "bfp4/lofi",
+          "up_proj": "bfp4/lofi",
+          "down_proj": "bfp4/lofi"
+        },
+        "layer_exceptions": {},
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp4/lofi (prefill lofi)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "lofi",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 0.91,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c16_all_bfp4_all_layers_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 0.91,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 47.24,
+        "decode_t_s_u": 51.95,
+        "e2e_t_s_u": 51.2,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c16_all_bfp4_all_layers_teacher_forcing.log",
+        "timing_regime": "concurrent: chips 0 and 1 ran accuracy jobs on the same host during this run; host-wall TTFT and decode t/s/u are not same-regime with the serialized rows",
+        "round2_concurrent_row": null,
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 655,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 9
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c16_all_bfp4_all_layers.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c16_all_bfp4_all_layers_chip2.json",
+      "robustness_references": {
+        "book32": {
+          "reference": "bringup/references/qwen3_8b_book32.refpt",
+          "chip": 0,
+          "prefill_check": {
+            "top1": 0.89,
+            "top5": 0.97,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c16_all_bfp4_all_layers_book32_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.86,
+            "top5": 0.96,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c16_all_bfp4_all_layers_book32_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 655,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 30
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": false
+        }
+      },
+      "main_reference_pass": true,
+      "status": "fail",
+      "selected": false
+    },
+    {
+      "config_id": "c6_mlp_bfp4_all",
+      "description": "gate/up/down BFP4 LoFi on every layer",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c6_mlp_bfp4_all.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp8/lofi",
+          "o_proj": "bfp8/lofi",
+          "gate_proj": "bfp4/lofi",
+          "up_proj": "bfp4/lofi",
+          "down_proj": "bfp4/lofi"
+        },
+        "layer_exceptions": {},
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp8/lofi (prefill hifi2)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "lofi",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 0.94,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c6_mlp_bfp4_all_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 0.92,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 45.02,
+        "decode_t_s_u": 51.89,
+        "e2e_t_s_u": 51.2,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c6_mlp_bfp4_all_serial_teacher_forcing.log",
+        "timing_regime": "serialized: the only device job on the host during this run (fuser checked on chips 0, 1 and 2 before the chain)",
+        "round2_concurrent_row": {
+          "top1": 0.92,
+          "top5": 1.0,
+          "top100": 1.0,
+          "ttft_ms": 45.42,
+          "decode_tps_per_user": 51.84,
+          "e2e_tps_per_user": 51.15,
+          "timing_regime": "serialized: the only device job on the host during this run",
+          "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c6_mlp_bfp4_all_teacher_forcing.log"
+        },
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 655,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 7
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c6_mlp_bfp4_all.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c6_mlp_bfp4_all_chip2.json",
+      "robustness_references": {
+        "aime_p1": {
+          "reference": "bringup/references/qwen3_8b_aime24_chat_p1.refpt",
+          "chip": 1,
+          "prefill_check": {
+            "top1": 0.92,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c6_mlp_bfp4_all_aime_p1_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.91,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c6_mlp_bfp4_all_aime_p1_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 655,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 9
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": true
+        },
+        "book32": {
+          "reference": "bringup/references/qwen3_8b_book32.refpt",
+          "chip": 0,
+          "prefill_check": {
+            "top1": 0.92,
+            "top5": 1.0,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c6_mlp_bfp4_all_book32_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.92,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c6_mlp_bfp4_all_book32_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 655,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 27
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": true
+        },
+        "natural_text": {
+          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "chip": 1,
+          "top1": 0.8344686627388,
+          "top5": 0.9782016277313232,
+          "pcc_mean": 0.9417935609817505,
+          "pcc_min": 0.5108078122138977,
+          "artifact": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/natural_text_c6_mlp_bfp4_all_chip1.json",
+          "pass": false
+        }
+      },
+      "main_reference_pass": true,
+      "status": "fail",
+      "selected": false
+    },
+    {
+      "config_id": "c5_mlp_bfp4_inner",
+      "description": "gate/up/down BFP4 LoFi on layers 1 to 34; layers 0 and 35 keep the baseline MLP (BFP8 gate/down, BFP4 up)",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c5_mlp_bfp4_inner.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp8/lofi",
+          "o_proj": "bfp8/lofi",
+          "gate_proj": "bfp4/lofi",
+          "up_proj": "bfp4/lofi",
+          "down_proj": "bfp4/lofi"
+        },
+        "layer_exceptions": {
+          "0": {
+            "gate_proj": "bfp8/lofi",
+            "down_proj": "bfp8/lofi"
+          },
+          "35": {
+            "gate_proj": "bfp8/lofi",
+            "down_proj": "bfp8/lofi"
+          }
+        },
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp8/lofi (prefill hifi2)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "lofi",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 0.94,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c5_mlp_bfp4_inner_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 0.97,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 45.2,
+        "decode_t_s_u": 51.47,
+        "e2e_t_s_u": 50.8,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c5_mlp_bfp4_inner_serial_teacher_forcing.log",
+        "timing_regime": "serialized: the only device job on the host during this run (fuser checked on chips 0, 1 and 2 before the chain)",
+        "round2_concurrent_row": {
+          "top1": 0.97,
+          "top5": 1.0,
+          "top100": 1.0,
+          "ttft_ms": 45.55,
+          "decode_tps_per_user": 51.58,
+          "e2e_tps_per_user": 50.89,
+          "timing_regime": "serialized: the only device job on the host during this run",
+          "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c5_mlp_bfp4_inner_teacher_forcing.log"
+        },
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 677,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 3
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c5_mlp_bfp4_inner.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c5_mlp_bfp4_inner_chip2.json",
+      "robustness_references": {
+        "aime_p1": {
+          "reference": "bringup/references/qwen3_8b_aime24_chat_p1.refpt",
+          "chip": 1,
+          "prefill_check": {
+            "top1": 0.92,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c5_mlp_bfp4_inner_aime_p1_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.92,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c5_mlp_bfp4_inner_aime_p1_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 677,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 8
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": true
+        },
+        "book32": {
+          "reference": "bringup/references/qwen3_8b_book32.refpt",
+          "chip": 0,
+          "prefill_check": {
+            "top1": 0.9,
+            "top5": 1.0,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c5_mlp_bfp4_inner_book32_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.91,
+            "top5": 1.0,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c5_mlp_bfp4_inner_book32_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 677,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 28
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": true
+        },
+        "natural_text": {
+          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "chip": 0,
+          "top1": 0.8297002911567688,
+          "top5": 0.9788828492164612,
+          "pcc_mean": 0.9419652223587036,
+          "pcc_min": 0.30113574862480164,
+          "artifact": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/natural_text_c5_mlp_bfp4_inner_chip0.json",
+          "pass": false
+        }
+      },
+      "main_reference_pass": true,
+      "status": "fail",
+      "selected": false
+    },
+    {
+      "config_id": "c17_mlp_attn_bfp4_all_layers",
+      "description": "every projection BFP4 LoFi on every layer, BFP8 LoFi LM head (c16 without the LM-head change)",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c17_mlp_attn_bfp4_all_layers.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp4/lofi",
+          "o_proj": "bfp4/lofi",
+          "gate_proj": "bfp4/lofi",
+          "up_proj": "bfp4/lofi",
+          "down_proj": "bfp4/lofi"
+        },
+        "layer_exceptions": {},
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp8/lofi (prefill hifi2)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "lofi",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 0.92,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c17_mlp_attn_bfp4_all_layers_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 0.91,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 45.54,
+        "decode_t_s_u": 50.97,
+        "e2e_t_s_u": 50.3,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c17_mlp_attn_bfp4_all_layers_teacher_forcing.log",
+        "timing_regime": "concurrent: chips 0 and 1 ran accuracy jobs on the same host during this run; host-wall TTFT and decode t/s/u are not same-regime with the serialized rows",
+        "round2_concurrent_row": null,
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 655,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 8
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c17_mlp_attn_bfp4_all_layers.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c17_mlp_attn_bfp4_all_layers_chip2.json",
+      "robustness_references": {
+        "book32": {
+          "reference": "bringup/references/qwen3_8b_book32.refpt",
+          "chip": 0,
+          "prefill_check": {
+            "top1": 0.93,
+            "top5": 0.98,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c17_mlp_attn_bfp4_all_layers_book32_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.89,
+            "top5": 0.96,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c17_mlp_attn_bfp4_all_layers_book32_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 655,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 30
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": false
+        }
+      },
+      "main_reference_pass": true,
+      "status": "fail",
+      "selected": false
+    },
+    {
+      "config_id": "c10_mlp_bfp4_inner_hifi2",
+      "description": "c5 dtypes with HiFi2 on the BFP4 MLP groups (BFP4+HiFi2 comparison for the material BFP4 groups)",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c10_mlp_bfp4_inner_hifi2.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp8/lofi",
+          "o_proj": "bfp8/lofi",
+          "gate_proj": "bfp4/hifi2",
+          "up_proj": "bfp4/hifi2",
+          "down_proj": "bfp4/hifi2"
+        },
+        "layer_exceptions": {
+          "0": {
+            "gate_proj": "bfp8/lofi",
+            "down_proj": "bfp8/lofi"
+          },
+          "35": {
+            "gate_proj": "bfp8/lofi",
+            "down_proj": "bfp8/lofi"
+          }
+        },
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp8/lofi (prefill hifi2)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "hifi2",
+        "up_proj": "hifi2",
+        "down_proj": "hifi2",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 0.94,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c10_mlp_bfp4_inner_hifi2_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 0.97,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 45.62,
+        "decode_t_s_u": 50.28,
+        "e2e_t_s_u": 49.64,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c10_mlp_bfp4_inner_hifi2_teacher_forcing.log",
+        "timing_regime": "serialized: the only device job on the host during this run",
+        "round2_concurrent_row": null,
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 681,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 3
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c10_mlp_bfp4_inner_hifi2.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c10_mlp_bfp4_inner_hifi2_chip2.json",
+      "robustness_references": {},
+      "main_reference_pass": true,
+      "status": "pass",
+      "selected": false
+    },
+    {
+      "config_id": "c7_gateup_bfp4_inner",
+      "description": "gate and up BFP4 LoFi on layers 1 to 34 (down BFP8, the first restore step after c5); layers 0 and 35 baseline",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c7_gateup_bfp4_inner.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp8/lofi",
+          "o_proj": "bfp8/lofi",
+          "gate_proj": "bfp4/lofi",
+          "up_proj": "bfp4/lofi",
+          "down_proj": "bfp8/lofi"
+        },
+        "layer_exceptions": {
+          "0": {
+            "gate_proj": "bfp8/lofi"
+          },
+          "35": {
+            "gate_proj": "bfp8/lofi"
+          }
+        },
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp8/lofi (prefill hifi2)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "lofi",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 0.97,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c7_gateup_bfp4_inner_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 0.95,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 46.88,
+        "decode_t_s_u": 49.96,
+        "e2e_t_s_u": 49.3,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c7_gateup_bfp4_inner_teacher_forcing.log",
+        "timing_regime": "serialized: the only device job on the host during this run",
+        "round2_concurrent_row": null,
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 670,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 4
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c7_gateup_bfp4_inner.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c7_gateup_bfp4_inner_chip2.json",
+      "robustness_references": {
+        "natural_text": {
+          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "chip": 1,
+          "top1": 0.8467302322387695,
+          "top5": 0.9870572090148926,
+          "pcc_mean": 0.955287516117096,
+          "pcc_min": 0.5026371479034424,
+          "artifact": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/natural_text_c7_gateup_bfp4_inner_chip1.json",
+          "pass": false
+        }
+      },
+      "main_reference_pass": true,
+      "status": "fail",
+      "selected": false
+    },
+    {
+      "config_id": "c8_attn_bfp4_inner",
+      "description": "QKV and O BFP4 LoFi on layers 1 to 34 with the baseline MLP; layers 0 and 35 baseline",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c8_attn_bfp4_inner.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp4/lofi",
+          "o_proj": "bfp4/lofi",
+          "gate_proj": "bfp8/lofi",
+          "up_proj": "bfp4/lofi",
+          "down_proj": "bfp8/lofi"
+        },
+        "layer_exceptions": {
+          "0": {
+            "qkv": "bfp8/lofi",
+            "o_proj": "bfp8/lofi"
+          },
+          "35": {
+            "qkv": "bfp8/lofi",
+            "o_proj": "bfp8/lofi"
+          }
+        },
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp8/lofi (prefill hifi2)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "lofi",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 0.96,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c8_attn_bfp4_inner_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 0.95,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 47.77,
+        "decode_t_s_u": 48.82,
+        "e2e_t_s_u": 48.18,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c8_attn_bfp4_inner_teacher_forcing.log",
+        "timing_regime": "serialized: the only device job on the host during this run",
+        "round2_concurrent_row": null,
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 688,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 3
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c8_attn_bfp4_inner.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c8_attn_bfp4_inner_chip2.json",
+      "robustness_references": {},
+      "main_reference_pass": true,
+      "status": "pass",
+      "selected": false
+    },
+    {
+      "config_id": "c11_down_bfp4_inner",
+      "description": "down BFP4 LoFi on layers 1 to 34 next to the baseline BFP4 up (gate BFP8); layers 0 and 35 baseline",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c11_down_bfp4_inner.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp8/lofi",
+          "o_proj": "bfp8/lofi",
+          "gate_proj": "bfp8/lofi",
+          "up_proj": "bfp4/lofi",
+          "down_proj": "bfp4/lofi"
+        },
+        "layer_exceptions": {
+          "0": {
+            "down_proj": "bfp8/lofi"
+          },
+          "35": {
+            "down_proj": "bfp8/lofi"
+          }
+        },
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp8/lofi (prefill hifi2)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "lofi",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 0.96,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c11_down_bfp4_inner_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 0.96,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 47.0,
+        "decode_t_s_u": 48.09,
+        "e2e_t_s_u": 47.49,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c11_down_bfp4_inner_teacher_forcing.log",
+        "timing_regime": "serialized: the only device job on the host during this run",
+        "round2_concurrent_row": null,
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 677,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 4
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c11_down_bfp4_inner.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c11_down_bfp4_inner_chip2.json",
+      "robustness_references": {
+        "natural_text": {
+          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "chip": 1,
+          "top1": 0.891008198261261,
+          "top5": 0.9931880235671997,
+          "pcc_mean": 0.9733589887619019,
+          "pcc_min": 0.5654788017272949,
+          "artifact": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/natural_text_c11_down_bfp4_inner_chip1.json",
+          "pass": false
+        }
+      },
+      "main_reference_pass": true,
+      "status": "fail",
+      "selected": false
+    },
+    {
+      "config_id": "c9_lm_head_bfp4",
+      "description": "baseline with a BFP4 LoFi LM head",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c9_lm_head_bfp4.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp8/lofi",
+          "o_proj": "bfp8/lofi",
+          "gate_proj": "bfp8/lofi",
+          "up_proj": "bfp4/lofi",
+          "down_proj": "bfp8/lofi"
+        },
+        "layer_exceptions": {},
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp4/lofi (prefill lofi)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "lofi",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 0.98,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c9_lm_head_bfp4_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 0.97,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 48.05,
+        "decode_t_s_u": 47.24,
+        "e2e_t_s_u": 46.64,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c9_lm_head_bfp4_serial_teacher_forcing.log",
+        "timing_regime": "serialized: the only device job on the host during this run (fuser checked on chips 0, 1 and 2 before the chain)",
+        "round2_concurrent_row": {
+          "top1": 0.97,
+          "top5": 1.0,
+          "top100": 1.0,
+          "ttft_ms": 48.02,
+          "decode_tps_per_user": 47.24,
+          "e2e_tps_per_user": 46.64,
+          "timing_regime": "serialized: the only device job on the host during this run",
+          "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c9_lm_head_bfp4_teacher_forcing.log"
+        },
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 666,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 1
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c9_lm_head_bfp4.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c9_lm_head_bfp4_chip2.json",
+      "robustness_references": {
+        "aime_p1": {
+          "reference": "bringup/references/qwen3_8b_aime24_chat_p1.refpt",
+          "chip": 1,
+          "prefill_check": {
+            "top1": 0.99,
+            "top5": 1.0,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c9_lm_head_bfp4_aime_p1_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.99,
+            "top5": 1.0,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c9_lm_head_bfp4_aime_p1_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 666,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 1
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": true
+        },
+        "book32": {
+          "reference": "bringup/references/qwen3_8b_book32.refpt",
+          "chip": 0,
+          "prefill_check": {
+            "top1": 0.95,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c9_lm_head_bfp4_book32_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.97,
+            "top5": 1.0,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c9_lm_head_bfp4_book32_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 666,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 21
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": true
+        },
+        "natural_text": {
+          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "chip": 0,
+          "top1": 0.9094005227088928,
+          "top5": 0.997956395149231,
+          "pcc_mean": 0.9792740941047668,
+          "pcc_min": 0.8517353534698486,
+          "artifact": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/natural_text_c9_lm_head_bfp4_chip0.json",
+          "pass": true
+        }
+      },
+      "main_reference_pass": true,
+      "status": "pass",
+      "selected": true
+    },
+    {
+      "config_id": "c18_lm_head_bfp4_readers2",
+      "description": "c9 (BFP4 LoFi LM head) with 2 DRAM readers per bank on the LM-head splits",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c18_lm_head_bfp4_readers2.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp8/lofi",
+          "o_proj": "bfp8/lofi",
+          "gate_proj": "bfp8/lofi",
+          "up_proj": "bfp4/lofi",
+          "down_proj": "bfp8/lofi"
+        },
+        "layer_exceptions": {},
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp4/lofi (prefill lofi)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "lofi",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": null,
+        "top5": null,
+        "top100": null,
+        "exit": null,
+        "log": null
+      },
+      "teacher_forcing": {
+        "top1": 0.97,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 48.02,
+        "decode_t_s_u": 47.17,
+        "e2e_t_s_u": 46.58,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c18_lm_head_bfp4_readers2_serial_teacher_forcing.log",
+        "timing_regime": "serialized: the only device job on the host during this run (fuser checked on chips 0, 1 and 2 before the chain)",
+        "round2_concurrent_row": {
+          "top1": 0.97,
+          "top5": 1.0,
+          "top100": 1.0,
+          "ttft_ms": 48.02,
+          "decode_tps_per_user": 47.17,
+          "e2e_tps_per_user": 46.58,
+          "timing_regime": "serialized: the only device job on the host during this run (fuser checked on chips 0, 1 and 2 before the chain)",
+          "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c18_lm_head_bfp4_readers2_serial_teacher_forcing.log"
+        },
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 666,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 1
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c18_lm_head_bfp4_readers2.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c18_lm_head_bfp4_readers2_serial_chip2.json",
+      "robustness_references": {},
+      "main_reference_pass": false,
+      "status": "timing-only (teacher forcing only, no prefill check; a reader-geometry variant of c9)",
+      "selected": false
+    },
+    {
+      "config_id": "c3_kv_bfp8",
+      "description": "baseline weights with a BFP8 paged KV cache",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c3_kv_bfp8.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp8/lofi",
+          "o_proj": "bfp8/lofi",
+          "gate_proj": "bfp8/lofi",
+          "up_proj": "bfp4/lofi",
+          "down_proj": "bfp8/lofi"
+        },
+        "layer_exceptions": {},
+        "kv_cache_dtype": "bfp8",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp8/lofi (prefill hifi2)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "lofi",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 0.99,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c3_kv_bfp8_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 0.98,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 48.42,
+        "decode_t_s_u": 46.84,
+        "e2e_t_s_u": 46.25,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c3_kv_bfp8_teacher_forcing.log",
+        "timing_regime": "serialized: the only device job on the host during this run",
+        "round2_concurrent_row": null,
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 677,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 0
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c3_kv_bfp8.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c3_kv_bfp8_chip2.json",
+      "robustness_references": {
+        "book32": {
+          "reference": "bringup/references/qwen3_8b_book32.refpt",
+          "chip": 0,
+          "prefill_check": {
+            "top1": 0.97,
+            "top5": 1.0,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c3_kv_bfp8_book32_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.96,
+            "top5": 0.99,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c3_kv_bfp8_book32_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 677,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 24
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": true
+        }
+      },
+      "main_reference_pass": true,
+      "status": "pass",
+      "selected": false
+    },
+    {
+      "config_id": "c0_stage7_baseline",
+      "description": "stage-7 shipped policy (BFP8 LoFi QKV/O/gate/down, BFP4 LoFi up, BF16 KV, LoFi BFP8 LM head)",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c0_stage7_baseline.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp8/lofi",
+          "o_proj": "bfp8/lofi",
+          "gate_proj": "bfp8/lofi",
+          "up_proj": "bfp4/lofi",
+          "down_proj": "bfp8/lofi"
+        },
+        "layer_exceptions": {},
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp8/lofi (prefill hifi2)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "lofi",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 0.99,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c0_stage7_baseline_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 0.98,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 48.28,
+        "decode_t_s_u": 46.7,
+        "e2e_t_s_u": 46.12,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c0_stage7_baseline_teacher_forcing.log",
+        "timing_regime": "serialized: the only device job on the host during this run",
+        "round2_concurrent_row": null,
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 666,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 2
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c0_stage7_baseline.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c0_stage7_baseline_chip2.json",
+      "robustness_references": {
+        "aime_p1": {
+          "reference": "bringup/references/qwen3_8b_aime24_chat_p1.refpt",
+          "chip": 1,
+          "prefill_check": {
+            "top1": 0.99,
+            "top5": 1.0,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c0_stage7_baseline_aime_p1_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.98,
+            "top5": 1.0,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c0_stage7_baseline_aime_p1_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 666,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 2
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": true
+        },
+        "book32": {
+          "reference": "bringup/references/qwen3_8b_book32.refpt",
+          "chip": 0,
+          "prefill_check": {
+            "top1": 0.97,
+            "top5": 1.0,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c0_stage7_baseline_book32_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 0.97,
+            "top5": 1.0,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c0_stage7_baseline_book32_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 666,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 23
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": true
+        },
+        "natural_text": {
+          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "chip": 2,
+          "top1": 0.9189373254776001,
+          "top5": 0.997956395149231,
+          "pcc_mean": 0.9865987300872803,
+          "pcc_min": 0.8573815226554871,
+          "artifact": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/natural_text_c0_stage7_baseline_chip2.json",
+          "pass": true
+        }
+      },
+      "main_reference_pass": true,
+      "status": "pass",
+      "selected": false
+    },
+    {
+      "config_id": "c4_up_bfp4_hifi2",
+      "description": "baseline with the BFP4 up projection at HiFi2 (BFP4+HiFi2 comparison for the selected BFP4 group)",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c4_up_bfp4_hifi2.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp8/lofi",
+          "o_proj": "bfp8/lofi",
+          "gate_proj": "bfp8/lofi",
+          "up_proj": "bfp4/hifi2",
+          "down_proj": "bfp8/lofi"
+        },
+        "layer_exceptions": {},
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp8/lofi (prefill hifi2)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "hifi2",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 0.99,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c4_up_bfp4_hifi2_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 0.98,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 48.26,
+        "decode_t_s_u": 46.38,
+        "e2e_t_s_u": 45.81,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c4_up_bfp4_hifi2_teacher_forcing.log",
+        "timing_regime": "serialized: the only device job on the host during this run",
+        "round2_concurrent_row": null,
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 666,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 2
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c4_up_bfp4_hifi2.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c4_up_bfp4_hifi2_chip2.json",
+      "robustness_references": {},
+      "main_reference_pass": true,
+      "status": "pass",
+      "selected": false
+    },
+    {
+      "config_id": "c1_all_bfp8_lofi",
+      "description": "canonical conservative policy: every projection BFP8 LoFi (stage-3 ALL_BFP8_POLICY)",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c1_all_bfp8_lofi.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp8/lofi",
+          "o_proj": "bfp8/lofi",
+          "gate_proj": "bfp8/lofi",
+          "up_proj": "bfp8/lofi",
+          "down_proj": "bfp8/lofi"
+        },
+        "layer_exceptions": {},
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp8/lofi (prefill hifi2)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "lofi",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 1.0,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c1_all_bfp8_lofi_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 1.0,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 50.21,
+        "decode_t_s_u": 43.62,
+        "e2e_t_s_u": 43.11,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c1_all_bfp8_lofi_teacher_forcing.log",
+        "timing_regime": "serialized: the only device job on the host during this run",
+        "round2_concurrent_row": null,
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 655,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 2
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c1_all_bfp8_lofi.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c1_all_bfp8_lofi_chip2.json",
+      "robustness_references": {
+        "aime_p1": {
+          "reference": "bringup/references/qwen3_8b_aime24_chat_p1.refpt",
+          "chip": 1,
+          "prefill_check": {
+            "top1": 1.0,
+            "top5": 1.0,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c1_all_bfp8_lofi_aime_p1_prefill_check.log"
+          },
+          "teacher_forcing": {
+            "top1": 1.0,
+            "top5": 1.0,
+            "top100": 1.0,
+            "exit": 0,
+            "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c1_all_bfp8_lofi_aime_p1_teacher_forcing.log",
+            "runtime_counters": {
+              "decode_trace_captures": 1,
+              "decode_trace_replays": 99,
+              "eager_decode_steps": 0,
+              "eager_sampling_steps": 12,
+              "logits_readbacks": 1,
+              "page_table_refreshes": 12,
+              "position_refreshes": 21,
+              "prefill_calls": 13,
+              "program_cache_entries_after_capture": 655,
+              "sampling_param_refreshes": 1,
+              "sampling_trace_captures": 1,
+              "sampling_trace_replays": 99,
+              "seeded_eager_sampling_steps": 0,
+              "token_readbacks": 111,
+              "token_refreshes": 0
+            }
+          },
+          "timing_regime": "concurrent: other chips may run device jobs at the same time; host-wall timing is not same-regime",
+          "pass": true
+        },
+        "natural_text": {
+          "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+          "chip": 2,
+          "top1": 0.9679836630821228,
+          "top5": 1.0,
+          "pcc_mean": 0.9973116517066956,
+          "pcc_min": 0.5665819644927979,
+          "artifact": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/natural_text_c1_all_bfp8_lofi_chip2.json",
+          "pass": true
+        }
+      },
+      "main_reference_pass": true,
+      "status": "pass",
+      "selected": false
+    },
+    {
+      "config_id": "c2_bfp8_hifi2",
+      "description": "baseline dtypes with HiFi2 on the BFP8 decode projections (QKV/O/gate/down); up stays BFP4 LoFi",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c2_bfp8_hifi2.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp8/hifi2",
+          "o_proj": "bfp8/hifi2",
+          "gate_proj": "bfp8/hifi2",
+          "up_proj": "bfp4/lofi",
+          "down_proj": "bfp8/hifi2"
+        },
+        "layer_exceptions": {},
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp8/lofi (prefill hifi2)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "hifi2",
+        "o_proj": "hifi2",
+        "gate_proj": "hifi2",
+        "up_proj": "lofi",
+        "down_proj": "hifi2",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": 0.99,
+        "top5": 1.0,
+        "top100": 1.0,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c2_bfp8_hifi2_prefill_check.log"
+      },
+      "teacher_forcing": {
+        "top1": 0.97,
+        "top5": 1.0,
+        "top100": 1.0,
+        "ttft_ms": 48.3,
+        "decode_t_s_u": 35.15,
+        "e2e_t_s_u": 34.91,
+        "exit": 0,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c2_bfp8_hifi2_teacher_forcing.log",
+        "timing_regime": "serialized: the only device job on the host during this run",
+        "round2_concurrent_row": null,
+        "runtime_counters": {
+          "decode_trace_captures": 1,
+          "decode_trace_replays": 99,
+          "eager_decode_steps": 0,
+          "eager_sampling_steps": 12,
+          "logits_readbacks": 1,
+          "page_table_refreshes": 12,
+          "position_refreshes": 21,
+          "prefill_calls": 13,
+          "program_cache_entries_after_capture": 666,
+          "sampling_param_refreshes": 1,
+          "sampling_trace_captures": 1,
+          "sampling_trace_replays": 99,
+          "seeded_eager_sampling_steps": 0,
+          "token_readbacks": 111,
+          "token_refreshes": 1
+        },
+        "traced": true
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c2_bfp8_hifi2.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c2_bfp8_hifi2_chip2.json",
+      "robustness_references": {},
+      "main_reference_pass": true,
+      "status": "pass",
+      "selected": false
+    },
+    {
+      "config_id": "c19_lm_head_bfp4_readers4",
+      "description": "c9 (BFP4 LoFi LM head) with 4 DRAM readers per bank on the LM-head splits",
+      "precision_config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c19_lm_head_bfp4_readers4.json",
+      "policy": {
+        "weights": {
+          "qkv": "bfp8/lofi",
+          "o_proj": "bfp8/lofi",
+          "gate_proj": "bfp8/lofi",
+          "up_proj": "bfp4/lofi",
+          "down_proj": "bfp8/lofi"
+        },
+        "layer_exceptions": {},
+        "kv_cache_dtype": "bf16",
+        "activation_dtype": "bf16",
+        "ccl_dtype": null,
+        "lm_head": "bfp4/lofi (prefill lofi)",
+        "norm_fidelity": "hifi4",
+        "sdpa_fidelity": "hifi4",
+        "logits": {
+          "decode_dtype": "bf16",
+          "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+          "prefill_dtype": "fp32"
+        },
+        "sampling": "bf16"
+      },
+      "compute_fidelity": {
+        "qkv": "lofi",
+        "o_proj": "lofi",
+        "gate_proj": "lofi",
+        "up_proj": "lofi",
+        "down_proj": "lofi",
+        "lm_head_decode": "lofi",
+        "norm": "hifi4",
+        "sdpa": "hifi4"
+      },
+      "prefill_check": {
+        "top1": null,
+        "top5": null,
+        "top100": null,
+        "exit": null,
+        "log": null
+      },
+      "teacher_forcing": {
+        "top1": null,
+        "top5": null,
+        "top100": null,
+        "ttft_ms": null,
+        "decode_t_s_u": null,
+        "e2e_t_s_u": null,
+        "exit": 1,
+        "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c19_lm_head_bfp4_readers4_serial_teacher_forcing.log",
+        "timing_regime": "serialized: the only device job on the host during this run (fuser checked on chips 0, 1 and 2 before the chain)",
+        "round2_concurrent_row": null,
+        "runtime_counters": {},
+        "traced": false
+      },
+      "measurement_regime": "readiness run_teacher_forcing: AIME24 chat-template prompt (158 tokens), 100 forced tokens, batch 1, traced decode + traced split sampler (runtime counters: decode_trace_replays 99, eager_decode_steps 0); TTFT = prefill plus first sampled token readback; decode t/s/u from host wall time between token callbacks",
+      "command": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c19_lm_head_bfp4_readers4.json python -m readiness_check.run_prefill_check --model-dir models/autoports/qwen_qwen3_8b --reference bringup/references/qwen3_8b_aime24_chat.refpt --mesh-device N150; same for run_teacher_forcing (logs/sweep_chain_chip2.sh)",
+      "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+      "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+      "chip": 2,
+      "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+      "checkout_dirty_tt": true,
+      "sidecar": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/readiness_c19_lm_head_bfp4_readers4_serial_chip2.json",
+      "robustness_references": {},
+      "main_reference_pass": false,
+      "status": "timing-only (teacher forcing only, no prefill check; a reader-geometry variant of c9)",
+      "selected": false
+    }
+  ]
+}

@@ -366,5 +366,121 @@
     "notes": [
       "No capability changed in this stage: context, batch buckets, cache layout and dtype policy are those of full_model; the only new persistent allocation is the 320 KB LM-head tail mask."
     ]
+  },
+  "datatype_sweep": {
+    "config_id": "c9_lm_head_bfp4",
+    "precision_config": "datatype_sweep/configs/c9_lm_head_bfp4.json",
+    "current_supported_context": 40960,
+    "capability_reduction": null,
+    "weights": {
+      "decoder_weight_bytes_per_token": 6473908224,
+      "decoder_stack_resident_bytes": 12947816448,
+      "lm_head_bytes_padded_152576": 351535104,
+      "lm_head_dtype": "bfp4",
+      "total_resident_bytes_computed": 14616215552,
+      "note": "stage-6 measured non-decoder bytes (embedding, RoPE tables, norms, LM head, allocator rounding) plus the per-layer dtype policy twice (DRAM-sharded decode copy and interleaved prefill copy) plus the LM-head tail mask"
+    },
+    "kv_cache": {
+      "dtype": "bf16",
+      "bytes_per_token_all_layers": 147456,
+      "bytes_per_user_at_full_context": 6039797760,
+      "block_size": 32,
+      "page_table_width_blocks": 1280
+    },
+    "runtime_reserve_bytes": 2147483648,
+    "max_tokens_all_users": 114432,
+    "max_tokens_all_users_formula": "((DEVICE_DRAM_BYTES - total_resident_bytes_computed - runtime_reserve) // kv_bytes_per_token) rounded down to 32 (Qwen3Generator.max_tokens_all_users with kv_cache_dtype)",
+    "max_users_at_full_context": 2,
+    "batch_32_at_full_context_bytes": 193273528320,
+    "batch_32_at_full_context_fits": false,
+    "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2, 1x1 mesh, p150 mesh graph descriptor); stages 4 and 5 skipped by the operator",
+    "commit": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+    "kv_candidates_evaluated": {
+      "c3_kv_bfp8": {
+        "config_id": "c3_kv_bfp8",
+        "precision_config": "datatype_sweep/configs/c3_kv_bfp8.json",
+        "current_supported_context": 40960,
+        "capability_reduction": null,
+        "weights": {
+          "decoder_weight_bytes_per_token": 6473908224,
+          "decoder_stack_resident_bytes": 12947816448,
+          "lm_head_bytes_padded_152576": 664010752,
+          "lm_head_dtype": "bfp8",
+          "total_resident_bytes_computed": 14928691200,
+          "note": "stage-6 measured non-decoder bytes (embedding, RoPE tables, norms, LM head, allocator rounding) plus the per-layer dtype policy twice (DRAM-sharded decode copy and interleaved prefill copy) plus the LM-head tail mask"
+        },
+        "kv_cache": {
+          "dtype": "bfp8",
+          "bytes_per_token_all_layers": 78336,
+          "bytes_per_user_at_full_context": 3208642560,
+          "block_size": 32,
+          "page_table_width_blocks": 1280
+        },
+        "runtime_reserve_bytes": 2147483648,
+        "max_tokens_all_users": 211456,
+        "max_tokens_all_users_formula": "((DEVICE_DRAM_BYTES - total_resident_bytes_computed - runtime_reserve) // kv_bytes_per_token) rounded down to 32 (Qwen3Generator.max_tokens_all_users with kv_cache_dtype)",
+        "max_users_at_full_context": 5,
+        "batch_32_at_full_context_bytes": 102676561920,
+        "batch_32_at_full_context_fits": false
+      },
+      "c0_stage7_baseline": {
+        "config_id": "c0_stage7_baseline",
+        "precision_config": "datatype_sweep/configs/c0_stage7_baseline.json",
+        "current_supported_context": 40960,
+        "capability_reduction": null,
+        "weights": {
+          "decoder_weight_bytes_per_token": 6473908224,
+          "decoder_stack_resident_bytes": 12947816448,
+          "lm_head_bytes_padded_152576": 664010752,
+          "lm_head_dtype": "bfp8",
+          "total_resident_bytes_computed": 14928691200,
+          "note": "stage-6 measured non-decoder bytes (embedding, RoPE tables, norms, LM head, allocator rounding) plus the per-layer dtype policy twice (DRAM-sharded decode copy and interleaved prefill copy) plus the LM-head tail mask"
+        },
+        "kv_cache": {
+          "dtype": "bf16",
+          "bytes_per_token_all_layers": 147456,
+          "bytes_per_user_at_full_context": 6039797760,
+          "block_size": 32,
+          "page_table_width_blocks": 1280
+        },
+        "runtime_reserve_bytes": 2147483648,
+        "max_tokens_all_users": 112320,
+        "max_tokens_all_users_formula": "((DEVICE_DRAM_BYTES - total_resident_bytes_computed - runtime_reserve) // kv_bytes_per_token) rounded down to 32 (Qwen3Generator.max_tokens_all_users with kv_cache_dtype)",
+        "max_users_at_full_context": 2,
+        "batch_32_at_full_context_bytes": 193273528320,
+        "batch_32_at_full_context_fits": false
+      },
+      "c14_mlp_bfp4_all_lm_bfp4": {
+        "config_id": "c14_mlp_bfp4_all_lm_bfp4",
+        "precision_config": "datatype_sweep/configs/c14_mlp_bfp4_all_lm_bfp4.json",
+        "current_supported_context": 40960,
+        "capability_reduction": null,
+        "weights": {
+          "decoder_weight_bytes_per_token": 4661968896,
+          "decoder_stack_resident_bytes": 9323937792,
+          "lm_head_bytes_padded_152576": 351535104,
+          "lm_head_dtype": "bfp4",
+          "total_resident_bytes_computed": 10992336896,
+          "note": "stage-6 measured non-decoder bytes (embedding, RoPE tables, norms, LM head, allocator rounding) plus the per-layer dtype policy twice (DRAM-sharded decode copy and interleaved prefill copy) plus the LM-head tail mask"
+        },
+        "kv_cache": {
+          "dtype": "bf16",
+          "bytes_per_token_all_layers": 147456,
+          "bytes_per_user_at_full_context": 6039797760,
+          "block_size": 32,
+          "page_table_width_blocks": 1280
+        },
+        "runtime_reserve_bytes": 2147483648,
+        "max_tokens_all_users": 139008,
+        "max_tokens_all_users_formula": "((DEVICE_DRAM_BYTES - total_resident_bytes_computed - runtime_reserve) // kv_bytes_per_token) rounded down to 32 (Qwen3Generator.max_tokens_all_users with kv_cache_dtype)",
+        "max_users_at_full_context": 3,
+        "batch_32_at_full_context_bytes": 193273528320,
+        "batch_32_at_full_context_fits": false
+      }
+    },
+    "notes": [
+      "The HF-advertised 40960-token context is retained for every request; the number of simultaneous full-context users is bounded by device DRAM (max_users_at_full_context).",
+      "Selected KV-cache dtype and weight policy per datatype_sweep/selected_precision_config.json; the capacity numbers above are host arithmetic from the stage-6 measured resident bytes and the per-config dtype sizes, matching Qwen3Generator.max_tokens_all_users without a mesh."
+    ]
   }
 }

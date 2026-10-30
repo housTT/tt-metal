@@ -1,0 +1,49 @@
+{
+  "visible_devices": "2",
+  "chip": 2,
+  "runs": {
+    "run_teacher_forcing": {
+      "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c5_mlp_bfp4_inner_serial_teacher_forcing.log",
+      "exit": 0,
+      "started_utc": "15:34:47",
+      "ended_utc": "15:36:30",
+      "chip": 2,
+      "reference": "bringup/references/qwen3_8b_aime24_chat.refpt",
+      "timing_regime": "serialized: the only device job on the host during this run (fuser checked on chips 0, 1 and 2 before the chain)",
+      "config_id": "c5_mlp_bfp4_inner",
+      "config_path": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c5_mlp_bfp4_inner.json",
+      "top1": 0.97,
+      "top5": 1.0,
+      "top100": 1.0,
+      "ttft_ms": 45.2,
+      "decode_tps_per_user": 51.47,
+      "e2e_tps_per_user": 50.8,
+      "prepare_s": 46.4,
+      "weights_on_device_s": 49.8,
+      "runtime_counters": {
+        "decode_trace_captures": 1,
+        "decode_trace_replays": 99,
+        "eager_decode_steps": 0,
+        "eager_sampling_steps": 12,
+        "logits_readbacks": 1,
+        "page_table_refreshes": 12,
+        "position_refreshes": 21,
+        "prefill_calls": 13,
+        "program_cache_entries_after_capture": 677,
+        "sampling_param_refreshes": 1,
+        "sampling_trace_captures": 1,
+        "sampling_trace_replays": 99,
+        "seeded_eager_sampling_steps": 0,
+        "token_readbacks": 111,
+        "token_refreshes": 3
+      },
+      "precision_config_logged": {
+        "config_id": "c5_mlp_bfp4_inner",
+        "source": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c5_mlp_bfp4_inner.json"
+      }
+    }
+  },
+  "checkout_git_sha": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+  "checkout_dirty": true,
+  "mesh": "one Blackhole P300 chip, TT_VISIBLE_DEVICES=2, 1x1 mesh, p150 mesh graph descriptor (runner argument --mesh-device N150)"
+}
