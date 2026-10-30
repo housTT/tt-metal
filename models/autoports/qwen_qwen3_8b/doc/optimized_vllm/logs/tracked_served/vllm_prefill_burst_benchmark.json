@@ -1,0 +1,102 @@
+{
+  "source": "vllm bench serve",
+  "profile": "prefill_burst",
+  "comparison_scope": "32 short prompts submitted at once so the scheduler forms multi-row prefill steps. Compare TTFT against the same workload with batched prefill disabled; not a decode number.",
+  "raw_result_file": "/home/hous/dev/tt-metal-wt-qwen3/models/autoports/qwen_qwen3_8b/readiness_vllm/vllm_prefill_burst_result.json",
+  "command": [
+    "/home/hous/dev/tt-metal/python_env/bin/python",
+    "-m",
+    "vllm.entrypoints.cli.main",
+    "bench",
+    "serve",
+    "--backend",
+    "vllm",
+    "--model",
+    "Qwen/Qwen3-8B",
+    "--base-url",
+    "http://localhost:8000",
+    "--endpoint",
+    "/v1/completions",
+    "--dataset-name",
+    "random",
+    "--random-input-len",
+    "128",
+    "--random-output-len",
+    "32",
+    "--num-prompts",
+    "32",
+    "--ignore-eos",
+    "--percentile-metrics",
+    "ttft,tpot,itl,e2el",
+    "--save-result",
+    "--result-filename",
+    "/home/hous/dev/tt-metal-wt-qwen3/models/autoports/qwen_qwen3_8b/readiness_vllm/vllm_prefill_burst_result.json",
+    "--max-concurrency",
+    "32",
+    "--temperature",
+    "0.0"
+  ],
+  "command_string": "/home/hous/dev/tt-metal/python_env/bin/python -m vllm.entrypoints.cli.main bench serve --backend vllm --model Qwen/Qwen3-8B --base-url http://localhost:8000 --endpoint /v1/completions --dataset-name random --random-input-len 128 --random-output-len 32 --num-prompts 32 --ignore-eos --percentile-metrics ttft,tpot,itl,e2el --save-result --result-filename /home/hous/dev/tt-metal-wt-qwen3/models/autoports/qwen_qwen3_8b/readiness_vllm/vllm_prefill_burst_result.json --max-concurrency 32 --temperature 0.0",
+  "config": {
+    "prompt_len": 128,
+    "output_len": 32,
+    "num_requests": 32,
+    "concurrency": 32,
+    "temperature": 0.0,
+    "generation_config_mode": "explicit",
+    "dataset_name": "random",
+    "ignore_eos": true
+  },
+  "elapsed_s": 1.3150516099995002,
+  "completed_requests": 32,
+  "total_input_tokens": 4096.0,
+  "total_output_tokens": 1024.0,
+  "requested_output_tokens": 1024,
+  "missing_output_tokens": 0,
+  "ttft_ms": {
+    "p50": 495.1497330330312,
+    "p99": 495.98701075534336,
+    "mean": 481.9068453471118
+  },
+  "tpot_ms": {
+    "p50": 26.372846854369968,
+    "p99": 35.91817298629923,
+    "mean": 26.805257120999627
+  },
+  "itl_ms": {
+    "p50": 25.1561954501085,
+    "p99": 44.18887497507967,
+    "mean": 26.80525944555073
+  },
+  "e2el_ms": {
+    "p50": 1312.7570950309746,
+    "p99": 1314.2248247901443,
+    "mean": 1312.8698160981003
+  },
+  "itl_p50_decode_tps": 39.75163899419008,
+  "itl_mean_decode_tps": 37.30611158721633,
+  "vllm_mean_tpot_decode_tps": 37.30611482240122,
+  "mean_per_request_decode_tps": 37.30611482240122,
+  "mean_per_request_decode_tps_basis": "1000 / mean_tpot_ms from vllm bench serve; this is the TPOT-derived decode value. For burst-serving profiles, scheduler admission and chunked prefill can affect TPOT, so use the single-user profile for headline decode t/s/u.",
+  "output_throughput_tok_per_s": 778.6766634964152,
+  "request_throughput_per_s": 24.333645734262976,
+  "total_token_throughput_tok_per_s": 3893.3833174820766,
+  "serial_reference": {
+    "path": "/home/hous/dev/tt-metal-wt-qwen3/models/autoports/qwen_qwen3_8b/doc/optimized_vllm/vllm_prefill_burst_serial_benchmark.stage9.json",
+    "serial_config": {
+      "prompt_len": 128,
+      "output_len": 32,
+      "num_requests": 32,
+      "concurrency": 32
+    },
+    "config_matches": true,
+    "serial_ttft_ms": {
+      "p50": 1231.1126445420086,
+      "p99": 1231.8747022014577,
+      "mean": 1194.5372804693761
+    },
+    "ttft_ratio_p99": 0.4026278077380559,
+    "ttft_ratio_mean": 0.40342553826177235,
+    "ttft_ratio_p50": 0.4021969356161019
+  }
+}

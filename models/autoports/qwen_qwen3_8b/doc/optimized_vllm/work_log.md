@@ -375,3 +375,64 @@ host 1 0.31, 2 0.25, 3 0.12, 5 0.10; device counts 1: 14, 5: 10, 2: 8, 3:
 3 of 48). So the device and host samplers agree on the token at 0.01; the
 stage-9 `'198'` against `'100'` pair differs in the second token through
 the seeded-stream offset of section 8.1.
+
+## 10. Tracked runs, gate and commits (17:40 to 17:50 ET)
+
+- Tracked serving (chip 1, `logs/tracked_chain_chip1.status`,
+  `logs/tracked_served/`): the final server stopped at idle with SIGINT
+  (chip released in 2 s), relaunched with
+  `TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0`
+  in the engine environment (healthy after 140 s), then the smoke sampling
+  subset (2 passed, 1 skipped, `test_mixed_params_batch` failed as in 8.1),
+  the prefix-cache stage without the shared bench (pass, ratio 0.16), the
+  32 x 128 burst against the serial reference (32 of 32, TTFT p50 495 ms,
+  ratios 0.403 / 0.403 under the tracker; the 31-row call batched) with
+  32 decode replays after it, and the full mixed-shape workload (47 of 47,
+  0 captures, 0 releases, program cache 651 flat, greedy repeats
+  identical). No `still alive` line and no tracker error in
+  `logs/tracked_served/server.log`; `/health` 200 at the end; stopped at
+  idle (2 s). Positive control in the same environment on chip 1
+  (`logs/positive_control_chip1.log`, the stage-3 control): raised
+  "Found 1 device buffer(s) still alive before trace replay".
+- Tracked generator-level gate (chip 0, `logs/pytest_full_model_36_stage10_tracked_chip0.log`,
+  `doc/full_model/*.stage10_tracked.json`): recorded in 10.1 when the run
+  ends.
+- `readiness_vllm/` restored from `served_final/` after the tracked run
+  (md5 identical for the burst and prefix-cache JSON the tracked stages
+  had overwritten).
+- Gate (`logs/gate_10_optimized_vllm.log`): `MODEL_DIR=models/autoports/qwen_qwen3_8b
+  bash .../10-optimized-vllm.check.sh` exit 1: no degenerate output;
+  context contract OK (40960); serving contract OK (37 rows); prefill
+  features: one advisory (the resumed-prefill check passed with lowered
+  thresholds; the default-threshold run and the stage-7 margin probes are
+  beside it), the burst comparison required by `--require-burst` passes
+  (ratios 0.39 / 0.39 against the serial reference, `config_matches`
+  true), no critical.
+- Repository hooks: the first commit (`2f371d340a`) was made with the
+  hooks bypassed; the second (`24a48e130b`) ran them, and black and
+  autoflake reformatted `tt/generator.py`, `tt/model.py`,
+  `tt/optimized_decoder.py` and the probe scripts (AST identical for every
+  source and test file, checked with `ast.dump`; two unused imports removed
+  from probe scripts). Every device run of this stage executed the
+  `2f371d340a` code, which the formatted files reproduce statement for
+  statement.
+
+| Commit | Content |
+| --- | --- |
+| `2f371d340a` | batched prefill, the batched 2D/1D kernel table, the `stage10` solo table (1D O and down, gate 512 on 1D), device penalties, the acceptance test, probes, generator-level evidence, sidecars, work log |
+| `24a48e130b` | served evidence (`readiness_vllm/` copy in `served_final/`), resume checks, low-temperature probe, serving contract rows, `perf_summary.json`, `qualitative_verdict.json`, README, work log, hook formatting |
+
+### 10.1 Tracked generator-level gate (chip 0, 17:29 to 17:53 ET)
+
+`logs/pytest_full_model_36_stage10_tracked_chip0.log`: 15 passed, 2
+deselected in 1418.8 s (23 min 39 s) with `TT_METAL_TRACE_ALLOC_TRACKING=1
+TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0` (program-cache allocations
+included), no tracker error. `doc/full_model/*.stage10_tracked.json`:
+the seven batched-equals-solo cases bit equal in logits and K/V with
+program cache 650 before and after the first call and the rerun; the four
+batch-decode buckets identical to the solo arm for all 32 tokens after
+the batched multi-row prefill; `tracked_replay_workload`: 241 prefill
+calls (74 batched groups, 597 batched rows, 241 single-row rows), 2786
+decode and 2785 sampling replays, 6 decode and 5 sampling captures (the
+module's deferred first captures), 0 eager decode steps, program cache
+650 at the end. Sidecar `readiness/readiness_stage10_chip0.json`.

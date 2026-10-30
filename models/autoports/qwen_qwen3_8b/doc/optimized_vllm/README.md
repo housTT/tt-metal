@@ -318,8 +318,27 @@ python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen3-8B --block_size 
 
 ## 8. Stage gate, tracked runs and artifact index
 
-Filled at closure (work log sections 8 to 10): the tracked generator-level
-gate, the tracked serving run, the gate script exit code.
+- Gate `10-optimized-vllm.check.sh` (`logs/gate_10_optimized_vllm.log`):
+  exit 1, advisory only: no degenerate output; context contract OK
+  (40960); serving contract OK (37 rows); prefill features: the burst
+  comparison passes (ratios 0.39 / 0.39, `config_matches` true), one
+  advisory for the resumed-prefill check passing at lowered thresholds
+  with the default-threshold run and the stage-7 margin probes beside it
+  (the stage-9 classification: one BF16 near-tie flip in the 32-position
+  hit window at 16352).
+- Tracked serving (`logs/tracked_served/`, work log 10): the same launch
+  line with `TT_METAL_TRACE_ALLOC_TRACKING=1
+  TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0` in the engine; the smoke
+  sampling subset, the prefix-cache stage (pass), the 32 x 128 burst
+  (batched prefill, ratios 0.403 / 0.403 under the tracker, decode replays
+  after it) and the mixed-shape workload (47 of 47, 0 captures, program
+  cache 651 flat) ran with no tracker error; positive control raised in the
+  same environment (`logs/positive_control_chip1.log`).
+- Tracked generator-level gate (`logs/pytest_full_model_36_stage10_tracked_chip0.log`,
+  `doc/full_model/*.stage10_tracked.json`, work log 10.1): split sampling,
+  multi-row prefill, the seven batched-equals-solo cases, the four batch
+  decode buckets, host-work counters and the representative replay
+  workload with program-cache allocations included.
 
 - `readiness_vllm/`: the final served evidence (`server.log`,
   `sampling_tests.log`, `vllm_qualitative_outputs.json`,
