@@ -1,0 +1,120 @@
+{
+  "checkout_git_sha": "6b86a2cb1596f1a2770c14a4810ddc72bf8b5735",
+  "visible_devices": "1",
+  "mesh": "one Blackhole P300 chip, 1x1 mesh, p150 mesh graph descriptor (runner argument --mesh-device N150)",
+  "runs": {
+    "run_prefill_resume_check_default": {
+      "checkout_git_sha": "6b86a2cb1596f1a2770c14a4810ddc72bf8b5735",
+      "dirty_autoport_files_at_record_time": [
+        "M models/autoports/qwen_qwen3_8b/readiness/prefill_resume_check.json",
+        " M models/autoports/qwen_qwen3_8b/tt/generator.py",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_16.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_8.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/split_sampling_trace.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/vllm_integration/",
+        "?? models/autoports/qwen_qwen3_8b/readiness/prefill_resume_check_stage9_default_thresholds.json",
+        "?? models/autoports/qwen_qwen3_8b/tt/generator_vllm.py",
+        "?? models/autoports/qwen_qwen3_8b/vllm/"
+      ],
+      "chip": "1",
+      "command": "stage_env.sh 1 python -m readiness_check.run_prefill_resume_check --model-dir models/autoports/qwen_qwen3_8b --mesh-device N150 --lengths 2560,16384 --block-sizes 32 --output readiness/prefill_resume_check.json --output-on-pass-only",
+      "log": "models/autoports/qwen_qwen3_8b/doc/vllm_integration/logs/resume_check_default_chip1.log",
+      "artifacts": [
+        "models/autoports/qwen_qwen3_8b/readiness/prefill_resume_check_stage9_default_thresholds.json"
+      ],
+      "exit_code": 1,
+      "started_utc": "17:41:12",
+      "ended_utc": "17:44:07",
+      "recorded_utc": "2026-10-30T17:53:32Z",
+      "note": "status fail only at L=16384 s=16352 (top-1 31/32, the stage-7 near-tie); all PCC gates pass; both controls fail"
+    },
+    "run_prefill_resume_check_lowered": {
+      "checkout_git_sha": "6b86a2cb1596f1a2770c14a4810ddc72bf8b5735",
+      "dirty_autoport_files_at_record_time": [
+        "M models/autoports/qwen_qwen3_8b/readiness/prefill_resume_check.json",
+        " M models/autoports/qwen_qwen3_8b/tt/generator.py",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_16.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_8.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/split_sampling_trace.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/vllm_integration/",
+        "?? models/autoports/qwen_qwen3_8b/readiness/prefill_resume_check_stage9_default_thresholds.json",
+        "?? models/autoports/qwen_qwen3_8b/readiness/readiness_stage9_chip1.json",
+        "?? models/autoports/qwen_qwen3_8b/tt/generator_vllm.py",
+        "?? models/autoports/qwen_qwen3_8b/vllm/"
+      ],
+      "chip": "1",
+      "command": "stage_env.sh 1 python -m readiness_check.run_prefill_resume_check --model-dir models/autoports/qwen_qwen3_8b --mesh-device N150 --lengths 2560,16384 --block-sizes 32 --pcc-min-min 0.90 --top1-min 0.93 --output readiness/prefill_resume_check.json",
+      "log": "models/autoports/qwen_qwen3_8b/doc/vllm_integration/logs/resume_check_lowered_chip1.log",
+      "artifacts": [
+        "models/autoports/qwen_qwen3_8b/readiness/prefill_resume_check.json"
+      ],
+      "exit_code": 0,
+      "started_utc": "17:49:36",
+      "ended_utc": "17:52:21",
+      "recorded_utc": "2026-10-30T17:53:32Z",
+      "note": "status pass at all 8 starts; thresholds lowered as in stages 6 to 8 (advisory in the gate)"
+    },
+    "vllm_server_full_fixed": {
+      "checkout_git_sha": "6f4d004043267782f6e8c7b42cc8359f0286953d",
+      "dirty_autoport_files_at_record_time": [
+        "M models/autoports/qwen_qwen3_8b/doc/full_model/serving_contract.json",
+        " M models/autoports/qwen_qwen3_8b/readiness/prefill_resume_check.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_16.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_24.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_32.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_8.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/host_work_counters.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/multi_row_prefill.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/split_sampling_trace.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/tracked_replay_workload.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/vllm_integration/",
+        "?? models/autoports/qwen_qwen3_8b/readiness/prefill_resume_check_stage9_default_thresholds.json",
+        "?? models/autoports/qwen_qwen3_8b/readiness/readiness_stage9_chip1.json",
+        "?? models/autoports/qwen_qwen3_8b/readiness/readiness_stage9_chip2.json",
+        "?? models/autoports/qwen_qwen3_8b/readiness_vllm/"
+      ],
+      "chip": "1",
+      "command": "doc/vllm_integration/logs/serve.sh 1 8000 21600 (in-tree runner, --max-num-seqs 32 --max-model-len 40960 --block-size 32 --tt-config trace_region_size 536870912, --enable-prefix-caching --async-scheduling, VLLM_SERVER_DEV_MODE=1, EXTRA_MODELS_DIR bundle)",
+      "log": "models/autoports/qwen_qwen3_8b/doc/vllm_integration/served_final/server.log",
+      "artifacts": [
+        "models/autoports/qwen_qwen3_8b/readiness_vllm"
+      ],
+      "exit_code": 0,
+      "started_utc": "18:14:54",
+      "ended_utc": "18:25:47",
+      "recorded_utc": "2026-10-30T18:26:27Z",
+      "note": "commit 6f4d004043 code (committed after the run from the same tree); served chain logs/evidence_chain_chip1.status 18:17:34 to 18:23:36 UTC: sampling full 71 passed 1 failed (test_mixed_params_batch, seeded reproducibility) 1 skipped, qualitative, benchmark, prefix_cache pass, prefill_burst x2, mixed-shape, degenerate"
+    },
+    "vllm_server_full_prefix_code": {
+      "checkout_git_sha": "6f4d004043267782f6e8c7b42cc8359f0286953d",
+      "dirty_autoport_files_at_record_time": [
+        "M models/autoports/qwen_qwen3_8b/doc/full_model/serving_contract.json",
+        " M models/autoports/qwen_qwen3_8b/readiness/prefill_resume_check.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_16.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_24.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_32.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_8.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/host_work_counters.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/multi_row_prefill.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/split_sampling_trace.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/tracked_replay_workload.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/vllm_integration/",
+        "?? models/autoports/qwen_qwen3_8b/readiness/prefill_resume_check_stage9_default_thresholds.json",
+        "?? models/autoports/qwen_qwen3_8b/readiness/readiness_stage9_chip1.json",
+        "?? models/autoports/qwen_qwen3_8b/readiness/readiness_stage9_chip2.json",
+        "?? models/autoports/qwen_qwen3_8b/readiness_vllm/"
+      ],
+      "chip": "1",
+      "command": "same launch, generator before the continuation fix",
+      "log": "models/autoports/qwen_qwen3_8b/doc/vllm_integration/prefix_code_served/server.log",
+      "artifacts": [
+        "models/autoports/qwen_qwen3_8b/doc/vllm_integration/prefix_code_served"
+      ],
+      "exit_code": 0,
+      "started_utc": "18:03:00",
+      "ended_utc": "18:14:52",
+      "recorded_utc": "2026-10-30T18:26:27Z",
+      "note": "sampling full 72 passed 1 skipped; benchmark 48.3 t/s/u; prefix_cache pass; mixed-shape program cache 737 -> 862"
+    }
+  }
+}

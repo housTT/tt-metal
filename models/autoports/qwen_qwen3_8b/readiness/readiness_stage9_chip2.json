@@ -1,0 +1,37 @@
+{
+  "checkout_git_sha": "6b86a2cb1596f1a2770c14a4810ddc72bf8b5735",
+  "visible_devices": "2",
+  "mesh": "one Blackhole P300 chip, 1x1 mesh, p150 mesh graph descriptor (runner argument --mesh-device N150)",
+  "runs": {
+    "pytest_full_model_36_tracked": {
+      "checkout_git_sha": "6b86a2cb1596f1a2770c14a4810ddc72bf8b5735",
+      "dirty_autoport_files_at_record_time": [
+        "M models/autoports/qwen_qwen3_8b/readiness/prefill_resume_check.json",
+        " M models/autoports/qwen_qwen3_8b/tt/generator.py",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_16.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_24.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_32.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/batch_decode_8.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/host_work_counters.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/split_sampling_trace.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/full_model/tracked_replay_workload.stage9_tracked.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/vllm_integration/",
+        "?? models/autoports/qwen_qwen3_8b/readiness/prefill_resume_check_stage9_default_thresholds.json",
+        "?? models/autoports/qwen_qwen3_8b/readiness/readiness_stage9_chip1.json",
+        "?? models/autoports/qwen_qwen3_8b/tt/generator_vllm.py",
+        "?? models/autoports/qwen_qwen3_8b/vllm/"
+      ],
+      "chip": "2",
+      "command": "stage_env.sh 2 env QWEN3_FULL_MODEL_LAYERS=36 QWEN3_EVIDENCE_SUFFIX=stage9_tracked TT_METAL_TRACE_ALLOC_TRACKING=1 TT_METAL_TRACE_ALLOC_SKIP_PROGRAM_CACHE=0 python -m pytest -q -s models/autoports/qwen_qwen3_8b/tests/test_full_model.py -k 'test_split_sampling_trace or test_host_work_counters or test_tracked_replay_workload or test_batch_decode' --timeout 1800 -p no:cacheprovider",
+      "log": "models/autoports/qwen_qwen3_8b/doc/vllm_integration/logs/pytest_full_model_36_stage9_tracked_chip2.log",
+      "artifacts": [
+        "models/autoports/qwen_qwen3_8b/doc/full_model/*.stage9_tracked.json"
+      ],
+      "exit_code": 0,
+      "started_utc": "17:41:16",
+      "ended_utc": "18:03:28",
+      "recorded_utc": "2026-10-30T18:03:59Z",
+      "note": "selected policy c9_lm_head_bfp4 (stage-8 carry-over); 7 passed in 1325 s, program cache 666 before and after, 6 decode and 5 sampling captures, no tracker error; generator.py at this run lacked only the vLLM-side additions (adopt_cache, deferred read, _require_prepared), which are no-ops on the standalone path; positive control logs/positive_control_chip1.log raised"
+    }
+  }
+}

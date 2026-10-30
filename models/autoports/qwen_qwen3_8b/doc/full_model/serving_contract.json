@@ -29,43 +29,50 @@
       "item": "initialize_vllm_model(hf_config, mesh_device, max_batch_size, ...)",
       "kind": "call",
       "status": "supported",
-      "evidence": "tt/generator.py build_generator (real weights from HF_HOME, mesh passed in); the vLLM adapter class wrapper is stage 9 work; loader.py:38"
+      "evidence": "tt/generator_vllm.py",
+      "notes": "tt/generator_vllm.py Qwen3ForCausalLM.initialize_vllm_model -> build_generator(prepare=False, num_blocks=1); propagation check of the selected precision config at load (readiness_vllm/server.log 'propagation check OK'); loader.py:38"
     },
     {
       "item": "allocate_kv_cache(shape, dtype, num_layers)",
       "kind": "call",
       "status": "supported",
-      "evidence": "tt/model.py Qwen3Model.allocate_kv_cache(num_blocks, dtype) allocates num_blocks + 1 blocks (the last is the scratch block that page-table columns past a request name); the adapter passes scratch_block=num_blocks on every call; model_runner.py:500"
+      "evidence": "tt/generator_vllm.py",
+      "notes": "tt/generator_vllm.py allocate_kv_cache -> Qwen3Model.allocate_kv_cache(num_blocks, dtype) with the selected KV dtype, then Qwen3Generator.adopt_cache so warmup and capture run over the vLLM cache; scratch_block=num_blocks passed on every call (readiness_vllm/server.log 'vLLM KV cache'); model_runner.py:500"
     },
     {
       "item": "get_kv_cache_spec hook",
       "kind": "call",
       "status": "supported",
-      "evidence": "not needed: one layer kind (full attention, block 32); the plugin default FullAttentionSpec path (worker.py:_build_default_kv_cache_spec) applies"
+      "evidence": "readiness_vllm/server.log",
+      "notes": "not needed: one layer kind (full attention, block 32); the plugin default FullAttentionSpec path (worker.py:_build_default_kv_cache_spec) applies"
     },
     {
       "item": "get_max_tokens_all_users(model_name, num_devices, tt_data_parallel, max_model_len, max_num_seqs)",
       "kind": "call",
       "status": "supported",
-      "evidence": "tt/generator.py Qwen3Generator.max_tokens_all_users from the DRAM byte accounting in doc/context_contract.json (worker.py:541)"
+      "evidence": "tt/generator_vllm.py",
+      "notes": "tt/generator_vllm.py get_max_tokens_all_users -> Qwen3Generator.max_tokens_all_users(model, mesh_device, kv_cache_dtype=<selected config>) from live free DRAM after the owned pool was released (readiness_vllm/server.log 'max_tokens_all_users='); worker.py:541"
     },
     {
       "item": "prefill_forward(tokens, page_table, kv_cache, enable_trace, prompt_lens, start_pos, sampling_params, empty_slots)",
       "kind": "call",
       "status": "supported",
-      "evidence": "doc/full_model/multi_row_prefill.json (rows of different lengths in one call equal solo), readiness/prefill_resume_check.json (nonzero start_pos), doc/full_model/batch_decode_32.json (32 rows then decode); model_runner.py:2770-2840; continuation rows run eagerly with per-offset programs (README limitations; runtime-indexed prefill is the stage-10 item in prefill-features.md)"
+      "evidence": "readiness_vllm/sampling_tests.log",
+      "notes": "served: readiness_vllm/sampling_tests.log, readiness_vllm/prefix_cache_check.json (start_pos at the cached length), readiness_vllm/mixed_shape_trace_reuse.json (multi-row calls, nonzero starts); generator level: doc/full_model/multi_row_prefill.json, readiness/prefill_resume_check.json; model_runner.py:2770-2840; continuation rows compile per (start, length) after warmup (doc/vllm_integration/README.md limitations, stage-10 runtime-indexed prefill)"
     },
     {
       "item": "prefill_forward: several rows per call with per-row start_pos and prompt_lens ends",
       "kind": "call",
       "status": "supported",
-      "evidence": "doc/full_model/multi_row_prefill.json; tt/generator.py prefill_forward (row loop, absolute positions)"
+      "evidence": "doc/full_model/multi_row_prefill.json",
+      "notes": "doc/full_model/multi_row_prefill.json; tt/generator.py prefill_forward (row loop, absolute positions)"
     },
     {
       "item": "prefill_forward: return_all_logits=True",
       "kind": "call",
       "status": "supported",
-      "evidence": "readiness prefill check (logs/run_prefill_check.log) through prefill_logits -> prefill_forward(return_all_logits=True)"
+      "evidence": "readiness/readiness_stage7_chip2.json",
+      "notes": "readiness prefill check (logs/run_prefill_check.log) through prefill_logits -> prefill_forward(return_all_logits=True)"
     },
     {
       "item": "prefill_forward: enable_trace (traced prefill)",
@@ -78,13 +85,15 @@
       "item": "prefill_forward: empty_slots",
       "kind": "call",
       "status": "supported",
-      "evidence": "accepted and ignored: the model keeps no per-slot recurrent state; cache rows follow execution-row order (tt/generator.py prefill_forward)"
+      "evidence": "tt/generator.py",
+      "notes": "accepted and ignored: the model keeps no per-slot recurrent state; cache rows follow execution-row order (tt/generator.py prefill_forward)"
     },
     {
       "item": "prefill_forward: page_tables_per_layer",
       "kind": "call",
       "status": "supported",
-      "evidence": "not sent for uniform models (model_runner.py:2781 sends it only when block_tables_per_layer is set); single page table per request"
+      "evidence": "readiness_vllm/server.log",
+      "notes": "not sent for uniform models (model_runner.py:2781 sends it only when block_tables_per_layer is set); single page table per request"
     },
     {
       "item": "prefill_forward: original_prompt_lens / supports_original_prompt_lens",
@@ -97,13 +106,15 @@
       "item": "decode_forward(tokens, page_table, kv_cache, start_pos, sampling_params, enable_trace, read_from_device)",
       "kind": "call",
       "status": "supported",
-      "evidence": "doc/full_model/split_sampling_trace.tracked.json, doc/full_model/batch_decode_{8,32}.json, doc/full_model/host_work_counters.json; async_decode.py:625"
+      "evidence": "readiness_vllm/server.log",
+      "notes": "served through the async split: decode_forward(read_from_device=False) -> DecodeOutput, read_decode_output(async_read=True), process_decode_output_host (readiness_vllm/server.log 'deferred_read=True', readiness_vllm/vllm_benchmark.json); generator level: doc/full_model/split_sampling_trace.tracked.json, batch_decode_*.json; async_decode.py:625"
     },
     {
       "item": "decode_forward: reset_batch / slot_remap",
       "kind": "call",
       "status": "supported",
-      "evidence": "reset_batch, the first decode after a prefill and a sampling-mode change reload tokens and positions from the host and re-register every live slot's seed (admit); slot_remap is applied to the seed manager before deactivation (tt/generator.py decode_forward, _apply_sampling_params); untested on hardware since the fix"
+      "evidence": "tt/generator.py",
+      "notes": "reset_batch reloads tokens and positions from the host (the plugin drains pending async steps first) and re-registers seeds; slot_remap applied to the seed manager (tt/generator.py decode_forward); served: readiness_vllm/sampling_tests.log (test_request_isolation, seeded tests), readiness_vllm/mixed_shape_trace_reuse.json reset_batch_steps"
     },
     {
       "item": "decode_forward: prompt_tokens / output_tokens (device penalties state)",
@@ -115,39 +126,44 @@
     {
       "item": "read_decode_output(tt_out, async_read=True) / process_decode_output_host",
       "kind": "call",
-      "status": "not_supported",
-      "declaration": "model_capabilities['supports_async_decode'] = False (platform.py:779; default False disables async scheduling)",
-      "reason": "decode_forward reads the sampled token or logits synchronously; the async split is stage 9/10 work"
+      "status": "supported",
+      "evidence": "tt/generator.py",
+      "notes": "model_capabilities['supports_async_decode'] = True; tt/generator.py read_decode_output (tensor.cpu(blocking=False) + ttnn.record_event on CQ 0) and process_decode_output_host; served with --async-scheduling (readiness_vllm/server.log 'async_scheduling=True', every decode line 'deferred_read=True'); stale-token/current-position/page-table coverage: doc/full_model/split_sampling_trace.stage9_tracked.json plus the served greedy repeats in readiness_vllm/mixed_shape_trace_reuse.json"
     },
     {
       "item": "warmup_model_prefill / warmup_model_decode (two-phase)",
       "kind": "call",
       "status": "supported",
-      "evidence": "tt/generator.py Qwen3Generator.prepare: prefill buckets, decode buckets in both variants and sampler precompile before the first capture; the adapter maps both hooks to prepare() (model_runner.py:3478-3489)"
+      "evidence": "readiness_vllm/server.log",
+      "notes": "phase 1: Qwen3Generator.prepare() over the adopted vLLM cache (warmup_model_prefill); phase 2: capture_decode_traces in warmup_model_decode(enable_trace=True), five device decode and sampling traces captured before the first request (readiness_vllm/server.log 'warmup_model_decode(enable_trace=True): captured'); the generator also enforces prepare() at every forward entry (_require_prepared); model_runner.py:3478-3489"
     },
     {
       "item": "tt_supported_decode_batch_sizes",
       "kind": "call",
       "status": "supported",
-      "evidence": "Qwen3Generator.decode_buckets = (1, 8, 16, 24, 32), each prepared before capture (model_runner.py:1096); full-model traced decode checked per bucket against a same-bucket solo arm: batch_decode_{8,16,24,32}.json (chip 2, commit 814e401a7b, 32 greedy tokens bit-equal for every user), bucket 1 in perf_batch1_128_128.json and host_work_counters.json"
+      "evidence": "doc/full_model/batch_decode_32.json",
+      "notes": "Qwen3Generator.decode_buckets = (1, 8, 16, 24, 32), each prepared before capture (model_runner.py:1096); full-model traced decode checked per bucket against a same-bucket solo arm: batch_decode_{8,16,24,32}.json (chip 2, commit 814e401a7b, 32 greedy tokens bit-equal for every user), bucket 1 in perf_batch1_128_128.json and host_work_counters.json"
     },
     {
       "item": "supports_sample_on_device",
       "kind": "capability",
       "status": "supported",
-      "evidence": "doc/full_model/split_sampling_trace.tracked.json (traced split sampling, tt_out_tok feedback, on-device position advance); doc/full_model/perf_batch1_128_128.json"
+      "evidence": "doc/full_model/split_sampling_trace.tracked.json",
+      "notes": "doc/full_model/split_sampling_trace.tracked.json (traced split sampling, tt_out_tok feedback, on-device position advance); doc/full_model/perf_batch1_128_128.json"
     },
     {
       "item": "max_device_top_k",
       "kind": "capability",
       "status": "supported",
-      "evidence": "32 (SamplingGenerator max_top_k); tt/generator.py MAX_TOP_K"
+      "evidence": "tt/generator.py",
+      "notes": "32 (SamplingGenerator max_top_k; tt/generator.py MAX_TOP_K); the checkpoint's generation_config.json defaults (temperature 0.6, top_k 20, top_p 0.95) stay below the ceiling and route to the device sampler (readiness_vllm/server.log 'overridden by the model's generation_config.json'); no out-of-vocabulary sampled id in any served run (doc/vllm_integration/work_log.md)"
     },
     {
       "item": "supports_device_seeded_sampling",
       "kind": "capability",
       "status": "supported",
-      "evidence": "SeedManager with salt_duplicate_seeds=False (vLLM reproducibility contract); seeds registered at prefill admission, re-registered on reset_batch, slot_remap applied, live slots from positions >= 0, counters aligned to positions (tt/generator.py _apply_sampling_params); seeded steps run the sampler eagerly per the common sampler and are counted in seeded_eager_sampling_steps; tests/test_full_model.py test_seeded_sampling_last (rerun pending the device reset)"
+      "evidence": "tt/generator.py",
+      "notes": "SeedManager with salt_duplicate_seeds=False (vLLM reproducibility contract); seeds registered at prefill admission, re-registered on reset_batch, slot_remap applied, live slots from positions >= 0, counters aligned to positions (tt/generator.py _apply_sampling_params); seeded steps run the sampler eagerly per the common sampler and are counted in seeded_eager_sampling_steps; tests/test_full_model.py test_seeded_sampling_last (rerun pending the device reset)"
     },
     {
       "item": "supports_device_penalties",
@@ -159,15 +175,16 @@
     {
       "item": "supports_async_decode",
       "kind": "capability",
-      "status": "not_supported",
-      "declaration": "model_capabilities['supports_async_decode'] = False (default)",
-      "reason": "no read_decode_output/process_decode_output_host split yet; stage 9/10"
+      "status": "supported",
+      "evidence": "readiness_vllm/vllm_benchmark.json",
+      "notes": "model_capabilities['supports_async_decode'] = True; see the read_decode_output row; readiness_vllm/vllm_benchmark.json measured with async scheduling on"
     },
     {
       "item": "supports_prefix_caching",
       "kind": "capability",
       "status": "supported",
-      "evidence": "readiness/prefill_resume_check.json (8 starts pass, both controls fail; thresholds recorded in the file); continuation prefill is eager and compiles per start offset, so under live decode traces it is not yet trace-safe (README limitations, stage-10 runtime-indexed prefill)"
+      "evidence": "readiness/prefill_resume_check.json",
+      "notes": "readiness/prefill_resume_check.json (pass at lowered thresholds 0.90/0.93, both controls fail) and readiness/prefill_resume_check_stage9_default_thresholds.json (default thresholds: only the 16352 hit window top-1 31/32, stage-7 margin probe); served: readiness_vllm/prefix_cache_check.json, readiness_vllm/vllm_run_summary.json (apc_log_enabled true), sampling and qualitative verdicts from the same caching-enabled server (readiness_vllm/sampling_tests.log, readiness_vllm/vllm_qualitative_outputs.json); continuation prefill compiles per start offset after warmup (doc/vllm_integration/README.md limitations)"
     },
     {
       "item": "supports_prefix_caching_sliding_window",
@@ -180,37 +197,43 @@
       "item": "output_tokens_per_step",
       "kind": "capability",
       "status": "supported",
-      "evidence": "one token per step (default); no block output"
+      "evidence": "readiness_vllm/vllm_benchmark.json",
+      "notes": "one token per step (default); no block output"
     },
     {
       "item": "batched_prefill",
       "kind": "call",
       "status": "supported",
-      "evidence": "doc/full_model/multi_row_prefill.json: one prefill_forward call with rows of different lengths equals the single-row results (per-row loop over the full decoder; packed-row compute is stage 10 per prefill-features.md)"
+      "evidence": "doc/full_model/multi_row_prefill.json",
+      "notes": "doc/full_model/multi_row_prefill.json: one prefill_forward call with rows of different lengths equals the single-row results (per-row loop over the full decoder; packed-row compute is stage 10 per prefill-features.md)"
     },
     {
       "item": "chunked prefill / continuation at any start position",
       "kind": "call",
       "status": "supported",
-      "evidence": "readiness/prefill_resume_check.json (starts 32, 64, 68, 2528, 2559, 16352, 16383 on natural text with failing controls); doc/optimized_decoder/prefill_continuation_full_attention.json"
+      "evidence": "readiness/prefill_resume_check.json",
+      "notes": "readiness/prefill_resume_check.json (starts 32, 64, 68, 2528, 2559, 16352, 16383 on natural text with failing controls); doc/optimized_decoder/prefill_continuation_full_attention.json"
     },
     {
       "item": "temperature / top_k / top_p",
       "kind": "request_feature",
       "status": "supported",
-      "evidence": "doc/full_model/split_sampling_trace.tracked.json mode_alternation (sampled and greedy on the same traces); tests/tt/test_seeding_and_variety.py path"
+      "evidence": "doc/full_model/split_sampling_trace.tracked.json",
+      "notes": "doc/full_model/split_sampling_trace.tracked.json mode_alternation (sampled and greedy on the same traces); tests/tt/test_seeding_and_variety.py path"
     },
     {
       "item": "seed",
       "kind": "request_feature",
       "status": "supported",
-      "evidence": "see supports_device_seeded_sampling; the single-slot generate path and the multi-slot serving path are untested on hardware since the fix (pending the device reset)"
+      "evidence": "readiness_vllm/sampling_tests.log",
+      "notes": "see supports_device_seeded_sampling; the single-slot generate path and the multi-slot serving path are untested on hardware since the fix (pending the device reset)"
     },
     {
       "item": "logprobs (any count, single chip)",
       "kind": "request_feature",
       "status": "supported",
-      "evidence": "host sampling: platform.compat_sampling_required routes any logprobs request on one chip to host sampling (platform.py:894); decode_forward without sampling_params returns [B, 151936] logits (doc/full_model/tracked_replay_workload.json host_logits_decode)"
+      "evidence": "doc/full_model/tracked_replay_workload.json",
+      "notes": "host sampling: platform.compat_sampling_required routes any logprobs request on one chip to host sampling (platform.py:894); decode_forward without sampling_params returns [B, 151936] logits (doc/full_model/tracked_replay_workload.json host_logits_decode)"
     },
     {
       "item": "prompt_logprobs",
@@ -223,37 +246,49 @@
       "item": "presence_penalty / frequency_penalty / repetition_penalty",
       "kind": "request_feature",
       "status": "supported",
-      "evidence": "host sampling via supports_device_penalties=False (platform.py:745, worker.py:384 can_sample_device); logits path as above"
+      "evidence": "readiness_vllm/sampling_tests.log",
+      "notes": "host sampling via supports_device_penalties=False (platform.py:745, worker.py:384 can_sample_device); logits path as above"
     },
     {
       "item": "min_p, bad_words, structured_outputs, logit_bias, allowed_token_ids, min_tokens",
       "kind": "request_feature",
       "status": "supported",
-      "evidence": "host (compat) sampling per platform.compat_sampling_required (platform.py:900-908) over decode_forward logits; tests/tt/test_host_only_params.py and test_structured_output_dp1.py exercise that path"
+      "evidence": "readiness_vllm/sampling_tests.log",
+      "notes": "host (compat) sampling per platform.compat_sampling_required (platform.py:900-908) over decode_forward logits; tests/tt/test_host_only_params.py and test_structured_output_dp1.py exercise that path"
     },
     {
       "item": "n > 1 / parallel sampling",
       "kind": "request_feature",
       "status": "supported",
-      "evidence": "vLLM v1 ParentRequest children (seed + i) arrive as separate rows; no model-side handling"
+      "evidence": "readiness_vllm/sampling_tests.log",
+      "notes": "vLLM v1 ParentRequest children (seed + i) arrive as separate rows; no model-side handling"
     },
     {
       "item": "max_num_seqs up to 32",
       "kind": "request_feature",
       "status": "supported",
-      "evidence": "doc/full_model/batch_decode_32.json; decode bucket 32"
+      "evidence": "readiness_vllm/vllm_ci_serving_benchmark.json",
+      "notes": "served with --max-num-seqs 32: readiness_vllm/vllm_ci_serving_benchmark.json (32 prompts), readiness_vllm/vllm_prefill_burst_benchmark.json (32 concurrent), readiness_vllm/sampling_tests.log (--tt-max-num-seqs 32); generator level: doc/full_model/batch_decode_32.json"
     },
     {
       "item": "prompt lengths not divisible by chunk/tile/page sizes",
       "kind": "request_feature",
       "status": "supported",
-      "evidence": "doc/full_model/multi_row_prefill.json lengths 5, 31, 33, 127, 129, 257, 640, 1000; readiness AIME prompt 158 tokens; doc/full_model/README.md"
+      "evidence": "readiness_vllm/mixed_shape_trace_reuse.json",
+      "notes": "served: readiness_vllm/mixed_shape_trace_reuse.json (129, 130, 131, 5, 33, 257, 1025, 4097 and 5000-token prompts), readiness_vllm/prefix_cache_check.json (2305 tokens), the qualitative chat prompts; generator level: doc/full_model/multi_row_prefill.json"
     },
     {
       "item": "max_model_len 40960",
       "kind": "request_feature",
       "status": "supported",
-      "evidence": "doc/context_contract.json full_model section (40960 retained, batch at full context bounded by DRAM)"
+      "evidence": "readiness_vllm/vllm_run_summary.json",
+      "notes": "served with --max_model_len 40960 (readiness_vllm/vllm_run_summary.json, readiness_vllm/server.log); doc/context_contract.json (40960 retained)"
     }
-  ]
+  ],
+  "vllm_integration": {
+    "registration": "EXTRA_MODELS_DIR bundle models/autoports/qwen_qwen3_8b/vllm/qwen3_8b/vllm_metadata.json -> TTQwen3ForCausalLM = models.autoports.qwen_qwen3_8b.tt.generator_vllm:Qwen3ForCausalLM (read before the plugin's built-in map)",
+    "serving_stack_deviation": "deprecated fork lineage used unchanged on the operator's instruction; see doc/vllm_integration/work_log.md section 2",
+    "server_command": "doc/vllm_integration/logs/serve.sh (in-tree runner, --enable-prefix-caching --async-scheduling, VLLM_SERVER_DEV_MODE=1)"
+  },
+  "evidence_convention": "evidence: one artifact path under the model directory (the stage gate checks it exists); notes: the full description and the other artifacts"
 }
