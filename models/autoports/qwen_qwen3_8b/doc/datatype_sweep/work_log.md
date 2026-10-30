@@ -487,3 +487,16 @@ pass, two hit-window near-tie flips), `selected_batch32_same_input` (32 of
 `selected_profile_reduced` + `perf_report.sh` (`profile/`: LM-head splits
 `LoFi BF16 x BFP4` at 124 us, the decoder rows those of stage 7). The
 README section 5 table lists every number and artifact.
+
+## 9. Commits and stage review (12:36 ET onward)
+
+Local commits on `hous/qwen3-8b-autoport` (never pushed; the supervisor pushes):
+
+- `cd64cfe5aa` Qwen3-8B datatype sweep: precision config artifact consumed by build_generator (layer exceptions, KV dtype, terminal policy), runtime readback, dtype-aware gate/up prefill kernel row, selected c9 config (`tt/precision.py`, `tt/generator.py`, `tt/model.py`, `tt/optimized_decoder.py`, `tests/test_full_model.py`, `configs/`, `selected_precision_config.json`, `logs/make_configs.py`).
+- `2a6cc0d845` Qwen3-8B datatype sweep: 20-candidate sweep on chip 2 with robustness references on chips 0 and 1, natural-text reference, BFP4 LoFi LM head selected (c9), post-selection default-path evidence, context contract, Pareto charts, docs (everything else under `doc/datatype_sweep/`, `doc/context_contract.json`, `doc/full_model/*.stage8*.json`, `readiness/prefill_resume_check_stage8_*.json`, `bringup/references/qwen3_8b_aime24_chat_p1.refpt`; the 1.5 MB `qwen3_8b_book32.refpt` stays uncommitted because of the 500 KB hook, with its regeneration command in the README).
+
+The repository's pre-commit hooks reformatted the stage's helper scripts
+(black); no source behaviour changed.
+
+Stage review 1: prompt `logs/stage_review_prompt.md`, fresh read-only
+subagent; verdict recorded below when it returns.
