@@ -24,6 +24,7 @@ the lifetime of the generator.
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import time
@@ -45,7 +46,15 @@ from models.autoports.qwen_qwen3_8b.tt.model import (
     Qwen3Model,
     decode_bucket,
 )
-from models.autoports.qwen_qwen3_8b.tt.optimized_decoder import DEFAULT_POLICY
+from models.autoports.qwen_qwen3_8b.tt.optimized_decoder import WEIGHT_BYTES_PER_ELEMENT
+from models.autoports.qwen_qwen3_8b.tt.precision import (
+    DTYPE_BY_TTNN,
+    decoder_policy,
+    kv_cache_dtype,
+    layer_policies,
+    load_precision_config,
+    terminal_policy,
+)
 from models.common.sampling import SamplingGenerator, SamplingParams, format_sampling_params
 
 SLOT_WIDTH = 32
@@ -299,6 +308,7 @@ class Qwen3Generator(Generator):
             self.slot_len[slot] = 0
 
     def teardown(self) -> None:
+        self.log(f"runtime counters at teardown: {json.dumps(self.counter_snapshot(), sort_keys=True)}")
         for state in self.buckets.values():
             for trace_id in state.traces.values():
                 ttnn.release_trace(self.mesh_device, trace_id)
@@ -838,14 +848,26 @@ class Qwen3Generator(Generator):
     KV_BYTES_PER_TOKEN = 147_456
 
     @classmethod
-    def max_tokens_all_users(cls, model: Qwen3Model | None = None, *, mesh_device=None, **_: Any) -> int:
+    def max_tokens_all_users(
+        cls,
+        model: Qwen3Model | None = None,
+        *,
+        mesh_device=None,
+        kv_cache_dtype: ttnn.DataType = ttnn.bfloat16,
+        **_: Any,
+    ) -> int:
         """KV-cache token budget on one chip: DRAM minus resident weights minus a runtime reserve, in blocks.
 
         Mirrors the plugin's ``get_max_tokens_all_users`` hook. With ``mesh_device`` the allocated and total
         bytes are read from ``ttnn.get_memory_view`` after the weights are on device; otherwise the measured
-        constants recorded in ``doc/context_contract.json`` are used.
+        constants recorded in ``doc/context_contract.json`` are used. ``kv_cache_dtype`` sizes the per-token
+        cache bytes (BF16 by default; a BFP8 cache halves them).
         """
-        per_token = model.kv_bytes_per_token() if model is not None else cls.KV_BYTES_PER_TOKEN
+        per_token = (
+            model.kv_bytes_per_token(kv_cache_dtype)
+            if model is not None
+            else int(cls.KV_BYTES_PER_TOKEN * WEIGHT_BYTES_PER_ELEMENT[DTYPE_BY_TTNN[kv_cache_dtype]] / 2)
+        )
         if mesh_device is not None:
             view = ttnn.get_memory_view(mesh_device, ttnn.BufferType.DRAM)
             free = int(view.total_bytes_free_per_bank) * int(view.num_banks)
@@ -881,17 +903,30 @@ def build_generator(model_dir: str | Path, mesh_device, **kwargs) -> Qwen3Genera
     tokenizer = AutoTokenizer.from_pretrained(str(reader.snapshot), local_files_only=True)
     model_kwargs = {
         key: kwargs.pop(key)
-        for key in ("num_layers", "policy", "terminal_policy", "tensor_cache_path")
+        for key in ("num_layers", "policy", "layer_policies", "terminal_policy", "tensor_cache_path")
         if key in kwargs
     }
+    precision_config, precision_path = load_precision_config(kwargs.pop("precision_config", None))
+    num_layers = int(model_kwargs.get("num_layers") or hf_config.num_hidden_layers)
+    log(
+        f"precision config {precision_config['config_id']} from "
+        f"{precision_path if precision_path is not None else 'the built-in baseline'}: "
+        f"weight groups {json.dumps(precision_config['weight_groups'], sort_keys=True)}, "
+        f"layer exceptions {sorted(precision_config.get('layer_exceptions', {}))}, "
+        f"kv cache {precision_config['kv_cache_dtype']}, lm head {json.dumps(precision_config['lm_head'], sort_keys=True)}"
+    )
     if "policy" not in model_kwargs:
         policy_overrides = {}
         if "QWEN3_PREFILL_KERNEL_TABLE" in os.environ:
             policy_overrides["prefill_kernel_table"] = os.environ["QWEN3_PREFILL_KERNEL_TABLE"]
         if "QWEN3_PREFILL_SHARDED_NORM_MAX_ROWS" in os.environ:
             policy_overrides["prefill_sharded_norm_max_rows"] = int(os.environ["QWEN3_PREFILL_SHARDED_NORM_MAX_ROWS"])
+        model_kwargs["policy"] = replace(decoder_policy(precision_config), **policy_overrides)
+        if "layer_policies" not in model_kwargs:
+            model_kwargs["layer_policies"] = {
+                idx: replace(p, **policy_overrides) for idx, p in layer_policies(precision_config, num_layers).items()
+            }
         if policy_overrides:
-            model_kwargs["policy"] = replace(DEFAULT_POLICY, **policy_overrides)
             log(f"decoder policy overrides from the environment: {policy_overrides}")
     if "terminal_policy" not in model_kwargs:
         overrides = {
@@ -904,13 +939,18 @@ def build_generator(model_dir: str | Path, mesh_device, **kwargs) -> Qwen3Genera
             )
             if env in os.environ
         }
+        model_kwargs["terminal_policy"] = replace(terminal_policy(precision_config), **overrides)
         if overrides:
-            model_kwargs["terminal_policy"] = TerminalPolicy(**overrides)
             log(f"terminal policy overrides from the environment: {overrides}")
+    if "kv_cache_dtype" not in kwargs:
+        kwargs["kv_cache_dtype"] = kv_cache_dtype(precision_config)
     started = time.perf_counter()
     model = Qwen3Model(mesh_device, hf_config=hf_config, reader=reader, log=log, **model_kwargs)
     log(f"model weights on device in {time.perf_counter() - started:.1f} s")
-    return Qwen3Generator(mesh_device, model, tokenizer, log=log, **kwargs)
+    generator = Qwen3Generator(mesh_device, model, tokenizer, log=log, **kwargs)
+    generator.precision_config = precision_config
+    generator.precision_config_path = precision_path
+    return generator
 
 
 __all__ = ["Qwen3Generator", "build_generator", "greedy_sampling_params", "MODEL_ID"]

@@ -106,16 +106,21 @@ class OptimizedPolicy:
     def describe(self) -> dict:
         return asdict(self)
 
-    def prefill_kernel(self, role: str, rows: int) -> tuple[str, int]:
+    def prefill_kernel(self, role: str, rows: int, dtype: str | None = None) -> tuple[str, int]:
         """``(kernel, in0_block_w)`` for a prefill projection of ``rows`` rows on the interleaved weight copy.
 
         ``stage3``: ``ttnn.linear`` auto config up to ``prefill_interleaved_copy_max_rows``, the explicit 2D
         config for QKV, O and down up to ``prefill_2d_max_rows``, ``minimal_matmul`` otherwise. ``stage7``:
         the per-role winners of the stage-7 probes (doc/optimized_full_model/probe_candidates.prefill_mm*.json)
         for 64 to 512 rows, the stage-3 rule above 512. A ``1d`` entry carries
-        ``(cores, in0_block_w, out_subblock_h, out_subblock_w)`` for the 1D multicast config.
+        ``(cores, in0_block_w, out_subblock_h, out_subblock_w)`` for the 1D multicast config. The gate and
+        up rows share one shape and were probed with BFP8 (gate) and BFP4 (up) weights, so the table row is
+        chosen by the weight dtype when it is given: BFP4 tiles are half the size and the BFP4-probed 2D
+        config at 512 rows overflows L1 with BFP8 tiles.
         """
         table = PREFILL_KERNEL_TABLES[self.prefill_kernel_table]
+        if role in ("gate_proj", "up_proj") and dtype is not None:
+            role = "up_proj" if dtype == "bfp4" else "gate_proj"
         choice = table.get(role, {}).get(rows)
         if choice is not None:
             return choice
@@ -607,7 +612,8 @@ class OptimizedDecoder(FusedDecoder):
         copy = self._interleaved_copy.get(id(weight))
         rows = x.shape[-2]
         if copy is not None:
-            kernel, in0_block_w = self.policy.prefill_kernel(self._prefill_role[id(weight)], rows)
+            role = self._prefill_role[id(weight)]
+            kernel, in0_block_w = self.policy.prefill_kernel(role, rows, self.weight_dtypes[role])
             if kernel == "auto":
                 return ttnn.linear(
                     x,

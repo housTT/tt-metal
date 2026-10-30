@@ -1,0 +1,170 @@
+{
+  "config_id": "c9_lm_head_bfp4",
+  "description": "baseline with a BFP4 LoFi LM head",
+  "weight_groups": {
+    "qkv": {
+      "dtype": "bfp8",
+      "fidelity": "lofi",
+      "fp32_acc": false,
+      "readers": 1,
+      "in0_block_w": 4
+    },
+    "o_proj": {
+      "dtype": "bfp8",
+      "fidelity": "lofi",
+      "fp32_acc": false,
+      "readers": 1,
+      "in0_block_w": 4
+    },
+    "gate_proj": {
+      "dtype": "bfp8",
+      "fidelity": "lofi",
+      "fp32_acc": false,
+      "readers": 1,
+      "in0_block_w": 4
+    },
+    "up_proj": {
+      "dtype": "bfp4",
+      "fidelity": "lofi",
+      "fp32_acc": false,
+      "readers": 3,
+      "in0_block_w": 4
+    },
+    "down_proj": {
+      "dtype": "bfp8",
+      "fidelity": "lofi",
+      "fp32_acc": false,
+      "readers": 1,
+      "in0_block_w": 6
+    }
+  },
+  "layer_exceptions": {},
+  "norm": {
+    "dtype": "bf16",
+    "fidelity": "hifi4",
+    "fp32_acc": true
+  },
+  "sdpa": {
+    "fidelity": "hifi4",
+    "fp32_acc": true
+  },
+  "prefill": {
+    "fp32_acc": true,
+    "bfp8_fidelity": "lofi"
+  },
+  "activation_dtype": "bf16",
+  "residual_dtype": "bf16",
+  "ccl_dtype": null,
+  "ccl_note": "one chip (stages 4 and 5 skipped by the operator): no collectives, no CCL activations",
+  "kv_cache_dtype": "bf16",
+  "embedding_dtype": "bf16",
+  "lm_head": {
+    "dtype": "bfp4",
+    "decode_fidelity": "lofi",
+    "decode_fp32_acc": false,
+    "prefill_fidelity": "lofi",
+    "prefill_fp32_acc": true,
+    "readers": 1,
+    "in0_block_w": 4
+  },
+  "final_norm": {
+    "dtype": "bf16",
+    "fidelity": "hifi4",
+    "fp32_acc": true
+  },
+  "logits": {
+    "decode_dtype": "bf16",
+    "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+    "prefill_dtype": "fp32"
+  },
+  "sampling": {
+    "dtype": "bf16",
+    "path": "models/common/sampling SamplingGenerator over the BF16 logits tile (top-k path, k=1 for greedy)"
+  },
+  "selection": {
+    "selected_from": "datatype_sweep/configs/c9_lm_head_bfp4.json",
+    "stage": "datatype_sweep (stage 8)",
+    "commit_of_sweep": "2e52cebf61b1ca4cd0726bd57bde72a5bebd0bc4",
+    "acceptance": {
+      "top1_min": 0.9,
+      "top5_min": 0.98,
+      "top100_min": 1.0,
+      "requires_traced_decode": true,
+      "rule": "pass requires the bar on the main AIME24 reference (prefill check and teacher forcing) and on every robustness reference the candidate was evaluated on (second AIME24 prompt, 32-token short-prefix book prompt, 1468 natural-text positions teacher-forced against HF fp32 logits)"
+    },
+    "ranking_metric": "trace-verified teacher-forcing decode t/s/u (batch 1)",
+    "teacher_forcing": {
+      "top1": 0.97,
+      "top5": 1.0,
+      "top100": 1.0,
+      "ttft_ms": 48.05,
+      "decode_t_s_u": 47.24,
+      "timing_regime": "serialized: the only device job on the host during this run (fuser checked on chips 0, 1 and 2 before the chain)",
+      "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c9_lm_head_bfp4_serial_teacher_forcing.log"
+    },
+    "prefill_check": {
+      "top1": 0.98,
+      "top5": 1.0,
+      "top100": 1.0,
+      "exit": 0,
+      "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c9_lm_head_bfp4_prefill_check.log"
+    },
+    "robustness_references": {
+      "aime_p1": {
+        "prefill_check": {
+          "top1": 0.99,
+          "top5": 1.0,
+          "top100": 1.0,
+          "exit": 0,
+          "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c9_lm_head_bfp4_aime_p1_prefill_check.log"
+        },
+        "teacher_forcing": {
+          "top1": 0.99,
+          "top5": 1.0,
+          "top100": 1.0
+        },
+        "pass": true
+      },
+      "book32": {
+        "prefill_check": {
+          "top1": 0.95,
+          "top5": 0.99,
+          "top100": 1.0,
+          "exit": 0,
+          "log": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/logs/c9_lm_head_bfp4_book32_prefill_check.log"
+        },
+        "teacher_forcing": {
+          "top1": 0.97,
+          "top5": 1.0,
+          "top100": 1.0
+        },
+        "pass": true
+      },
+      "natural_text": {
+        "reference": "tale-of-two-cities tokens [32, 1500) teacher-forced against HF fp32 logits (1468 positions)",
+        "top1": 0.9094005227088928,
+        "top5": 0.997956395149231,
+        "pcc_mean": 0.9792740941047668,
+        "pcc_min": 0.8517353534698486,
+        "artifact": "models/autoports/qwen_qwen3_8b/doc/datatype_sweep/natural_text_c9_lm_head_bfp4_chip0.json",
+        "pass": true
+      }
+    },
+    "baseline_teacher_forcing": {
+      "top1": 0.98,
+      "top5": 1.0,
+      "top100": 1.0,
+      "ttft_ms": 48.28,
+      "decode_t_s_u": 46.7
+    },
+    "hardware": "one Blackhole P300 chip (TT_VISIBLE_DEVICES=2), 1x1 mesh, p150 mesh graph descriptor",
+    "mesh": "N150 (1x1); stages 4 and 5 skipped by the operator, single chip is the target topology",
+    "restore_baseline": "QWEN3_PRECISION_CONFIG=models/autoports/qwen_qwen3_8b/doc/datatype_sweep/configs/c0_stage7_baseline.json (or delete this file: build_generator then uses the built-in stage-7 baseline)",
+    "consumed_by": "models/autoports/qwen_qwen3_8b/tt/generator.py::build_generator via tt/precision.py (default path when QWEN3_PRECISION_CONFIG is unset); propagation evidence in propagation_check_selected_36.json"
+  },
+  "runtime_flags": {
+    "QWEN3_PRECISION_CONFIG": "path of a precision config to use instead of this file",
+    "QWEN3_LM_HEAD_DECODE_FIDELITY, QWEN3_LM_HEAD_PREFILL_FIDELITY, QWEN3_LM_HEAD_DTYPE, QWEN3_PREFILL_LOGITS_DTYPE": "terminal-policy overrides applied on top of the config",
+    "QWEN3_PREFILL_KERNEL_TABLE, QWEN3_PREFILL_SHARDED_NORM_MAX_ROWS": "prefill kernel overrides applied on top of the config (not dtype policy)"
+  }
+}

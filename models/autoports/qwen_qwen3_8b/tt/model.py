@@ -129,6 +129,7 @@ class Qwen3Model:
         reader: CheckpointReader,
         num_layers: int | None = None,
         policy: OptimizedPolicy = DEFAULT_POLICY,
+        layer_policies: dict[int, OptimizedPolicy] | None = None,
         terminal_policy: TerminalPolicy = DEFAULT_TERMINAL_POLICY,
         tensor_cache_path: str | Path | None = None,
         log=print,
@@ -142,6 +143,10 @@ class Qwen3Model:
         self.block_size = TILE_SIZE
         self.max_context = self.geometry.max_position_embeddings
         self.policy = policy
+        self.layer_policies = dict(layer_policies or {})
+        for idx, exception in self.layer_policies.items():
+            if exception.residual_cores != policy.residual_cores:
+                raise ValueError(f"layer {idx} policy changes the residual core count")
         self.terminal_policy = terminal_policy
         self.tied_embeddings = reader.tied_embeddings
         self.checkpoint_revision = reader.revision
@@ -161,7 +166,7 @@ class Qwen3Model:
                 hf_config=hf_config,
                 layer_idx=layer_idx,
                 mesh_device=mesh_device,
-                policy=policy,
+                policy=self.layer_policies.get(layer_idx, policy),
                 tensor_cache_path=tensor_cache_path,
                 rope_tables=rope_tables,
             )
@@ -253,6 +258,8 @@ class Qwen3Model:
         g = self.geometry
         per_layer = self.layers[0].weight_bytes_per_token()
         resident = self.layers[0].weight_bytes_resident()
+        stack_per_token = sum(layer.weight_bytes_per_token() for layer in self.layers)
+        stack_resident = sum(layer.weight_bytes_resident() for layer in self.layers)
         emb = self.vocab_size * g.hidden_size * 2
         lm = int(g.hidden_size * self.padded_vocab_size * WEIGHT_BYTES_PER_ELEMENT[self.terminal_policy.lm_head_dtype])
         rope = 4 * g.max_position_embeddings * g.head_dim * 2
@@ -260,17 +267,20 @@ class Qwen3Model:
         return {
             "decoder_layer_weights_per_token": per_layer,
             "decoder_layer_weights_resident": resident,
-            "decoder_stack_resident": resident * self.num_layers,
+            "decoder_stack_weights_per_token": stack_per_token,
+            "decoder_stack_resident": stack_resident,
             "embedding": emb,
             "lm_head": lm,
             "rope_tables_shared": rope,
             "norm_weights": norms,
-            "total_resident": resident * self.num_layers + emb + lm + rope + norms,
+            "total_resident": stack_resident + emb + lm + rope + norms,
         }
 
-    def kv_bytes_per_token(self) -> int:
+    def kv_bytes_per_token(self, dtype: ttnn.DataType = ttnn.bfloat16) -> int:
+        """Paged K and V bytes one token holds across every layer; BFP8/BFP4 count the block exponent as 16 tiles do."""
         g = self.geometry
-        return 2 * g.num_kv_heads * g.head_dim * 2 * self.num_layers
+        per_element = WEIGHT_BYTES_PER_ELEMENT[{v: k for k, v in DTYPE_NAMES.items()}[dtype]]
+        return int(2 * g.num_kv_heads * g.head_dim * per_element * self.num_layers)
 
     # ---------------------------------------------------------------- caches
 

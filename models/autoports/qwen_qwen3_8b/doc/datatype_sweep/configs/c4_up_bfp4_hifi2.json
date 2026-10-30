@@ -1,0 +1,84 @@
+{
+  "config_id": "c4_up_bfp4_hifi2",
+  "description": "baseline with the BFP4 up projection at HiFi2 (BFP4+HiFi2 comparison for the selected BFP4 group)",
+  "weight_groups": {
+    "qkv": {
+      "dtype": "bfp8",
+      "fidelity": "lofi",
+      "fp32_acc": false,
+      "readers": 1,
+      "in0_block_w": 4
+    },
+    "o_proj": {
+      "dtype": "bfp8",
+      "fidelity": "lofi",
+      "fp32_acc": false,
+      "readers": 1,
+      "in0_block_w": 4
+    },
+    "gate_proj": {
+      "dtype": "bfp8",
+      "fidelity": "lofi",
+      "fp32_acc": false,
+      "readers": 1,
+      "in0_block_w": 4
+    },
+    "up_proj": {
+      "dtype": "bfp4",
+      "fidelity": "hifi2",
+      "fp32_acc": false,
+      "readers": 3,
+      "in0_block_w": 4
+    },
+    "down_proj": {
+      "dtype": "bfp8",
+      "fidelity": "lofi",
+      "fp32_acc": false,
+      "readers": 1,
+      "in0_block_w": 6
+    }
+  },
+  "layer_exceptions": {},
+  "norm": {
+    "dtype": "bf16",
+    "fidelity": "hifi4",
+    "fp32_acc": true
+  },
+  "sdpa": {
+    "fidelity": "hifi4",
+    "fp32_acc": true
+  },
+  "prefill": {
+    "fp32_acc": true,
+    "bfp8_fidelity": "lofi"
+  },
+  "activation_dtype": "bf16",
+  "residual_dtype": "bf16",
+  "ccl_dtype": null,
+  "ccl_note": "one chip (stages 4 and 5 skipped by the operator): no collectives, no CCL activations",
+  "kv_cache_dtype": "bf16",
+  "embedding_dtype": "bf16",
+  "lm_head": {
+    "dtype": "bfp8",
+    "decode_fidelity": "lofi",
+    "decode_fp32_acc": false,
+    "prefill_fidelity": "hifi2",
+    "prefill_fp32_acc": true,
+    "readers": 1,
+    "in0_block_w": 4
+  },
+  "final_norm": {
+    "dtype": "bf16",
+    "fidelity": "hifi4",
+    "fp32_acc": true
+  },
+  "logits": {
+    "decode_dtype": "bf16",
+    "decode_note": "LM head decode output [1, 1, 32, padded_vocab] BF16 with the padded columns at bf16 min",
+    "prefill_dtype": "fp32"
+  },
+  "sampling": {
+    "dtype": "bf16",
+    "path": "models/common/sampling SamplingGenerator over the BF16 logits tile (top-k path, k=1 for greedy)"
+  }
+}
