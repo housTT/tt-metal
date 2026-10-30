@@ -562,3 +562,8 @@ unchanged.
 - Hard-check gaps: the top-5 chart marks its single frontier point and
   says why; the stale fields were removed from the three remaining
   natural-text JSON files; README section 8 records the verdict.
+
+Commit `26856835e8`: review-1 fixes (sections 9.1 and 9.2; black reformatted
+`tt/precision.py` and `logs/token_budget_check.py`, no behaviour change).
+Stage review 2 (fresh read-only subagent, same prompt plus the review-1
+record): verdict recorded below when it returns.
