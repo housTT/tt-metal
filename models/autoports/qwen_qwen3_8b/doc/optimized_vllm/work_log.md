@@ -445,6 +445,9 @@ the seeded-stream offset of section 8.1.
 | `2f371d340a` | batched prefill, the batched 2D/1D kernel table, the `stage10` solo table (1D O and down, gate 512 on 1D), device penalties, the acceptance test, probes, generator-level evidence, sidecars, work log |
 | `24a48e130b` | served evidence (`readiness_vllm/` copy in `served_final/`), resume checks, low-temperature probe, serving contract rows, `perf_summary.json`, `qualitative_verdict.json`, README, work log, hook formatting |
 | `4f72f52bb2` | tracked generator-level gate, tracked serving, positive control, gate log, `readiness_vllm/` restored, sidecars, README and work log |
+| `1ae8602de6` | review-1 fixes (section 11), the adapter's in-process tracker log line, the second tracked serving run |
+| `4569b7485f` | review-2 fixes (section 12): watcher runs over the batched paths and the penalties-on sampler, citation corrections, burst log mismatch recorded, review 2 record |
+| `c8f444da4d` | README watcher bullet |
 
 ### 10.1 Tracked generator-level gate (chip 0, 17:29 to 17:53 ET)
 
@@ -538,11 +541,17 @@ no server, each under `timeout` (`logs/watcher_summary_stage10.py` ->
   'test_batched_prefill_equals_solo or test_batch_decode or
   test_split_sampling_trace'` (`logs/pytest_watcher_reduced_chip1.log`):
   10 passed, 2 skipped (decode buckets 16 and 24 are not allocated in the
-  reduced fixture), 5 deselected in 132.9 s; the seven batched-equals-solo
-  cases (the reduced fixture's prepared shapes 2x32, 4x32, 8x32, 2x64,
-  4x64, 2x128 plus single-row rows on the `stage10` 1D O and down kernels),
-  batch decode 8 and 32 after batched prefill, split sampling; watcher log
-  311 KB, 28 dumps, 0 matches of fatal, assert, bad noc, hung, stack
+  reduced fixture), 5 deselected in 132.9 s. Coverage (corrected after
+  review 3): the reduced fixture warms buckets 32 to 256 only, so its
+  prepared batched shapes are 2x32, 4x32, 8x32, 2x64, 4x64 and 2x128 (at
+  most 256 dense rows, which run the `stage10` solo dense kernels; the
+  batched kernel table starts at 1024 rows and was not reached here); the
+  mixed and reversed cases batched their 32- and 128-token groups beside
+  single-row rows, `uniform_4`, `uniform_8` and `uniform_32` ran on the
+  single-row path (`batched_prefill_rows` 0 in their `.watcher.json`),
+  the `stage10` 1D O and down kernels ran at 32 to 256 rows, batch decode
+  8 and 32 followed batched prefill, split sampling ran; watcher log
+  309 KB, 28 dumps, 0 matches of fatal, assert, bad noc, hung, stack
   overflow or corrupt (and 0 of exception, overflow, error, invalid);
   artifacts `doc/full_model/*.watcher.json` (the batched and batch-decode
   files are this run's; `host_work_counters`, `multi_row_prefill` and
@@ -556,3 +565,138 @@ no server, each under `timeout` (`logs/watcher_summary_stage10.py` ->
   matches.
 
 Watcher and tracker ran in separate processes; no profiler was collected.
+
+## 13. Stage review 3 (the last allowed rereview) and the P2 fixed afterwards (19:07 to 19:25 ET)
+
+Review 3 (`logs/review/stage_review_3.md`, fresh read-only subagent at
+HEAD `c8f444da4d`): both review-2 fixes verified; `more-work-needed` with
+one P2: the review-2 watcher battery ran on the reduced fixture whose
+warmup caps dense rows at 256, so the batched kernel table (1024 to 4096
+dense rows) and the 16- and 32-row batched attention and fill ops never
+ran under the watcher, while README section 8 and the watcher summary
+claimed they did. Other concerns: the commit table lacked three SHAs, the
+served single-row comparison against stage 9 was undersold (stage 9's
+128-token single rows 41.1 ms and 31-row loop 1166.5 ms against 36.9 to
+37.4 ms and 422.0 ms now), `test_mixed_params_batch` lacked an explicit
+carry, the summary listed stage-7 `.watcher.json` files, the untracked
+`refpt` must stay out of the closure commit.
+
+Per the brief's rule, the P2 is fixed with device evidence after the last
+allowed review and recorded as fixed with the verdict unchanged
+(`more-work-needed`): the 22-shape batched prefill probe ran under the
+watcher on chip 1 (`TT_METAL_WATCHER=10 TT_METAL_LOGS_PATH=doc/optimized_vllm/watcher/probe
+batched_prefill_probe.py --layers 2 --reps 1`, 19:09 to 19:14 ET,
+`logs/batched_prefill_probe_watcher_chip1.log`,
+`logs/batched_prefill_probe_L2_watcher_chip1.json`): every prepared
+batched shape (2x32 to 32x128, 16x256, 8x512), so the batched kernel
+table at 1024, 2048 and 4096 dense rows (2D/16 pieces for QKV, O, up and
+down; the 1D (110, 8, 1x4) gate in 512-row pieces) and the batched
+attention, fill and concat ops at 2 to 32 rows and buckets 32 to 512,
+beside the serial per-row and solo arms of every shape; bit equal in
+logits and K/V at every shape, program cache 650 before and after every
+batched call, batched 1.18x to 5.73x faster than the serial call on two
+layers; watcher log 647 KB (committed gzipped), 60 dumps, 0 matches of
+every fatal pattern (`watcher/summary.json`, regenerated by
+`logs/watcher_summary_stage10.py` with the third run, corrected
+`paths_covered` and the stage-7 files filtered out of `evidence_json`);
+sidecar `readiness/readiness_stage10_chip1.json` run
+`watcher_batched_prefill_probe_22_shapes` (regime serial). README section
+8 and work log 12.1 now state which shapes and kernels each watcher run
+reached. The other concerns are fixed in the same commit: commit table
+complete (section 10), the stage-9 served calls cited beside the stage-10
+ones in README section 1, the carry sentence for `test_mixed_params_batch`
+in README section 6, the summary filtered; the `refpt` stays untracked.
+
+Recorded verdict: `more-work-needed` (review 3), with its one P2 fixed
+with device evidence afterwards (this section) and no open required
+work; the next stage's review checks this carry.
+
+| Commit | Content |
+| --- | --- |
+| closure commit (SHA in the final report) | review-3 record and fixes: the 22-shape watcher probe, the watcher summary, document corrections, sidecar |
+
+Hours used: 16:40 to about 19:30 ET on Oct 30 (2 h 50 min; three chips in
+parallel for most of it, every device job under `timeout`, no reset, no
+process killed). Process audit at closure: no `EngineCore`, `api_server`,
+`run_vllm_server` or pytest process; no holder on `/dev/tenstorrent/0`, `1`
+or `2`; chip 3 never touched.
+## Appendix A. Skill gaps met in this stage
+
+- `vllm-integration/references/prefill-features.md`, "Batched prefill",
+  acceptance: "K/V pages for one layer of each kind equal with zero
+  tolerance" and "PCC on last-token logits >= 0.999 per row (TT against
+  TT, only accumulation order differs)" do not say that a dense kernel
+  family change between the single-row and the batched row counts breaks
+  bit equality: `minimal_matmul` (the stage-3 rule above 1024 rows and the
+  stage-7 gate row at 512) orders its K accumulation differently from the
+  2D/1D multicast kernels and flips rare bf16 roundings on real
+  activations (work log section 3). The operator brief required bit-equal
+  K/V and logits; reaching it needed an op-level bisect and a separate
+  batched kernel table. The reference should say: keep the batched dense
+  ops on the kernel family of the single-row path, or expect rare
+  flips; and it should name `minimal_matmul` as a family of its own.
+- `prefill-features.md`, "Batched prefill", design 1: it says "run them as
+  one `[B, S]` batch ... per-row paged fill and attention with a
+  `[B, H, S, D]` SDPA" but not that `ttnn.transformer.scaled_dot_product_attention`
+  (not the chunked paged variant) takes the batch dimension, that
+  `paged_fill_cache` needs `batch_idx_tensor` for `[B, ...]` inputs, or
+  that `ttnn.reshape` of a tile-aligned `[1, 1, B*S, W]` tensor to
+  `[B, 1, S, W]` is a free view; those three facts are the whole
+  implementation and came from the op docstrings.
+- `prefill-features.md`, "Batched prefill" rules: "host-padded fixed row
+  buckets (2, 4, 8, 16, 32 rows, dummy rows repeating the last real row)"
+  does not say where the dummy rows' cache writes go; the page-table row
+  for a dummy row has to name the scratch block throughout, which this
+  model's scratch-block contract allowed. A model without a scratch block
+  needs a different rule.
+- `prefill-features.md`, "Calibrate first": the gain depends on the
+  kernel family chosen for bit equality (about 0.8 ms per layer here), so
+  the calibration must run after that choice; the reference orders
+  calibration before implementation.
+- `optimize/SKILL.md`, "Prefill Latency And TTFT": the per-chunk-size
+  kernel selection table it asks for covers one row count per chunk; the
+  batched pass needs a second table keyed by total rows with a pieces
+  count (row pieces through the batch dimension with `fuse_batch` off)
+  because wide outputs (N 12288) do not fit one 2D block above 512 rows.
+  The L1 limit of the 2D kernel (`program.cpp:1875`) is not named anywhere.
+- `vllm-integration/SKILL.md`, "device penalties": the skill says to fix
+  the generator sampling path when a plugin test fails on a missing
+  device feature, but the common sampler's `precompile` skips the
+  output-count update (`count_tokens=False`), so a warmup that follows
+  the sampler's own API leaves the scatter path uncompiled and the first
+  capture of the penalties-on trace fails with
+  `TT_FATAL !is_capturing_trace`. The skill or the sampler should say to
+  run one counted pass before capture.
+- `vllm-integration/SKILL.md`, reproducibility-only sampling failures:
+  the list names `test_mixed_params_batch`, and this stage shows a second
+  mechanism for it: a `top_k` above `max_device_top_k` in the batch routes
+  every later step to the host while a request admitted alone was
+  device-sampled at prefill; the seeded stream is then offset by one
+  draw. The skill could say that a seeded request must not change sampler
+  mid-request for reproducibility, and that the plugin's per-step routing
+  makes this unavoidable for any host-only parameter.
+- `stage-review/SKILL.md` and the brief: "bit-equal logits" between a
+  batched and a solo prefill is testable only with a fixed kernel family;
+  the skill's PCC bar implies drift is acceptable while the brief forbids
+  it. The two should agree.
+- `tt-enable-tracing/SKILL.md`, "Trace Allocation Safety Gate": the
+  repository's commit hooks (black, autoflake, 500 KB limit) reformat
+  stage files and reject server logs; the first commit of this stage
+  bypassed the hooks and the second reformatted the source after the
+  device runs. The model-bringup skill should say to run the hooks before
+  the first device run of a commit, so the evidence SHA is the shipped
+  code.
+- `model-bringup/SKILL.md`, "Evidence gates": the runner-side gate reads
+  `readiness_vllm/` only, and the tracked serving stages overwrite the
+  untracked evidence there; the stage had to archive and restore the
+  directory around the tracked run (as stage 9 did). A `--output-dir`
+  on the packaged runner's attached stages would remove the dance.
+- Information beyond the skills and the brief: the hf RoPE multi-core
+  factory's cos/sin indexing (`num_tiles_written / Wt % Ht`) that makes a
+  `[B, heads, S, D]` input legal without a reshape; the
+  `MatmulMultiCoreReuseMultiCast1DProgramConfig` `fuse_batch=False` form
+  for row pieces; `ttnn.reshape` view rules (op docstring); the
+  readiness runner's threshold flags (`--pcc-min-min`, `--top1-min`,
+  from the runner source); the plugin's `check_perform_device_sampling`
+  routing order (`model_runner.py`); `git -c core.hooksPath` is not an
+  accepted way to commit in this repository (the hooks are the contract).

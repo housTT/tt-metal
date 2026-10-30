@@ -259,6 +259,31 @@
       "recorded_utc": "2026-10-30T22:48:26Z",
       "note": "review-2 P2: watcher over the batched prefill paths; 0 fatal-pattern matches; regime concurrent (chip 2 penalty probe under the watcher)",
       "regime": "concurrent (chip 2 watcher penalty probe)"
+    },
+    "watcher_batched_prefill_probe_22_shapes": {
+      "checkout_git_sha": "c8f444da4db08f09ad9a35fb6b23ad2e47890123",
+      "dirty_autoport_files_at_record_time": [
+        "M models/autoports/qwen_qwen3_8b/doc/optimized_vllm/README.md",
+        " M models/autoports/qwen_qwen3_8b/doc/optimized_vllm/logs/watcher_summary_stage10.py",
+        " M models/autoports/qwen_qwen3_8b/doc/optimized_vllm/watcher/summary.json",
+        " M models/autoports/qwen_qwen3_8b/doc/optimized_vllm/work_log.md",
+        "?? models/autoports/qwen_qwen3_8b/doc/optimized_vllm/logs/batched_prefill_probe_L2_watcher_chip1.json",
+        "?? models/autoports/qwen_qwen3_8b/doc/optimized_vllm/logs/review/stage_review_3.md"
+      ],
+      "chip": "1",
+      "command": "stage_env.sh 1 env TT_METAL_WATCHER=10 TT_METAL_LOGS_PATH=doc/optimized_vllm/watcher/probe python doc/optimized_vllm/logs/batched_prefill_probe.py doc/optimized_vllm/logs/batched_prefill_probe_L2_watcher_chip1.json --layers 2 --reps 1",
+      "log": "doc/optimized_vllm/logs/batched_prefill_probe_watcher_chip1.log",
+      "artifacts": [
+        "doc/optimized_vllm/logs/batched_prefill_probe_L2_watcher_chip1.json",
+        "doc/optimized_vllm/watcher/summary.json",
+        "doc/optimized_vllm/watcher/probe/generated/watcher/watcher.log"
+      ],
+      "exit_code": 0,
+      "started_utc": "2026-10-30T23:09:19Z",
+      "ended_utc": "2026-10-30T23:14:13Z",
+      "recorded_utc": "2026-10-30T23:14:30Z",
+      "note": "review-3 P2: watcher over all 22 batched shapes (batched kernel table at 1024 to 4096 dense rows, attention and fill at 2 to 32 rows); regime serial (chips 0 and 2 idle)",
+      "regime": "serial (chips 0 and 2 idle)"
     }
   },
   "regime_note": "host-wall numbers from one-process-per-chip runs; 'concurrent' names the other chips in use (tt-device-usage)"

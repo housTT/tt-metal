@@ -88,12 +88,19 @@ request count and concurrency; the reference is
 `doc/optimized_vllm/vllm_prefill_burst_serial_benchmark.stage9.json`, a
 copy of stage 9's `readiness_vllm/vllm_prefill_burst_serial_benchmark.json`,
 passed as `--prefill-burst-serial-result`, as the operator brief
-directs). That reference was measured with the stage-7 solo kernel table;
-the stage-10 solo table is faster at the generator level (token-out TTFT
-42.1 to 37.9 ms, section 3.2), while the served single-row 128-token
-calls of this stage take 36.9 to 37.4 ms (calls 205, 223 and 225), about
-the stage-7 value, so an in-stage serial run would give at most slightly
-smaller denominators. The generator-level pair on the final code
+directs). That reference was measured with the stage-7 solo kernel table.
+The served like-for-like comparison from the two server logs: stage 9's
+128-token single-row calls took 41.1 to 41.2 ms (`doc/vllm_integration/served_final/server.log.gz`
+calls 219, 237 and 239) and its burst's 31-row per-row-loop calls 1166.5
+ms (calls 238 and 240); stage 10's single rows take 36.9 to 37.4 ms
+(calls 205, 223 and 225; the 1D O and down kernels save 4.0 ms per
+128-token prefill, which is the single-user TTFT change) and its 31-row
+batched calls 422.0 ms (calls 224 and 226). An in-stage serial reference
+would therefore sit near 31 x 37.1 ms plus the lone row and the plugin's
+admission (about 1110 ms), and the ratios near 0.43, inside both gates;
+the generator-level pair on the final code (`logs/batched_prefill_probe_L36_chip2_v2.json`:
+32 x 128 serial call 1094.9 ms, batched 426.6 ms, ratio 0.39) is the
+like-for-like control the stage measured. The generator-level pair on the final code
 (`logs/batched_prefill_probe_L36_chip2_v2.json`: 32 x 128 serial call
 1094.9 ms, batched 426.6 ms, ratio 0.39) shows the gate holds against a
 like-for-like serial reference as well. The stage ran twice on the
@@ -289,6 +296,9 @@ archived in `served_final/` (server log gzipped).
   on the same server. A fix needs a device top-k above 32 (the common
   sampler draws from one 32-candidate tile) or a plugin routing rule; the
   former is model work beyond this stage, the latter a plugin change.
+  Carried to stage 11 (benchmarks) by name: `test_mixed_params_batch`,
+  reproducibility-only, mechanism in work log 8.1; the next stage records
+  it in its work log and its review checks the carry.
 - Batched prefill applies to fresh rows (`start_pos` 0) of up to 512
   tokens; prefix-cache hits, chunked continuations and longer prompts run
   one row at a time (the stage-9 path). A burst of long prompts therefore
@@ -354,13 +364,27 @@ python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen3-8B --block_size 
   after it) and the mixed-shape workload (47 of 47, 0 captures, program
   cache 651 flat) ran with no tracker error; positive control raised in the
   same environment (`logs/positive_control_chip1.log`).
-- Watcher (`TT_METAL_WATCHER=10`, reduced two-layer model, no server;
-  `watcher/summary.json`, work log 12.1): the batched-equals-solo cases,
-  batch decode after batched prefill and split sampling on chip 1 (10
-  passed, 2 skipped buckets, 28 dumps) and the penalty probe on chip 2 (12
-  dumps): 0 fatal-pattern matches in both watcher logs; the batched dense
-  kernels, the batched attention and fill ops, the `stage10` 1D O and down
-  kernels and the penalties-on sampler ran under the watcher.
+- Watcher (`TT_METAL_WATCHER=10`, reduced two-layer model, no server,
+  `watcher/summary.json`, work log 12.1 and 13), three runs with 0
+  fatal-pattern matches in every watcher log: (1) the 22-shape batched
+  prefill probe on chip 1 (`logs/batched_prefill_probe_L2_watcher_chip1.json`,
+  full warmup buckets 32 to 4096 on two layers): every prepared batched
+  shape 2x32 to 32x128, 16x256 and 8x512, so the batched kernel table at
+  1024, 2048 and 4096 dense rows (2D/16 row pieces for QKV, O, up and
+  down; the 1D (110, 8, 1x4) gate in 512-row pieces), the batched
+  attention, fill and concat ops at 2 to 32 rows and buckets 32 to 512,
+  plus the serial per-row and solo arms of every shape; bit equal in
+  logits and K/V at every shape, program cache 650 flat, 60 dumps; (2) the
+  pytest battery on chip 1 (reduced fixture, warmup buckets 32 to 256):
+  the batched shapes 2x32, 4x32, 8x32, 2x64, 4x64 and 2x128 (at most 256
+  dense rows, which run the `stage10` solo dense kernels; the batched
+  table starts at 1024 rows), the mixed and reversed cases with batched
+  groups beside single-row rows, `uniform_4/8/32` on the single-row path
+  (no prepared shape for them in that fixture), the `stage10` 1D O and
+  down kernels at 32 to 256 rows, batch decode after batched prefill and
+  split sampling (10 passed, 2 skipped buckets, 28 dumps); (3) the penalty
+  probe on chip 2 (penalties-on sampler precompile, capture and replay,
+  12 dumps).
 - Tracked generator-level gate (`logs/pytest_full_model_36_stage10_tracked_chip0.log`,
   `doc/full_model/*.stage10_tracked.json`, work log 10.1): split sampling,
   multi-row prefill, the seven batched-equals-solo cases, the four batch
